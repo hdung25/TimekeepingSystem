@@ -30,13 +30,26 @@ function initReport() {
     renderMonthReport(currentDate);
 }
 
-function populateStaffSelect() {
+async function populateStaffSelect() {
     const select = document.getElementById('staff-select');
     if (!select) return;
 
     select.innerHTML = '<option value="all">-- Chọn nhân viên --</option>';
 
-    const users = JSON.parse(localStorage.getItem('users_data')) || [];
+    let users = JSON.parse(localStorage.getItem('users_data')) || [];
+
+    // Fallback if local storage is empty
+    if (users.length === 0) {
+        try {
+            console.log("Local users empty, fetching from DB...");
+            users = await DBService.getUsers();
+            // Cache for future
+            localStorage.setItem('users_data', JSON.stringify(users));
+        } catch (e) {
+            console.error("Failed to fetch users for select:", e);
+        }
+    }
+
     users.forEach(user => {
         if (user.role === 'admin' && user.username === 'admin') return;
         const option = document.createElement('option');
