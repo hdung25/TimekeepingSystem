@@ -585,6 +585,12 @@ function calculateSalary() {
 
     const finalDisplay = document.getElementById('final-salary-display');
     if (finalDisplay) finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
+
+    // Check Advance field for Net Pay display if needed (though UI handles basic Total Salary)
+    const advanceInput = document.getElementById('salary-advance');
+    const advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
+    // We might want to show Net Pay somewhere, but for now Total Salary is shown.
+    // The PDF will handle Net Pay = Total - Advance.
 }
 
 function saveSalarySettings() {
@@ -592,6 +598,7 @@ function saveSalarySettings() {
     if (staffId === 'all') return;
 
     const rate = document.getElementById('salary-rate').value;
+    const advance = document.getElementById('salary-advance').value || 0; // NEW
     const evaluationData = [];
 
     document.querySelectorAll('.eval-note').forEach((noteInp, index) => {
@@ -604,7 +611,7 @@ function saveSalarySettings() {
     });
 
     const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
-    allSettings[staffId] = { rate, evaluation: evaluationData };
+    allSettings[staffId] = { rate, advance, evaluation: evaluationData }; // Added advance
     localStorage.setItem('salary_settings', JSON.stringify(allSettings));
 
     alert('Đã lưu bảng lương!');
@@ -616,6 +623,7 @@ function loadSalarySettings() {
     const settings = allSettings[staffId] || {};
 
     document.getElementById('salary-rate').value = settings.rate || 100000;
+    document.getElementById('salary-advance').value = settings.advance || 0; // NEW
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
 }
@@ -788,6 +796,164 @@ async function saveEditedTime() {
     } catch (e) {
         alert("Lỗi cập nhật: " + e.message);
     }
+}
+
+// ================= EXPORT PDF (CUSTOM FORM) =================
+
+function exportSalaryPDF() {
+    // 1. Get Data
+    const staffSelect = document.getElementById('staff-select');
+    const staffId = staffSelect.value;
+    const staffName = staffSelect.options[staffSelect.selectedIndex].text.split('(')[0].trim();
+    if (staffId === 'all') { alert("Vui lòng chọn nhân viên để xuất file"); return; }
+
+    const rate = parseFloat(document.getElementById('salary-rate').value) || 0;
+    const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
+
+    // Evaluation Items
+    let totalBonus = 0;
+    const evalItems = [];
+    document.querySelectorAll('.eval-amount').forEach((inp, idx) => {
+        const val = parseFloat(inp.value) || 0;
+        totalBonus += val;
+        // Find saved note
+        const noteInp = document.querySelector(`.eval-note[data-index="${idx}"]`);
+        const item = EVALUATION_CRITERIA[idx];
+
+        let displayNote = '';
+        // If template exists and not much note, show template? Or show saved note? 
+        // User form shows specific text like "Vắng phép: 0...". 
+        // We will assume the Note input contains this text if edited, or empty.
+        // If user didn't edit note, we might want to show default template if available?
+        // Let's rely on what's in the note field (user should fill it).
+        // Fallback: if note is empty, show template (if any)
+
+        /// ACTUALLY: User form has specific text. The User should input this into the Note field using the Edit 📝 button.
+        displayNote = noteInp.value || item.template || '';
+
+        evalItems.push({
+            label: item.label,
+            title: item.tooltip,
+            note: displayNote,
+            amount: val
+        });
+    });
+
+    const totalMinutes = window.lastTotalMinutes || 0;
+    const totalHoursDecimal = totalMinutes / 60;
+    const baseSalary = totalHoursDecimal * rate;
+    const initialTotal = baseSalary + totalBonus;
+    const finalNet = initialTotal - advance;
+
+    const month = currentDate.getMonth() + 1;
+    const year = currentDate.getFullYear();
+
+    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
+
+    // 2. Build HTML
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <html>
+        <head>
+            <title>Bang_Luong_${staffName}_${month}_${year}</title>
+            <style>
+                body { font-family: 'Times New Roman', serif; padding: 20px; }
+                .header { text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
+                .sub-header { margin-bottom: 10px; font-weight: bold; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                th, td { border: 1px solid black; padding: 8px; vertical-align: middle; }
+                .red-text { color: red; font-weight: bold; }
+                .bold { font-weight: bold; }
+                .right { text-align: right; }
+                .center { text-align: center; }
+                .no-border-top { border-top: none; }
+                .footer-note { font-style: italic; margin-top: 10px; font-size: 0.9em; }
+                .warning { color: red; font-weight: bold; margin-top: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ
+            </div>
+            
+            <div class="sub-header">
+                MÃ NHÂN VIÊN: ${staffId.substring(0, 6).toUpperCase()} &nbsp;&nbsp;&nbsp;&nbsp; HỌ VÀ TÊN: ${staffName.toUpperCase()}
+            </div>
+            <div style="margin-bottom: 15px;">
+                Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
+            </div>
+
+            <table>
+                <!-- TOTAL SALARY ROW -->
+                <tr>
+                    <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
+                    <td class="bold red-text right">${fmt(initialTotal)}</td>
+                </tr>
+
+                <!-- HOURS & RATE -->
+                <tr>
+                    <td class="bold">
+                        TỔNG SỐ GIỜ: ${Math.floor(totalMinutes / 60)} giờ ${Math.floor(totalMinutes % 60)} phút
+                        <br><br>
+                        LƯƠNG CƠ BẢN:
+                    </td>
+                    <td class="bold right" style="vertical-align: top;">${fmt(baseSalary)}</td>
+                </tr>
+
+                <!-- PLACEHOLDERS FOR SPECIFIC TYPES -->
+                <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
+                <tr><td>TỔNG SỐ GIỜ MẦM NON: giờ</td><td></td></tr>
+                <tr><td>TỔNG SỐ GIỜ GTNL/TOEIC/IELTS: giờ</td><td></td></tr>
+                <tr><td>TỔNG SỐ GIỜ LIÊN KẾT: giờ</td><td></td></tr>
+                <tr><td>TỔNG SỐ GIỜ KÈM 1:1 TẠI NHÀ: giờ</td><td></td></tr>
+                <tr><td>TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
+
+                <!-- TOTAL BONUS ROW -->
+                <tr>
+                    <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
+                    <td class="bold right">${fmt(totalBonus)}</td>
+                </tr>
+
+                <!-- EVALUATION ITEMS Rows -->
+                ${evalItems.map(item => `
+                    <tr>
+                        <td>
+                            <div style="display:flex;">
+                                <div style="width: 40%; font-weight:bold;">(${item.label}) ${item.title}</div>
+                                <div style="width: 60%;">${item.note}</div>
+                            </div>
+                        </td>
+                        <td class="right">${item.amount !== 0 ? fmt(item.amount) : ''}</td>
+                    </tr>
+                `).join('')}
+
+                <!-- ADVANCE -->
+                <tr>
+                    <td class="bold red-text">TẠM ỨNG (2)</td>
+                    <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
+                </tr>
+
+                <!-- NET PAY -->
+                <tr>
+                    <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                    <td class="bold red-text right">${fmt(finalNet)}</td>
+                </tr>
+            </table>
+
+            <div class="footer-note">
+                Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)
+            </div>
+            <div class="warning">
+                *LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!
+            </div>
+
+            <script>
+                window.print();
+            </script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
 }
 
 async function deleteSessionFromModal() {
