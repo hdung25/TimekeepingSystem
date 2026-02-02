@@ -1004,3 +1004,49 @@ async function deleteSessionFromModal() {
         alert("Lỗi xóa: " + e.message);
     }
 }
+
+// ================= DEBUG HELPER (TEMPORARY) =================
+async function renderDebugInfo(staffId, year, month) {
+    const debugContainer = document.getElementById('debug-container') || document.createElement('div');
+    debugContainer.id = 'debug-container';
+    debugContainer.style.background = '#000';
+    debugContainer.style.color = '#0f0';
+    debugContainer.style.padding = '10px';
+    debugContainer.style.margin = '10px 0';
+    debugContainer.style.fontFamily = 'monospace';
+    debugContainer.style.fontSize = '12px';
+    debugContainer.style.whiteSpace = 'pre-wrap';
+
+    // Insert after title
+    const title = document.getElementById('page-title');
+    if (title && !document.getElementById('debug-container')) {
+        title.parentNode.insertBefore(debugContainer, title.nextSibling);
+    }
+
+    debugContainer.innerText = `🔄 DEBUGGING...\nUserID: ${staffId}\nMonth: ${year}-${month + 1}`;
+
+    try {
+        const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+        const records = await DBService.getMonthlyAttendance(monthStr, staffId);
+
+        let msg = `✅ DATA FETCHED: ${records.length} records found.\n`;
+        records.forEach(r => {
+            msg += `Date: ${r.date} | Sessions: ${r.sessions ? r.sessions.length : 0} | CheckIn: ${r.checkIn || 'N/A'}\n`;
+            if (r.sessions) {
+                r.sessions.forEach((s, i) => {
+                    msg += `   [${i}] ID: ${s.id} (${typeof s.id}) | Start: ${s.start} | Out: ${s.checkOut}\n`;
+                });
+            }
+        });
+
+        // Check specific date Feb 1
+        const feb1 = records.find(r => r.date === '2026-02-01');
+        if (!feb1) msg += `⚠️ WARNING: No record found for 2026-02-01 in query results!\n`;
+        else msg += `✅ FEB 1 RECORD FOUND. Check Logic.\n`;
+
+        debugContainer.innerText += '\n' + msg;
+    } catch (e) {
+        debugContainer.innerText += `\n❌ ERROR: ${e.message}\n${e.stack}`;
+        debugContainer.style.color = 'red';
+    }
+}
