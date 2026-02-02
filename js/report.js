@@ -145,6 +145,10 @@ async function renderMonthReport(date) {
         }
     }
 
+    // --- DEBUG: RENDER DEBUG BOX ---
+    renderDebugInfo(staffId, year, month);
+    // -------------------------------
+
     // 0. Fetch User Context for Name Matching
     let currentUserContext = null;
     try {
