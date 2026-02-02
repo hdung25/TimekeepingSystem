@@ -384,9 +384,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (diffMs < 0) {
                         // Late: Pay = Schedule Duration - Late Minutes
                         // Duration = (Sched End - Actual Start)
+                        const lateMinutesRaw = Math.floor(Math.abs(diffMs) / 60000);
                         const remainingSched = (schedEnd - actualStart) / 60000;
                         minutes = Math.max(0, remainingSched);
-                        label += ' (Trễ)';
+                        label += ` (Trễ ${lateMinutesRaw}p)`;
                     } else {
                         // Early or On Time: Pay Full Schedule
                         minutes = schedDuration;
