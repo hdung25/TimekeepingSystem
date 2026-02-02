@@ -357,83 +357,82 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let label = `${cls.start}-${cls.end}`;
             let tooltip = `Lớp ${cls.lop || '?'}`;
 
-            // Calculate Scheduled Duration
             const schedEnd = new Date(`${dateStr}T${cls.end}`);
             const schedDuration = (schedEnd - schedStart) / 60000;
+            const now = new Date();
 
             if (matchedSession) {
-                // ATTENDED (Has Check-in record)
+                // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
-                    // Full Check-in/out -> Paid Actual with Specific Bonus Rules
+                    // FULL CHECK-IN/OUT
                     const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
-                    const actualEnd = matchedSession.checkOut ? new Date(matchedSession.checkOut) : new Date();
-
-                    // Logic:
-                    // 1. Early >= 9 mins -> Fixed 10 mins bonus (Start = Sched - 10)
-                    // 2. Early <= 8 mins -> No bonus (Start = Sched)
-                    // 3. Late -> Actual Start
+                    // Use Schedule Duration for Pay if Registered (User Rule)
+                    // But if Late? (Case: Late Check-in)
 
                     const diffMs = schedStart - actualStart;
                     const diffMins = Math.floor(diffMs / 60000);
 
-                    // User Request (Case 1 & 2): 
-                    // "If Registered -> Pay = Schedule Duration (e.g. 1.5h), NOT Raw Time."
-                    // "If Forgot check-out -> Pay Schedule Duration."
-
-                    // So we IGNORE actual start/end for calculation if Registered,
-                    // unless we want to penalize late arrival?
-                    // User said: "Check in/out đúng giờ... chỉ tính 3 tiếng".
-                    // User also said: "Nếu quên ra ca... tính theo lịch".
-                    // Implication: Standard Pay = Schedule Duration.
-
-                    // What if Late?
-                    // "trường hợp 1... check in và check out đúng giờ".
-                    // If late, effectiveStart = actualStart. 
-                    // Let's keep the "Late Penalty" logic (subtracting time) by calculating duration from Effective Start to Sched End?
-                    // OR just strictly Schedule Duration?
-                    // User complaint: "09:15-10:45", actual "09:05-20:42". Result 11h. Wanted 1.5h.
-                    // So Strict Schedule Duration seems to be the target for "On Time/Early".
-
                     if (diffMs < 0) {
-                        // Late: Pay = Schedule Duration - Late Minutes
-                        // Duration = (Sched End - Actual Start)
+                        // Late
                         const lateMinutesRaw = Math.floor(Math.abs(diffMs) / 60000);
                         const remainingSched = (schedEnd - actualStart) / 60000;
                         minutes = Math.max(0, remainingSched);
                         label += ` (Trễ ${lateMinutesRaw}p)`;
+                        cssClass = 'chip-orange'; // Late is warning
                     } else {
-                        // Early or On Time: Pay Full Schedule
+                        // On Time / Early
                         minutes = schedDuration;
-                        label += ' (v)';
+                        label += ' (Hoàn thành)'; // Changed from (v)
+                        cssClass = 'chip-green';
                     }
-
-                    cssClass = 'chip-green';
-                    tooltip += ' - Đã chấm công (Theo lịch đăng ký)';
+                    tooltip += ' - Đã chấm công đầy đủ';
                 } else {
-                    // Forgot Check-out -> Paid Scheduled (As per "Receive Class" benefit)
-                    // User Request: "chỗ nhận lớp này chỉ giải quyết đúng 1 vấn đề là quên "ra ca" thôi"
-                    minutes = schedDuration;
-                    cssClass = 'chip-orange';
-                    label += ' (!)';
-                    tooltip += ' - Quên Check-out (Tính theo lịch)';
+                    // CHECKED IN, NO CHECK OUT
+                    const classEndTime = new Date(`${dateStr}T${cls.end}`);
+                    // If current time is past class end time + 30 mins -> Forgot Check-out
+                    // Else -> Teaching
+                    if (now > new Date(classEndTime.getTime() + 30 * 60000)) {
+                        // FORGOT CHECK-OUT
+                        minutes = schedDuration;
+                        cssClass = 'chip-orange';
+                        label += ' (Quên ra)';
+                        tooltip += ' - Quên Check-out (Tính đủ giờ)';
+                    } else {
+                        // TEACHING (Still within valid time)
+                        minutes = 0; // Not paid yet
+                        cssClass = 'chip-blue'; // Active
+                        label += ' (Đang dạy)';
+                        tooltip += ' - Đang trong ca làm việc';
+                    }
                 }
-                // Attach Session Data for Edit
+
                 chips.push({
                     text: label,
                     class: cssClass,
                     paidMinutes: Math.max(0, Math.round(minutes)),
                     tooltip: tooltip,
-                    sessionId: matchedSession.id, // Timestamp ID
+                    sessionId: matchedSession.id,
                     sessionData: matchedSession
                 });
+
             } else {
-                // REGISTERED BUT NO CHECK-IN
-                // User Request: "nếu người này có quên vào ca thì vẫn không được tính là chấm công"
-                // -> Show on calendar but 0 Pay.
-                minutes = 0;
-                cssClass = 'chip-blue';
-                label += ' (Lịch)';
-                tooltip += ' - Chưa Check-in (Không tính công)';
+                // --- CASE B: NO ATTENDANCE RECORD ---
+                const classDateTime = new Date(`${dateStr}T${cls.start}`);
+
+                if (classDateTime > now) {
+                    // FUTURE
+                    minutes = 0;
+                    cssClass = 'chip-blue';
+                    label += ' (Sắp tới)';
+                    tooltip += ' - Chưa diễn ra';
+                } else {
+                    // PAST (ABSENT)
+                    minutes = 0;
+                    cssClass = 'chip-gray'; // Gray for absent
+                    label += ' (Vắng)';
+                    tooltip += ' - Không có dữ liệu chấm công';
+                }
+
                 chips.push({
                     text: label,
                     class: cssClass,
