@@ -178,7 +178,8 @@ button {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    pointer-events: none; /* Allow clicking through container */
+    pointer-events: none;
+    /* Allow clicking through container */
 }
 
 .toast {
@@ -198,17 +199,34 @@ button {
     transform: translateX(100%);
 }
 
-.toast.success { border-color: var(--primary-color); }
-.toast.error { border-color: #EF4444; }
-.toast.warning { border-color: var(--secondary-color); }
-.toast.info { border-color: #3B82F6; }
+.toast.success {
+    border-color: var(--primary-color);
+}
+
+.toast.error {
+    border-color: #EF4444;
+}
+
+.toast.warning {
+    border-color: var(--secondary-color);
+}
+
+.toast.info {
+    border-color: #3B82F6;
+}
 
 @keyframes slideIn {
-    to { opacity: 1; transform: translateX(0); }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 @keyframes fadeOut {
-    to { opacity: 0; transform: translateX(100%); }
+    to {
+        opacity: 0;
+        transform: translateX(100%);
+    }
 }
 
 /* ================== CUSTOM CONFIRM MODAL ================== */
@@ -246,5 +264,189 @@ button {
     gap: 1rem;
 }
 
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes popIn { from { transform: scale(0.9); } to { transform: scale(1); } }
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes popIn {
+    from {
+        transform: scale(0.9);
+    }
+
+    to {
+        transform: scale(1);
+    }
+}
+
+/* ================== MOBILE OPTIMIZATION ================== */
+@media (max-width: 768px) {
+    .admin-container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        height: auto;
+        padding: 1rem;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background-color: var(--bg-surface);
+    }
+
+    .sidebar nav {
+        display: none;
+        /* Hidden by default on mobile */
+        margin-top: 1rem;
+    }
+
+    .sidebar.open nav {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Hamburger Button container */
+    .logo-area {
+        margin-bottom: 0;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .hamburger-btn {
+        display: block !important;
+        /* Force show on mobile */
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: var(--primary-color);
+        cursor: pointer;
+        padding: 0.25rem;
+    }
+
+    .main-content {
+        padding: 1rem;
+    }
+
+    /* Adjust Grid in Cham-cong.html */
+    div[style*="grid-template-columns: 1fr 300px"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Adjust Font Sizes */
+    h1 {
+        font-size: 1.25rem !important;
+    }
+
+    #live-clock {
+        font-size: 1.5rem !important;
+    }
+}
+
+/* Mobile Optimizations for Cham Cong Page */
+@media (max-width: 768px) {
+
+    /* Stack the header elements */
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .page-header>div:last-child {
+        width: 100%;
+        text-align: left !important;
+        margin-top: 0.5rem;
+    }
+
+    /* Make Check-in/Check-out buttons large and full width */
+    #global-checkin-container button {
+        width: 100%;
+        padding: 1.5rem !important;
+        /* Larger touch area */
+        font-size: 1.25rem !important;
+        margin-bottom: 1rem;
+    }
+
+    /* Class List Cards */
+    .class-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .class-item-actions {
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .class-item-actions button {
+        flex: 1;
+        /* Stretch buttons */
+    }
+
+    /* Hide less important columns in history table if needed, or scroll */
+    .history-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+}
+
+/* Mobile Optimizations for Calendar (Report) Page */
+@media (max-width: 768px) {
+
+    /* Calendar Grid */
+    #calendar-grid {
+        display: flex !important;
+        /* Switch from Grid to Flex/Scroll or keep Grid with min-width */
+        overflow-x: auto;
+        padding-bottom: 1rem;
+        /* Alternative: Keep Grid but force min-width */
+        display: grid !important;
+        min-width: 600px;
+        /* Force minimum width to prevent squashing */
+    }
+
+    /* Wrap the calendar container to allow scrolling */
+    .glass-panel:has(#calendar-grid) {
+        overflow-x: auto;
+    }
+
+    /* Day Names Header */
+    .calendar-days-header {
+        min-width: 600px;
+        /* Match grid width */
+    }
+
+    /* Adjust Cell Content */
+    .calendar-cell {
+        min-height: 80px;
+        /* Smaller height */
+        padding: 0.25rem;
+    }
+
+    .chip {
+        font-size: 0.65rem;
+        padding: 2px 4px;
+    }
+
+    /* Controls above calendar */
+    .report-controls {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .report-controls select,
+    .report-controls button {
+        width: 100%;
+    }
+}

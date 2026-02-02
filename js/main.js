@@ -251,7 +251,21 @@ function renderSidebar() {
             Đăng Xuất
         </a>
         `;
+    // Inject Hamburger Button (Hidden on Desktop via CSS)
+    const logoArea = document.querySelector('.logo-area');
+    if (logoArea && !logoArea.querySelector('.hamburger-btn')) {
+        const hamburger = document.createElement('button');
+        hamburger.className = 'hamburger-btn';
+        hamburger.innerHTML = '☰';
+        hamburger.onclick = () => {
+            const sidebar = document.querySelector('.sidebar');
+            sidebar.classList.toggle('open');
+            hamburger.innerHTML = sidebar.classList.contains('open') ? '✕' : '☰';
+        };
+        logoArea.appendChild(hamburger);
+    }
 }
+
 
 // ... (Rest of logic: updateClock, Global Check-in etc.) ...
 // Note: Global Functions (confirmClass, globalCheckIn/Out) are mainly for Staff, 
