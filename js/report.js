@@ -303,16 +303,24 @@ async function renderMonthReport(date) {
         if (dailyTotalMinutes > 0) {
             const h = Math.floor(dailyTotalMinutes / 60);
             const m = Math.floor(dailyTotalMinutes % 60);
+
             const footer = document.createElement('div');
-            footer.style.marginTop = 'auto'; // Push to bottom
-            footer.style.paddingTop = '4px';
-            footer.style.borderTop = '1px dashed #E5E7EB';
+            // Remove margin-top auto to test visibility
+            footer.style.marginTop = '0.5rem';
+            footer.style.padding = '4px 8px';
+            footer.style.borderRadius = '4px';
+            footer.style.backgroundColor = '#F3F4F6'; // Light gray bg
+            footer.style.border = '1px solid #D1D5DB';
             footer.style.fontSize = '0.75rem';
             footer.style.fontWeight = '700';
-            footer.style.color = '#7C3AED'; // Violet color for total
+            footer.style.color = '#7C3AED'; // Violet text
             footer.style.textAlign = 'right';
-            footer.innerText = `Tổng: ${h}h ${m}p`;
+
+            // Explicit text node to avoid innerText quirks
+            footer.textContent = `Tổng: ${h}h ${m}p`;
+
             cell.appendChild(footer);
+            console.log(`Rendered footer for ${dateStr}: ${dailyTotalMinutes} mins`);
         }
 
         // Show "Extra" sessions (Check-in but no class match) - Optional improvement
