@@ -248,6 +248,18 @@ async function renderMonthReport(date) {
         else noteBtn.style.color = '#ccc';
 
         controlsDiv.appendChild(noteBtn);
+
+        // --- ADMIN ONLY: Manual Add Button ---
+        if (role === 'admin') {
+            const addBtn = document.createElement('button');
+            addBtn.innerHTML = '➕';
+            addBtn.className = 'action-btn';
+            addBtn.title = 'Chấm công bù/thủ công';
+            addBtn.style.color = '#10B981'; // Green
+            addBtn.onclick = () => openManualModal(dateStr);
+            controlsDiv.appendChild(addBtn);
+        }
+
         dateHeader.appendChild(controlsDiv);
         cell.appendChild(dateHeader);
 

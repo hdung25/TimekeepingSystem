@@ -471,6 +471,56 @@ const DBService = {
         });
     },
 
+    // 7.1 Manual Add (Admin)
+    addManualSession: async (userId, dateKey, checkInTime, checkOutTime) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+
+        // Fetch User Name for consistency
+        let userName = 'N/A';
+        try {
+            const userDoc = await db.collection('users').doc(userId).get();
+            if (userDoc.exists) userName = userDoc.data().name || userDoc.data().username;
+        } catch (e) { console.warn("Could not fetch user name for manual add", e); }
+
+        return db.runTransaction(async (t) => {
+            const doc = await t.get(ref);
+            let data = doc.exists ? doc.data() : {
+                userId,
+                name: userName,
+                date: dateKey,
+                sessions: []
+            };
+
+            if (!data.sessions) data.sessions = [];
+
+            // Create new session
+            // Format timestamps: YYYY-MM-DDTHH:mm:00.000Z (ISO)
+            // Input checkInTime is usually HH:mm. We need to combine with dateKey.
+            // CAREFUL: dateKey is YYYY-MM-DD.
+            // We'll construct a local Date string -> ISO
+            const startISO = new Date(`${dateKey}T${checkInTime}`).toISOString();
+            const endISO = checkOutTime ? new Date(`${dateKey}T${checkOutTime}`).toISOString() : null;
+
+            const newSession = {
+                id: Date.now(),
+                start: startISO,
+                checkIn: startISO,
+                checkOut: endISO,
+                type: 'manual' // Marker
+            };
+
+            data.sessions.push(newSession);
+
+            // Sync top level (last session wins)
+            data.checkIn = newSession.checkIn;
+            data.checkOut = newSession.checkOut;
+            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+
+            t.set(ref, data);
+        });
+    },
+
     deleteSession: async (userId, dateKey, sessionId) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
