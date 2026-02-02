@@ -91,54 +91,74 @@
             </header>
 
             <div class="glass-panel" style="padding: 2rem; max-width: 600px;">
-                <form>
+                <form id="system-settings-form">
                     <div class="form-group">
                         <label for="company-name">Tên Công Ty</label>
                         <input type="text" id="company-name" class="form-input"
                             value="TRUNG TÂM NGOẠI NGỮ VÀ TOÁN TƯ DUY TRẺ" required>
                     </div>
 
-                    <div class="form-group">
-                        <label>Giờ Làm Việc Tiêu Chuẩn</label>
-                        <div style="display: flex; gap: 1rem;">
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.75rem; color: var(--text-muted);">Bắt đầu</label>
-                                <input type="time" class="form-input" value="06:30">
-                            </div>
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.75rem; color: var(--text-muted);">Kết thúc</label>
-                                <input type="time" class="form-input" value="21:30">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <input type="email" id="admin-email" class="form-input" value="admin@company.com">
-                    </div>
-
-                    <div class="form-group" style="border-top: 1px solid #eee; padding-top: 1rem; margin-top: 1rem;">
-                        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">Cài Đặt Chấm Công</h3>
-
-                        <label>Địa chỉ IP Cho Phép Chấm Công</label>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <input type="text" id="allowed-ip" class="form-input"
-                                placeholder="Ví dụ: 113.161.x.x, 14.232.x.x (Nhiều IP cách nhau dấu phẩy)">
-                            <button type="button" class="btn btn-secondary" onclick="getCurrentIP()"
-                                title="Lấy IP hiện tại của máy này">
-                                Lấy IP Ngay
-                            </button>
-                        </div>
-                        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-                            Nếu điền, nhân viên chỉ có thể chấm công khi dùng mạng có IP này (Wifi công ty).
+                    <div class="form-group" style="margin-top: 1.5rem;">
+                        <label for="allowed-ip" style="display: flex; justify-content: space-between;">
+                            <span>Địa Chỉ IP Cho Phép Chấm Công</span>
+                            <a href="https://iphe.com" target="_blank"
+                                style="font-size: 0.8rem; color: var(--primary-color);">Xem IP Của Tôi</a>
+                        </label>
+                        <textarea id="allowed-ip" class="form-input" rows="3"
+                            placeholder="Ví dụ: 14.161.22.100, 113.20.10.5 (Để trống nếu muốn tắt giới hạn)"></textarea>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
+                            ⚠️ Chỉ những máy kết nối Wifi có IP trong danh sách trên mới chấm công được.
+                            <br>Nhập nhiều IP cách nhau bằng dấu phẩy.
                         </p>
                     </div>
 
-                    <button type="submit" class="btn btn-primary" onclick="alert('Đã lưu cấu hình!')">Lưu Thay
-                        Đổi</button>
+                    <div style="margin-top: 2rem; text-align: right;">
+                        <button type="submit" class="btn btn-primary" id="btn-save-settings">
+                            Lưu Cấu Hình
+                        </button>
+                    </div>
                 </form>
             </div>
 
-            <!-- Migration Panel Removed as per user request (System already on Cloud) -->
+            <!-- Validation Script for Settings -->
+            <script>
+                document.addEventListener('DOMContentLoaded', async () => {
+                    // Load Settings
+                    try {
+                        const settings = await DBService.getSystemSettings();
+                        if (settings.companyName) document.getElementById('company-name').value = settings.companyName;
+                        if (settings.allowedIP) document.getElementById('allowed-ip').value = settings.allowedIP;
+                    } catch (e) {
+                        console.error(e);
+                    }
+
+                    // Save Settings
+                    document.getElementById('system-settings-form').addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const btn = document.getElementById('btn-save-settings');
+                        const originalText = btn.innerText;
+                        btn.innerText = 'Đang lưu...';
+                        btn.disabled = true;
+
+                        try {
+                            const data = {
+                                companyName: document.getElementById('company-name').value.trim(),
+                                allowedIP: document.getElementById('allowed-ip').value.trim()
+                            };
+                            await DBService.saveSystemSettings(data);
+                            alert('Đã lưu cấu hình thành công!');
+                        } catch (e) {
+                            alert('Lỗi: ' + e.message);
+                        } finally {
+                            btn.innerText = originalText;
+                            btn.disabled = false;
+                        }
+                    });
+                });
+            </script>
+        </main>
+
+        <!-- Migration Panel Removed as per user request (System already on Cloud) -->
 
         </main>
     </div>
