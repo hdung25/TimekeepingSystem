@@ -323,9 +323,6 @@ async function renderMonthReport(date) {
             console.log(`Rendered footer for ${dateStr}: ${dailyTotalMinutes} mins`);
         }
 
-        // Show "Extra" sessions (Check-in but no class match) - Optional improvement
-        // For now, let's keep it simple as requested. BUt check for "Unmatched" logic later if needed.
-
         grid.appendChild(cell);
     }
 
@@ -347,10 +344,7 @@ async function renderMonthReport(date) {
 function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
-
-    // We need to track which attendance sessions have been "consumed" (matched to a class)
-    // so we can display extra attendance (unmatched) if any? 
-    // For simplicity, we stick to the SECTION flow first.
+    const usedSessionIds = new Set();
 
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
@@ -385,6 +379,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const diffMs = Math.abs(checkIn - schedStart);
                 return diffMs < 60 * 60 * 1000;
             });
+
+            if (matchedSession) usedSessionIds.add(matchedSession.id);
 
             // 3. Determine Status
             let minutes = 0;
@@ -479,9 +475,40 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         });
     });
 
-    // TODO: Handle "Attendance without Class"? 
-    // If user checks in but no class registered. Currently ignored.
-    // User requested "Calendar" logic matching "Registered Classes".
+    // 4. Handle Unmatched Sessions (Extra Shifts / No Schedule)
+    attendanceSessions.forEach(s => {
+        if (!usedSessionIds.has(s.id)) {
+            let label = 'Ca Ngoài Lịch';
+            let duration = 0;
+            let cssClass = 'chip-orange';
+            let tooltip = 'Chấm công không khớp lịch';
+
+            const start = new Date(s.checkIn || s.start);
+            // Format time HH:mm
+            const startStr = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+            if (s.checkOut) {
+                const end = new Date(s.checkOut);
+                const endStr = end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                duration = (end - start) / 60000;
+                label = `${startStr}-${endStr} (Ngoài lịch)`;
+                tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
+                cssClass = 'chip-green'; // Paid
+            } else {
+                label = `${startStr}-??? (Đang dạy)`;
+                cssClass = 'chip-blue';
+            }
+
+            chips.push({
+                text: label,
+                class: cssClass,
+                paidMinutes: Math.max(0, Math.round(duration)),
+                tooltip: tooltip,
+                sessionId: s.id,
+                sessionData: s
+            });
+        }
+    });
 
     return chips;
 }
