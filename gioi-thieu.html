@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giới Thiệu Dự Án | Hệ Thống Quản Lý Giáo Dục Thông Minh</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-light: #818CF8;
+            --secondary: #10B981;
+            --dark: #0F172A;
+            --light: #F8FAFC;
+            --glass: rgba(255, 255, 255, 0.9);
+            --gradient-bg: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: #F1F5F9;
+            color: #334155;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* --- Animations --- */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-in {
+            animation: fadeIn 0.8s ease-out forwards;
+            opacity: 0;
+        }
+
+        .delay-1 {
+            animation-delay: 0.2s;
+        }
+
+        .delay-2 {
+            animation-delay: 0.4s;
+        }
+
+        .delay-3 {
+            animation-delay: 0.6s;
+        }
+
+        /* --- Hero Section --- */
+        .hero {
+            background: var(--gradient-bg);
+            color: white;
+            min-height: 80vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            position: relative;
+            padding: 2rem;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, rgba(0, 0, 0, 0) 60%);
+            top: -50%;
+            left: -50%;
+            animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            max-width: 900px;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #ffffff, #a5b4fc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: #cbd5e1;
+            margin-bottom: 2rem;
+        }
+
+        .btn-scroll {
+            display: inline-block;
+            padding: 1rem 2.5rem;
+            background: var(--secondary);
+            color: white;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            transition: transform 0.3s;
+        }
+
+        .btn-scroll:hover {
+            transform: translateY(-3px);
+        }
+
+        /* --- Container --- */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        /* --- Highlights Section --- */
+        .section-title {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-title h2 {
+            font-size: 2.5rem;
+            color: var(--dark);
+            margin-bottom: 0.5rem;
+        }
+
+        .section-title .line {
+            width: 80px;
+            height: 4px;
+            background: var(--primary);
+            margin: 0 auto;
+            border-radius: 2px;
+        }
+
+        .grid-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s, box-shadow 0.3s;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(79, 70, 229, 0.1);
+        }
+
+        .card-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1.5rem;
+            display: inline-block;
+            padding: 1rem;
+            background: #EEF2FF;
+            border-radius: 15px;
+            color: var(--primary);
+        }
+
+        .card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--dark);
+        }
+
+        .card p {
+            color: #64748b;
+        }
+
+        /* --- Feature Timeline Section --- */
+        .feature-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4rem;
+            gap: 4rem;
+        }
+
+        .feature-row:nth-child(even) {
+            flex-direction: row-reverse;
+        }
+
+        .feature-img {
+            flex: 1;
+            background: white;
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Simulating visuals with CSS placeholders */
+        .visual-placeholder {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #94a3b8;
+            font-size: 1.2rem;
+            text-align: center;
+            padding: 1rem;
+            border: 2px dashed #cbd5e1;
+        }
+
+        .feature-content {
+            flex: 1;
+        }
+
+        .feature-content h3 {
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tag {
+            background: var(--secondary);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            vertical-align: middle;
+        }
+
+        .feature-list {
+            list-style: none;
+            margin-top: 1.5rem;
+        }
+
+        .feature-list li {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+            position: relative;
+            color: #475569;
+        }
+
+        .feature-list li::before {
+            content: '✓';
+            color: var(--secondary);
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
+
+        /* --- Footer --- */
+        footer {
+            background: var(--dark);
+            color: white;
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+
+        .footer-logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+
+            .feature-row,
+            .feature-row:nth-child(even) {
+                flex-direction: column;
+                gap: 2rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- HERO -->
+    <section class="hero animate-in">
+        <div class="hero-content">
+            <h1>GIẢI PHÁP QUẢN LÝ<br>GIÁO DỤC THÔNG MINH</h1>
+            <p>Không chỉ là chấm công. Đây là hệ thống quản trị nhân sự 4.0 dành riêng cho trung tâm giáo dục.</p>
+            <a href="#highlights" class="btn-scroll">Khám Phá Tính Năng</a>
+        </div>
+    </section>
+
+    <!-- HIGHLIGHTS -->
+    <div class="container" id="highlights">
+        <div class="section-title animate-in delay-1">
+            <h2>Điểm Sáng Dự Án</h2>
+            <div class="line"></div>
+        </div>
+
+        <div class="grid-cards">
+            <!-- 1. Flexible Control -->
+            <div class="card animate-in delay-1">
+                <div class="card-icon">🎯</div>
+                <h3>Linh Hoạt Có Kiểm Soát</h3>
+                <p>Mô hình "Grab/Uber" cho giáo viên. Admin chỉ cần mở khung giờ, nhân viên chủ động bấm "Nhận Lớp".
+                    Giảm 90% thời gian xếp lịch thủ công.</p>
+            </div>
+
+            <!-- 2. Smart Payroll -->
+            <div class="card animate-in delay-2">
+                <div class="card-icon">💎</div>
+                <h3>Lương Thưởng Thông Minh</h3>
+                <p>Tự động xử lý quên Check-out. Cơ chế độc quyền <strong>"Thưởng Đi Sớm 10 Phút"</strong> giúp xây dựng
+                    văn hóa đúng giờ mà không cần nhắc nhở.</p>
+            </div>
+
+            <!-- 3. Security -->
+            <div class="card animate-in delay-3">
+                <div class="card-icon">🔒</div>
+                <h3>Bảo Mật IP Văn Phòng</h3>
+                <p>Chấm công chỉ hợp lệ khi kết nối đúng Wifi văn phòng. Ngăn chặn hoàn toàn việc chấm công hộ hoặc chấm
+                    công từ xa.</p>
+            </div>
+
+            <!-- 4. Real-time -->
+            <div class="card animate-in delay-2">
+                <div class="card-icon">☁️</div>
+                <h3>Đồng Bộ Cloud Real-time</h3>
+                <p>Dữ liệu được cập nhật tức thì lên đám mây. Quản lý có thể giám sát hoạt động trung tâm từ bất kỳ đâu.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- DETAILS / USE CASES -->
+    <div style="background: white;">
+        <div class="container">
+            <div class="section-title animate-in">
+                <h2>Chi Tiết Tính Năng</h2>
+                <div class="line"></div>
+            </div>
+
+            <!-- Feature 1 -->
+            <div class="feature-row animate-in">
+                <div class="feature-img">
+                    <div class="visual-placeholder">
+                        <div style="text-align:center">
+                            <div style="font-size:3rem; margin-bottom:10px">📅</div>
+                            Màn hình Lịch Làm<br>Trực quan & Hiện đại
+                        </div>
+                    </div>
+                </div>
+                <div class="feature-content">
+                    <h3>Quản Lý Lịch & Nhận Lớp <span class="tag">HOT</span></h3>
+                    <p>Giải phóng admin khỏi ma trận Excel. Biến việc xếp lịch thành quy trình tự động hóa.</p>
+                    <ul class="feature-list">
+                        <li><strong>Admin:</strong> Chỉ cần tạo khung giờ học.</li>
+                        <li><strong>Nhân Viên:</strong> Mở điện thoại, thấy lớp trống và bấm "Nhận Lớp".</li>
+                        <li><strong>Ưu tiên thực tế:</strong> Lương sẽ được tính cho người đã nhận lớp, bất kể kế hoạch
+                            ban đầu là ai.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="feature-row animate-in">
+                <div class="feature-img">
+                    <div class="visual-placeholder">
+                        <div style="text-align:center">
+                            <div style="font-size:3rem; margin-bottom:10px">⏱️</div>
+                            Nút Bấm Vào/Ra Ca<br>Thông Minh
+                        </div>
+                    </div>
+                </div>
+                <div class="feature-content">
+                    <h3>Chấm Công 4.0</h3>
+                    <p>Giải quyết triệt để các vấn đề đau đầu của chấm công truyền thống.</p>
+                    <ul class="feature-list">
+                        <li><strong>Đến Sớm >= 9p:</strong> Hệ thống tự động Thưởng 10 phút vào công làm việc.</li>
+                        <li><strong>Quên Ra Ca:</strong> Hệ thống tự động lấy giờ kết thúc lớp học làm giờ ra. Không bị
+                            mất lương oan.</li>
+                        <li><strong>Check IP:</strong> Chỉ cho phép bấm nút khi đang ở trung tâm.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="feature-row animate-in">
+                <div class="feature-img">
+                    <div class="visual-placeholder">
+                        <div style="text-align:center">
+                            <div style="font-size:3rem; margin-bottom:10px">📊</div>
+                            Bảng Lương & KPI<br>Tự Động Hóa
+                        </div>
+                    </div>
+                </div>
+                <div class="feature-content">
+                    <h3>Tính Lương & KPI</h3>
+                    <p>Minh bạch hóa thu nhập, tạo động lực làm việc.</p>
+                    <ul class="feature-list">
+                        <li>Bảng lương tự động tổng hợp cuối tháng.</li>
+                        <li>Phân loại rõ ràng: Giờ dạy thực tế, Giờ dạy theo lịch, Giờ thưởng.</li>
+                        <li>Tích hợp bảng đánh giá 10 tiêu chí (Tác phong, Chuyên môn...) ngay trên bảng lương.</li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="footer-logo">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</div>
+        <p>Giải pháp quản trị nâng tầm giá trị giáo dục.</p>
+        <div style="margin-top: 2rem; font-size: 0.9rem; opacity: 0.7;">
+            Designed for Presentation | 2026
+        </div>
+    </footer>
+
+    <script>
+        // Simple Scroll Reveal Script
+        document.addEventListener('DOMContentLoaded', () => {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = 1;
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            });
+
+            document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
+        });
+    </script>
+</body>
+
+</html>

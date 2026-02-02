@@ -1,0 +1,17 @@
+# Tài khoản kiểm thử (Test Accounts)
+# Hệ thống: TRUNG TÂM NGOẠI NGỮ VÀ TOÁN TƯ DUY TRẺ
+
+[ADMIN]
+Username: admin
+Password: 123456
+Role: Quản trị viên (Toàn quyền hệ thống)
+
+[NHÂN VIÊN 1]
+Username: nv_nguyenvana
+Password: 123456
+Role: Nhân viên (Chấm công, Xem lịch)
+
+[NHÂN VIÊN 2]
+Username: nv_tranthib
+Password: 123456
+Role: Nhân viên (Chấm công, Xem lịch)

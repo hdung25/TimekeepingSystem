@@ -1,0 +1,386 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bảng Công Cá Nhân - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Calendar Styles */
+        .calendar-header {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            text-align: center;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0.5rem;
+        }
+
+        .calendar-cell {
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            min-height: 120px;
+            padding: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .calendar-cell.offset {
+            background: transparent;
+            border: none;
+        }
+
+        .date-number {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--text-muted);
+            align-self: flex-end;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+
+        .date-number.today {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .schedule-chip {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: default;
+        }
+
+        /* Color Coding */
+        .chip-blue {
+            background: #DBEAFE;
+            color: #1E40AF;
+            border-left: 3px solid #3B82F6;
+        }
+
+        .chip-orange {
+            background: #FFEDD5;
+            color: #9A3412;
+            border-left: 3px solid #F97316;
+            animation: pulse-border 2s infinite;
+        }
+
+        .chip-green {
+            background: #D1FAE5;
+            color: #065F46;
+            border-left: 3px solid #10B981;
+        }
+
+        .chip-red {
+            background: #FEE2E2;
+            color: #991B1B;
+            border-left: 3px solid #EF4444;
+            opacity: 0.8;
+        }
+
+        @keyframes pulse-border {
+            0% {
+                box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 6px rgba(249, 115, 22, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(249, 115, 22, 0);
+            }
+        }
+
+        /* Admin Selector */
+        #admin-controls {
+            display: none;
+            /* Hidden by default, toggled via JS */
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: #F3F4F6;
+            border-radius: var(--radius-md);
+            align-items: center;
+            gap: 1rem;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 1.5rem;
+            border-radius: var(--radius-lg);
+            width: 90%;
+            max-width: 400px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .note-indicator {
+            font-size: 0.75rem;
+            color: var(--text-color);
+            background: #fef3c7;
+            padding: 2px 4px;
+            border-radius: 4px;
+            margin-top: auto;
+            border: 1px solid #fcd34d;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar (Reused) -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+
+            <nav id="sidebar-nav">
+                <!-- Content handled by main.js -->
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="page-header">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;" id="page-title">Bảng Công Cá Nhân</h1>
+                    <p style="color: var(--text-muted);">Lịch sử làm việc và quyền lợi</p>
+                </div>
+
+                <div style="text-align: right;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: var(--secondary-color);"
+                        id="total-hours-display">
+                        Tổng giờ làm: 0 giờ 0 phút
+                    </div>
+                    <div style="margin-top: 0.5rem;">
+                        <button class="btn btn-sm" onclick="changeReportMonth(-1)">&lt;</button>
+                        <span style="font-weight: 700; padding: 0 1rem;" id="report-month-title">Tháng --, ----</span>
+                        <button class="btn btn-sm" onclick="changeReportMonth(1)">&gt;</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Control Area (Salary Calculation) -->
+            <div id="admin-controls">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                    <strong style="color: var(--text-color);">Chọn Nhân Viên:</strong>
+                    <select id="staff-select" class="table-input" style="width: 200px; background: white;"
+                        onchange="renderPersonalTimesheet()">
+                        <option value="all">-- Chọn nhân viên --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; width: 100%;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8rem; font-weight: 600;">Lương/Giờ (VNĐ)</label>
+                        <input type="number" id="salary-rate" class="table-input"
+                            style="width: 100%; background: white;" value="100000" step="10000"
+                            oninput="calculateSalary()">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8rem; font-weight: 600;">Thưởng/Phạt (Tổng I-X)</label>
+                        <input type="text" id="summary-bonus-penalty" class="table-input"
+                            style="width: 100%; background: #f3f4f6; font-weight: 700;" value="0 ₫" readonly>
+                    </div>
+                </div>
+
+                <div
+                    style="width: 100%; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <button class="btn btn-primary" onclick="calculateSalary()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" style="margin-right: 0.5rem; vertical-align: text-bottom;">
+                                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                                <line x1="8" y1="6" x2="16" y2="6"></line>
+                                <line x1="8" y1="10" x2="16" y2="10"></line>
+                                <path d="M8 14h.01"></path>
+                                <path d="M12 14h.01"></path>
+                                <path d="M16 14h.01"></path>
+                                <path d="M8 18h.01"></path>
+                                <path d="M12 18h.01"></path>
+                                <path d="M16 18h.01"></path>
+                            </svg>
+                            Kiểm Tra & Lưu
+                        </button>
+                        <span style="font-size: 1.1rem; color: var(--text-muted);">Thực Lĩnh:</span>
+                    </div>
+                    <span id="final-salary-display"
+                        style="font-size: 1.8rem; font-weight: 800; color: var(--primary-color);">0 VNĐ</span>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div
+                style="display: flex; gap: 1rem; margin-bottom: 0.5rem; font-size: 0.8rem; margin-top: 1.5rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-blue" style="width: 1rem; height: 1rem; padding: 0;"></span> Sắp tới
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-orange" style="width: 1rem; height: 1rem; padding: 0;"></span> Đang
+                    dạy / Quên ra
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-green" style="width: 1rem; height: 1rem; padding: 0;"></span> Hoàn
+                    thành
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-red" style="width: 1rem; height: 1rem; padding: 0;"></span> Vắng
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span>🚩</span> Ngày Lễ
+                </div>
+            </div>
+
+            <!-- Calendar Container -->
+            <div class="glass-panel" style="padding: 1rem; margin-bottom: 2rem;">
+                <div class="calendar-header">
+                    <div>T2</div>
+                    <div>T3</div>
+                    <div>T4</div>
+                    <div>T5</div>
+                    <div>T6</div>
+                    <div>T7</div>
+                    <div style="color: var(--secondary-color);">CN</div>
+                </div>
+                <div class="calendar-grid" id="calendar-grid">
+                    <!-- Populated by report.js -->
+                </div>
+            </div>
+
+            <!-- Evaluation Table (Horizontal) -->
+            <div id="evaluation-section" style="display: none;"> <!-- Shown by JS if Admin -->
+                <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-color);">Bảng
+                    Đánh Giá & Thưởng Phạt</h3>
+                <div class="glass-panel" style="padding: 0; overflow-x: auto; border: 1px solid var(--border-color);">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 800px;">
+                        <thead id="eval-thead"
+                            style="background: #f9fafb; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; text-align: center;">
+                            <!-- Populated by JS -->
+                        </thead>
+                        <tbody id="evaluation-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Legend / Explanation Note -->
+                <div class="glass-panel"
+                    style="margin-top: 1rem; padding: 1rem; background: #fafafa; font-size: 0.9rem;">
+                    <strong style="display: block; margin-bottom: 0.5rem;">Ghi chú đánh giá:</strong>
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
+                        <div><strong>I.</strong> CHUYÊN CẦN – TÁC PHONG</div>
+                        <div><strong>II.</strong> ĐÚNG GIỜ</div>
+                        <div><strong>III.</strong> TẬP TRUNG LÀM VIỆC</div>
+                        <div><strong>IV.</strong> NHIỆT TÌNH</div>
+                        <div><strong>V.</strong> TRÁCH NHIỆM</div>
+                        <div><strong>VI.</strong> SOẠN BÀI/ NHẬN XÉT</div>
+                        <div><strong>VII.</strong> CHUYÊN MÔN</div>
+                        <div><strong>VIII.</strong> KỸ NĂNG SƯ PHẠM</div>
+                        <div><strong>IX.</strong> SỐ GIỜ LÀM</div>
+                        <div><strong>X.</strong> HỌP ĐỊNH KÌ</div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Note Modal -->
+    <div id="note-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="note-modal-title" style="margin-bottom: 1rem; font-size: 1.25rem; font-weight: 700;">Ghi Chú</h2>
+            <textarea id="note-content" class="table-input"
+                style="width: 100%; height: 100px; margin-bottom: 1rem; background: #f9fafb; border: 1px solid var(--border-color);"
+                placeholder="Nhập ghi chú..."></textarea>
+            <div style="display: flex; gap: 1rem;">
+                <button class="btn btn-secondary" onclick="closeNoteModal()" style="flex: 1;">Hủy</button>
+                <button class="btn btn-primary" onclick="saveNote()" style="flex: 1;">Lưu Ghi Chú</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Time Modal (Admin Only) -->
+    <div id="edit-time-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 1rem; font-size: 1.25rem; font-weight: 700;">Chỉnh Sửa Giờ Làm</h2>
+            <input type="hidden" id="edit-date-key">
+            <input type="hidden" id="edit-session-id">
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Giờ Vào (Check-in)</label>
+                <input type="datetime-local" id="edit-check-in" class="table-input"
+                    style="width: 100%; height: 40px; border: 1px solid var(--border-color);">
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Giờ Ra (Check-out)</label>
+                <input type="datetime-local" id="edit-check-out" class="table-input"
+                    style="width: 100%; height: 40px; border: 1px solid var(--border-color);">
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <button class="btn btn-secondary" onclick="closeEditModal()" style="flex: 1;">Hủy</button>
+                <button class="btn btn-primary" onclick="saveEditedTime()" style="flex: 1;">Lưu Thay Đổi</button>
+            </div>
+
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee;">
+                <button class="btn" style="width: 100%; background: #EF4444; color: white;"
+                    onclick="deleteSessionFromModal()">Xóa Phiên Này</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/report.js"></script>
+</body>
+
+</html>

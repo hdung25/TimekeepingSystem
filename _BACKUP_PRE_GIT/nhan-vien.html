@@ -1,0 +1,92 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nhân Viên - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+
+            <nav id="sidebar-nav">
+                <!-- Navigation will be rendered by main.js based on role -->
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;">Bảng Điều Khiển Cá Nhân</h1>
+                    <p style="color: var(--text-muted);">Xin chào, <span id="user-display-name">Nhân viên</span></p>
+                </div>
+                <!-- Button to switch back to admin, hidden by default -->
+                <button id="btn-back-admin" class="btn btn-primary" style="display: none; background-color: #4B5563;"
+                    onclick="switchRole()">
+                    Quay lại Admin
+                </button>
+            </header>
+
+            <!-- Quick Stats Row -->
+            <div class="stats-grid" style="margin-bottom: 2rem;">
+                <div class="stat-card">
+                    <h3>Ngày công tháng này</h3>
+                    <p class="stat-number" id="p-stat-workdays" style="color: var(--primary-color);">--</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Đi muộn</h3>
+                    <p class="stat-number" id="p-stat-late" style="color: #F59E0B;">--</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Phép còn lại</h3>
+                    <p class="stat-number" id="p-stat-leave" style="color: var(--text-muted);">--</p>
+                </div>
+            </div>
+
+            <div class="glass-panel" style="padding: 1.5rem;">
+                <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem;">Lịch sử chấm công gần đây</h2>
+                <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Ngày</th>
+                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Giờ vào</th>
+                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Giờ ra</th>
+                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Trạng thái</th>
+                        </tr>
+                    </thead>
+                    <tbody id="personal-history-tbody">
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                <em>Chưa có dữ liệu chấm công mới.</em>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </main>
+    </div>
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>

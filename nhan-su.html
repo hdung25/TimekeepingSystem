@@ -1,0 +1,195 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản Lý Nhân Sự - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .staff-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .staff-table th,
+        .staff-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        .staff-table th {
+            background-color: #F9FAFB;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            color: var(--text-muted);
+            transition: var(--transition-base);
+        }
+
+        .action-btn:hover {
+            background-color: #F3F4F6;
+            color: var(--primary-color);
+        }
+
+        .action-btn.delete:hover {
+            color: #EF4444;
+            background-color: #FEF2F2;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text-color);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+        }
+    </style>
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+            <nav id="sidebar-nav"></nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;">Quản Lý Nhân Sự</h1>
+                    <p style="color: var(--text-muted);">Quản lý tài khoản và lương cơ bản của nhân viên</p>
+                </div>
+                <button class="btn btn-primary" onclick="openModal()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        style="margin-right: 0.5rem;">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Thêm Nhân Viên
+                </button>
+            </header>
+
+            <div class="glass-panel" style="overflow: hidden;">
+                <table class="staff-table">
+                    <thead>
+                        <tr>
+                            <th>Họ Tên</th>
+                            <th>Tên Đăng Nhập</th>
+                            <th>Mật Khẩu</th>
+                            <th>Lương Cơ Bản</th>
+                            <th>Chuyên Cần</th>
+                            <th style="text-align: right;">Hành Động</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staff-table-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <!-- Edit/Add Modal -->
+    <div id="staff-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title" style="margin-bottom: 1.5rem; font-size: 1.25rem; font-weight: 700;">Thêm Nhân Viên
+            </h2>
+            <form id="staff-form" onsubmit="handleStaffSubmit(event)">
+                <input type="hidden" id="staff-id">
+
+                <div class="form-group">
+                    <label>Họ và Tên</label>
+                    <input type="text" id="staff-name" class="form-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Tên Đăng Nhập (Username)</label>
+                    <input type="text" id="staff-username" class="form-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Mật Khẩu</label>
+                    <input type="text" id="staff-password" class="form-input" required value="123456">
+                </div>
+
+                <div class="form-group">
+                    <label>Lương Cơ Bản (VNĐ/Giờ)</label>
+                    <input type="number" id="staff-rate" class="form-input" value="100000" step="1000">
+                </div>
+
+                <div class="form-group">
+                    <label>Phụ Cấp Chuyên Cần (VNĐ)</label>
+                    <input type="number" id="staff-bonus" class="form-input" value="500000" step="10000">
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()" style="flex: 1;">Hủy</button>
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">Lưu Thông Tin</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/personnel.js"></script>
+</body>
+
+</html>

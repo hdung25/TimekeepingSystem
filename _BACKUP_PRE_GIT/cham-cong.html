@@ -1,0 +1,137 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chấm Công - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .page-header {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .history-table th,
+        .history-table td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .history-table th {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+    </style>
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar (Reused) -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+
+            <nav id="sidebar-nav">
+                <!-- Content handled by main.js -->
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="timekeeping-container">
+            <div class="page-header">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;">Chấm Công Hôm Nay</h1>
+                    <p style="color: var(--text-muted);" id="today-date-display">...</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 2rem; font-weight: 700; color: var(--primary-color); font-variant-numeric: tabular-nums;"
+                        id="live-clock">--:--:--</div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 300px; gap: 2rem; align-items: start;">
+
+                <!-- LEFT COLUMN: Global Check-in -->
+                <div>
+                    <!-- Global Check-in Button -->
+                    <div id="global-checkin-container" style="margin-bottom: 2rem;">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <h2
+                        style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                        Danh Sách Lớp Dạy</h2>
+                    <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">Vui lòng bấm
+                        <strong>"Nhận Lớp"</strong> nếu hôm nay bạn có dạy lớp này.
+                    </p>
+
+                    <!-- Class List Container -->
+                    <div id="class-list-container">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- RIGHT COLUMN: Today's History -->
+                <div class="glass-panel" style="padding: 1.5rem;">
+                    <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 1rem; color: var(--secondary-color);">
+                        Lịch sử Vào/Ra hôm nay</h3>
+                    <div id="attendance-history-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // Set date immediately
+        const d = new Date();
+        document.getElementById('today-date-display').innerText = `Thứ ${d.getDay() === 0 ? 'CN' : 'T' + (d.getDay() + 1)}, ngày ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+    </script>
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/timekeeping.js"></script>
+</body>
+
+</html>
