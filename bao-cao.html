@@ -240,7 +240,8 @@
                 <div
                     style="width: 100%; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 1rem;">
-                        <button class="btn btn-secondary" onclick="exportSalaryPDF()">📄 Xuất Bản In</button>
+                        <button class="btn" style="background-color: #059669; color: white;"
+                            onclick="exportSalaryPDF()">📄 Xuất Bản In</button>
                         <button class="btn btn-primary" onclick="saveSalarySettings()">Kiểm Tra & Lưu</button>
                     </div>
                     <div style="text-align: right;">
@@ -250,81 +251,82 @@
                     </div>
                 </div>
             </div>
-    </div>
 
-    <!-- Legend -->
-    <div
-        style="display: flex; gap: 1rem; margin-bottom: 0.5rem; font-size: 0.8rem; margin-top: 1.5rem; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="schedule-chip chip-blue" style="width: 1rem; height: 1rem; padding: 0;"></span> Sắp tới
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="schedule-chip chip-orange" style="width: 1rem; height: 1rem; padding: 0;"></span> Đang
-            dạy / Quên ra
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="schedule-chip chip-green" style="width: 1rem; height: 1rem; padding: 0;"></span> Hoàn
-            thành
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="schedule-chip chip-red" style="width: 1rem; height: 1rem; padding: 0;"></span> Vắng
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span>🚩</span> Ngày Lễ
-        </div>
-    </div>
-
-    <!-- Calendar Container -->
-    <div class="glass-panel" style="padding: 1rem; margin-bottom: 2rem;">
-        <div class="calendar-header">
-            <div>T2</div>
-            <div>T3</div>
-            <div>T4</div>
-            <div>T5</div>
-            <div>T6</div>
-            <div>T7</div>
-            <div style="color: var(--secondary-color);">CN</div>
-        </div>
-        <div class="calendar-grid" id="calendar-grid">
-            <!-- Populated by report.js -->
-        </div>
-    </div>
-
-    <!-- Evaluation Table (Horizontal) -->
-    <div id="evaluation-section" style="display: none;"> <!-- Shown by JS if Admin -->
-        <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-color);">Bảng
-            Đánh Giá & Thưởng Phạt</h3>
-        <div class="glass-panel" style="padding: 0; overflow-x: auto; border: 1px solid var(--border-color);">
-            <table style="width: 100%; border-collapse: collapse; min-width: 800px;">
-                <thead id="eval-thead"
-                    style="background: #f9fafb; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; text-align: center;">
-                    <!-- Populated by JS -->
-                </thead>
-                <tbody id="evaluation-table-body">
-                    <!-- Populated by JS -->
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Legend / Explanation Note -->
-        <div class="glass-panel" style="margin-top: 1rem; padding: 1rem; background: #fafafa; font-size: 0.9rem;">
-            <strong style="display: block; margin-bottom: 0.5rem;">Ghi chú đánh giá:</strong>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
-                <div><strong>I.</strong> CHUYÊN CẦN – TÁC PHONG</div>
-                <div><strong>II.</strong> ĐÚNG GIỜ</div>
-                <div><strong>III.</strong> TẬP TRUNG LÀM VIỆC</div>
-                <div><strong>IV.</strong> NHIỆT TÌNH</div>
-                <div><strong>V.</strong> TRÁCH NHIỆM</div>
-                <div><strong>VI.</strong> SOẠN BÀI/ NHẬN XÉT</div>
-                <div><strong>VII.</strong> CHUYÊN MÔN</div>
-                <div><strong>VIII.</strong> KỸ NĂNG SƯ PHẠM</div>
-                <div><strong>IX.</strong> SỐ GIỜ LÀM</div>
-                <div><strong>X.</strong> HỌP ĐỊNH KÌ</div>
+            <!-- Legend -->
+            <div
+                style="display: flex; gap: 1rem; margin-bottom: 0.5rem; font-size: 0.8rem; margin-top: 1.5rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-blue" style="width: 1rem; height: 1rem; padding: 0;"></span> Sắp tới
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-orange" style="width: 1rem; height: 1rem; padding: 0;"></span> Đang
+                    dạy / Quên ra
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-green" style="width: 1rem; height: 1rem; padding: 0;"></span> Hoàn
+                    thành
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-red" style="width: 1rem; height: 1rem; padding: 0;"></span> Vắng
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span>🚩</span> Ngày Lễ
+                </div>
             </div>
-        </div>
-    </div>
 
-    </main>
+            <!-- Calendar Container -->
+            <div class="glass-panel" style="padding: 1rem; margin-bottom: 2rem;">
+                <div class="calendar-header">
+                    <div>T2</div>
+                    <div>T3</div>
+                    <div>T4</div>
+                    <div>T5</div>
+                    <div>T6</div>
+                    <div>T7</div>
+                    <div style="color: var(--secondary-color);">CN</div>
+                </div>
+                <div class="calendar-grid" id="calendar-grid">
+                    <!-- Populated by report.js -->
+                </div>
+            </div>
+
+            <!-- Evaluation Table (Horizontal) -->
+            <div id="evaluation-section" style="display: none;"> <!-- Shown by JS if Admin -->
+                <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-color);">Bảng
+                    Đánh Giá & Thưởng Phạt</h3>
+                <div class="glass-panel" style="padding: 0; overflow-x: auto; border: 1px solid var(--border-color);">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 800px;">
+                        <thead id="eval-thead"
+                            style="background: #f9fafb; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; text-align: center;">
+                            <!-- Populated by JS -->
+                        </thead>
+                        <tbody id="evaluation-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Legend / Explanation Note -->
+                <div class="glass-panel"
+                    style="margin-top: 1rem; padding: 1rem; background: #fafafa; font-size: 0.9rem;">
+                    <strong style="display: block; margin-bottom: 0.5rem;">Ghi chú đánh giá:</strong>
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
+                        <div><strong>I.</strong> CHUYÊN CẦN – TÁC PHONG</div>
+                        <div><strong>II.</strong> ĐÚNG GIỜ</div>
+                        <div><strong>III.</strong> TẬP TRUNG LÀM VIỆC</div>
+                        <div><strong>IV.</strong> NHIỆT TÌNH</div>
+                        <div><strong>V.</strong> TRÁCH NHIỆM</div>
+                        <div><strong>VI.</strong> SOẠN BÀI/ NHẬN XÉT</div>
+                        <div><strong>VII.</strong> CHUYÊN MÔN</div>
+                        <div><strong>VIII.</strong> KỸ NĂNG SƯ PHẠM</div>
+                        <div><strong>IX.</strong> SỐ GIỜ LÀM</div>
+                        <div><strong>X.</strong> HỌP ĐỊNH KÌ</div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
     </div>
 
     <!-- Note Modal -->
