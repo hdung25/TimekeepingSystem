@@ -54,26 +54,6 @@ async function loadDashboardStats() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // --- ONE-TIME PASSWORD UPDATE START ---
-    // Tự động cập nhật mật khẩu Admin khi chạy lần đầu
-    (async () => {
-        try {
-            console.log("Đang cập nhật mật khẩu Admin...");
-            const snapshot = await db.collection('users').where('username', '==', 'admin').get();
-            if (!snapshot.empty) {
-                snapshot.forEach(async doc => {
-                    await doc.ref.update({ password: 'Hdung.25' }); // Mật khẩu mới
-                    console.log("✅ Đã cập nhật mật khẩu Admin thành công!");
-                });
-            } else {
-                console.log("⚠️ Không tìm thấy user admin để cập nhật.");
-            }
-        } catch (e) {
-            console.error("Lỗi cập nhật mật khẩu:", e);
-        }
-    })();
-    // --- ONE-TIME PASSWORD UPDATE END ---
-
     // ... (Startup logic)
     console.log('Timekeeping System Loaded');
 

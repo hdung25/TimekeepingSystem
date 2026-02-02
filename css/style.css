@@ -394,7 +394,8 @@ button {
     }
 
     /* Hide less important columns in history table if needed, or scroll */
-    .history-table {
+    .history-table,
+    .staff-table {
         display: block;
         overflow-x: auto;
         white-space: nowrap;
