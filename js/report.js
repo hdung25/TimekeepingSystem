@@ -298,10 +298,25 @@ async function renderMonthReport(date) {
             totalMinutes += chip.paidMinutes;
         });
 
+        // --- Daily Total Footer ---
+        const dailyTotalMinutes = chips.reduce((acc, chip) => acc + (chip.paidMinutes || 0), 0);
+        if (dailyTotalMinutes > 0) {
+            const h = Math.floor(dailyTotalMinutes / 60);
+            const m = Math.floor(dailyTotalMinutes % 60);
+            const footer = document.createElement('div');
+            footer.style.marginTop = 'auto'; // Push to bottom
+            footer.style.paddingTop = '4px';
+            footer.style.borderTop = '1px dashed #E5E7EB';
+            footer.style.fontSize = '0.75rem';
+            footer.style.fontWeight = '700';
+            footer.style.color = '#7C3AED'; // Violet color for total
+            footer.style.textAlign = 'right';
+            footer.innerText = `Tổng: ${h}h ${m}p`;
+            cell.appendChild(footer);
+        }
+
         // Show "Extra" sessions (Check-in but no class match) - Optional improvement
         // For now, let's keep it simple as requested. BUt check for "Unmatched" logic later if needed.
-
-        // Also allow Admin to ADD a session manually? (Maybe later)
 
         grid.appendChild(cell);
     }
