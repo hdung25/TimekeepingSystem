@@ -57,6 +57,11 @@ async function populateStaffSelect() {
         option.innerText = `${user.name} (${user.username})`;
         select.appendChild(option);
     });
+
+    // CRITICAL FIX: Trigger re-render when staff changes
+    select.onchange = () => {
+        renderMonthReport(currentDate);
+    };
 }
 
 function changeReportMonth(offset) {
