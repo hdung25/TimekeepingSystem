@@ -564,7 +564,65 @@ button {
     line-height: 1;
 }
 
-.action-buttons {
-    display: flex;
-    gap: 1rem;
+
+/* Chip Styles */
+.schedule-chip {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.chip-green {
+    background-color: #D1FAE5;
+    /* Emerald 100 */
+    color: #065F46;
+    /* Emerald 800 */
+}
+
+.chip-blue {
+    background-color: #DBEAFE;
+    /* Blue 100 */
+    color: #1E40AF;
+    /* Blue 800 */
+}
+
+.chip-orange {
+    background-color: #FEF3C7;
+    /* Amber 100 */
+    color: #92400E;
+    /* Amber 800 */
+}
+
+.chip-gray {
+    background-color: #F3F4F6;
+    /* Gray 100 */
+    color: #6B7280;
+    /* Gray 500 */
+}
+
+.chip-waiting {
+    background-color: #F3E8FF !important;
+    /* Violet 100 */
+    color: #7C3AED !important;
+    /* Violet 600 */
+    border: 1px dashed #7C3AED !important;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+
+    100% {
+        opacity: 1;
+    }
 }
