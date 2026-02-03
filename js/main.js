@@ -3,19 +3,20 @@
 
 async function loadDashboardStats() {
     // Only run on admin page (where stats exist)
-    const totalEl = document.querySelector('.glass-panel p[style*="var(--primary-color)"]');
-    // This selector is a bit weak, let's use the text content context or add IDs in HTML ideally.
-    // Given the HTML structure in admin.html:
-    // "Tổng nhân viên" -> followed by <p>48</p>
-
-    // Better approach: Let's assume I can add IDs to admin.html first? 
-    // Or just find by context logic if I don't want to edit HTML.
-    // The user asked to fix "hardcoded data". 
-    // I will modify admin.html to add IDs then update this function.
-    // But for this step, let's just define the function placeholder and I will edit HTML in next step.
+    const elTotalUsers = document.getElementById('stat-total-users');
+    // If element doesn't exist, we are likely not on admin.html
+    if (!elTotalUsers) return;
 
     try {
+        // Show loading state if needed, or keep "..."
+        if (typeof DBService === 'undefined' || typeof DBService.getDashboardStats !== 'function') {
+            console.warn("DBService not ready");
+            return;
+        }
+
         const stats = await DBService.getDashboardStats();
+
+        // Update DOM
         if (elTotalUsers) elTotalUsers.innerText = stats.totalUsers || 0;
 
         const activeToday = document.getElementById('stat-active-today');
@@ -29,15 +30,16 @@ async function loadDashboardStats() {
             } else {
                 tbody.innerHTML = stats.recentActivity.map(act => {
                     const timeStr = new Date(act.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                    // Determine status color logic
+
                     let statusColor = 'var(--text-color)';
                     if (act.status === 'Đúng giờ') statusColor = 'var(--secondary-color)';
+                    if (act.status === 'Đang làm việc') statusColor = 'var(--primary-color)';
 
                     return `
                         <tr style="border-bottom: 1px solid var(--border-color);">
                             <td style="padding: 1rem 0;">${act.user}</td>
                             <td style="padding: 1rem 0;">${timeStr}</td>
-                            <td style="padding: 1rem 0; color: ${statusColor};">${act.status}</td>
+                            <td style="padding: 1rem 0; color: ${statusColor}; font-weight: 500;">${act.status}</td>
                         </tr>
                     `;
                 }).join('');
@@ -49,7 +51,7 @@ async function loadDashboardStats() {
         const activeToday = document.getElementById('stat-active-today');
         if (activeToday) activeToday.innerText = '-';
         const tbody = document.getElementById('recent-activity-body');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 1rem; color: red;">Lỗi tải dữ liệu</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 1rem; color: #EF4444;">Lỗi tải dữ liệu: ' + e.message + '</td></tr>';
     }
 }
 
