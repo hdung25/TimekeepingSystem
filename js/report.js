@@ -289,8 +289,9 @@ async function renderMonthReport(date) {
             // --- NEW: Role Selection Click Handler ---
             if (chip.isClickable) {
                 div.style.cursor = 'pointer';
-                div.style.border = '1px solid currentColor'; // Visual cue
+                // div.style.border = '1px solid currentColor'; // Removed, handled by class
                 div.onclick = (e) => {
+                    console.log("Chip Clicked!", dateStr, chip.sessionData);
                     e.stopPropagation();
                     openRoleSelectModal(dateStr, chip.sessionData);
                 };
