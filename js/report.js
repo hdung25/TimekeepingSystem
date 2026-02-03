@@ -1180,16 +1180,19 @@ function calculateSalary() {
         if (filterType === 'all') {
             include = true;
         } else if (filterType === 'giao-vien') {
-            const name = (chip.sessionData.roleName || '').toLowerCase();
-            // Critical Fix: Explicitly EXCLUDE Reception/Admin/Guard keywords
-            if (name.includes('tiếp') || name.includes('lễ') || name.includes('reception')) {
+            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
+            const name = removeVietnameseTones(nameRaw);
+
+            // Explicitly EXCLUDE Reception roles (tiep tan, le tan)
+            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                 include = false;
-            } else if (chip.isTeaching || name.includes('gv') || name.includes('giáo') || name.includes('trợ') || name.includes('ta')) {
+            } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
                 include = true;
             }
         } else if (filterType === 'tiep-tan') {
-            const name = (chip.sessionData.roleName || '').toLowerCase();
-            if (name.includes('tiếp') || name.includes('lễ') || name.includes('reception')) {
+            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
+            const name = removeVietnameseTones(nameRaw);
+            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                 include = true;
             }
         }
