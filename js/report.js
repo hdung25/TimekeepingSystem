@@ -446,6 +446,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         cssClass = 'chip-green';
                         label += ` (${matchedSession.roleName})`;
                         tooltip += ` - Vai trò: ${matchedSession.roleName}`;
+
+                        // Fallback: If roleRate is missing (legacy data), try to find in user config
+                        if (!matchedSession.roleRate && currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                            const foundRole = currentUserContext.salary_config.roles.find(r => r.id === matchedSession.role);
+                            if (foundRole) {
+                                matchedSession.roleRate = foundRole.rate;
+                            }
+                        }
                     } else {
                         cssClass = 'chip-waiting';
                         label += ` (Chọn Role?)`;
