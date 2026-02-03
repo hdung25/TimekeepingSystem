@@ -35,7 +35,12 @@ async function renderStaffTable() {
                 <td>${formatCurrency(settings.rate || 0)} / giờ</td>
                 <td>${formatCurrency(settings.attendance || 0)}</td>
                 <td style="text-align: right;">
-                    <button class="action-btn" onclick="editStaff('${user.id}')" title="Sửa">
+                    <button class="action-btn" onclick="configureSalary('${user.id}')" title="Cấu hình Lương & Role" style="color: #F59E0B; margin-right: 4px;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                        </svg>
+                    </button>
+                    <button class="action-btn" onclick="editStaff('${user.id}')" title="Sửa thông tin cơ bản">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -160,9 +165,123 @@ function formatCurrency(val) {
 }
 
 // Close modal when clicking outside
+// Close modal when clicking outside
 window.onclick = function (event) {
     const modal = document.getElementById('staff-modal');
-    if (event.target == modal) {
-        closeModal();
+    const salaryModal = document.getElementById('salary-modal');
+    if (event.target == modal) closeModal();
+    if (event.target == salaryModal) closeSalaryModal();
+}
+
+// ================= SALARY CONFIGURATION (MULTI-ROLE) =================
+
+let currentSalaryRoles = []; // Temporary storage while editing
+
+async function configureSalary(userId) {
+    const users = await DBService.getUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+
+    document.getElementById('salary-user-id').value = userId;
+    document.getElementById('salary-modal-subtitle').innerText = `Cấu hình cho nhân viên: ${user.name || user.username}`;
+
+    // Load existing roles or init empty
+    const settings = user.salary_config || {};
+    currentSalaryRoles = settings.roles || [];
+
+    // Fallback: If no roles but has legacy "rate", create a default Service Role
+    if (currentSalaryRoles.length === 0 && settings.rate) {
+        currentSalaryRoles.push({
+            id: 'default',
+            name: 'Mặc định (Cũ)',
+            rate: settings.rate,
+            isDefault: true
+        });
+    }
+
+    renderSalaryRoles();
+    document.getElementById('salary-modal').style.display = 'flex';
+}
+
+function closeSalaryModal() {
+    document.getElementById('salary-modal').style.display = 'none';
+}
+
+function renderSalaryRoles() {
+    const container = document.getElementById('role-list');
+    if (currentSalaryRoles.length === 0) {
+        container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có vai trò nào. Hãy thêm mới!</div>';
+        return;
+    }
+
+    let html = '';
+    currentSalaryRoles.forEach((role, index) => {
+        html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #eee; background: white;">
+                <div>
+                    <div style="font-weight: 600;">${role.name}</div>
+                    <div style="font-size: 0.85rem; color: var(--primary-color);">${formatCurrency(role.rate)} / giờ</div>
+                </div>
+                <button onclick="removeRole(${index})" style="color: #EF4444; background: none; border: none; cursor: pointer; padding: 4px;">
+                    🗑️ Xóa
+                </button>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function addNewRole() {
+    const nameInput = document.getElementById('new-role-name');
+    const rateInput = document.getElementById('new-role-rate');
+
+    const name = nameInput.value.trim();
+    const rate = Number(rateInput.value);
+
+    if (!name || !rate) {
+        alert("Vui lòng nhập tên vai trò và mức lương!");
+        return;
+    }
+
+    currentSalaryRoles.push({
+        id: 'role_' + Date.now(),
+        name: name,
+        rate: rate,
+        isDefault: currentSalaryRoles.length === 0 // First role is default
+    });
+
+    // Reset inputs
+    nameInput.value = '';
+    rateInput.value = '';
+
+    renderSalaryRoles();
+}
+
+function removeRole(index) {
+    if (confirm("Chắc chắn xóa vai trò này?")) {
+        currentSalaryRoles.splice(index, 1);
+        renderSalaryRoles();
+    }
+}
+
+async function saveSalaryConfig() {
+    const userId = document.getElementById('salary-user-id').value;
+
+    try {
+        const users = await DBService.getUsers();
+        const user = users.find(u => u.id === userId);
+        if (!user) throw new Error("User Not Found");
+
+        // Merge changes
+        if (!user.salary_config) user.salary_config = {};
+        user.salary_config.roles = currentSalaryRoles;
+
+        await DBService.saveUser(user);
+
+        UIService.toast("Đã lưu cấu hình lương!", "success");
+        closeSalaryModal();
+        renderStaffTable(); // Refresh table UI
+    } catch (e) {
+        alert("Lỗi lưu: " + e.message);
     }
 }

@@ -146,46 +146,44 @@
         </main>
     </div>
 
-    <!-- Edit/Add Modal -->
-    <div id="staff-modal" class="modal">
-        <div class="modal-content">
-            <h2 id="modal-title" style="margin-bottom: 1.5rem; font-size: 1.25rem; font-weight: 700;">Thêm Nhân Viên
+    <!-- Salary Config Modal -->
+    <div id="salary-modal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h2 style="margin-bottom: 1rem; font-size: 1.25rem; font-weight: 700; color: var(--primary-color);">
+                Cấu Hình Lương & Vai Trò
             </h2>
-            <form id="staff-form" onsubmit="handleStaffSubmit(event)">
-                <input type="hidden" id="staff-id">
+            <p id="salary-modal-subtitle" style="margin-bottom: 1.5rem; color: var(--text-muted);"></p>
+            <input type="hidden" id="salary-user-id">
 
-                <div class="form-group">
-                    <label>Họ và Tên</label>
-                    <input type="text" id="staff-name" class="form-input" required>
+            <!-- List of Roles -->
+            <div style="margin-bottom: 1.5rem;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Danh sách Role (Vai
+                    trò):</label>
+                <div id="role-list"
+                    style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden;">
+                    <!-- Roles will be injected here -->
+                    <div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có vai trò nào</div>
                 </div>
+            </div>
 
-                <div class="form-group">
-                    <label>Tên Đăng Nhập (Username)</label>
-                    <input type="text" id="staff-username" class="form-input" required>
+            <!-- Add New Role Form -->
+            <div style="background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Thêm Vai Trò Mới:</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="new-role-name" class="form-input" placeholder="Tên Role (VD: GV Tiếng Anh)"
+                        style="flex: 2;">
+                    <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ" style="flex: 1;">
+                    <button type="button" class="btn btn-primary" onclick="addNewRole()">➕ Thêm</button>
                 </div>
+            </div>
 
-                <div class="form-group">
-                    <label>Mật Khẩu</label>
-                    <input type="text" id="staff-password" class="form-input" required value="123456">
-                </div>
-
-                <div class="form-group">
-                    <label>Lương Cơ Bản (VNĐ/Giờ)</label>
-                    <input type="number" id="staff-rate" class="form-input" value="100000" step="1000">
-                </div>
-
-                <div class="form-group">
-                    <label>Phụ Cấp Chuyên Cần (VNĐ)</label>
-                    <input type="number" id="staff-bonus" class="form-input" value="500000" step="10000">
-                </div>
-
-                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
-                    <button type="button" class="btn btn-secondary" onclick="closeModal()" style="flex: 1;">Hủy</button>
-                    <button type="submit" class="btn btn-primary" style="flex: 1;">Lưu Thông Tin</button>
-                </div>
-            </form>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeSalaryModal()">Đóng</button>
+                <button type="button" class="btn btn-primary" onclick="saveSalaryConfig()">💾 Lưu Cấu Hình</button>
+            </div>
         </div>
     </div>
+
 
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
