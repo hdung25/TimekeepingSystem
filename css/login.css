@@ -278,3 +278,131 @@ body {
         font-size: 1rem;
     }
 }
+
+/* ================== NEW DECORATIONS ================== */
+/* Clouds */
+.cloud {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: 50px;
+    z-index: 1;
+    filter: blur(5px);
+    animation: floatCloud 20s infinite linear;
+}
+
+.cloud::after {
+    content: '';
+    position: absolute;
+    background: inherit;
+    border-radius: 50%;
+    width: 60%;
+    height: 120%;
+    top: -40%;
+    left: 15%;
+}
+
+.cloud-1 {
+    width: 200px;
+    height: 60px;
+    top: 5%;
+    left: -20%;
+    animation-duration: 45s;
+}
+
+.cloud-2 {
+    width: 150px;
+    height: 50px;
+    top: 15%;
+    right: -10%;
+    animation-duration: 35s;
+    animation-direction: reverse;
+}
+
+@keyframes floatCloud {
+    0% {
+        transform: translateX(0);
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+
+    100% {
+        transform: translateX(100vw);
+        opacity: 0.4;
+    }
+}
+
+/* Falling Blossoms (Mai/Peach) */
+.blossom-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+    overflow: hidden;
+}
+
+.blossom {
+    position: absolute;
+    top: -20px;
+    width: 15px;
+    height: 15px;
+    background: #FFD1D1;
+    /* Peach Pink */
+    border-radius: 10px 0 10px 0;
+    opacity: 0.8;
+    animation: fall linear infinite;
+}
+
+/* Mix of Yellow (Mai) and Pink (Dao) */
+.b1 {
+    left: 10%;
+    animation-duration: 8s;
+    background: #FFD1D1;
+}
+
+.b2 {
+    left: 30%;
+    animation-duration: 12s;
+    animation-delay: 2s;
+    background: #FDE68A;
+    /* Mai Vang */
+}
+
+.b3 {
+    left: 60%;
+    animation-duration: 10s;
+    animation-delay: 4s;
+    background: #FFD1D1;
+}
+
+.b4 {
+    left: 80%;
+    animation-duration: 9s;
+    animation-delay: 1s;
+    background: #FDE68A;
+}
+
+.b5 {
+    left: 45%;
+    animation-duration: 11s;
+    animation-delay: 5s;
+    width: 10px;
+    height: 10px;
+}
+
+@keyframes fall {
+    0% {
+        transform: translateY(-20px) rotate(0deg);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0;
+    }
+}

@@ -19,11 +19,6 @@ if (typeof firebase !== 'undefined') {
     window.db = firebase.firestore();
     window.auth = firebase.auth();
     console.log("Firebase initialized successfully!");
-    const statusEl = document.getElementById('connection-status');
-    if (statusEl) {
-        statusEl.innerHTML = '🟢 Kết nối thành công';
-        statusEl.style.color = '#10B981'; // Green
-    }
 } else {
     console.error("Firebase SDK chưa được tải! Vui lòng kiểm tra lại file HTML.");
     // Fallback: Check again on load
@@ -33,11 +28,6 @@ if (typeof firebase !== 'undefined') {
             firebase.initializeApp(firebaseConfig);
             window.db = firebase.firestore();
             window.auth = firebase.auth();
-            const statusEl = document.getElementById('connection-status');
-            if (statusEl) {
-                statusEl.innerHTML = '🟢 Kết nối thành công (Retry)';
-                statusEl.style.color = '#10B981';
-            }
         }
     });
 }
