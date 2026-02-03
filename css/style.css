@@ -151,6 +151,10 @@ button {
 }
 
 /* Utilities */
+.hamburger-btn {
+    display: none;
+}
+
 .text-center {
     text-align: center;
 }
