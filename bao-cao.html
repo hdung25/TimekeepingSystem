@@ -208,46 +208,58 @@
 
             <!-- Admin Control Area (Salary Calculation) -->
             <!-- Admin Control Area (Salary Calculation) -->
-            <div id="admin-controls">
-                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
-                    <strong style="color: var(--text-color);">Chọn Nhân Viên:</strong>
-                    <select id="staff-select" class="table-input" style="width: 200px; background: white;"
-                        onchange="loadSalarySettings()">
-                        <option value="all">-- Chọn nhân viên --</option>
-                        <!-- Populated by JS -->
-                    </select>
+            <!-- Admin Control Area (Salary Calculation) -->
+            <div id="admin-controls" class="admin-control-card" style="display: none;">
+                <div class="control-header">
+                    <div class="control-title">
+                        <span>⚙️</span> Bảng Tính Lương
+                    </div>
                 </div>
 
-                <div style="display: flex; gap: 1rem; flex-wrap: wrap; width: 100%;">
-                    <div style="flex: 1;">
-                        <label style="font-size: 0.8rem; font-weight: 600;">Lương/Giờ (VNĐ)</label>
-                        <input type="number" id="salary-rate" class="table-input"
-                            style="width: 100%; background: white;" value="100000" step="1000"
+                <div class="modern-grid">
+                    <!-- Staff Selector -->
+                    <div class="modern-form-group" style="grid-column: 1 / -1;">
+                        <label class="modern-label">Chọn Nhân Viên</label>
+                        <select id="staff-select" class="modern-select" onchange="loadSalarySettings()">
+                            <option value="all">-- Vui lòng chọn nhân viên --</option>
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+
+                    <!-- Money Inputs -->
+                    <div class="modern-form-group">
+                        <label class="modern-label">Lương/Giờ (VNĐ)</label>
+                        <input type="number" id="salary-rate" class="modern-input" value="100000" step="1000"
                             oninput="calculateSalary()">
                     </div>
-                    <div style="flex: 1;">
-                        <label style="font-size: 0.8rem; font-weight: 600;">Tạm Ứng</label>
-                        <input type="number" id="salary-advance" class="table-input"
-                            style="width: 100%; background: white;" value="0" step="1000" oninput="calculateSalary()">
+
+                    <div class="modern-form-group">
+                        <label class="modern-label">Tạm Ứng</label>
+                        <input type="number" id="salary-advance" class="modern-input" value="0" step="1000"
+                            oninput="calculateSalary()" placeholder="0">
                     </div>
-                    <div style="flex: 1;">
-                        <label style="font-size: 0.8rem; font-weight: 600;">Thưởng/Phạt (Tổng I-X)</label>
-                        <input type="text" id="summary-bonus-penalty" class="table-input"
-                            style="width: 100%; background: #f3f4f6; font-weight: 700;" value="0 ₫" readonly>
+
+                    <div class="modern-form-group">
+                        <label class="modern-label">Thưởng/Phạt (Tổng)</label>
+                        <input type="text" id="summary-bonus-penalty" class="modern-input highlight-input" value="0 ₫"
+                            readonly>
                     </div>
                 </div>
 
-                <div
-                    style="width: 100%; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <button class="btn" style="background-color: #059669; color: white;"
-                            onclick="exportSalaryPDF()">📄 Xuất Bản In</button>
-                        <button class="btn btn-primary" onclick="saveSalarySettings()">Kiểm Tra & Lưu</button>
+                <div class="control-footer">
+                    <div class="action-buttons">
+                        <button class="btn" style="background-color: white; border: 1px solid #D1D5DB; color: #374151;"
+                            onclick="exportSalaryPDF()">
+                            📄 Xuất PDF
+                        </button>
+                        <button class="btn btn-primary" onclick="saveSalarySettings()">
+                            💾 Lưu & Tính
+                        </button>
                     </div>
+
                     <div style="text-align: right;">
-                        <span style="font-size: 1.1rem; color: var(--text-muted); display: block;">Thực Lĩnh:</span>
-                        <span id="final-salary-display"
-                            style="font-size: 1.8rem; font-weight: 800; color: var(--primary-color);">0 VNĐ</span>
+                        <div class="final-amount-label">DỰ KIẾN THỰC LĨNH</div>
+                        <div id="final-salary-display" class="final-amount-value">0 VNĐ</div>
                     </div>
                 </div>
             </div>
