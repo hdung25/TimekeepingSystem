@@ -593,6 +593,31 @@ const DBService = {
         });
     },
 
+    updateSessionRole: async (userId, dateKey, sessionId, roleData) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+
+        return db.runTransaction(async (t) => {
+            const doc = await t.get(ref);
+            if (!doc.exists) throw new Error("Attendance record not found");
+
+            const data = doc.data();
+            if (!data.sessions) throw new Error("No sessions found");
+
+            const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+            if (index === -1) throw new Error("Session not found");
+
+            // Update Role
+            const session = data.sessions[index];
+            session.role = roleData.id;
+            session.roleName = roleData.name;
+            session.roleRate = roleData.rate; // Optional: Snapshot rate at time of locking? Yes, safer.
+
+            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+            t.set(ref, data);
+        });
+    },
+
     getDashboardStats: async () => {
         try {
             // Count Users
