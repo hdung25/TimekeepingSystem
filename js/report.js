@@ -198,10 +198,12 @@ async function renderMonthReport(date) {
 
     // 2. CALCULATE & RENDER
     let totalMinutes = 0;
-    let totalSalary = 0; // New: Sum of Session Salaries
+    // let totalSalary = 0; // Moved to calculateSalary()
+    window.currentMonthChips = []; // Store for filtering
     grid.innerHTML = '';
 
     const firstDayIndex = new Date(year, month, 1).getDay(); // 0=Sun
+
     let startOffset = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
 
     // Empty Slots
@@ -298,6 +300,11 @@ async function renderMonthReport(date) {
                 };
             }
 
+            // Store for calculation
+            if (chip.paidMinutes > 0) {
+                window.currentMonthChips.push(chip);
+            }
+
             // Add Edit Icon for Admin if there is an underlying session
             if (role === 'admin' && chip.sessionId) {
                 const editBtn = document.createElement('span');
@@ -317,10 +324,7 @@ async function renderMonthReport(date) {
             totalMinutes += chip.paidMinutes;
 
             // --- SALARY ACCUMULATION ---
-            if (chip.paidMinutes > 0 && chip.sessionData && chip.sessionData.roleRate) {
-                const hours = chip.paidMinutes / 60;
-                totalSalary += hours * chip.sessionData.roleRate;
-            }
+            // Moved to calculateSalary() via window.currentMonthChips
         });
 
         // --- Daily Total Footer ---
@@ -359,7 +363,7 @@ async function renderMonthReport(date) {
 
     // Update Salary (Admin)
     window.lastTotalMinutes = totalMinutes;
-    window.currentMonthSalary = totalSalary; // Global store
+    // window.currentMonthSalary set by calculateSalary()
 
     if (role === 'admin') {
         loadSalarySettings();
@@ -437,7 +441,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         minutes = schedDuration;
                     }
 
-                    // NEW: Role Logic
+                    // New: Role Logic
                     if (matchedSession.role) {
                         cssClass = 'chip-green';
                         label += ` (${matchedSession.roleName})`;
@@ -473,7 +477,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip: tooltip,
                     sessionId: matchedSession.id,
                     sessionData: matchedSession,
-                    isClickable: isClickable
+                    isClickable: isClickable,
+                    isTeaching: true // Flag for filter
                 });
 
             } else {
@@ -661,7 +666,8 @@ function saveSalarySettings() {
     const staffId = document.getElementById('staff-select').value;
     if (staffId === 'all') return;
 
-    const rate = document.getElementById('salary-rate').value;
+    // const rate = document.getElementById('salary-rate').value; // Removed
+    const rate = 0; // Legacy
     const advance = document.getElementById('salary-advance').value || 0; // NEW
     const evaluationData = [];
 
@@ -686,7 +692,7 @@ function loadSalarySettings() {
     const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
     const settings = allSettings[staffId] || {};
 
-    document.getElementById('salary-rate').value = settings.rate || 100000;
+    // document.getElementById('salary-rate').value = settings.rate || 100000; // Removed
     document.getElementById('salary-advance').value = settings.advance || 0; // NEW
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
@@ -871,7 +877,8 @@ function exportSalaryPDF() {
     const staffName = staffSelect.options[staffSelect.selectedIndex].text.split('(')[0].trim();
     if (staffId === 'all') { alert("Vui lòng chọn nhân viên để xuất file"); return; }
 
-    const rate = parseFloat(document.getElementById('salary-rate').value) || 0;
+    // const rate = parseFloat(document.getElementById('salary-rate').value) || 0; // Removed
+    const rate = 0; // Legacy logic removal
     const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
 
     // Evaluation Items
