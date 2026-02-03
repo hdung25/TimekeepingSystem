@@ -919,6 +919,9 @@ function exportSalaryPDF() {
     });
 
     // --- FIX: Use Filtered Data for PDF ---
+    // Ensure data is fresh
+    calculateSalary();
+
     const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
     const chips = window.currentMonthChips || [];
     let filteredMinutes = 0;
