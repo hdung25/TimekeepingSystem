@@ -1181,7 +1181,10 @@ function calculateSalary() {
             include = true;
         } else if (filterType === 'giao-vien') {
             const name = (chip.sessionData.roleName || '').toLowerCase();
-            if (chip.isTeaching || name.includes('gv') || name.includes('giáo') || name.includes('trợ') || name.includes('ta')) {
+            // Critical Fix: Explicitly EXCLUDE Reception/Admin/Guard keywords
+            if (name.includes('tiếp') || name.includes('lễ') || name.includes('reception')) {
+                include = false;
+            } else if (chip.isTeaching || name.includes('gv') || name.includes('giáo') || name.includes('trợ') || name.includes('ta')) {
                 include = true;
             }
         } else if (filterType === 'tiep-tan') {
