@@ -1193,8 +1193,12 @@ function calculateSalary() {
 
         if (include) {
             // Robust conversion: treat null/undefined as 0. 
-            // Fallback to 0 if rate is somehow missing string/null.
-            const rate = Number(chip.sessionData.roleRate) || 0;
+            // Fallback to 0 if rate is somehow missing or has formatting like "7 500"
+            let rateRaw = chip.sessionData.roleRate;
+            if (typeof rateRaw === 'string') {
+                rateRaw = rateRaw.replace(/[^0-9.-]/g, ''); // Remove spaces, commas, 'VND', etc.
+            }
+            const rate = Number(rateRaw) || 0;
             const hours = (chip.paidMinutes || 0) / 60;
             totalSalary += hours * rate;
         }
