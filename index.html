@@ -20,22 +20,38 @@
 
 <body>
     <div class="login-wrapper">
+        <!-- background decor -->
+        <div class="decor-orb orb-1"></div>
+        <div class="decor-orb orb-2"></div>
+
+        <!-- Hanging Lanterns -->
+        <div class="lantern-container lantern-left">
+            <div class="lantern">
+                <span class="lantern-text">Tết</span>
+            </div>
+        </div>
+        <div class="lantern-container lantern-right">
+            <div class="lantern">
+                <span class="lantern-text">Xuân</span>
+            </div>
+        </div>
+
         <div class="login-card">
             <div class="login-header">
                 <div class="logo-area flex-center" style="justify-content: center; margin-bottom: 1rem;">
                     <img src="images/TUDUYTRE.jpg" alt="Logo"
-                        style="height: 60px; margin-right: 0.5rem; border-radius: 8px;">
-                    <span style="color: var(--primary-color); font-size: 1.25rem; font-weight: 700;">TRUNG TÂM NGOẠI NGỮ
-                        VÀ TOÁN TƯ DUY TRẺ</span>
+                        style="height: 70px; margin-right: 0.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                 </div>
                 <h1>Chào mừng trở lại!</h1>
-                <p>Vui lòng đăng nhập để tiếp tục</p>
+                <p style="color: var(--brand-green); font-weight: 600;">Hệ thống Chấm công & Tính lương Tự động</p>
+                <div style="margin-top: 5px; font-size: 0.85rem; color: var(--tet-gold);">✨ Chúc Mừng Năm Mới 2026 - Vạn
+                    Sự Như Ý ✨</div>
             </div>
 
             <form id="login-form">
                 <div class="form-group">
                     <label for="username">Tên đăng nhập</label>
-                    <input type="text" id="username" class="form-input" placeholder="admin" required>
+                    <input type="text" id="username" class="form-input" placeholder="Nhập tên đăng nhập..." required>
                 </div>
 
                 <div class="form-group">
@@ -43,10 +59,12 @@
                     <input type="password" id="password" class="form-input" placeholder="••••••••" required>
                 </div>
 
-                <button type="submit" class="btn btn-primary login-btn">Đăng Nhập</button>
+                <button type="submit" class="login-btn">
+                    Đăng Nhập
+                </button>
 
-                <div class="text-center" style="margin-top: 1rem; font-size: 0.875rem; color: var(--text-muted);">
-                    <a href="#">Quên mật khẩu?</a>
+                <div class="text-center" style="margin-top: 1.5rem; font-size: 0.875rem; color: #6B7280;">
+                    <a href="#" style="transition: color 0.2s;">Quên mật khẩu? Liên hệ Admin</a>
                 </div>
             </form>
         </div>
