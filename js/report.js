@@ -286,6 +286,16 @@ async function renderMonthReport(date) {
             div.innerHTML = `<span>${chip.text}</span>`;
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
+            // --- NEW: Role Selection Click Handler ---
+            if (chip.isClickable) {
+                div.style.cursor = 'pointer';
+                div.style.border = '1px solid currentColor'; // Visual cue
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    openRoleSelectModal(dateStr, chip.sessionData);
+                };
+            }
+
             // Add Edit Icon for Admin if there is an underlying session
             if (role === 'admin' && chip.sessionId) {
                 const editBtn = document.createElement('span');
@@ -348,6 +358,7 @@ async function renderMonthReport(date) {
 }
 
 // Logic to Merge Schedule & Attendance
+// Logic to Merge Schedule & Attendance
 function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
@@ -362,8 +373,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             // Fallback: Check if 'gv' field matches Name or Username
             if (!isRegistered && cls.gv) {
-                // Try to match with normalize
-                // We assume 'currentUserContext' is loaded at start of render
                 if (currentUserContext) {
                     const name = removeVietnameseTones(currentUserContext.name || '').toLowerCase();
                     const username = removeVietnameseTones(currentUserContext.username || '').toLowerCase();
@@ -380,7 +389,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // 2. Check for Attendance Match
             const schedStart = new Date(`${dateStr}T${cls.start}`);
 
-            // Find session close to start (within 60 mins)
             const matchedSession = attendanceSessions.find(s => {
                 const checkIn = new Date(s.checkIn || s.start);
                 const diffMs = Math.abs(checkIn - schedStart);
@@ -400,45 +408,50 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const now = new Date();
 
             if (matchedSession) {
+                let isClickable = false;
+
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
                     // FULL CHECK-IN/OUT
                     const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
-                    // Use Schedule Duration for Pay if Registered (User Rule)
-                    // But if Late? (Case: Late Check-in)
 
                     const diffMs = schedStart - actualStart;
-                    const diffMins = Math.floor(diffMs / 60000);
+                    // const diffMins = Math.floor(diffMs / 60000);
 
-                    if (diffMs < 0) {
-                        // Late
+                    if (diffMs < 0) { // Late
                         const lateMinutesRaw = Math.floor(Math.abs(diffMs) / 60000);
                         const remainingSched = (schedEnd - actualStart) / 60000;
                         minutes = Math.max(0, remainingSched);
                         label += ` (Trễ ${lateMinutesRaw}p)`;
-                        cssClass = 'chip-orange'; // Late is warning
-                    } else {
-                        // On Time / Early
+                        cssClass = 'chip-orange';
+                    } else { // On Time
                         minutes = schedDuration;
-                        label += ' (Hoàn thành)'; // Changed from (v)
-                        cssClass = 'chip-green';
                     }
+
+                    // NEW: Role Logic
+                    if (matchedSession.role) {
+                        cssClass = 'chip-green';
+                        label += ` (${matchedSession.roleName})`;
+                        tooltip += ` - Vai trò: ${matchedSession.roleName}`;
+                    } else {
+                        cssClass = 'chip-gray';
+                        label += ` (Chọn việc?)`;
+                        tooltip += ' - Bấm để chọn vai trò tính lương';
+                    }
+
                     tooltip += ' - Đã chấm công đầy đủ';
+                    isClickable = true;
                 } else {
-                    // CHECKED IN, NO CHECK OUT
+                    // No Check Out
                     const classEndTime = new Date(`${dateStr}T${cls.end}`);
-                    // If current time is past class end time + 30 mins -> Forgot Check-out
-                    // Else -> Teaching
                     if (now > new Date(classEndTime.getTime() + 30 * 60000)) {
-                        // FORGOT CHECK-OUT
                         minutes = schedDuration;
                         cssClass = 'chip-orange';
                         label += ' (Quên ra)';
                         tooltip += ' - Quên Check-out (Tính đủ giờ)';
                     } else {
-                        // TEACHING (Still within valid time)
-                        minutes = 0; // Not paid yet
-                        cssClass = 'chip-blue'; // Active
+                        minutes = 0;
+                        cssClass = 'chip-blue';
                         label += ' (Đang dạy)';
                         tooltip += ' - Đang trong ca làm việc';
                     }
@@ -450,57 +463,64 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     paidMinutes: Math.max(0, Math.round(minutes)),
                     tooltip: tooltip,
                     sessionId: matchedSession.id,
-                    sessionData: matchedSession
+                    sessionData: matchedSession,
+                    isClickable: isClickable
                 });
 
             } else {
-                // --- CASE B: NO ATTENDANCE RECORD ---
+                // --- CASE B: NO ATTENDANCE ---
                 const classDateTime = new Date(`${dateStr}T${cls.start}`);
-
                 if (classDateTime > now) {
-                    // FUTURE
-                    minutes = 0;
-                    cssClass = 'chip-blue';
-                    label += ' (Sắp tới)';
-                    tooltip += ' - Chưa diễn ra';
+                    chips.push({
+                        text: label + ' (Sắp tới)',
+                        class: 'chip-blue',
+                        paidMinutes: 0,
+                        tooltip: 'Chưa diễn ra',
+                        sessionId: null
+                    });
                 } else {
-                    // PAST (ABSENT)
-                    minutes = 0;
-                    cssClass = 'chip-gray'; // Gray for absent
-                    label += ' (Vắng)';
-                    tooltip += ' - Không có dữ liệu chấm công';
+                    chips.push({
+                        text: label + ' (Vắng)',
+                        class: 'chip-gray',
+                        paidMinutes: 0,
+                        tooltip: 'Không có dữ liệu chấm công',
+                        sessionId: null
+                    });
                 }
-
-                chips.push({
-                    text: label,
-                    class: cssClass,
-                    paidMinutes: 0,
-                    tooltip: tooltip,
-                    sessionId: null
-                });
             }
         });
     });
 
-    // 4. Handle Unmatched Sessions (Extra Shifts / No Schedule)
+    // 4. Handle Unmatched Sessions
     attendanceSessions.forEach(s => {
         if (!usedSessionIds.has(s.id)) {
             let label = 'Ca Ngoài Lịch';
             let duration = 0;
             let cssClass = 'chip-orange';
             let tooltip = 'Chấm công không khớp lịch';
+            let isClickable = false;
 
             const start = new Date(s.checkIn || s.start);
-            // Format time HH:mm
             const startStr = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
             if (s.checkOut) {
                 const end = new Date(s.checkOut);
                 const endStr = end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                 duration = (end - start) / 60000;
-                label = `${startStr}-${endStr} (Ngoài lịch)`;
+
+                // NEW: Role Logic
+                if (s.role) {
+                    cssClass = 'chip-green';
+                    label = `${startStr}-${endStr} (${s.roleName})`;
+                    tooltip += ` - Vai trò: ${s.roleName}`;
+                } else {
+                    cssClass = 'chip-gray';
+                    label = `${startStr}-${endStr} (Chọn việc?)`;
+                    tooltip += ' - Bấm để chọn vai trò tính lương';
+                }
+
                 tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
-                cssClass = 'chip-green'; // Paid
+                isClickable = true;
             } else {
                 label = `${startStr}-??? (Đang dạy)`;
                 cssClass = 'chip-blue';
@@ -512,7 +532,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 paidMinutes: Math.max(0, Math.round(duration)),
                 tooltip: tooltip,
                 sessionId: s.id,
-                sessionData: s
+                sessionData: s,
+                isClickable: isClickable
             });
         }
     });
@@ -1051,5 +1072,70 @@ async function renderDebugInfo(staffId, year, month) {
     } catch (e) {
         debugContainer.innerText += `\n❌ ERROR: ${e.message}\n${e.stack}`;
         debugContainer.style.color = 'red';
+    }
+}
+// ================= ROLE SELECTION LOGIC =================
+async function openRoleSelectModal(dateKey, session) {
+    const staffId = getTargetStaffId();
+
+    // Fetch User Roles
+    let roles = [];
+    try {
+        const users = await DBService.getUsers();
+        const user = users.find(u => u.id === staffId);
+        if (user && user.salary_config && user.salary_config.roles) {
+            roles = user.salary_config.roles;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+    if (roles.length === 0) {
+        alert("Bạn chưa được cấu hình Vai trò (Role). Vui lòng liên hệ Admin!");
+        return;
+    }
+
+    document.getElementById('role-select-date').value = dateKey;
+    document.getElementById('role-select-session').value = session.id;
+
+    const container = document.getElementById('role-options-container');
+    container.innerHTML = '';
+
+    roles.forEach(role => {
+        const btn = document.createElement('div');
+        btn.style.padding = '1rem';
+        btn.style.border = '1px solid var(--border-color)';
+        btn.style.borderRadius = 'var(--radius-md)';
+        btn.style.cursor = 'pointer';
+        btn.style.background = '#F9FAFB';
+        btn.style.transition = '0.2s';
+        btn.innerHTML = `<strong>${role.name}</strong> <span style="float:right; color:green">${new Intl.NumberFormat('vi-VN').format(role.rate)}đ/h</span>`;
+
+        btn.onmouseover = () => { btn.style.background = '#D1FAE5'; btn.style.borderColor = 'var(--primary-color)'; };
+        btn.onmouseout = () => { btn.style.background = '#F9FAFB'; btn.style.borderColor = 'var(--border-color)'; };
+
+        btn.onclick = () => selectRoleForSession(role);
+
+        container.appendChild(btn);
+    });
+
+    document.getElementById('role-select-modal').style.display = 'flex';
+}
+
+function closeRoleSelectModal() {
+    document.getElementById('role-select-modal').style.display = 'none';
+}
+
+async function selectRoleForSession(role) {
+    const staffId = getTargetStaffId();
+    const dateKey = document.getElementById('role-select-date').value;
+    const sessionId = document.getElementById('role-select-session').value;
+
+    try {
+        await DBService.updateSessionRole(staffId, dateKey, sessionId, role);
+        closeRoleSelectModal();
+        renderMonthReport(new Date(dateKey)); // Reload report specifically around this date
+    } catch (e) {
+        alert("Lỗi lưu vai trò: " + e.message);
     }
 }
