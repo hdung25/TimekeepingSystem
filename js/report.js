@@ -918,9 +918,40 @@ function exportSalaryPDF() {
         });
     });
 
-    const totalMinutes = window.lastTotalMinutes || 0;
-    const totalHoursDecimal = totalMinutes / 60;
-    const baseSalary = totalHoursDecimal * rate;
+    // --- FIX: Use Filtered Data for PDF ---
+    const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const chips = window.currentMonthChips || [];
+    let filteredMinutes = 0;
+
+    // Recalculate filtered minutes matching calculateSalary logic
+    chips.forEach(chip => {
+        if (!chip.sessionData) return;
+        let include = false;
+        if (filterType === 'all') {
+            include = true;
+        } else if (filterType === 'giao-vien') {
+            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
+            const name = removeVietnameseTones(nameRaw);
+            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+                include = false;
+            } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
+                include = true;
+            }
+        } else if (filterType === 'tiep-tan') {
+            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
+            const name = removeVietnameseTones(nameRaw);
+            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+                include = true;
+            }
+        }
+
+        if (include) {
+            filteredMinutes += (chip.paidMinutes || 0);
+        }
+    });
+
+    const totalHoursDecimal = filteredMinutes / 60;
+    const baseSalary = window.currentMonthSalary || 0; // Use global calc from calculateSalary()
     const initialTotal = baseSalary + totalBonus;
     const finalNet = initialTotal - advance;
 
@@ -957,6 +988,7 @@ function exportSalaryPDF() {
             
             <div class="sub-header">
                 MÃ NHÂN VIÊN: ${staffId.substring(0, 6).toUpperCase()} &nbsp;&nbsp;&nbsp;&nbsp; HỌ VÀ TÊN: ${staffName.toUpperCase()}
+                <br>LOẠI CÔNG VIỆC: ${filterType === 'all' ? 'Tất cả' : (filterType === 'tiep-tan' ? 'Tiếp tân' : 'Giáo viên/Trợ giảng')}
             </div>
             <div style="margin-bottom: 15px;">
                 Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
@@ -972,7 +1004,7 @@ function exportSalaryPDF() {
                 <!-- HOURS & RATE -->
                 <tr>
                     <td class="bold">
-                        TỔNG SỐ GIỜ: ${Math.floor(totalMinutes / 60)} giờ ${Math.floor(totalMinutes % 60)} phút
+                        TỔNG SỐ GIỜ: ${Math.floor(filteredMinutes / 60)} giờ ${Math.floor(filteredMinutes % 60)} phút
                         <br><br>
                         LƯƠNG CƠ BẢN:
                     </td>
