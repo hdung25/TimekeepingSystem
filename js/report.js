@@ -435,8 +435,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         label += ` (${matchedSession.roleName})`;
                         tooltip += ` - Vai trò: ${matchedSession.roleName}`;
                     } else {
-                        cssClass = 'chip-gray';
-                        label += ` (Chọn việc?)`;
+                        cssClass = 'chip-waiting';
+                        label += ` (Chọn Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
 
@@ -515,8 +515,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     label = `${startStr}-${endStr} (${s.roleName})`;
                     tooltip += ` - Vai trò: ${s.roleName}`;
                 } else {
-                    cssClass = 'chip-gray';
-                    label = `${startStr}-${endStr} (Chọn việc?)`;
+                    cssClass = 'chip-waiting';
+                    label = `${startStr}-${endStr} (Chọn Role?)`;
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
 

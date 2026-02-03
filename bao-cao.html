@@ -386,6 +386,38 @@
         </div>
     </div>
 
+    <!-- Role Selection Modal (Modern UI) -->
+    <div id="role-select-modal" class="modal"
+        style="display: none; align-items: center; justify-content: center; z-index: 2000;">
+        <div class="modal-content"
+            style="max-width: 450px; border-radius: 16px; padding: 0; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);">
+
+            <!-- Header -->
+            <div
+                style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); padding: 1.5rem; text-align: center;">
+                <h3 style="margin: 0; color: white; font-size: 1.25rem; font-weight: 700;">Chọn Công Việc</h3>
+                <p style="margin: 0.5rem 0 0; color: rgba(255,255,255,0.9); font-size: 0.9rem;">Xác nhận vai trò để tính
+                    lương ca này</p>
+            </div>
+
+            <!-- Body -->
+            <div style="padding: 1.5rem;">
+                <input type="hidden" id="role-select-date">
+                <input type="hidden" id="role-select-session">
+
+                <div id="role-options-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <!-- Options injected by JS -->
+                </div>
+
+                <div style="margin-top: 1.5rem; text-align: right;">
+                    <button class="btn"
+                        style="background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; font-weight: 600;"
+                        onclick="closeRoleSelectModal()">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script src="js/report.js"></script>
