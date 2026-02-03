@@ -5,7 +5,7 @@ const DBService = {
     // 1. Kiểm tra kết nối
     testConnection: async () => {
         try {
-            if (!db) throw new Error("Database chưa được khởi tạo");
+            if (!window.db) throw new Error("Database chưa được khởi tạo");
             console.log("Database connection ready");
             return true;
         } catch (error) {
@@ -16,10 +16,10 @@ const DBService = {
 
     // 2. Tham chiếu các Collection (Bảng dữ liệu)
     refs: {
-        users: () => db.collection('users'),
-        attendance: () => db.collection('attendance'),
-        schedules: () => db.collection('schedules'),
-        logs: () => db.collection('system_logs')
+        users: () => window.db.collection('users'),
+        attendance: () => window.db.collection('attendance'),
+        schedules: () => window.db.collection('schedules'),
+        logs: () => window.db.collection('system_logs')
     },
 
     // Các hàm xử lý dữ liệu sẽ được thêm vào dưới đây (getUsers, checkIn, etc.)
@@ -28,7 +28,7 @@ const DBService = {
     loginUser: async (username, password) => {
         try {
             // Query users collection for matching username and password
-            const snapshot = await db.collection('users')
+            const snapshot = await window.db.collection('users')
                 .where('username', '==', username)
                 .where('password', '==', password)
                 .limit(1)

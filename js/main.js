@@ -95,6 +95,13 @@ async function handleLogin(e) {
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value.trim();
     const btn = e.target.querySelector('button');
+    console.log("Login button clicked");
+
+    // Quick Debug: Check DB
+    if (typeof db === 'undefined') {
+        alert("Lỗi: Kết nối Database thất bại (db undefined). Kiểm tra internet!");
+        return;
+    }
 
     // UI Loading State
     const originalText = btn.innerText;
@@ -378,39 +385,3 @@ window.globalCheckOut = async function (btn) {
 };
 
 // 2. DASHBOARD STATS (Cloud Only)
-async function loadDashboardStats() {
-    // Only run if elements exist (Admin Dashboard)
-    const elTotalUsers = document.getElementById('stat-total-users');
-    if (!elTotalUsers) return;
-
-    try {
-        const stats = await DBService.getDashboardStats();
-
-        // Update DOM
-        elTotalUsers.innerText = stats.totalUsers || 0;
-        document.getElementById('stat-active-today').innerText = stats.checkedInCount || 0;
-
-        // Render Recent Activity
-        const tbody = document.getElementById('recent-activity-body');
-        if (tbody && stats.recentActivity) {
-            if (stats.recentActivity.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 1rem; color: var(--text-muted);">Chưa có hoạt động hôm nay</td></tr>';
-            } else {
-                tbody.innerHTML = stats.recentActivity.map(act => {
-                    const timeStr = new Date(act.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                    // Determine status color logic can be refined later
-                    return `
-        < tr style = "border-bottom: 1px solid var(--border-color);" >
-                            <td style="padding: 1rem 0;">${act.user}</td>
-                            <td style="padding: 1rem 0;">${timeStr}</td>
-                            <td style="padding: 1rem 0; color: var(--secondary-color);">${act.status}</td>
-                        </tr >
-        `;
-                }).join('');
-            }
-        }
-
-    } catch (e) {
-        console.error("Failed to load dashboard stats", e);
-    }
-}

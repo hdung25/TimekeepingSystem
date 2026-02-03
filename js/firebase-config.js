@@ -10,14 +10,35 @@ const firebaseConfig = {
 };
 
 // Khởi tạo Firebase (Compat Version)
-let db;
-let auth;
+// Khởi tạo Firebase (Compat Version)
+window.db = null;
+window.auth = null;
 
 if (typeof firebase !== 'undefined') {
     firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-    auth = firebase.auth();
+    window.db = firebase.firestore();
+    window.auth = firebase.auth();
     console.log("Firebase initialized successfully!");
+    const statusEl = document.getElementById('connection-status');
+    if (statusEl) {
+        statusEl.innerHTML = '🟢 Kết nối thành công';
+        statusEl.style.color = '#10B981'; // Green
+    }
 } else {
     console.error("Firebase SDK chưa được tải! Vui lòng kiểm tra lại file HTML.");
+    // Fallback: Check again on load
+    window.addEventListener('load', () => {
+        if (typeof firebase !== 'undefined' && !window.db) {
+            console.log("Retry initializing Firebase on window load...");
+            firebase.initializeApp(firebaseConfig);
+            window.db = firebase.firestore();
+            window.auth = firebase.auth();
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.innerHTML = '🟢 Kết nối thành công (Retry)';
+                statusEl.style.color = '#10B981';
+            }
+        }
+    });
 }
+
