@@ -1163,3 +1163,56 @@ async function selectRoleForSession(role) {
         alert("Lỗi lưu vai trò: " + e.message);
     }
 }
+
+// Fixed: Restore calculateSalary function
+function calculateSalary() {
+    const chips = window.currentMonthChips || [];
+    const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const advance = Number(document.getElementById('salary-advance').value) || 0;
+
+    let totalSalary = 0;
+
+    chips.forEach(chip => {
+        if (!chip.sessionData) return;
+
+        let include = false;
+        // Logic match
+        if (filterType === 'all') {
+            include = true;
+        } else if (filterType === 'giao-vien') {
+            const name = (chip.sessionData.roleName || '').toLowerCase();
+            if (chip.isTeaching || name.includes('gv') || name.includes('giáo') || name.includes('trợ') || name.includes('ta')) {
+                include = true;
+            }
+        } else if (filterType === 'tiep-tan') {
+            const name = (chip.sessionData.roleName || '').toLowerCase();
+            if (name.includes('tiếp') || name.includes('lễ') || name.includes('reception')) {
+                include = true;
+            }
+        }
+
+        if (include) {
+            // Robust conversion: treat null/undefined as 0. 
+            // Fallback to 0 if rate is somehow missing string/null.
+            const rate = Number(chip.sessionData.roleRate) || 0;
+            const hours = (chip.paidMinutes || 0) / 60;
+            totalSalary += hours * rate;
+        }
+    });
+
+    // Update UI
+    const finalEl = document.querySelector('.final-amount-value');
+    if (finalEl) {
+        finalEl.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary - advance);
+    }
+
+    const summaryEl = document.getElementById('summary-bonus-penalty');
+    if (summaryEl) {
+        // Format simply
+        const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
+        summaryEl.value = `Lương: ${fmt(totalSalary)} - Ứng: ${fmt(advance)}`;
+    }
+
+    // Global store for PDF
+    window.currentMonthSalary = totalSalary;
+}
