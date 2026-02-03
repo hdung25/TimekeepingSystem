@@ -198,6 +198,7 @@ async function renderMonthReport(date) {
 
     // 2. CALCULATE & RENDER
     let totalMinutes = 0;
+    let totalSalary = 0; // New: Sum of Session Salaries
     grid.innerHTML = '';
 
     const firstDayIndex = new Date(year, month, 1).getDay(); // 0=Sun
@@ -314,6 +315,12 @@ async function renderMonthReport(date) {
             cell.appendChild(div);
 
             totalMinutes += chip.paidMinutes;
+
+            // --- SALARY ACCUMULATION ---
+            if (chip.paidMinutes > 0 && chip.sessionData && chip.sessionData.roleRate) {
+                const hours = chip.paidMinutes / 60;
+                totalSalary += hours * chip.sessionData.roleRate;
+            }
         });
 
         // --- Daily Total Footer ---
@@ -338,7 +345,6 @@ async function renderMonthReport(date) {
             footer.textContent = `Tổng: ${h}h ${m}p`;
 
             cell.appendChild(footer);
-            console.log(`Rendered footer for ${dateStr}: ${dailyTotalMinutes} mins`);
         }
 
         grid.appendChild(cell);
@@ -353,6 +359,8 @@ async function renderMonthReport(date) {
 
     // Update Salary (Admin)
     window.lastTotalMinutes = totalMinutes;
+    window.currentMonthSalary = totalSalary; // Global store
+
     if (role === 'admin') {
         loadSalarySettings();
     }

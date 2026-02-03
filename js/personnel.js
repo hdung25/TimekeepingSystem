@@ -32,8 +32,6 @@ async function renderStaffTable() {
                 </td>
                 <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
                 <td>${user.password}</td>
-                <td>${formatCurrency(settings.rate || 0)} / giờ</td>
-                <td>${formatCurrency(settings.attendance || 0)}</td>
                 <td style="text-align: right;">
                     <button class="action-btn" onclick="configureSalary('${user.id}')" title="Cấu hình Lương & Role" style="color: #F59E0B; margin-right: 4px;">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -70,10 +68,6 @@ function openModal() {
     document.getElementById('staff-id').value = '';
     document.getElementById('modal-title').innerText = 'Thêm Nhân Viên';
 
-    // Default values
-    document.getElementById('staff-rate').value = 100000;
-    document.getElementById('staff-bonus').value = 500000;
-
     document.getElementById('staff-modal').style.display = 'flex';
 }
 
@@ -96,11 +90,7 @@ async function editStaff(userId) {
     document.getElementById('staff-username').value = user.username;
     document.getElementById('staff-password').value = user.password;
 
-    // Load Salary Data
-    const settings = user.salary_config || { rate: 100000, attendance: 500000 };
-
-    document.getElementById('staff-rate').value = settings.rate || 0;
-    document.getElementById('staff-bonus').value = settings.attendance || 0;
+    // settings removed
 
     document.getElementById('modal-title').innerText = 'Chỉnh Sửa Nhân Viên';
     document.getElementById('staff-modal').style.display = 'flex';
@@ -113,13 +103,9 @@ async function handleStaffSubmit(e) {
     const name = document.getElementById('staff-name').value;
     const username = document.getElementById('staff-username').value.trim();
     const password = document.getElementById('staff-password').value.trim();
-    const rate = document.getElementById('staff-rate').value;
-    const attendance = document.getElementById('staff-bonus').value;
 
-    const salary_config = {
-        rate: Number(rate),
-        attendance: Number(attendance)
-    };
+    // Legacy salary fields removed
+    const salary_config = {};
 
     let userPayload = {
         username,
