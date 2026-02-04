@@ -618,6 +618,51 @@ const DBService = {
         });
     },
 
+    // 7.2 Generic Add Session (Admin)
+    addSession: async (userId, dateKey, sessionData) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+
+        // Fetch user name if not exists (for display)
+        let userName = 'N/A';
+        try {
+            const userDoc = await db.collection('users').doc(userId).get();
+            if (userDoc.exists) userName = userDoc.data().name || userDoc.data().username;
+        } catch (e) { }
+
+        return db.runTransaction(async (t) => {
+            const doc = await t.get(ref);
+            let data = doc.exists ? doc.data() : {
+                userId,
+                name: userName,
+                date: dateKey,
+                sessions: []
+            };
+
+            if (!data.sessions) data.sessions = [];
+
+            // Helper to get Start Time from ISO or legacy
+            const newStart = sessionData.checkIn || sessionData.start || new Date().toISOString();
+
+            const newSession = {
+                id: Date.now(),
+                start: newStart,
+                checkIn: sessionData.checkIn,
+                checkOut: sessionData.checkOut || null,
+                type: 'admin_add'
+            };
+
+            data.sessions.push(newSession);
+
+            // Sync top level (last session wins)
+            data.checkIn = newSession.checkIn;
+            data.checkOut = newSession.checkOut;
+            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+
+            t.set(ref, data);
+        });
+    },
+
     getDashboardStats: async () => {
         try {
             // Count Users

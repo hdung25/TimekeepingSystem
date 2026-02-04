@@ -291,12 +291,18 @@ async function renderMonthReport(date) {
 
             // --- NEW: Role Selection Click Handler ---
             if (chip.isClickable) {
+                // Only Admin or Owner (but report is mostly Admin managed now)
+                // Actually openRoleSelect logic checks roles locally, but for creating new session, we need Admin.
+
                 div.style.cursor = 'pointer';
-                // div.style.border = '1px solid currentColor'; // Removed, handled by class
                 div.onclick = (e) => {
-                    console.log("Chip Clicked!", dateStr, chip.sessionData);
                     e.stopPropagation();
-                    openRoleSelectModal(dateStr, chip.sessionData);
+                    if (chip.sessionId) {
+                        openRoleSelectModal(dateStr, chip.sessionData);
+                    } else if (role === 'admin') {
+                        // Creating new session from Registration
+                        openManualModal(dateStr, chip.schedData);
+                    }
                 };
             }
 
@@ -498,7 +504,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         class: 'chip-blue',
                         paidMinutes: 0,
                         tooltip: 'Chưa diễn ra',
-                        sessionId: null
+                        sessionId: null,
+                        schedData: { start: cls.start, end: cls.end }, // Pass times
+                        isClickable: true // Allow Admin to click to pre-fill
                     });
                 } else {
                     chips.push({
@@ -506,7 +514,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         class: 'chip-gray',
                         paidMinutes: 0,
                         tooltip: 'Không có dữ liệu chấm công',
-                        sessionId: null
+                        sessionId: null,
+                        schedData: { start: cls.start, end: cls.end },
+                        isClickable: true
                     });
                 }
             }
@@ -809,6 +819,30 @@ function removeVietnameseTones(str) {
 }
 
 // ================= ADMIN EDIT LOGIC =================
+// ================= ADMIN EDIT LOGIC =================
+function openManualModal(dateKey, preFill = null) {
+    document.getElementById('edit-time-modal').style.display = 'flex';
+    document.getElementById('edit-date-key').value = dateKey;
+    document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
+
+    let startVal = '08:00';
+    let endVal = '10:00';
+
+    if (preFill) {
+        if (preFill.start) startVal = preFill.start;
+        if (preFill.end) endVal = preFill.end;
+    }
+
+    const d = new Date(dateKey); // Local date from string YYYY-MM-DD
+    const isoDate = d.toISOString().split('T')[0];
+    document.getElementById('edit-check-in').value = `${isoDate}T${startVal}`;
+    document.getElementById('edit-check-out').value = `${isoDate}T${endVal}`;
+
+    // Update Mode Title
+    document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
+    document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
+}
+
 function openEditModal(dateKey, sessionId, sessionData) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
@@ -817,10 +851,6 @@ function openEditModal(dateKey, sessionId, sessionData) {
     // Convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
     const toLocalISO = (isoStr) => {
         if (!isoStr) return '';
-        const date = new Date(isoStr);
-        // Adjust to local time zone for input
-        // Using a trick: new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-        // BUT simplistic handling:
         const d = new Date(isoStr);
         const year = d.getFullYear();
         const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -832,6 +862,10 @@ function openEditModal(dateKey, sessionId, sessionData) {
 
     document.getElementById('edit-check-in').value = toLocalISO(sessionData.checkIn || sessionData.start);
     document.getElementById('edit-check-out').value = toLocalISO(sessionData.checkOut);
+
+    // Update Mode Title
+    document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
+    document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
 }
 
 function closeEditModal() {
@@ -841,12 +875,7 @@ function closeEditModal() {
 async function saveEditedTime() {
     const staffId = getTargetStaffId();
     const dateKey = document.getElementById('edit-date-key').value;
-    const sessionId = document.getElementById('edit-session-id').value; // String in hidden input
-
-    // Note: sessionId might be timestamp number or string. DBService expects number usually for ID? 
-    // Wait, original ID is number (Date.now()). But inputs are strings.
-    // We should parse it if it looks like a number.
-    const parsedSessionId = isNaN(sessionId) ? sessionId : Number(sessionId);
+    const sessionIdRaw = document.getElementById('edit-session-id').value;
 
     const checkIn = document.getElementById('edit-check-in').value;
     const checkOut = document.getElementById('edit-check-out').value;
@@ -856,23 +885,31 @@ async function saveEditedTime() {
         return;
     }
 
-    // Convert back to ISO
     const checkInDate = new Date(checkIn);
     const checkOutDate = checkOut ? new Date(checkOut) : null;
 
     const newData = {
         checkIn: checkInDate.toISOString(),
-        start: checkInDate.toISOString(), // Sync legacy field
+        start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null
     };
 
     try {
-        await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
-        alert("Cập nhật thành công!");
+        if (sessionIdRaw === 'NEW') {
+            // CREATE NEW SESSION
+            // We need to fetch current sessions, add new one, and save.
+            await DBService.addSession(staffId, dateKey, newData);
+            alert("Đã tạo ca làm việc mới!");
+        } else {
+            // UPDATE EXISTING
+            const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
+            await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
+            alert("Cập nhật thành công!");
+        }
         closeEditModal();
-        renderMonthReport(currentDate); // Reload
+        renderMonthReport(currentDate);
     } catch (e) {
-        alert("Lỗi cập nhật: " + e.message);
+        alert("Lỗi: " + e.message);
     }
 }
 
