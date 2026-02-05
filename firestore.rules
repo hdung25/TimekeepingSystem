@@ -2,82 +2,37 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- Helper Functions ---
     // Check if user is logged in
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Check if user is "admin"
-    // (Assuming we store role in Custom Claims OR simply check a specific ID/email for simplicity in MVP)
-    // For this system, since roles are in 'users' collection, we might need a get() but that costs money.
-    // OPTIMIZATION: We can trust the client-side 'role' for simple apps IF we validate heavily, 
-    // BUT for security, we should check the 'users' document.
-    function isAdmin() {
-      return isAuthenticated() && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-
-    // --- Collection Rules ---
-
-    // 1. Users (Nhân Sự)
+    // --- SIMPLE & STANDARD RULES ---
+    
+    // 1. Users 
+    // Allow any authenticated user to read any user profile (needed for mapping names/roles)
     match /users/{userId} {
-      // Admin can do anything
-      allow read, write: if isAdmin();
-      
-      // Staff can read their own profile (to see salary config etc.)
-      // Staff CANNOT create/delete users.
-      allow read: if isAuthenticated() && request.auth.uid == userId;
-      
-      // Staff can update their own password/name (Optional, maybe restrict to Admin only?)
-      // For now: Allow update self, but prevent changing 'role' field
-      allow update: if isAuthenticated() && request.auth.uid == userId
-                    && request.resource.data.role == resource.data.role; // Cannot escalate privilege
+      allow read: if isAuthenticated(); 
+      allow write: if isAuthenticated(); // Temporary for Admin updates
     }
 
-    // 2. Attendance Logs (Chấm Công)
+    // 2. Attendance Logs
     match /attendance_logs/{logId} {
-      // Admin has full power (Maintenance/clean up)
-      allow read, write: if isAdmin();
-
-      // Staff permissions
-      // Can read own logs
-      allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || 
-        // Allow querying own logs (resource is null on query, so we check filters)
-        request.auth.uid == request.resource.data.userId
-      );
-
-      // Can create (Check-in)
-      allow create: if isAuthenticated() 
-                    && request.resource.data.userId == request.auth.uid // Must claim correct ID
-                    && request.resource.data.date <= request.time.toMillis(); // Cannot date in future (basic check)
-
-      // Can update (Check-out)
-      allow update: if isAuthenticated() 
-                    && resource.data.userId == request.auth.uid
-                    && request.resource.data.userId == request.auth.uid; // Cannot transfer to another
-
-      // CANNOT DELETE (Only Admin via Archiver)
-      allow delete: if false; 
+      allow read, write: if isAuthenticated();
     }
 
-    // 3. Schedules (Lịch Làm)
+    // 3. Schedules
     match /schedules/{dateId} {
-      // Everyone needs to read schedule
-      allow read: if true; 
-
-      // Only Admin writes schedule structure
-      // BUT staff need to "Register" (Nhận lớp) -> Update specific fields
-      allow write: if isAuthenticated(); 
-      // Note: This is weak. Ideally we validate they only touch 'registeredTeachers'.
-      // For MVP, 'isAuthenticated' is a huge step up from 'true'.
+      allow read, write: if isAuthenticated();
     }
 
-    // 4. System Settings (Cấu hình)
+    // 4. Settings
     match /settings/{docId} {
-      allow read: if true; // Everyone needs to read IP Config/Rules
-      allow write: if isAdmin(); // Only Admin changes settings
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

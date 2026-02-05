@@ -111,7 +111,8 @@ async function handleLogin(e) {
     btn.disabled = true;
 
     try {
-        // Call Cloud Login
+        // Call Secure Cloud Login
+        // DBService.loginUser now throws Error if fail
         const user = await DBService.loginUser(username, password);
 
         if (user) {
@@ -127,14 +128,11 @@ async function handleLogin(e) {
             } else {
                 window.location.href = 'nhan-vien.html';
             }
-        } else {
-            alert('Tên đăng nhập hoặc mật khẩu không đúng!');
-            btn.innerText = originalText;
-            btn.disabled = false;
         }
     } catch (error) {
         console.error(error);
-        alert('Lỗi kết nối: ' + error.message);
+        // Error message is already friendly from DBService
+        alert(error.message);
         btn.innerText = originalText;
         btn.disabled = false;
     }

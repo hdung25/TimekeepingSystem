@@ -24,22 +24,44 @@ const DBService = {
 
     // Các hàm xử lý dữ liệu sẽ được thêm vào dưới đây (getUsers, checkIn, etc.)
     // 3. Authenticate User
-    // 3. Authenticate User & Management
+    // 3. Authenticate User (SECURE MODE)
     loginUser: async (username, password) => {
         try {
-            // Query users collection for matching username and password
+            // 1. Authenticate with Firebase Auth
+            // Auto-append domain for UX (User only types username)
+            const email = `${username}@tuduytre.com`.toLowerCase();
+
+            // This grants the "ID Card" (Token) needed for Rules
+            const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+            const authUser = userCredential.user;
+
+            // 2. Fetch User Profile from Firestore
+            // Now we have permission to read 'users' collection!
+
+            // Try query by username first (legacy compatibility)
+            // Or try finding by ID if we sync IDs. 
+            // In migration, we kept Firestore IDs same. Auth UID might differ? 
+            // Wait, we didn't sync Auth UID to Firestore ID. 
+            // We need to Find the user document that matches this username.
+
             const snapshot = await window.db.collection('users')
                 .where('username', '==', username)
-                .where('password', '==', password)
                 .limit(1)
                 .get();
 
-            if (snapshot.empty) return null;
+            if (snapshot.empty) {
+                // Should not happen if migration was correct
+                throw new Error("Tài khoản xác thực thành công nhưng không tìm thấy dữ liệu hồ sơ!");
+            }
 
             const doc = snapshot.docs[0];
             return { id: doc.id, ...doc.data() };
+
         } catch (error) {
-            console.error("Login Error:", error);
+            console.error("Secure Login Error:", error);
+            if (error.code === 'auth/wrong-password') throw new Error("Sai mật khẩu!");
+            if (error.code === 'auth/user-not-found') throw new Error("Tài khoản không tồn tại!");
+            if (error.code === 'auth/too-many-requests') throw new Error("Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau!");
             throw error;
         }
     },

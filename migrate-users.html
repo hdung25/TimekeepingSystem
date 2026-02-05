@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Chuyển Đổi Dữ Liệu An Ninh - Timekeeping</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f3f4f6;
+            color: #1f2937;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #4F46E5;
+            margin-bottom: 0.5rem;
+        }
+
+        .stats {
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #EEF2FF;
+            border-radius: 8px;
+            display: flex;
+            gap: 2rem;
+            font-weight: bold;
+        }
+
+        button {
+            background: #4F46E5;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background: #4338CA;
+        }
+
+        button:disabled {
+            background: #9CA3AF;
+            cursor: not-allowed;
+        }
+
+        #log {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #111827;
+            color: #10B981;
+            font-family: monospace;
+            height: 300px;
+            overflow-y: auto;
+            border-radius: 8px;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            color: #EF4444;
+        }
+
+        .warning {
+            color: #F59E0B;
+        }
+    </style>
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+    <script src='js/firebase-config.js'></script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🛠️ Công Cụ Chuyển Đổi Bảo Mật</h1>
+        <p>Công cụ này sẽ tự động tạo tài khoản <strong>Firebase Auth</strong> cho toàn bộ nhân viên hiện có trong
+            Database.</p>
+        <div class="stats">
+            <div>Tổng nhân viên: <span id="count-total">...</span></div>
+            <div>Đã xử lý: <span id="count-processed">0</span></div>
+            <div>Lỗi: <span id="count-error" style="color:red">0</span></div>
+        </div>
+        <button id="btn-start" onclick="startMigration()">🚀 Bắt đầu Chuyển Đổi</button>
+        <div id="log">Sẵn sàng...</div>
+    </div>
+
+    <script>
+        // Use a Secondary App to ensure creating users doesn't log out the Admin
+        let secondaryApp;
+
+        function log(msg, type = 'info') {
+            const el = document.getElementById('log');
+            const span = document.createElement('div');
+            span.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            if (type === 'error') span.className = 'error';
+            if (type === 'warning') span.className = 'warning';
+            el.appendChild(span);
+            el.scrollTop = el.scrollHeight;
+        }
+
+        async function startMigration() {
+            const btn = document.getElementById('btn-start');
+            btn.disabled = true;
+            btn.innerText = "Đang xử lý...";
+
+            try {
+                // 1. Initialize Secondary App
+                if (!secondaryApp) {
+                    secondaryApp = firebase.initializeApp(firebaseConfig, "SecondaryApp");
+                }
+                const db = firebase.firestore(); // Main DB
+                const auth = secondaryApp.auth(); // Secondary Auth
+
+                const usersSnap = await db.collection('users').get();
+                document.getElementById('count-total').innerText = usersSnap.size;
+
+                let processed = 0;
+                let errors = 0;
+
+                for (const doc of usersSnap.docs) {
+                    const data = doc.data();
+                    const username = data.username; // Original username (e.g. 'admin')
+                    const password = data.password; // Plaintext password
+
+                    // Firebase Auth requires EMAIL. We generate a fake email format.
+                    // Format: [username]@tuduytre.com
+                    const email = `${username}@tuduytre.com`.toLowerCase();
+
+                    log(`--- Đang xử lý: ${data.name} (${username}) ---`);
+
+                    try {
+                        // Check if exists? Cannot check easily, just try create
+                        // If password too short (Firebase requires 6 chars)
+                        let validPassword = String(password);
+                        if (validPassword.length < 6) {
+                            validPassword = validPassword.padEnd(6, '0');
+                            log(`⚠️ Mật khẩu của ${username} quá ngắn. Đã tự động thêm số 0 -> ${validPassword}`, 'warning');
+                        }
+
+                        await auth.createUserWithEmailAndPassword(email, validPassword);
+                        log(`✅ Đã tạo tài khoản Auth thành công: ${email}`);
+
+                        // Update Firestore Record with Auth Info
+                        // Not strictly needed for login (we match by username/email later) but good for tracing
+                        // await doc.ref.update({ authEmail: email, hasAuth: true });
+
+                    } catch (e) {
+                        if (e.code === 'auth/email-already-in-use') {
+                            log(`ℹ️ Tài khoản đã tồn tại (OK): ${email}`, 'warning');
+                        } else {
+                            log(`❌ Lỗi tạo user ${username}: ${e.message}`, 'error');
+                            errors++;
+                        }
+                    }
+                    processed++;
+                    document.getElementById('count-processed').innerText = processed;
+                    document.getElementById('count-error').innerText = errors;
+
+                    // Small delay to avoid rate limiting
+                    await new Promise(r => setTimeout(r, 500));
+                }
+
+                log("🎉 HOÀN THÀNH TOÀN BỘ QUÁ TRÌNH!", 'info');
+                alert("Đã chuyển đổi xong! Bây giờ anh có thể cập nhật Code Đăng Nhập.");
+
+            } catch (error) {
+                log(`Lỗi hệ thống: ${error.message}`, 'error');
+                btn.disabled = false;
+                btn.innerText = "Thử lại";
+            }
+        }
+    </script>
+</body>
+
+</html>
