@@ -101,8 +101,61 @@ const DBService = {
     // 4. Schedule Management
     getSchedule: async (dateKey) => {
         try {
+            // 1. Try Direct Fetch (Lịch Riêng)
             const doc = await db.collection('schedules').doc(dateKey).get();
-            return doc.exists ? doc.data() : {};
+
+            // Check if document exists AND is not a "Ghost" (empty placeholder)
+            if (doc.exists) {
+                const data = doc.data();
+                // If the user explicitly saved an empty schedule (e.g. deleted all rows), 
+                // it will still have keys like 'morning1' (as empty arrays).
+                // If it's pure empty {}, treat as non-existent -> Fallback.
+                const hasStructure = Object.keys(data).length > 0;
+                if (hasStructure) return data;
+            }
+
+            // 2. Fallback: Find Nearest Neighbor (Lịch Kế Thừa)
+            const manifestDoc = await db.collection('settings').doc('schedule_manifest').get();
+            if (!manifestDoc.exists) return {};
+
+            const manifest = manifestDoc.data();
+
+            // Determine Day of Week (0=Sun, 1=Mon...)
+            const [y, m, d] = dateKey.split('-').map(Number);
+            const localDate = new Date(y, m - 1, d);
+            const dayOfWeek = localDate.getDay();
+            const dayKey = String(dayOfWeek); // Force String Key
+
+            const availableDates = manifest[dayKey] || manifest[dayOfWeek] || [];
+
+            // Find max date < dateKey
+            const pastDates = availableDates.filter(d => d < dateKey);
+
+            if (pastDates.length === 0) return {};
+
+            pastDates.sort().reverse();
+            const neighborDate = pastDates[0];
+
+            console.log(`[Schedule] Inheriting from ${neighborDate} for ${dateKey}`);
+
+            const neighborDoc = await db.collection('schedules').doc(neighborDate).get();
+
+            if (!neighborDoc.exists) return {};
+
+            const templateData = neighborDoc.data();
+
+            // SANITIZATION: Clean up 'registeredTeachers' so they don't carry over
+            Object.keys(templateData).forEach(key => {
+                if (Array.isArray(templateData[key])) {
+                    templateData[key] = templateData[key].map(row => ({
+                        ...row,
+                        registeredTeachers: [] // Reset registrations
+                    }));
+                }
+            });
+
+            return templateData;
+
         } catch (error) {
             console.error("Error getting schedule:", error);
             return {};
@@ -111,11 +164,42 @@ const DBService = {
 
     saveSchedule: async (dateKey, data) => {
         try {
+            // 1. Save the actual schedule data
             await db.collection('schedules').doc(dateKey).set(data);
+
+            // 2. Update Manifest (Fire and forget, or await)
+            await DBService.updateScheduleManifest(dateKey);
+
             return true;
         } catch (error) {
             console.error("Error saving schedule:", error);
             throw error;
+        }
+    },
+
+    updateScheduleManifest: async (dateKey) => {
+        try {
+            const [y, m, d] = dateKey.split('-').map(Number);
+            const localDate = new Date(y, m - 1, d);
+            const dayOfWeek = localDate.getDay();
+            const dayKey = String(dayOfWeek); // Use String Key
+
+            const ref = db.collection('settings').doc('schedule_manifest');
+
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                const data = doc.exists ? doc.data() : {};
+
+                const list = data[dayKey] || [];
+                if (!list.includes(dateKey)) {
+                    list.push(dateKey);
+                    list.sort(); // Keep sorted asc
+                    data[dayKey] = list;
+                    t.set(ref, data, { merge: true });
+                }
+            });
+        } catch (e) {
+            console.warn("Error updating manifest:", e);
         }
     },
 
@@ -127,14 +211,50 @@ const DBService = {
 
             // Use Transaction to ensure atomicity (multiple teachers clicking at once)
             await db.runTransaction(async (transaction) => {
-                const doc = await transaction.get(docRef);
-                if (!doc.exists) throw "Schedule does not exist!";
+                let doc = await transaction.get(docRef);
+                let data;
 
-                const data = doc.data();
+                if (!doc.exists) {
+                    // FALLBACK: Materialize from Template inside Transaction
+                    const manifestDoc = await transaction.get(db.collection('settings').doc('schedule_manifest'));
+                    let templateData = {};
+
+                    if (manifestDoc.exists) {
+                        const manifest = manifestDoc.data();
+                        const [y, m, d] = dateKey.split('-').map(Number);
+                        const localDate = new Date(y, m - 1, d);
+                        const dayOfWeek = localDate.getDay();
+
+                        const availableDates = manifest[dayOfWeek] || [];
+                        const pastDates = availableDates.filter(d => d < dateKey);
+
+                        if (pastDates.length > 0) {
+                            pastDates.sort().reverse();
+                            const neighborDate = pastDates[0];
+                            const neighborDoc = await transaction.get(db.collection('schedules').doc(neighborDate));
+                            if (neighborDoc.exists) templateData = neighborDoc.data();
+                        }
+                    }
+
+                    // Sanitize Template
+                    Object.keys(templateData).forEach(key => {
+                        if (Array.isArray(templateData[key])) {
+                            templateData[key] = templateData[key].map(row => ({
+                                ...row,
+                                registeredTeachers: []
+                            }));
+                        }
+                    });
+
+                    data = templateData;
+                } else {
+                    data = doc.data();
+                }
+
                 const rows = data[caType] || [];
                 const rowIndex = rowMeta.index;
 
-                if (!rows[rowIndex]) throw "Class no longer exists!";
+                if (!rows[rowIndex]) throw "Class no longer exists (or structure changed)!";
 
                 // Init teachers array if null
                 if (!rows[rowIndex].registeredTeachers) {
@@ -156,7 +276,7 @@ const DBService = {
                     });
                 }
 
-                transaction.update(docRef, { [caType]: rows });
+                transaction.set(docRef, data); // Write back full object using SET instead of UPDATE
             });
             return true;
         } catch (error) {

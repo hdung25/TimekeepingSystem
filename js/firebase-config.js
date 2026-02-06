@@ -16,6 +16,24 @@ window.auth = null;
 
 if (typeof firebase !== 'undefined') {
     firebase.initializeApp(firebaseConfig);
+
+    // --- APP CHECK INIT ---
+    // Disable on localhost to avoid reCAPTCHA errors and network blocks
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (firebase.appCheck && !isLocal) {
+        const appCheck = firebase.appCheck();
+        appCheck.activate(
+            new firebase.appCheck.ReCaptchaEnterpriseProvider('6LcM-mAsAAAAANJDIP-izupJvAupsh1V6tccmWzI'),
+            {
+                isTokenAutoRefreshEnabled: true
+            }
+        );
+        console.log("Security: App Check Activated! 🛡️");
+    } else {
+        if (isLocal) console.log("Security: App Check Disabled on Localhost ⚠️");
+    }
+
     window.db = firebase.firestore();
     window.auth = firebase.auth();
     console.log("Firebase initialized successfully!");

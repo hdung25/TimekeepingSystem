@@ -115,22 +115,96 @@ async function handleStaffSubmit(e) {
         role: 'staff' // Default role
     };
 
-    if (isEditing && id) {
-        // Update
-        userPayload.id = id;
-    } else {
+    const isNew = !isEditing || !id;
+
+    if (isNew) {
         // Create
         userPayload.id = 'nv_' + Date.now();
         userPayload.createdAt = new Date().toISOString();
+    } else {
+        // Update
+        userPayload.id = id;
     }
 
+    // AUTH SYNC LOGIC
+    const btn = document.querySelector('#staff-modal .btn-primary');
+    const oldText = btn.innerText;
+    btn.innerText = "Đang xử lý Auth...";
+    btn.disabled = true;
+
     try {
+        if (typeof AuthHelper === 'undefined') {
+            throw new Error("Lỗi hệ thống: AuthHelper chưa được tải.");
+        }
+
+        if (isNew) {
+            // 1. Create in Firebase Auth
+            await AuthHelper.createUser(username, password);
+        } else {
+            // 2. Update/Sync in Firebase Auth
+            // We need the OLD password to login and change to NEW password.
+            // Fetch current DB data to get old password
+            const users = await DBService.getUsers();
+            const oldUser = users.find(u => u.id === id);
+
+            if (oldUser) {
+                // Try to sync/update password
+                await AuthHelper.syncUser(username, oldUser.password, password);
+            }
+        }
+
+        // 3. Save to Firestore
         await DBService.saveUser(userPayload);
-        UIService.toast("Lưu thành công!", "success");
+
+        UIService.toast("Lưu thành công (Đã đồng bộ Tài khoản)!", "success");
         closeModal();
         renderStaffTable();
     } catch (err) {
-        UIService.toast("Lỗi lưu dữ liệu: " + err.message, "error");
+        console.error(err);
+        let msg = err.message;
+
+        // HANDLE ZOMBIE ACCOUNT (Deleted from DB but exists in Auth)
+        if (err.code === 'auth/email-already-in-use') {
+            // Check if user REALLY exists in Firestore
+            const users = await DBService.getUsers();
+            const existingUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+
+            if (existingUser) {
+                msg = "Tên đăng nhập này đã tồn tại trong danh sách nhân viên!";
+            } else {
+                // Not in DB -> It's a "Zombie" Account (Orphaned).
+                // We must "Reclaim" it by verifying we can log in with valid credentials.
+                // Strategy: Try to Sync (Login) with current password (or default).
+                const btn = document.querySelector('#staff-modal .btn-primary');
+                btn.innerText = "Đang khôi phục tài khoản cũ...";
+
+                try {
+                    // Try to Login (Reclaim)
+                    await AuthHelper.syncUser(username, password, password);
+
+                    // If success, user is reclaimed. Proceed to save to Firestore.
+                    await DBService.saveUser(userPayload);
+
+                    UIService.toast("Đã khôi phục tài khoản cũ thành công!", "success");
+                    closeModal();
+                    renderStaffTable();
+                    return; // Done
+                } catch (reclaimErr) {
+                    console.error("Reclaim failed:", reclaimErr);
+                    msg = "Tên đăng nhập này đã tồn tại (Zombie) và mật khẩu không khớp. Vui lòng chọn tên khác.";
+                }
+            }
+        } else if (msg.includes("Mật khẩu hiện tại")) {
+            msg = "Chưa thể cập nhật mật khẩu vì sai pass cũ. Hãy thử tạo mới lại user này.";
+        }
+
+        UIService.toast("Lỗi: " + msg, "error");
+    } finally {
+        const btn = document.querySelector('#staff-modal .btn-primary');
+        if (btn) {
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
     }
 }
 
@@ -138,6 +212,22 @@ async function deleteStaff(id) {
     if (!await UIService.confirm('Bạn có chắc muốn xóa nhân viên này? Dữ liệu lịch sử vẫn còn, nhưng tài khoản sẽ bị vô hiệu hóa.')) return;
 
     try {
+        // Attempt to delete from Auth as well (Cleaner)
+        // We need to fetch the user first to get their username and current password
+        const users = await DBService.getUsers();
+        const user = users.find(u => u.id === id);
+
+        if (user && user.username && user.password) {
+            // Best effort delete from Auth
+            try {
+                if (typeof AuthHelper !== 'undefined') {
+                    await AuthHelper.deleteUser(user.username, user.password);
+                }
+            } catch (authDelErr) {
+                console.warn("Could not auto-delete auth user (expected if password changed)", authDelErr);
+            }
+        }
+
         await DBService.deleteUser(id);
         UIService.toast("Đã xóa nhân viên", "success");
         renderStaffTable();

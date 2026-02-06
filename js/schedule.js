@@ -293,7 +293,7 @@ window.saveScheduleManual = function () {
     if (btn) {
         // Since we save per row action, this might be redundant or could be used to push all data again.
         // For now, let's keep it as a visual confirmation.
-        alert('Dữ liệu đã được lưu tự động khi anh/chị chỉnh sửa.');
+        alert('Dữ liệu đã được lưu thành công! Lịch làm này sẽ được dùng làm mẫu cho các ngày tương lai chưa có lịch.');
     }
 }
 
