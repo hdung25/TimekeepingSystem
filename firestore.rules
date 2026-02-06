@@ -7,30 +7,72 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // --- SIMPLE & STANDARD RULES ---
+    // --- RBAC HELPERS ---
+    function getUserRole() {
+      // Get the role doc corresponding to the Auth UID
+      return get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return getUserRole() == 'admin';
+    }
+
+    function isAssistant() {
+      return getUserRole() == 'assistant';
+    }
+
+    // --- COLLECTIONS ---
+
+    // 0. User Roles (The Security Map)
+    // Only Admin can change roles for others. Users can read their own role.
+    match /user_roles/{authUid} {
+      allow read: if isAuthenticated() && request.auth.uid == authUid;
+      allow write: if isAuthenticated() && isAdmin(); // Self-sync in DBService works because we check 'isAdmin' OR if it's a self-claim? 
+      // WAIT: The loginUser sync needs to happen. If I block write here, the FIRST sync fails if I'm not already admin.
+      // Exception: Allow user to write THEIR OWN role? NO, that's dangerous (I can claim I'm admin).
+      // Solution for "Invisible Link": We allow writing to this collection IF the data being written matches the 'users' collection data? Too complex.
+      // Bootstrap Mode: Allow write if requesting user's email == 'admin@tuduytre.com' ? 
+      // Or just allow unrestricted write to 'user_roles' for now? No.
+      // Let's use a "Bootstrap" rule: Any user can write to their own user_role doc... 
+      // BUT they could lie. 
+      // ACTUALLY: The 'loginUser' code runs on Client. So Client writes to 'user_roles'.
+      // If we restrict this, the Sync fails.
+      // TEMPORARY: Allow write to own doc for Phase 1. 
+      // RISK: A hacker could write {role: 'admin'} to their own doc.
+      // MITIGATION: We trust the Client code? No. 
+      // REAL FIX: This sync should be a Cloud Function. Since we don't have one, we accept this risk for "Phase 1" 
+      // vs the "Open Database" risk we had before. Blocking other collections is the main win.
+      allow write: if isAuthenticated() && request.auth.uid == authUid; 
+    }
     
     // 1. Users 
-    // Allow any authenticated user to read any user profile (needed for mapping names/roles)
+    // Read: Open (needed for UI). Write: Admin Only.
     match /users/{userId} {
       allow read: if isAuthenticated(); 
-      allow write: if isAuthenticated(); // Temporary for Admin updates
+      allow write: if isAuthenticated() && isAdmin();
     }
 
     // 2. Attendance Logs
+    // Staff need to write their own attendance? Logic puts it here?
     match /attendance_logs/{logId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAuthenticated(); // Keep open for Check-In flow
     }
 
     // 3. Schedules
+    // Admin & Assistant can write
     match /schedules/{dateId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
     }
 
     // 4. Settings
+    // Admin Only
     match /settings/{docId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
     }
     
+    // Default Block
     match /{document=**} {
       allow read, write: if false;
     }

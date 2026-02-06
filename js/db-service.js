@@ -55,7 +55,24 @@ const DBService = {
             }
 
             const doc = snapshot.docs[0];
-            return { id: doc.id, ...doc.data() };
+            const userData = { id: doc.id, ...doc.data() };
+
+            // --- SECURITY PHASE 1: ROLE SYNC ---
+            // Write the role to a special collection keyed by Auth UID.
+            // This allows Firestore Rules to easily check: get(.../user_roles/$(request.auth.uid)).data.role
+            try {
+                const roleRef = window.db.collection('user_roles').doc(authUser.uid);
+                await roleRef.set({
+                    role: userData.role || 'staff', // Default to staff
+                    username: userData.username,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                console.log("Security: Role Synced to Auth ID.");
+            } catch (err) {
+                console.warn("Security: Could not sync role (might lack permission yet).", err);
+            }
+
+            return userData;
 
         } catch (error) {
             console.error("Secure Login Error:", error);
