@@ -287,6 +287,16 @@ async function renderMonthReport(date) {
             div.style.alignItems = 'center';
 
             div.innerHTML = `<span>${chip.text}</span>`;
+
+            if (chip.isWarning) {
+                div.innerHTML += `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="#EF4444" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                 `;
+            }
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
             // --- NEW: Role Selection Click Handler ---
@@ -499,24 +509,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // --- CASE B: NO ATTENDANCE ---
                 const classDateTime = new Date(`${dateStr}T${cls.start}`);
                 if (classDateTime > now) {
-                    chips.push({
-                        text: label + ' (Sắp tới)',
-                        class: 'chip-blue',
-                        paidMinutes: 0,
-                        tooltip: 'Chưa diễn ra',
-                        sessionId: null,
-                        schedData: { start: cls.start, end: cls.end }, // Pass times
-                        isClickable: true // Allow Admin to click to pre-fill
-                    });
+                    // User requested to hide future classes (Sắp tới)
+                    // Do nothing
                 } else {
                     chips.push({
-                        text: label + ' (Vắng)',
+                        text: label + ' (Vắng)', // Keep text clean
                         class: 'chip-gray',
                         paidMinutes: 0,
                         tooltip: 'Không có dữ liệu chấm công',
                         sessionId: null,
                         schedData: { start: cls.start, end: cls.end },
-                        isClickable: true
+                        isClickable: true,
+                        isWarning: true // Set flag
                     });
                 }
             }
@@ -559,13 +563,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
 
             chips.push({
-                text: label,
+                text: label, // Keep text clean
                 class: cssClass,
                 paidMinutes: Math.max(0, Math.round(duration)),
                 tooltip: tooltip,
                 sessionId: s.id,
                 sessionData: s,
-                isClickable: isClickable
+                isClickable: isClickable,
+                isWarning: true // Set flag
             });
         }
     });

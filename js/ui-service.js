@@ -92,8 +92,9 @@ window.alert = (msg) => {
 window.switchTab = function (tabId, event) {
     if (event) event.preventDefault();
 
-    // Check if we are on admin.html
-    const isAdminPage = window.location.pathname.includes('admin.html');
+    // Check if we are on admin.html (Robust check via DOM capability)
+    const dashboardTab = document.getElementById('tab-dashboard');
+    const isAdminPage = !!dashboardTab; // If tab-dashboard exists, we are on a page that supports tabs
 
     if (isAdminPage) {
         // 1. Hide all tab contents

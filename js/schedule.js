@@ -38,9 +38,9 @@ function initSchedule() {
     renderDayTabs();
     renderTable();
 
-    // 4. Check for Admin Role to show Save Button
+    // 4. Check for Admin/Assistant Role to show Save Button
     const role = localStorage.getItem('currentRole');
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'assistant') {
         const adminActions = document.getElementById('admin-actions');
         if (adminActions) adminActions.style.display = 'block';
     }
@@ -155,7 +155,7 @@ async function renderTable() {
 
     // Determine Role
     const currentRole = localStorage.getItem('currentRole') || 'staff';
-    const isAdmin = currentRole === 'admin';
+    const isAdmin = currentRole === 'admin' || currentRole === 'assistant'; // Assistant behaves like Admin in Schedule
 
     let html = '';
 

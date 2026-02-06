@@ -28,7 +28,9 @@ async function renderStaffTable() {
             <tr>
                 <td>
                     <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">${user.role === 'admin' ? 'Quản trị viên' : 'Nhân viên'}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">
+                        ${user.role === 'admin' ? 'Quản trị viên' : (user.role === 'assistant' ? 'Trợ Lý' : 'Nhân viên')}
+                    </div>
                 </td>
                 <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
                 <td>${user.password}</td>
@@ -65,7 +67,10 @@ async function renderStaffTable() {
 function openModal() {
     isEditing = false;
     document.getElementById('staff-form').reset();
+    isEditing = false;
+    document.getElementById('staff-form').reset();
     document.getElementById('staff-id').value = '';
+    document.getElementById('staff-role').value = 'staff'; // Default
     document.getElementById('modal-title').innerText = 'Thêm Nhân Viên';
 
     document.getElementById('staff-modal').style.display = 'flex';
@@ -88,7 +93,9 @@ async function editStaff(userId) {
     document.getElementById('staff-id').value = user.id;
     document.getElementById('staff-name').value = user.name || '';
     document.getElementById('staff-username').value = user.username;
+    document.getElementById('staff-username').value = user.username;
     document.getElementById('staff-password').value = user.password;
+    document.getElementById('staff-role').value = user.role || 'staff';
 
     // settings removed
 
@@ -104,6 +111,8 @@ async function handleStaffSubmit(e) {
     const username = document.getElementById('staff-username').value.trim();
     const password = document.getElementById('staff-password').value.trim();
 
+    const role = document.getElementById('staff-role').value;
+
     // Legacy salary fields removed
     const salary_config = {};
 
@@ -112,7 +121,7 @@ async function handleStaffSubmit(e) {
         password,
         name,
         salary_config,
-        role: 'staff' // Default role
+        role: role // Use selected role
     };
 
     const isNew = !isEditing || !id;
