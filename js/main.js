@@ -1,5 +1,9 @@
 // Main Logic for Timekeeping System
 
+// SELF-XSS WARNING
+console.log("%cDừng lại!", "color: red; font-size: 50px; font-weight: bold; text-shadow: 1px 1px 5px black;");
+console.log("%cĐây là tính năng của trình duyệt dành cho các nhà phát triển. Nếu ai đó bảo bạn sao chép-dán nội dung nào đó vào đây để bật một tính năng hoặc 'hack' tài khoản của người khác, thì đó là hành vi lừa đảo và sẽ khiến họ có thể truy cập vào tài khoản của bạn.", "font-size: 18px; color: #333;");
+
 
 async function loadDashboardStats() {
     // Only run on admin page (where stats exist)
