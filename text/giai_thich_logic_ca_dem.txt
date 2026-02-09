@@ -1,28 +1,33 @@
 # GIẢI THÍCH LOGIC: NHẬN LỚP & CA XUYÊN ĐÊM
 
-Bạn vui lòng mô tả cách "Logic Nhận Lớp" giúp giải quyết vấn đề chấm công qua đêm để tôi hiểu rõ hơn và cập nhật tài liệu chính xác.
-
 ## 1. Vấn đề (Ví dụ)
 Giáo viên A nhận lớp có lịch: 22:00 (Ngày 20) đến 01:00 (Ngày 21).
 Khi họ Check-in lúc 22:00, hệ thống ghi nhận vào ngày 20.
 Khi họ Check-out lúc 01:00, thực tế đã là ngày 21.
 
-## 2. Giải pháp hiện tại (Theo ý bạn)
-Làm thế nào hệ thống biết để khớp giờ Check-out của ngày 21 vào ca của ngày 20? 
-(Vui lòng ghi mô tả của bạn bên dưới)
+## 2. Giải pháp hiện tại (ĐÃ ÁP DỤNG TRONG CODE)
 
-...
+Hệ thống sử dụng **Logic Nhận Lớp (Schedule-Based Fallback)** để xử lý trường hợp này mà không cần phức tạp hóa Database:
 
-## 3. Các quy tắc khác
-Có điều gì đặc biệt cần lưu ý về việc "Nhận Lớp" này không?
+1. **Bước 1: Nhận Lớp (Bắt buộc)**
+   - Nhân viên phải bấm nút "Nhận Lớp" cho ca làm việc này trên lịch (Ngày 20).
+   - Hệ thống lưu lại: Ca này bắt đầu 22:00, kết thúc 01:00.
 
+2. **Bước 2: Check-in**
+   - Nhân viên Check-in lúc 22:00 ngày 20. Hệ thống mở một phiên làm việc (Session) cho ngày 20.
 
-admin tạo ca trong xếp lịch 
-sau đó nhân viên thấy lịch đó đúng với lịch của mình nhân viên bấm vào nút nhận lớp
-trường hợp 1 nhân viên check in và check out đúng giờ và có bấm nút nhận lớp trong buổi đó nếu có 2 ca (thì nhân viên sẽ tự check out đúng giờ out của ca thứ 2) ví dụ 7h30 vào ca1 9h ra ca1 9h15 vào ca2 10h45 ra ca2 thì chỉ tính cho nhân viên đó 3 tiếng vì admin đã set cho ca1 là 1g30 ca2 là 1g30 rồi nên cộng lại chỉ có 3h chứ không phải 3h15 "nhân viên vào ca 7h30 ra ca lúc 10h45"
-trường hợp 2 nhân viên check in nhưng quên check out tuy nhiên có nhấn nút nhận lớp từ trước đó thì hệ thống sẽ tự động check out cho nhân viên đó đúng với giờ out của ca mà admin đã set từ lúc xếp lịch ví dụ: nhân viên có bấm nhận lớp từ trước sau đó đến trung tâm check in vào ca 7h30 nhưng quên check out ra ca 10h45 thì hệ thống sẽ tự động check out cho nhân viên đó đúng với giờ out của ca mà admin đã set từ trước đó và đã được nhân viên này bấm nút nhận lớp    
-trường hợp 3 nhân viên quên check in thì nhân viên sẽ tự báo lại cho quản lí qua zalo lúc này quản lí sẽ tự xác minh thủ công và có quyển chỉnh sửa bảng công của nhân viên đó (ví dụ: quản lí vào bảng công của anh A note lại tại lịch đó và chấm công cho anh A thêm đúng với số giờ anh mà anh A đi làm "quản lí tự nhập")
-trường hợp 4 nhân viên bấm vào ca nhưng không hề có bấm nhận nút nhận lớp lúc này sẽ ghi lại công của nhân viên này như bình thường đúng số phút nhân viên này bấm vào ca, ra ca (trường hợp này hãy để thẻ màu để quản lí thấy và tự xử lí thủ công sau đó mới nhập vào bảng công sau)
-trường hợp 5 nhân viên bấm vào ca nhưng không hề có bấm nhận nút nhận lớp  mà lại quên bấm ra ca thì sẽ tính công cho nhân viên này hết số phút trong ngày đó sau đó cho thẻ màu riêng để quản lí thấy được và xử lí thủ công sau 
+3. **Bước 3: Check-out (Hoặc Quên)**
+   - **Trường hợp A (Lý tưởng):** Nhân viên Check-out trước khi qua ngày (ví dụ ca 23:59).
+   - **Trường hợp B (Qua đêm/Quên):** Nếu qua ngày 21, nhân viên mở app sẽ thấy giao diện của ngày 21 (trống trơn, nút "Vào Ca" mới). Họ không thể bấm "Ra Ca" cho ngày 20 được nữa.
+     -> **XỬ LÝ TỰ ĐỘNG:** 
+     - Khi tính lương (Trang Admin/Báo Cáo), hệ thống quét thấy ngày 20 có Check-in lúc 22:00 nhưng KHÔNG có Check-out.
+     - Thay vì báo lỗi, hệ thống **tự động lấy Giờ Kết Thúc của Lớp Đã Nhận (01:00)** làm giờ ra.
+     - Kết quả: Nhân viên vẫn được tính đủ 3 tiếng. Thẻ báo cáo hiện màu Cam (Quên ra) nhưng lương vẫn đủ.
 
-- vậy chúng ta cần thêm chức năng cho quản lí chính là có thể cho quản lí chỉnh sửa giờ làm cho nhân viên 
+## 3. Các quy tắc khác - Đã cập nhật vào Code
+
+- **Quy tắc "Quên Ra Ca"**: Nếu nhân viên có Nhận Lớp và có Check-in, hệ thống mặc định nhân viên làm đủ giờ (trừ khi Admin sửa lại). Điều này bảo vệ quyền lợi nhân viên ca đêm.
+- **Quy tắc "Quên Vào Ca"**: Nếu KHÔNG Check-in, hệ thống coi như Vắng (0 giờ lương), dù có Nhận Lớp hay không. Bắt buộc phải có Check-in để chứng minh có mặt.
+- **Quy tắc "Chỉnh sửa thủ công"**: Admin có quyền sửa giờ trực tiếp trên Báo Cáo nếu nhân viên khiếu nại (có nút ✏️ trên từng thẻ công).
+
+TÓM LẠI: Việc "Nhận Lớp" là chìa khóa để xử lý ca xuyên đêm. Chỉ cần nhân viên Nhận Lớp và Check-in, hệ thống sẽ tự lo phần còn lại.

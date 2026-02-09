@@ -4,14 +4,21 @@
 [ADMIN]
 Username: admin
 Password: 123456
-Role: Quản trị viên (Toàn quyền hệ thống)
+Role ID: admin
+Mô tả: Quản trị viên (Toàn quyền hệ thống: Xếp lịch, Tính lương, Quản lý nhân sự, Bảo trì)
 
-[NHÂN VIÊN 1]
+[NHÂN VIÊN - GIÁO VIÊN]
 Username: nv_nguyenvana
 Password: 123456
-Role: Nhân viên (Chấm công, Xem lịch)
+Role ID: staff (hoặc giao-vien)
+Mô tả: Nhân viên (Chấm công, Xem lịch, Nhận lớp, Xem bảng công cá nhân)
 
-[NHÂN VIÊN 2]
-Username: nv_tranthib
+[NHÂN VIÊN - TRỢ LÝ]
+Username: troly_01
 Password: 123456
-Role: Nhân viên (Chấm công, Xem lịch)
+Role ID: assistant
+Mô tả: Trợ lý (Có quyền như nhân viên + Hỗ trợ Xếp lịch, Chấm công hộ)
+
+[LƯU Ý KỸ THUẬT]
+- Role ID được lưu trong localStorage ('currentRole') và Firestore ('users' collection).
+- Mật khẩu thực tế được quản lý bởi Firebase Auth (Admin dùng 'auth-helper.js' để tạo/reset).

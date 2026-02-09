@@ -668,6 +668,7 @@ function calculateSalary() {
     if (hoursDisplay) hoursDisplay.innerText = "Đang xử lý...";
 
     let filteredMinutes = 0;
+    let filteredSalary = 0; // Accumulate salary based on role rates
     const allChips = window.currentMonthChips || [];
 
     // Debug
@@ -677,8 +678,17 @@ function calculateSalary() {
         // Fallback to pre-calculated total if chips are empty (happens during initial render sometimes)
         if (window.lastTotalMinutes !== undefined && allChips.length === 0) {
             filteredMinutes = window.lastTotalMinutes;
+            // Cannot calculate salary accurately without chips if they are empty, but usually they are not empty if we are here.
+            filteredSalary = 0;
         } else {
-            allChips.forEach(chip => filteredMinutes += (chip.paidMinutes || 0));
+            allChips.forEach(chip => {
+                const minutes = chip.paidMinutes || 0;
+                filteredMinutes += minutes;
+
+                // Calculate Money
+                const rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                filteredSalary += (minutes / 60) * rate;
+            });
         }
     } else {
         const filterType = roleFilter; // normalize var name to match PDF logic copy-paste convenience
@@ -715,7 +725,12 @@ function calculateSalary() {
             }
 
             if (include) {
-                filteredMinutes += (chip.paidMinutes || 0);
+                const minutes = chip.paidMinutes || 0;
+                filteredMinutes += minutes;
+
+                // Calculate Money
+                const rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                filteredSalary += (minutes / 60) * rate;
             }
         });
     }
@@ -732,37 +747,7 @@ function calculateSalary() {
         hoursDisplay.innerText = `${label}${h}h ${m}p`;
     }
 
-    // 4. Calculate Money
-    const rateInput = document.getElementById('salary-rate'); // Legacy support if element exists
-    // Ideally we should use role-based rates, but for now we rely on the input or settings.
-    // NOTE: If using multiple roles, the single "Salary Rate" input is ambiguous. 
-    // However, usually users set a rate for the VIEWED role. 
-
-    // Let's assume the rate in settings is for the filtered role if we are strictly splitting.
-    // Or if the system is simple, it's one rate.
-
-    // Check if we have individual role rates in session data?
-    // We accumulated money in chips? Not yet used. 
-    // Let's stick to: Hours * Rate Input (Simple Model) 
-
-    // Wait, we removed salary-rate input in HTML but it might be in settings? 
-    // The previous code had: `const rate = parseFloat(rateInput.value) || 0;`
-    // But `saveSalarySettings` had `const rate = 0; // Legacy`.
-    // It seems rate is NOT used from input anymore?
-    // User request: "bấm vào gv sẽ hiện tổng giờ làm giáo viên...".
-
-    // Let's just calculate based on hours for now since Rate might be complex.
-    // If there is ANY rate setting, use it.
-
-    // RE-READING `loadSalarySettings`:
-    // `document.getElementById('salary-advance').value = settings.advance || 0;`
-    // Rate is gone. The user is strictly asking for HOURS display ("hiện tại chỉ có tổng số giờ làm").
-    // But `calculateSalary` wants to show money.
-    // Let's try to restore `rate` if it exists in settings, or just leave money as 0 if not provided.
-    // Or maybe the user relies on the Export PDF for money?
-
-    // For now, I will prioritize showing the HOURS correct.
-
+    // 4. Calculate Total Money
     let totalBonus = 0;
     document.querySelectorAll('.eval-amount').forEach(input => {
         totalBonus += parseFloat(input.value) || 0;
@@ -770,13 +755,10 @@ function calculateSalary() {
 
     updateBonusDisplay(totalBonus);
 
-    // If we want to show projected salary, we need a rate. 
-    // Since rate input is hidden/removed in previous cleanup, we assume 0 or handle externally.
-    // I will use a dummy rate of 0 to avoid errors, keeping the math valid.
+    // Store base salary for Export PDF
+    window.currentMonthSalary = filteredSalary;
 
-    const rate = 0;
-    const hoursDecimal = filteredMinutes / 60;
-    const totalSalary = (hoursDecimal * rate) + totalBonus;
+    const totalSalary = filteredSalary + totalBonus;
 
     const finalDisplay = document.getElementById('final-salary-display');
     if (finalDisplay) finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);

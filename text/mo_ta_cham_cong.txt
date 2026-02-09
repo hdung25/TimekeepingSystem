@@ -1,83 +1,54 @@
 MÔ TẢ CHI TIẾT CHỨC NĂNG CHẤM CÔNG VÀ CÁC TRƯỜNG HỢP XỬ LÝ
 ============================================================
 
-Tài liệu này mô tả chi tiết logic hoạt động của hệ thống chấm công hiện tại, bao gồm các quy trình chuẩn và các tình huống ngoại lệ (edge cases) đã được xử lý hoặc có thể xảy ra.
+Tài liệu này mô tả chi tiết logic hoạt động của hệ thống chấm công hiện tại (Phiên bản V2).
 
 PHẦN 1: QUY TRÌNH CHUẨN (HAPPY PATH)
 ------------------------------------
 
 1. Vào Ca (Check-in)
-   - Điều kiện: 
-     + Người dùng đã đăng nhập.
-     + Không có ca làm việc nào đang "mở" (tức là ca trước đó đã Check-out).
-   - Hành động: 
-     + Hệ thống ghi nhận thời gian bắt đầu (Start Time) và lưu vào cơ sở dữ liệu.
-     + Trạng thái chuyển sang "ĐANG TRONG CA".
-   - Dữ liệu: Tạo một bản ghi (session) mới trong ngày hiện tại.
+   - Điều kiện: Địa chỉ IP người dùng trùng khớp IP công ty (Cấu hình trong Hệ Thống).
+   - Hành động: Bấm nút "VÀO CA".
+   - Kết quả: Hệ thống tạo Session mới. Trạng thái chuyển sang "ĐANG TRONG CA".
 
 2. Ra Ca (Check-out)
-   - Điều kiện: 
-     + Người dùng đang ở trạng thái "ĐANG TRONG CA".
-   - Hành động: 
-     + Hệ thống cập nhật thời gian kết thúc (End Time) cho bản ghi hiện tại.
-     + Trạng thái chuyển về "BẮT ĐẦU CA MỚI".
-   - Dữ liệu: Cập nhật trường `checkOut` của session đang mở.
+   - Điều kiện: Đang có ca mở.
+   - Hành động: Bấm nút "RA CA".
+   - Kết quả: Hệ thống chốt giờ kết thúc. Tính toán thời gian làm việc.
 
-3. Xem Lịch sử
-   - Hiển thị danh sách các lượt chấm công trong ngày.
-   - Cho phép xoá các lượt chấm công sai (nút thùng rác). // hiện tại ở nút này có lỗi
+PHẦN 2: XỬ LÝ CÁC TRƯỜNG HỢP NGOẠI LỆ (EXCEPTION HANDLING)
+---------------------------------------------------------
 
-PHẦN 2: CÁC TRƯỜNG HỢP CŨ & NGOẠI LỆ ĐÃ XỬ LÝ
----------------------------------------------
-
-1. Quên Ra Ca (Forgot Check-out) - Cùng Ngày
-   - Tình huống: Sáng Check-in, tối về quên bấm Check-out. Sáng hôm sau (hoặc lúc sau) vào lại.
-   - Xử lý hiện tại: 
-     + Khi người dùng truy cập trang, hệ thống kiểm tra dữ liệu của *ngày hôm đó*.
-     + Nếu phát hiện có ca chưa đóng, màn hình vẫn hiện "ĐANG TRONG CA" với giờ vào cũ.
-     + Người dùng buộc phải bấm "RA CA" để đóng ca đó lại trước khi có thể bắt đầu ca mới.
-
-
-2. Xoá lượt chấm công (Nút Xoá)
-   - Tình huống: Người dùng bấm nhầm Check-in, muốn huỷ bỏ.
-   - Vấn đề cũ: Nút xoá không hoạt động do lỗi kỹ thuật (đã phát hiện lỗi lệch kiểu dữ liệu ID).
-   - Giải pháp: Sửa code để ID khớp nhau, cho phép xoá sạch bản ghi khỏi lịch sử.
-
-PHẦN 3: CÁC TRƯỜNG HỢP MỚI CÓ THỂ XẢY RA (EDGE CASES)
------------------------------------------------------
-
-1. Check-in và Check-out khác ngày (Qua đêm)
-   - Tình huống: Check-in lúc 23:00 ngày 20/10 -> Check-out lúc 02:00 ngày 21/10.
-   - Vấn đề tiềm ẩn: 
-     + Hệ thống hiện tại lưu dữ liệu theo "Ngày" (Date Key: YYYY-MM-DD).
-     + Khi sang ngày 21/10, hệ thống tải dữ liệu của ngày 21/10 -> Không thấy dữ liệu của ngày 20/10.
-     + Người dùng sẽ thấy nút "VÀO CA" thay vì "RA CA".
-   - Nếu người dùng bấm VÀO CA tiếp: Sẽ tạo ra một ca mới của ngày 21/10. Ca cũ của ngày 20/10 sẽ bị treo vĩnh viễn (không có giờ ra).
-   - Giải pháp đề xuất: Khi tải trang, cần kiểm tra cả ngày hôm trước xem có ca nào chưa đóng không.
+1. Quên Ra Ca (Forgot Check-out) & Ca Đêm
+   - Logic: Khi tính lương, hệ thống kiểm tra các Session chưa đóng (Open Sessions).
+   - Nếu thời gian hiện tại đã vượt quá giờ kết thúc lớp học (+30 phút):
+     -> Hệ thống tự động đóng ca ảo.
+     -> Giờ ra = Giờ kết thúc của lớp học (trong Lịch).
+     -> Thẻ hiển thị màu Cam (Cảnh báo).
+   - Lợi ích: Đảm bảo tính lương tự động cho ca đêm hoặc người quên bấm nút.
 
 2. Quên Check-in (Quên Vào Ca)
-   - Tình huống: Làm việc từ 8:00 nhưng quên bấm, đến 10:00 mới nhớ ra.
-   - Xử lý hiện tại: Hệ thống ghi nhận giờ vào là 10:00.
-   - Giải pháp (Chưa có): Cần tính năng "Xin điều chỉnh công" hoặc Admin sửa tay giờ vào trong trang quản lý. // không cần nhé vì quên check in muốn được tính lương thì phải nhắn lại cho quản lí để quản lí xử lí web chúng ta chỉ cần làm những việc theo ý tưởng của tôi thôi có gì tôi sẽ nói cho bạn làm nếu cần sau
+   - Logic: Không có dữ liệu Check-in -> Không có Session.
+   - Kết quả: Hệ thống hiển thị "Vắng" (Thẻ Xám) tại các khung giờ có lịch dạy.
+   - Khắc phục: Admin phải thêm thủ công (Manual Entry) thông qua nút ➕ trên bảng công.
 
-3. Check-in từ thiết bị khác
-   - Tình huống: Check-in trên điện thoại, sau đó mở máy tính để Check-out.
-   - Xử lý: Hoạt động bình thường vì dữ liệu đồng bộ qua Cloud (Firestore). Tuy nhiên, cần đảm bảo mạng ổn định.
+3. Đi Trễ (Late Arrival)
+   - Logic: So sánh Giờ Check-in thực tế với Giờ Bắt đầu của Lớp.
+   - Nếu Trễ: Tính thời gian làm việc thực tế còn lại. Thẻ màu Cam.
+   - Nếu Đúng giờ (hoặc sớm): Tính 100% thời gian lớp học.
 
-4. Mất mạng khi đang Check-out
-   - Tình huống: Bấm nút nhưng mạng rớt.
-   - Xử lý: Nút bấm có thể bị treo hoặc báo lỗi. Dữ liệu sẽ không được lưu. Cần có thông báo lỗi rõ ràng (đã có alert báo lỗi).
-
-PHẦN 4: LOGIC TÍNH LƯƠNG LIÊN QUAN
+PHẦN 3: TÍNH LƯƠNG & ĐÁNH GIÁ
 ----------------------------------
 
-1. Ưu tiên giờ thực tế: Luôn lấy (Giờ Ra - Giờ Vào) làm căn cứ tính lương chính xác nhất.
-2. Xử lý ca treo (Không Check-out):
-   - Nếu một ca không có giờ ra, công thức tính lương sẽ bị lỗi (NaN hoặc 0).
-   - Cần quy định: Nếu quên Check-out, hệ thống sẽ tự động lấy giờ mặc định hoặc báo đỏ để Admin xử lý thủ công.
+1. Công thức lương (Cơ bản):
+   - Tổng Lương = (Tổng Giờ Làm x Lương Giờ) + Thưởng - Phạt.
+   - (Hiện tại hệ thống tập trung hiển thị Tổng Giờ Làm chính xác).
 
-KHUYẾN NGHỊ NÂNG CẤP KỸ THUẬT
------------------------------
-1. [Quan trọng] Sửa lỗi nút Xoá (đang thực hiện).
-2. [Cải tiến] Thêm logic kiểm tra "Ca xuyên đêm" để người dùng có thể check-out ca của ngày hôm trước ngay trên giao diện ngày hôm nay. // không cần nhé vì chúng ta đã giải quyết được nhớ logic nhận lớp rồi bạn chưa hiểu sao nếu chưa hiểu báo lại tôi để tôi giải thích kỹ hãy hỏi tôi nhé đưa tôi 1 cái form để tôi mô tả lại
-3. [Admin] Thêm chức năng sửa giờ trực tiếp cho nhân viên để xử lý các trường hợp quên check-in/out.
+2. Đánh Giá (KPI):
+   - Admin nhập liệu trực tiếp trên bảng lương.
+   - Dữ liệu đánh giá được lưu lại theo Tháng và Nhân Viên.
+
+KHUYẾN NGHỊ VẬN HÀNH
+--------------------
+- Nhân viên NÊN bấm "Nhận Lớp" đầy đủ để hệ thống có căn cứ tính lương khi quên Check-out.
+- Admin nên kiểm tra IP định kỳ nếu thấy nhân viên Check-in từ xa.

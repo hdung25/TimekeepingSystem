@@ -1,51 +1,54 @@
-QUY TRÌNH CHẤM CÔNG & TÍNH LƯƠNG
+QUY TRÌNH CHẤM CÔNG & TÍNH LƯƠNG (CẬP NHẬT)
 ================================================
 
 1. ĐĂNG KÝ LỊCH & CHẤM CÔNG (Dành cho Giáo Viên/Nhân Viên)
 ---------------------------------------------------------
 
-Bước 1: Đăng ký lịch dạy (Trang "Xếp Lịch" / lich-lam.html)
-   - Giáo viên vào trang "Xếp Lịch".
-   - Tìm đến ca dạy của mình.
-   - Bấm nút "Nhận Lớp".
-   - Hệ thống sẽ ghi nhận giáo viên đã đăng ký lớp đó.
-   - (Lưu ý: Nếu Admin đã điền tên giáo viên vào ô "Giáo viên", hệ thống cũng sẽ tự động nhận diện nếu tên trùng khớp). // hãy để cái này phát triển sau
+Bước 1: Đăng ký lịch dạy (Trang "Xếp Lịch")
+   - Giáo viên vào trang "Xếp Lịch".  
+   - Tìm đến ca dạy của mình -> Bấm nút "Nhận Lớp".
+   - **QUAN TRỌNG:** Việc Nhận Lớp giúp hệ thống ghi nhận giờ công chuẩn, đảm bảo tính lương đúng ngay cả khi quên check-out.
 
-Bước 2: Chấm Công Hằng Ngày (Trang "Chấm Công" / cham-cong.html)
+Bước 2: Chấm Công Hằng Ngày (Trang "Chấm Công")
    - Khi đến nơi làm việc: Bấm "Check-in" (Vào Ca).
+     * Yêu cầu: Kết nối đúng Wifi công ty (Hệ thống kiểm tra IP).
    - Khi làm xong: Bấm "Check-out" (Ra Ca).
-   - Hệ thống lưu lại thời gian thực tế (Giờ vào, Giờ ra).
 
-Bước 3: Xem Báo Cáo Cá Nhân (Trang "Bảng Công Cá Nhân" / bao-cao.html)
-   - Giáo viên vào xem lịch sử công của mình trong tháng.
-   - Hệ thống hiển thị lịch dưới dạng các thẻ màu:
-     + Thẻ Xanh Lá (Đã Check-in/out): Hiển thị giờ làm thực tế.
-     + Thẻ Xanh Dương (Đã Nhận Lớp nhưng chưa Check-in hoặc quên Check-out): Hiển thị giờ theo lịch quy định (ví dụ 1h30).
-     + Thẻ Cam (Đang làm việc/Chưa Check-out): Cảnh báo chưa kết thúc ca.
-     (hiện tại các thẻ này tôi thấy chưa cần thiết chúng ta sẽ quay lại làm sau)
-   - Tổng giờ làm = Tổng số phút của tất cả các ô ngày trong cái lịch
+Bước 3: Xem Báo Cáo Cá Nhân (Trang "Bảng Cá Nhân")
+   - Hệ thống hiển thị lịch sử công dưới dạng các thẻ màu (Chips):
+     + **Thẻ Xanh Lá (Full)**: Đã Check-in và Check-out đầy đủ. (Tính theo giờ thực tế).
+     + **Thẻ Cam (Warning)**: 
+       1. Check-in trễ.
+       2. Quên Check-out (Hệ thống tự động tính giờ theo Lịch đã nhận).
+     + **Thẻ Xanh Dương (Running)**: Đang trong ca làm việc.
+     + **Thẻ Xám (Absent)**: Có lịch nhưng không Check-in (Tính là Vắng).
+
+   - Tổng giờ làm = Tổng số phút của tất cả các thẻ (được làm tròn theo giờ).
 
 2. QUẢN LÝ & TÍNH LƯƠNG (Dành cho Admin)
 ----------------------------------------
 
 Bước 1: Quản lý Lịch (Trang "Xếp Lịch")
-   - Admin tạo lớp, chỉnh sửa giờ học, hoặc gán giáo viên trực tiếp (nhập tên). chỗ gắn giáo viên tôi nghĩ là để dưới dạng text thôi được rồi sau 
-   - Có thể xóa hoặc sửa bất kỳ lớp nào.
+   - Admin tạo lớp, chỉnh sửa giờ học.
+   - Có thể gán giáo viên trực tiếp hoặc để trống cho nhân viên tự nhận.
 
-Bước 2: Duyệt Công & Tính Lương (Trang "Tính Lương" / bao-cao.html - giao diện Admin)
-   - Admin chọn nhân viên cần xem từ danh sách thả xuống.
-   - Hệ thống hiển thị bảng công của nhân viên đó (tương tự như nhân viên xem của chính họ).
-   - Bên dưới lịch là "Bảng Đánh Giá & Thưởng Phạt":
-     + Admin nhập số tiền thưởng/phạt cho từng mục (I, II, III...).
-     + Hệ thống tự động cộng dồn vào lương.
-   - Nhập "Mức lương cơ bản" (Lương theo giờ).
-   - "Tổng Lương Thực Nhận" = (Tổng Giờ Làm x Lương Cơ Bản) + Thưởng/Phạt.
-   - Bấm "Lưu Bảng Lương" để lưu lại đánh giá.
+Bước 2: Duyệt Công & Tính Lương (Trang "Tính Lương")
+   - Admin chọn nhân viên cần xem.
+   - Hệ thống tự động tính tổng giờ làm việc dựa trên dữ liệu Chấm công + Lịch.
+   - Bên dưới bảng công là "Bảng Đánh Giá & Thưởng Phạt":
+     + Admin nhập số tiền thưởng/phạt cho 10 tiêu chí (I -> X).
+     + Nhập ghi chú nếu cần.
+   - Tổng Lương dự kiến hiển thị ngay cuối trang.
 
 ---------------------------------------------------------
-CƠ CHẾ KẾT NỐI DỮ LIỆU
-1. Dữ liệu Lịch (Schedules): Lưu trên Cloud (Firestore).
-2. Dữ liệu Chấm Công (Attendance): Lưu trên Cloud (Firestore).
-3. Logic Tính Giờ: 
-   - Ưu tiên giờ chấm công thực tế (Check-in/out).
-   - Nếu không có chấm công nhưng có Lịch (đã Nhận Lớp), hệ thống vẫn ghi nhận giờ theo lịch (chế độ bảo vệ quyền lợi khi quên chấm công, tuy nhiên sẽ hiển thị màu khác để Admin biết). ở chỗ nhận lớp này chỉ giải quyết đúng 1 vấn đề là quên "ra ca" thôi nhé còn nếu người này có quên vào ca thì vẫn không được tính là chấm công
+CƠ CHẾ XỬ LÝ SỰ CỐ (Edge Cases)
+1. **Quên Check-Out / Ca Xuyên Đêm**: 
+   - Hệ thống tự động lấy Giờ Kết Thúc của Lớp (trong mục Xếp Lịch) làm giờ ra.
+   - Nhân viên không bị mất lương, Admin không cần sửa tay (trừ khi nhân viên về sớm).
+
+2. **Quên Check-In**:
+   - Hệ thống ghi nhận là VẮNG (0 giờ).
+   - Nhân viên cần báo Admin để Admin dùng chức năng "Chấm Công Thủ Công" (nút ➕ trên lịch) để thêm giờ cho nhân viên.
+
+3. **Sai Giờ / Khiếu Nại**:
+   - Admin bấm vào icon Bút Chì (✏️) trên thẻ công để sửa lại giờ Vào/Ra cho đúng thực tế.

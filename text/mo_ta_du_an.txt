@@ -6,18 +6,16 @@ I. ĐIỂM SÁNG CỦA DỰ ÁN (PROJECT HIGHLIGHTS)
 Hệ thống này không chỉ là một phần mềm chấm công truyền thống (chỉ ghi nhận giờ vào/ra), mà được thiết kế riêng biệt để giải quyết các bài toán đặc thù của trung tâm giáo dục/dịch vụ với đội ngũ nhân sự linh động.
 
 1. TƯ DUY "LINH HOẠT CÓ KIỂM SOÁT" (Flexible Control):
-   - Thay vì ép buộc Admin phải xếp lịch cứng nhắc cho từng người, hệ thống cho phép nhân viên tự chủ động "Nhận Lớp" (Claim System) tương tự như các app công nghệ (Grab/Uber).
-   - Admin chỉ cần lên khung thời gian, nhân viên tự đăng ký. Điều này giảm 90% thời gian quản lý lịch thủ công và tránh xung đột giờ dạy.
+   - Thay vì ép buộc Admin phải xếp lịch cứng nhắc cho từng người, hệ thống cho phép nhân viên tự chủ động "Nhận Lớp" (Claim System).
+   - Admin lên khung thời gian, nhân viên tự đăng ký. Giảm thời gian quản lý lịch thủ công.
 
-2. CƠ CHẾ TÍNH LƯƠNG "THÔNG MINH & NHÂN VĂN":
-   - Hệ thống tự động xử lý các tình huống "quên": Quên chấm công ra về? Hệ thống tự động tính lương theo lịch dạy (tránh thiệt thòi cho nhân viên).
-   - Cơ chế khuyến khích văn hóa đúng giờ: Tự động phát hiện nhân viên đến sớm để chuẩn bị (trước 9 phút) và thưởng cố định 10 phút vào công làm việc. Đây là tính năng tinh tế giúp xây dựng văn hóa làm việc chuyên nghiệp mà không cần nhắc nhở.
+2. CƠ CHẾ TÍNH LƯƠNG "THÔNG MINH":
+   - Hệ thống tự động xử lý các tình huống "quên": Quên chấm công ra về? Hệ thống tự động tính lương dựa trên giờ kết thúc của lớp học đã nhận. (Logic hiển thị trong Bảng Công).
+   - [Đang phát triển] Cơ chế thưởng đến sớm: Tự động thưởng 10 phút nếu check-in sớm 9 phút. (Hiện tại: Hệ thống ghi nhận giờ thực tế, Admin có thể thưởng tay qua mục Đánh Giá).
 
 3. BẢO MẬT & CHÍNH XÁC CAO:
-   - Chặn chấm công ảo: Tích hợp giới hạn IP mạng Wifi văn phòng. Nhân viên bắt buộc phải có mặt tại trung tâm, kết nối mạng công ty mới có thể bấm "Vào Ca".
-
-4. CÔNG NGHỆ REAL-TIME (THỜI GIAN THỰC):
-   - Dữ liệu đồng bộ tức thì lên Cloud. Admin ngồi ở nhà cũng thấy ngay lập tức ai vừa vào ca, ai đang dạy lớp nào.
+   - Chặn chấm công ảo: Tích hợp kiểm tra IP mạng Wifi văn phòng. (Admin cấu hình IP trong Cài đặt).
+   - Dữ liệu Real-time trên Cloud (Firestore).
 
 --------------------------------------------------------------------------------
 
@@ -25,53 +23,35 @@ II. CHI TIẾT CÁC CHỨC NĂNG & KỊCH BẢN SỬ DỤNG (USE CASES)
 --------------------------------------------------------------------------------
 
 1. PHÂN HỆ XẾP LỊCH & NHẬN LỚP (SMART SCHEDULING)
-   * Mục tiêu: Xóa bỏ file Excel chấm công rối rắm.
-   
-   - Trường hợp A: Admin xếp lịch cứng (truyền thống)
-     + Admin điền tên "Thầy Dũng" vào cột GV. Hệ thống ghi nhận đây là lớp của Dũng.
-   
-   - Trường hợp B: Nhân viên tự nhận lớp (Hiện đại)
-     + Admin để trống tên GV hoặc ghi chú.
-     + Nhân viên (ví dụ: Đạt) dùng điện thoại xem lịch trống và bấm "Nhận Lớp".
-     + Hệ thống ngay lập tức khóa lớp đó lại, hiện tên Đạt và thông báo cho mọi người biết lớp đã có chủ.
-     + Khi tính lương, lớp này tự động chạy về bảng lương của Đạt (kể cả khi Admin lỡ ghi tên người khác trước đó). -> Ưu tiên thực tế hơn kế hoạch.
+   - Admin tạo lịch trống hoặc gán cứng GV.
+   - Nhân viên (Staff/Assistant) xem lịch và bấm "Nhận Lớp".
+   - Hệ thống ghi nhận giáo viên chính thức cho lớp đó (Ưu tiên tính lương cho người đăng ký).
 
 2. PHÂN HỆ CHẤM CÔNG (SMART ATTENDANCE)
-   * Mục tiêu: Chính xác từng phút nhưng vẫn linh động.
-
-   - Trường hợp A: Chấm công chuẩn
-     + Nhân viên đến, kết nối Wifi công ty -> Bấm "Vào Ca".
-     + Khi về -> Bấm "Ra Ca".
-     + Lương = (Giờ ra - Giờ vào) thực tế.
-
-   - Trường hợp B: Quên bấm "Ra Ca" (Rất hay gặp)
-     + Hệ thống phát hiện có Giờ vào nhưng thiếu Giờ ra.
-     + Xử lý: Tự động lấy "Giờ kết thúc của lớp học" làm giờ ra.
-     + Kết quả: Nhân viên vẫn được trả lương đầy đủ cho buổi dạy đó. Admin không cần sửa tay.
-
-   - Trường hợp C: Đi sớm chuẩn bị bài (Cơ chế thưởng 10p)
-     + Ví dụ: Lớp học bắt đầu lúc 09:15.
-     + Tình huống 1: Nhân viên đến lúc 09:06 (Sớm 9 phút).
-       -> Hệ thống thưởng nóng: Tính lương bắt đầu từ 09:05 (Cộng 10p).
-     + Tình huống 2: Nhân viên đến lúc 09:07 (Sớm 8 phút).
-       -> Hệ thống ghi nhận nỗ lực nhưng tính lương từ 09:15 (Đúng giờ).
-     + Tác dụng: Khuyến khích nhân viên đến sớm hẳn 10-15p để chỉn chu giáo án, thay vì đến sát nút.
+   - Happy Path: Check-in -> Làm việc -> Check-out.
+   - Quên Check-out: 
+     + Hệ thống phát hiện qua so sánh giờ hiện tại với giờ kết thúc lớp (+30 phút).
+     + Tự động tính đủ giờ dạy trong Báo Cáo (hiển thị thẻ màu Cam "Quên ra").
+   - Ca Xuyên Đêm (Night Shift):
+     + Hiện tại hỗ trợ tính giờ qua cơ chế "Nhận Lớp". Nếu quên check-out hoặc qua ngày không thấy nút check-out, hệ thống vẫn tính công dựa trên giờ lịch đã đăng ký.
 
 3. PHÂN HỆ TÍNH LƯƠNG & ĐÁNH GIÁ (PAYROLL & KPI)
-   * Mục tiêu: Minh bạch hóa thu nhập.
-
    - Bảng lương tự động:
-     + Cuối tháng, Admin chỉ cần vào xem. Hệ thống đã cộng tổng phút làm việc, nhân với đơn giá lương cứng.
-     + Tự động liệt kê các buổi dạy: Buổi nào check-in đầy đủ (màu xanh), buổi nào quên check-out (màu cam), buổi nào chỉ nhận lịch mà không đi làm (màu đỏ - không tính lương).
-
-   - Tích hợp Đánh Giá KPI (Điểm mới):
-     + Ngay bên cạnh bảng lương là bảng đánh giá 10 tiêu chí (Chuyên cần, Tác phong, Chuyên môn...).
-     + Admin có thể nhập thưởng/phạt nóng ngay tại đây. Tổng lương thực nhận sẽ biến động theo đánh giá này.
+     + Tổng hợp Chips (Thẻ công) từ dữ liệu chấm công + dữ liệu lịch.
+     + Hiển thị trực quan: Xanh (Đủ), Cam (Thiếu/Trễ), Xám (Vắng).
+   - Tích hợp Đánh Giá KPI (Admin Only):
+     + Bảng đánh giá 10 tiêu chí (Chuyên cần, Tác phong...).
+     + Cho phép nhập Thưởng/Phạt tiền nóng.
+     + Cho phép ghi chú (Note) cho từng mục.
 
 4. HỆ THỐNG QUẢN TRỊ (ADMIN CONTROL)
-   - Cài đặt IP: Admin tự lấy IP mạng tại trung tâm và khóa lại. Đảm bảo 100% nhân viên đang ở nơi làm việc khi chấm công.
-   - Đồng bộ Cloud: Cơ chế 1 nút bấm để sao lưu toàn bộ dữ liệu máy cục bộ lên đám mây, đảm bảo an toàn dữ liệu tuyệt đối.
+   - Dashboard thống kê: Xem ai đang làm việc (Real-time), Hoạt động gần đây.
+   - Quản lý Nhân sự: Thêm/Sửa/Xóa tài khoản.
+   - Bảo trì (Maintenance): Quét và dọn dẹp dữ liệu cũ (Archive) để tăng tốc độ hệ thống.
+   - Chế độ "View As": Admin có thể chuyển đổi giao diện sang Nhân viên để kiểm tra.
 
 --------------------------------------------------------------------------------
-TỔNG KẾT:
-Dự án này là giải pháp chuyển đổi số toàn diện cho mô hình quản lý nhân sự giáo dục, thay thế hoàn toàn việc quản lý bằng niềm tin hoặc giấy tờ thủ công sang quản lý bằng Số liệu và Quy trình tự động.
+TRẠNG THÁI HIỆN TẠI:
+- Các chức năng Core (Chấm công, Nhận lớp, Tính lương, Đánh giá) đã HOÀN THIỆN.
+- Logic IP Check: Đã hoạt động.
+- Logic Ca đêm: Xử lý qua fallback Lịch đăng ký.

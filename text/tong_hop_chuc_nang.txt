@@ -1,0 +1,54 @@
+TỔNG HỢP CÁC CHỨC NĂNG ĐÃ HOÀN THIỆN & ĐANG SỬ DỤNG
+===================================================
+
+Dưới đây là danh sách các tính năng đã được kiểm tra và xác nhận đang hoạt động ổn định trên hệ thống (Timekeeping System V2).
+
+1. PHÂN HỆ HỆ THỐNG & BẢO MẬT
+-----------------------------
+- [x] **Đăng nhập / Đăng xuất**: Sử dụng Firebase Authentication bảo mật.
+- [x] **Phân quyền người dùng**:
+  + **Admin**: Toàn quyền cấu hình, xem báo cáo, quản lý nhân sự.
+  + **Assistant (Trợ lý)**: Hỗ trợ xếp lịch, chấm công, xem báo cáo chung.
+  + **Staff (Nhân viên/Giáo viên)**: Chỉ xem lịch cá nhân, chấm công, nhận lớp.
+- [x] **Kiểm tra IP (Wifi Check)**: Chỉ cho phép chấm công khi kết nối đúng mạng tại văn phòng (Admin cấu hình trong Hệ Thống).
+- [x] **Chuyển đổi vai trò (View As)**: Admin có thể chuyển sang giao diện Nhân viên để kiểm tra hiển thị.
+
+2. PHÂN HỆ CHẤM CÔNG (Giáo Viên/Nhân Viên)
+------------------------------------------
+- [x] **Check-in / Check-out**: Ghi nhận giờ vào/ra thực tế theo thời gian thực (Real-time).
+- [x] **Nhận Lớp (Claim Class)**: 
+  + Nhân viên xem lịch dạy trống và bấm "Nhận Lớp".
+  + Hệ thống ghi nhận quyền dạy cho nhân viên đó.
+- [x] **Logic tự động đóng ca**:
+  + Nếu quên Check-out, hệ thống tự động tính giờ dựa trên giờ kết thúc lớp học (hiển thị thẻ Cam).
+- [x] **Báo cáo cá nhân**: Xem lịch sử chấm công, tổng giờ làm trong ngày/tháng.
+
+3. PHÂN HỆ XẾP LỊCH (Admin/Trợ Lý)
+----------------------------------
+- [x] **Quản lý Lịch dạy**: Tạo, Sửa, Xóa các ca dạy.
+- [x] **Phân công Giáo viên**: Gán trực tiếp giáo viên vào lớp hoặc để trống cho giáo viên tự nhận.
+- [x] **Trạng thái lớp học**: Hiển thị rõ lớp đã có người nhận (Màu xanh) hay chưa (Màu trắng).
+
+4. PHÂN HỆ TÍNH LƯƠNG & BÁO CÁO (Admin)
+---------------------------------------
+- [x] **Bảng Công Tổng Hợp**: 
+  + Xem chi tiết chấm công của từng nhân viên theo tháng.
+  + Hệ thống Thẻ Màu (Chips) trực quan:
+    * 🟢 Xanh: Đủ công.
+    * 🟠 Cam: Trễ / Quên ra.
+    * ⚪ Xám: Vắng.
+- [x] **Tính Tổng Giờ Làm**: Tự động cộng tổng số phút làm việc hợp lệ.
+- [x] **Đánh Giá KPI**:
+  + Bảng đánh giá 10 tiêu chí (Chuyên cần, Tác phong...) ngay trên bảng lương.
+  + Nhập tiền Thưởng/Phạt và Ghi chú cho từng mục.
+- [x] **Chỉnh sửa công (Manual Edit)**: Admin có thể sửa giờ vào/ra cho nhân viên nếu có sai sót.
+
+5. CÁC TIỆN ÍCH KHÁC
+--------------------
+- [x] **Dashboard (Bảng điều khiển)**: Thống kê số lượng nhân viên, ai đang làm việc (Real-time).
+- [x] **Ghi chú (Note)**: Nhân viên/Admin có thể ghi chú vào từng ngày trên lịch.
+- [x] **Bảo trì dữ liệu (Archive)**: Quét và sao lưu dữ liệu cũ ra file CSV để giảm tải cho hệ thống.
+- [x] **Đồng hồ thời gian thực**: Hiển thị giờ server chính xác.
+
+---------------------------------------------------
+Ghi chú: Các tính năng trên đã được đồng bộ hóa với tài liệu hướng dẫn sử dụng.
