@@ -1,0 +1,146 @@
+=====================================================
+  BẢNG TEST CASES CHẤM CÔNG — ĐIỀN ĐẦY ĐỦ CÁC TRƯỜNG HỢP
+=====================================================
+
+Hướng dẫn: 
+- Điền vào cột [Kết quả mong đợi] → hệ thống NÊN xử lý thế nào
+- Điền vào cột [Ghi chú] → bổ sung nếu cần
+- Thêm trường hợp mới nếu thiếu
+
+=====================================================
+A. VÀO CA (CHECK-IN)
+=====================================================
+
+A1. Vào ca ĐÚNG GIỜ + CÓ lớp trong lịch
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+A2. Vào ca ĐÚNG GIỜ + KHÔNG có lớp trong lịch
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+A3. Vào ca TRỄ + CÓ lớp trong lịch
+    → Kết quả mong đợi: 
+    → Ghi chú: (Trễ bao nhiêu phút thì tính trễ?)
+
+A4. Vào ca TRỄ + KHÔNG có lớp trong lịch  
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+A5. Vào ca khi CHƯA đến giờ làm (quá sớm)
+    → Kết quả mong đợi: 
+    → Ghi chú: (Có giới hạn giờ sớm nhất không?)
+
+A6. Vào ca khi đang CÓ CA MỞ (chưa Ra Ca)
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+A7. Vào ca từ IP KHÔNG được phép (WiFi khác/4G)
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+A8. Vào ca buổi 2 (chiều) sau khi đã Ra Ca buổi sáng
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+A9. Vào ca buổi 3 (tối) sau khi đã Ra Ca buổi chiều
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+=====================================================
+B. RA CA (CHECK-OUT)
+=====================================================
+
+B1. Ra ca ĐÚNG GIỜ (hết giờ lớp)
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+B2. Ra ca SỚM hơn giờ kết thúc
+    → Kết quả mong đợi: 
+    → Ghi chú: (Sớm bao nhiêu phút thì tính về sớm?)
+
+B3. Ra ca TRỄ hơn giờ kết thúc (ở lại thêm)
+    → Kết quả mong đợi: 
+    → Ghi chú: (Có tính tăng ca không?)
+
+B4. Ra ca khi CHƯA Vào Ca (chưa có ca mở)
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+B5. QUÊN Ra Ca (không bấm cả ngày)
+    → Kết quả mong đợi: 
+    → Ghi chú: (Có tự động ra ca không? Lúc mấy giờ?)
+
+=====================================================
+C. NHẬN LỚP
+=====================================================
+
+C1. Nhận lớp TRƯỚC giờ dạy
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+C2. Nhận lớp ĐÚNG LÚC đang dạy
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+C3. Nhận lớp SAU giờ dạy (lớp đã kết thúc)
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+C4. HỦY nhận lớp (đã nhận rồi muốn hủy)
+    → Kết quả mong đợi: 
+    → Ghi chú: (Có giới hạn thời gian hủy không?)
+
+C5. NHIỀU người nhận CÙNG 1 lớp
+    → Kết quả mong đợi: 
+    → Ghi chú: (Có giới hạn số người không?)
+
+C6. Nhận lớp nhưng KHÔNG Vào Ca
+    → Kết quả mong đợi: 
+    → Ghi chú: (Nhận lớp có bắt buộc phải chấm công không?)
+
+=====================================================
+D. TRƯỜNG HỢP ĐẶC BIỆT
+=====================================================
+
+D1. Nhân viên làm ca đêm (qua 12h đêm)
+    → Kết quả mong đợi: 
+    → Ghi chú: (Có ca đêm không?)
+
+D2. Ngày lễ / Ngày nghỉ nhưng vẫn đi làm
+    → Kết quả mong đợi: 
+    → Ghi chú: (Tính lương khác không?)
+
+D3. Staff tự sửa giờ chấm công
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+D4. Admin sửa/thêm ca cho nhân viên
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+D5. (Thêm trường hợp khác nếu có)
+    → Kết quả mong đợi: 
+    → Ghi chú: 
+
+=====================================================
+E. TÍNH GIỜ & LƯƠNG
+=====================================================
+
+E1. Tính tổng giờ làm trong ngày (nhiều ca)
+    → Cách tính mong đợi: 
+    → Ghi chú: 
+
+E2. Tính lương theo giờ
+    → Cách tính mong đợi: 
+    → Ghi chú: (Có phân biệt role lương khác nhau không?)
+
+E3. Tính lương ngày lễ
+    → Cách tính mong đợi: 
+    → Ghi chú: (Hệ số bao nhiêu?)
+
+E4. (Thêm trường hợp khác nếu có)
+    → Cách tính mong đợi: 
+    → Ghi chú: 
+
+=====================================================

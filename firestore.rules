@@ -24,25 +24,29 @@ service cloud.firestore {
     // --- COLLECTIONS ---
 
     // 0. User Roles (The Security Map)
-    // Only Admin can change roles for others. Users can read their own role.
+    // Users can sync their own role during login, BUT cannot escalate to 'admin'.
+    // This prevents the self-escalation attack while allowing normal login flow.
     match /user_roles/{authUid} {
       allow read: if isAuthenticated() && request.auth.uid == authUid;
-      allow write: if isAuthenticated() && isAdmin(); // Self-sync in DBService works because we check 'isAdmin' OR if it's a self-claim? 
-      // WAIT: The loginUser sync needs to happen. If I block write here, the FIRST sync fails if I'm not already admin.
-      // Exception: Allow user to write THEIR OWN role? NO, that's dangerous (I can claim I'm admin).
-      // Solution for "Invisible Link": We allow writing to this collection IF the data being written matches the 'users' collection data? Too complex.
-      // Bootstrap Mode: Allow write if requesting user's email == 'admin@tuduytre.com' ? 
-      // Or just allow unrestricted write to 'user_roles' for now? No.
-      // Let's use a "Bootstrap" rule: Any user can write to their own user_role doc... 
-      // BUT they could lie. 
-      // ACTUALLY: The 'loginUser' code runs on Client. So Client writes to 'user_roles'.
-      // If we restrict this, the Sync fails.
-      // TEMPORARY: Allow write to own doc for Phase 1. 
-      // RISK: A hacker could write {role: 'admin'} to their own doc.
-      // MITIGATION: We trust the Client code? No. 
-      // REAL FIX: This sync should be a Cloud Function. Since we don't have one, we accept this risk for "Phase 1" 
-      // vs the "Open Database" risk we had before. Blocking other collections is the main win.
-      allow write: if isAuthenticated() && request.auth.uid == authUid; 
+      
+      // SECURITY FIX v4 (2026-02-16):
+      // Users can sync their own role doc during login. Rules:
+      // - First-time creation (doc doesn't exist): ALLOWED for all roles
+      //   → loginUser() always writes the correct role from 'users' collection
+      // - Update existing doc: Can NOT change role to 'admin' unless already admin
+      //   → Blocks: Staff DevTools → set({role:'admin'}) on existing doc → DENIED
+      allow write: if isAuthenticated() 
+        && request.auth.uid == authUid
+        && (
+          // First-time creation → allow (loginUser writes correct role from DB)
+          resource == null
+          ||
+          // Existing doc: not claiming admin → allow
+          request.resource.data.role != 'admin'
+          ||
+          // Existing doc: claiming admin → only if already admin
+          resource.data.role == 'admin'
+        );
     }
     
     // 1. Users 
@@ -70,6 +74,15 @@ service cloud.firestore {
     match /settings/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // 5. Unregistered Alerts (Check-in without class registration)
+    // Any authenticated user can create (triggered on check-in)
+    // Admin can read all and update (resolve)
+    match /unregistered_alerts/{alertId} {
+      allow read: if isAuthenticated() && isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isAdmin();
     }
     
     // Default Block

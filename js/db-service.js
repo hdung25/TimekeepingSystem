@@ -877,5 +877,63 @@ const DBService = {
             console.error("Error getting stats:", error);
             throw error;
         }
+    },
+
+    // ========== UNREGISTERED ALERTS ==========
+
+    // Create alert when staff checks in without registering for any class
+    createUnregisteredAlert: async (userId, userName, dateKey, checkInTime) => {
+        try {
+            const alertId = `${dateKey}_${userId}`;
+            const ref = db.collection('unregistered_alerts').doc(alertId);
+
+            // Only create if not already exists for today
+            const existing = await ref.get();
+            if (existing.exists) return; // Already alerted today
+
+            await ref.set({
+                userId: userId,
+                userName: userName,
+                date: dateKey,
+                checkIn: checkInTime,
+                resolved: false,
+                resolvedBy: null,
+                resolvedAt: null,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log("[Alert] Created unregistered check-in alert for", userName);
+        } catch (e) {
+            console.warn("[Alert] Error creating alert:", e);
+        }
+    },
+
+    // Get unresolved alerts for admin dashboard
+    getUnregisteredAlerts: async () => {
+        try {
+            const snapshot = await db.collection('unregistered_alerts')
+                .where('resolved', '==', false)
+                .orderBy('createdAt', 'desc')
+                .limit(20)
+                .get();
+
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (e) {
+            console.warn("[Alert] Error getting alerts:", e);
+            return [];
+        }
+    },
+
+    // Admin resolves an alert
+    resolveAlert: async (alertId, adminName) => {
+        try {
+            await db.collection('unregistered_alerts').doc(alertId).update({
+                resolved: true,
+                resolvedBy: adminName,
+                resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (e) {
+            console.error("[Alert] Error resolving:", e);
+            throw e;
+        }
     }
 };

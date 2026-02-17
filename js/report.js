@@ -875,7 +875,11 @@ function getTargetStaffId() {
     const role = localStorage.getItem('currentRole');
     if (role === 'admin') {
         const select = document.getElementById('staff-select');
-        return select.value === 'all' ? 'admin' : select.value;
+        // Handle missing staff-select (e.g., on nhan-vien.html in admin view)
+        if (!select) {
+            return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
+        }
+        return select.value === 'all' ? localStorage.getItem('currentUserId') : select.value;
     } else {
         return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
     }
@@ -1261,21 +1265,23 @@ async function renderDebugInfo(staffId, year, month) {
 // ================= ROLE SELECTION LOGIC =================
 async function openRoleSelectModal(dateKey, session) {
     const staffId = getTargetStaffId();
+    console.log("[RoleSelect] Looking up staffId:", staffId);
 
     // Fetch User Roles
     let roles = [];
     try {
         const users = await DBService.getUsers();
         const user = users.find(u => u.id === staffId);
+        console.log("[RoleSelect] User found:", user ? user.name : 'NOT FOUND', "salary_config:", user?.salary_config);
         if (user && user.salary_config && user.salary_config.roles) {
             roles = user.salary_config.roles;
         }
     } catch (e) {
-        console.error(e);
+        console.error("[RoleSelect] Error fetching users:", e);
     }
 
     if (roles.length === 0) {
-        alert("Bạn chưa được cấu hình Vai trò (Role). Vui lòng liên hệ Admin!");
+        alert(`Chưa có cấu hình Vai trò cho nhân viên này. [staffId: ${staffId}]`);
         return;
     }
 

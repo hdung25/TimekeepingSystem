@@ -12,6 +12,71 @@ document.addEventListener('DOMContentLoaded', () => {
 function initTimekeeping() {
     renderGlobalCheckIn();
     renderTodayClasses();
+
+    // Auto-checkout: check every 60 seconds if registered class has ended
+    checkAutoCheckout(); // Run once immediately
+    setInterval(checkAutoCheckout, 60 * 1000); // Then every 60s
+}
+
+// Auto Ra Ca: If user has open session and registered class has ended → auto checkout
+async function checkAutoCheckout() {
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (!currentUserId) return;
+
+    const now = new Date();
+    const dateKey = getLocalDateKey(now);
+
+    try {
+        // 1. Check if user has an open session
+        const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);
+        if (!attendance) return;
+        const sessions = attendance.sessions || [];
+        const openSession = sessions.find(s => !s.checkOut);
+        if (!openSession) return; // No open session → nothing to auto-close
+
+        // 2. Get today's schedule and find registered classes
+        const schedule = await DBService.getSchedule(dateKey);
+        if (!schedule) return;
+
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        let latestEndTime = null;
+
+        sections.forEach(sec => {
+            if (schedule[sec]) {
+                schedule[sec].forEach(cls => {
+                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
+                    if (!isRegistered) return;
+
+                    const classEnd = new Date(`${dateKey}T${cls.end}`);
+                    // Find the latest class end time among registered classes
+                    if (!latestEndTime || classEnd > latestEndTime) {
+                        latestEndTime = classEnd;
+                    }
+                });
+            }
+        });
+
+        if (!latestEndTime) return; // No registered classes → don't auto-checkout
+
+        // 3. If current time >= latest registered class end time → auto checkout
+        if (now >= latestEndTime) {
+            console.log(`[AutoCheckout] Class ended at ${latestEndTime.toLocaleTimeString()}. Auto checking out...`);
+
+            await DBService.checkOutPersonal(currentUserId);
+
+            // Show toast notification
+            if (typeof UIService !== 'undefined' && UIService.toast) {
+                UIService.toast("Đã tự động Ra Ca (hết giờ lớp đã nhận)", "success");
+            }
+
+            // Refresh UI
+            if (typeof renderGlobalCheckIn === 'function') {
+                await renderGlobalCheckIn();
+            }
+        }
+    } catch (e) {
+        console.warn("[AutoCheckout] Error:", e);
+    }
 }
 
 function getLocalDateKey(date) {
@@ -153,26 +218,20 @@ function renderTodayClasses() {
 
     const today = new Date();
     const dateKey = getLocalDateKey(today);
-
-    // Get Schedule Data from Firestore? For now let's use global schedule.js logic or fetch
-    // Since we are in transition, let's keep using localStorage for SCHEDULE 
-    // BUT we need to upgrade this to Firestore for consistency with schedule.js
-    // Actually, schedule.js reads from DBService.getSchedule() now.
-    // So we should update this too.
-
-    // For now, let's stick to localStorage for Schedule READING to keep it simple, 
-    // assuming renderTable updates localStorage? 
-    // Wait, schedule.js refactor REMOVED localStorage usage for schedule data.
-    // So we MUST fetch from Firestore here too.
+    const currentUserId = localStorage.getItem('currentUserId');
 
     DBService.getSchedule(dateKey).then(todaySchedule => {
-        // Flatten
+        // Flatten — only include classes where this user is registered
         let classes = [];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
 
         sections.forEach(sec => {
             if (todaySchedule[sec]) {
                 todaySchedule[sec].forEach((cls, idx) => {
+                    // Only show classes the user has registered for
+                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
+                    if (!isRegistered) return;
+
                     classes.push({ ...cls, section: sec, index: idx, id: `${dateKey}-${sec}-${idx}` });
                 });
             }
@@ -181,7 +240,8 @@ function renderTodayClasses() {
         if (classes.length === 0) {
             container.innerHTML = `
                 <div style="text-align: center; color: var(--text-muted); padding: 3rem;">
-                    <p>Hôm nay không có lịch dạy nào.</p>
+                    <p>Bạn chưa nhận lớp nào hôm nay.</p>
+                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">Vào <strong>Lịch Làm</strong> để nhận lớp.</p>
                 </div>
             `;
             return;

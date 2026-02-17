@@ -57,7 +57,67 @@ async function loadDashboardStats() {
         const tbody = document.getElementById('recent-activity-body');
         if (tbody) tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 1rem; color: #EF4444;">Lỗi tải dữ liệu: ' + e.message + '</td></tr>';
     }
+
+    // Also load unregistered alerts
+    loadUnregisteredAlerts();
 }
+
+async function loadUnregisteredAlerts() {
+    const container = document.getElementById('unregistered-alerts-body');
+    const badge = document.getElementById('alert-count-badge');
+    if (!container) return;
+
+    try {
+        const alerts = await DBService.getUnregisteredAlerts();
+
+        if (alerts.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">✅ Không có cảnh báo nào.</p>';
+            if (badge) badge.style.display = 'none';
+            return;
+        }
+
+        // Show badge count
+        if (badge) {
+            badge.innerText = alerts.length;
+            badge.style.display = 'inline';
+        }
+
+        container.innerHTML = alerts.map(alert => {
+            const checkInTime = alert.checkIn
+                ? new Date(alert.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                : '?';
+            return `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid var(--border-color);">
+                    <div>
+                        <strong>${alert.userName || 'N/A'}</strong>
+                        <span style="color: var(--text-muted); margin-left: 0.5rem;">Ngày ${alert.date} — Vào ca lúc ${checkInTime}</span>
+                    </div>
+                    <button class="btn" style="background: var(--primary-color); color: white; padding: 0.4rem 1rem; font-size: 0.85rem;"
+                        onclick="resolveAlertBtn('${alert.id}', this)">
+                        Đã Xử Lý
+                    </button>
+                </div>
+            `;
+        }).join('');
+
+    } catch (e) {
+        console.warn("[Alerts] Error loading:", e);
+        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">Không tải được cảnh báo.</p>';
+    }
+}
+
+window.resolveAlertBtn = async function (alertId, btn) {
+    if (btn) btn.disabled = true;
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+    try {
+        await DBService.resolveAlert(alertId, adminName);
+        // Reload alerts
+        loadUnregisteredAlerts();
+    } catch (e) {
+        alert("Lỗi: " + e.message);
+        if (btn) btn.disabled = false;
+    }
+};
 
 document.addEventListener('DOMContentLoaded', () => {
     // ... (Startup logic)
@@ -366,8 +426,10 @@ window.globalCheckIn = async function (btn) {
 
     try {
         await DBService.checkInPersonal(currentUserId, userFullName);
-        // alert("Check-in thành công!"); // Removed alert for smoother flow
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+
+        // Check if user has registered for any class today → alert Admin if not
+        checkAndAlertUnregistered(currentUserId, userFullName);
     } catch (e) {
         alert("Lỗi: " + e.message);
         if (btn) {
@@ -378,6 +440,38 @@ window.globalCheckIn = async function (btn) {
         if (typeof renderGlobalCheckIn === 'function') renderGlobalCheckIn();
     }
 };
+
+// Check if user registered for any class today. If not → create alert for Admin.
+async function checkAndAlertUnregistered(userId, userName) {
+    try {
+        const now = new Date();
+        const dateKey = now.toISOString().split('T')[0];
+        const schedule = await DBService.getSchedule(dateKey);
+        if (!schedule) {
+            // No schedule today → create alert (checking in without any class)
+            await DBService.createUnregisteredAlert(userId, userName, dateKey, now.toISOString());
+            return;
+        }
+
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        let hasRegistered = false;
+
+        sections.forEach(sec => {
+            if (schedule[sec]) {
+                schedule[sec].forEach(cls => {
+                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId);
+                    if (isRegistered) hasRegistered = true;
+                });
+            }
+        });
+
+        if (!hasRegistered) {
+            await DBService.createUnregisteredAlert(userId, userName, dateKey, now.toISOString());
+        }
+    } catch (e) {
+        console.warn("[AlertCheck] Error:", e);
+    }
+}
 
 window.globalCheckOut = async function (btn) {
     if (btn) {
