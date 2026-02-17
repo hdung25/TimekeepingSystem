@@ -448,11 +448,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // const diffMins = Math.floor(diffMs / 60000);
 
                     if (diffMs < 0) { // Late
-                        const lateMinutesRaw = Math.floor(Math.abs(diffMs) / 60000);
-                        const remainingSched = (schedEnd - actualStart) / 60000;
-                        minutes = Math.max(0, remainingSched);
+                        const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
+                        if (lateMinutesRaw === 0) {
+                            // Less than 1 minute late → treat as on-time
+                            minutes = schedDuration;
+                        } else {
+                            const remainingSched = (schedEnd - actualStart) / 60000;
+                            minutes = Math.max(0, Math.round(remainingSched));
+                        }
                         label += ` (Trễ ${lateMinutesRaw}p)`;
-                        cssClass = 'chip-orange';
+                        cssClass = lateMinutesRaw > 0 ? 'chip-orange' : cssClass;
                     } else { // On Time
                         minutes = schedDuration;
                     }
