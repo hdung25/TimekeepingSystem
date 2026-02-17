@@ -19,7 +19,7 @@ async function renderStaffTable() {
     let html = '';
 
     users.forEach(user => {
-        if (user.role === 'admin' && user.username === 'admin') return; // Hide super admin
+        // Admin users are now shown so they can configure their own salary roles
 
         // Get salary info from user object or default
         const settings = user.salary_config || { rate: 0, attendance: 0 };
