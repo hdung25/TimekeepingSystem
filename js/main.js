@@ -445,7 +445,7 @@ window.globalCheckIn = async function (btn) {
 async function checkAndAlertUnregistered(userId, userName) {
     try {
         const now = new Date();
-        const dateKey = now.toISOString().split('T')[0];
+        const dateKey = getLocalDateKeyFromDate(now);
         const schedule = await DBService.getSchedule(dateKey);
         if (!schedule) {
             // No schedule today → create alert (checking in without any class)

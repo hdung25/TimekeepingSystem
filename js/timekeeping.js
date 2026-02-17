@@ -102,7 +102,7 @@ async function renderGlobalCheckIn() {
 
     // Look up Cloud Data
     const now = new Date();
-    const dateKey = now.toISOString().split('T')[0];
+    const dateKey = getLocalDateKey(now);
 
     try {
         const attendanceRecord = await DBService.getPersonalAttendance(dateKey, currentUserId);

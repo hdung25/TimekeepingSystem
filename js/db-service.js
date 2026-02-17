@@ -1,6 +1,15 @@
 // Database Service - Lớp trung gian xử lý dữ liệu
 // Mục đích: Tách biệt logic gọi database khỏi giao diện (UI)
 
+// Global helper: Generate YYYY-MM-DD using LOCAL timezone (not UTC!)
+// Fixes bug: 00:00-06:59 Vietnam (UTC+7) was creating wrong date with toISOString()
+function getLocalDateKeyFromDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 const DBService = {
     // 1. Kiểm tra kết nối
     testConnection: async () => {
@@ -533,7 +542,7 @@ const DBService = {
         }
 
         const now = new Date();
-        const dateKey = now.toISOString().split('T')[0];
+        const dateKey = getLocalDateKeyFromDate(now);
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
@@ -588,7 +597,7 @@ const DBService = {
 
     checkOutPersonal: async (userId) => {
         const now = new Date();
-        const dateKey = now.toISOString().split('T')[0];
+        const dateKey = getLocalDateKeyFromDate(now);
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
