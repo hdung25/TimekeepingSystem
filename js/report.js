@@ -502,6 +502,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
+                    let isLate = false;
                     if (diffMs < 0) { // Late
                         const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
                         if (lateMinutesRaw === 0) {
@@ -510,9 +511,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         } else {
                             const remainingSched = (schedEnd - actualStart) / 60000;
                             minutes = Math.max(0, Math.round(remainingSched));
+                            isLate = true;
                         }
                         label += ` (Trễ ${lateMinutesRaw}p)`;
-                        cssClass = lateMinutesRaw > 0 ? 'chip-orange' : cssClass;
                     } else if (diffMs > 0) { // Early
                         minutes = schedDuration;
                         const earlyMins = Math.round(diffMs / 60000);
@@ -521,9 +522,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         minutes = schedDuration;
                     }
 
-                    // New: Role Logic
+                    // Role Logic
                     if (matchedSession.role) {
-                        cssClass = 'chip-green';
                         label += ` (${matchedSession.roleName})`;
                         tooltip += ` - Vai trò: ${matchedSession.roleName}`;
 
@@ -535,9 +535,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             }
                         }
                     } else {
-                        cssClass = 'chip-waiting';
                         label += ` (Chọn Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
+                    }
+
+                    // FIX 1: Late → always orange, regardless of role
+                    if (isLate) {
+                        cssClass = 'chip-orange';
+                    } else if (matchedSession.role) {
+                        cssClass = 'chip-green';
+                    } else {
+                        cssClass = 'chip-waiting';
                     }
 
                     tooltip += ' - Đã chấm công đầy đủ';
@@ -547,7 +555,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
                     const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     const classEndTime = new Date(`${dateStr}T${cls.end}`);
-                    if (now > new Date(classEndTime.getTime() + 30 * 60000)) {
+                    if (now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = schedDuration;
                         cssClass = 'chip-orange';
                         label += ' (Quên ra)';
@@ -610,13 +618,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const endStr = end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                 duration = (end - start) / 60000;
 
-                // NEW: Role Logic
+                // Role Logic for unmatched sessions
                 if (s.role) {
                     cssClass = 'chip-green';
                     label = `${startStr}-${endStr} (${s.roleName})`;
                     tooltip += ` - Vai trò: ${s.roleName}`;
                 } else {
-                    cssClass = 'chip-waiting';
+                    cssClass = 'chip-orange';
                     label = `${startStr}-${endStr} (Chọn Role?)`;
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
@@ -639,6 +647,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 isWarning: true // Set flag
             });
         }
+    });
+
+    // FIX 5: Sort chips by start time (morning → evening)
+    chips.sort((a, b) => {
+        const getTime = (text) => {
+            const match = text.match(/(\d{1,2}:\d{2})/);
+            if (!match) return '99:99';
+            return match[1].padStart(5, '0');
+        };
+        return getTime(a.text).localeCompare(getTime(b.text));
     });
 
     return chips;

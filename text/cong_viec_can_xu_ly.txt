@@ -1,0 +1,144 @@
+=====================================================
+  DANH SÁCH CÔNG VIỆC CẦN XỬ LÝ
+  Cập nhật: 19/02/2026 - 19:33
+=====================================================
+
+Hướng dẫn:
+- [  ] = Chưa xử lý
+- [/] = Đang xử lý  
+- [x] = Hoàn thành
+- Điền feedback vào dòng "→ Feedback:" sau khi test
+
+=====================================================
+A. VẤN ĐỀ CẦN BẠN TỰ LÀM (không cần code)
+=====================================================
+
+A1. [x] Deploy Firestore Rules lên Firebase Console
+   Cách làm:
+   1. Vào https://console.firebase.google.com/project/timekeeping-69f3f/firestore/rules
+   2. Xóa hết nội dung cũ
+   3. Copy nội dung file firestore.rules trong project → Paste
+   4. Bấm Publish
+   Ảnh hưởng: Nếu không làm → Staff vẫn không nhận được lớp (BUG 3.10)
+   → Feedback: OK
+
+=====================================================
+B. LỖI CẦN FIX (TÔI SẼ LÀM)
+=====================================================
+
+B1. [ ] Lịch kế thừa cần nút "Lưu Lịch Tuần Sau" (3.4)
+   Hiện tại: Lịch tự động kế thừa sang tuần sau
+   Yêu cầu: Phải bấm nút "Lưu Lịch" thì mới copy sang tuần mới
+   Giữ nguyên: Auto-save khi chỉnh sửa lịch trong tuần hiện tại
+   → Feedback: _______________
+
+B2. [  ] Bảng lịch bị vỡ khi zoom (Extra 1)
+   Hiện tại: Bảng lịch trong Bảng Công bị vỡ khi phóng to/thu nhỏ
+   Cần: Bạn gửi screenshot để tôi biết bị vỡ chỗ nào
+   → Feedback: _______________
+
+=====================================================
+C. CẦN TRAO ĐỔI THÊM
+=====================================================
+
+C1. [  ] Thống nhất logic chip màu trên Bảng Công (5.3)
+   Hiện tại các trường hợp đang hoạt động:
+   
+   TRƯỜNG HỢP 1: Nhận Lớp + vào ca đúng/sớm giờ + ĐÃ chọn Role
+   → Chip XANH LÁ: "07:30-09:00 (GV Tiếng Anh)"
+   → Ý nghĩa: Hoàn thành, đã tính lương
+   → Feedback: OK
+
+   TRƯỜNG HỢP 2: Nhận Lớp + vào ca đúng/sớm giờ + CHƯA chọn Role  
+   → Chip TÍM NHẠT: "07:30-09:00 (Chọn Role?)"
+   → Ý nghĩa: Đã chấm công nhưng chưa chọn vai trò tính lương
+   → Feedback: OK
+
+   TRƯỜNG HỢP 3: Nhận Lớp + vào ca TRỄ
+   → Chip CAM: "07:30-09:00 (Trễ 5p)"
+   → Ý nghĩa: Đi trễ, trừ phút trễ khỏi giờ tính lương
+   → Feedback: vào lớp trễ nhưng vẫn để màu xanh không hề có màu cam 
+
+   TRƯỜNG HỢP 4: Nhận Lớp + đang trong ca (chưa ra ca, chưa hết giờ)
+   → Chip XANH DƯƠNG: "19:30-21:00 (Đang dạy | Vào: 18:58)"
+   → Ý nghĩa: Session đang mở, hiện giờ vào ca thực tế
+   → Feedback: OK
+
+   TRƯỜNG HỢP 5: Nhận Lớp + quá 30p sau giờ kết thúc mà chưa ra ca
+   → Chip CAM: "07:30-09:00 (Quên ra)"
+   → Ý nghĩa: Quên bấm Ra Ca, hệ thống tính đủ giờ theo lịch
+   → Feedback: bỏ trường hợp này vì ca sẽ tự đóng khi đúng với giờ mà lớp đó nhân viên đã nhận lớp đúng chứ?
+
+   TRƯỜNG HỢP 6: Nhận Lớp + KHÔNG chấm công (ngày đã qua)
+   → Chip XÁM: "07:30-09:00 (Vắng)"
+   → Ý nghĩa: Có lớp nhưng không vào ca → 0 giờ
+   → Feedback: OK
+
+   TRƯỜNG HỢP 7: KHÔNG Nhận Lớp + có chấm công
+   → Chip CAM + icon ⚠️ đỏ: "18:58-21:00 (Chọn Role?)"
+   → Ý nghĩa: Ca ngoài lịch, bấm ⚠️ xem chi tiết
+   → Feedback: tôi không thấy thẻ đó có màu cam,
+
+   TRƯỜNG HỢP 8: Ngày lễ
+   → Icon 🚩 + tên ngày lễ, nền đỏ nhạt
+   → Ý nghĩa: Ngày nghỉ lễ theo pháp luật
+   → Feedback: OK
+
+C2. [FAIL] Test "Đã Xử Lý" cảnh báo trên Dashboard Admin (6.4)
+   Cách test: Đăng nhập Admin → Dashboard → Bảng "Cần Xử Lý" → Bấm "Đã Xử Lý"
+   → Feedback: không hoạt động khi tôi sử dụng tài khoản nhân viên để chấm công khi không nhận lớp sau đó quay lại admin để kiểm tra thì bảng đó báo là "✅ Không có cảnh báo nào."
+   bằng chứng:: "Ca Ngoài Lịch
+📅
+Ngày
+2026-02-19
+🟢
+Vào ca
+19:42
+🔴
+Ra ca
+19:43
+📋 Lý do
+Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.
+💡 Giải pháp
+Nhân viên cần "Nhận Lớp" trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này."
+
+
+C3. [OK] Test xóa dữ liệu cũ trong Bảo Trì (9.4)
+   Cách test: Admin → Bảo Trì → Chọn thời gian → Quét → Xóa
+   Lưu ý: Nên test với dữ liệu test, không xóa dữ liệu thật
+   → Feedback: OK
+
+=====================================================
+D. ĐÃ HOÀN THÀNH (Session hôm nay)
+=====================================================
+
+[x] BUG 1.4/1.5: Login error → text đỏ trong form
+[x] BUG 3.10: Staff nhận lớp → sửa Firestore rules  
+[x] BUG 6.2: Auto Ra Ca → confirmed OK + debug log
+[x] BUG Extra 2: Ghi chú → icon 📌 + nền xanh + viền
+[x] Auth guard tất cả trang (1.7, 11.5)
+[x] Warning icon click → popup chi tiết chuyên nghiệp (5.10)
+[x] Bỏ fallback tên GV → chỉ dùng registeredTeachers
+[x] Hiện giờ vào ca thực tế trong chip (Đang dạy | Vào: 18:58)
+[x] Fix timezone UTC → local dateKey
+[x] Admin hiện trong danh sách nhân sự
+
+=====================================================
+E. SAU KHI XONG TẤT CẢ → CHUYỂN SANG Ý TƯỞNG CẢI TIẾN
+=====================================================
+
+Xem file: y_tuong_cai_tien.txt (sẽ tạo sau khi xong phần B+C)
+
+=====================================================
+
+
+lỗi mới phát hiện:
+19
+🚩 Tết Nguyên Đán
+📝
+15:35-15:37 (GV tiếng anh)
+18:00-19:30 (Chọn Role?)
+19:40-21:00 (Đang dạy | Vào: 19:47)
+17:01-17:01 (Chọn Role?)
+
+không theo thứ tự từ sáng đến tối

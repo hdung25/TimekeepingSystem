@@ -920,13 +920,16 @@ const DBService = {
     // Get unresolved alerts for admin dashboard
     getUnregisteredAlerts: async () => {
         try {
+            // Simple query without orderBy to avoid needing composite index
             const snapshot = await db.collection('unregistered_alerts')
                 .where('resolved', '==', false)
-                .orderBy('createdAt', 'desc')
                 .limit(20)
                 .get();
 
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const alerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort client-side by date descending
+            alerts.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            return alerts;
         } catch (e) {
             console.warn("[Alert] Error getting alerts:", e);
             return [];
