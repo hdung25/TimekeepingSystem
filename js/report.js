@@ -407,24 +407,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
         classes.forEach((cls, idx) => {
-            // 1. Check if User Registered OR Assigned by Name
+            // 1. Check if User Registered via "Nhận Lớp" button
             const registeredTeachers = cls.registeredTeachers || [];
-            let isRegistered = registeredTeachers.some(t => t.id === staffId);
+            const isRegistered = registeredTeachers.some(t => t.id === staffId);
 
-            // Fallback: Check if 'gv' field matches Name or Username
-            if (!isRegistered && cls.gv) {
-                if (currentUserContext) {
-                    const name = removeVietnameseTones(currentUserContext.name || '').toLowerCase();
-                    const username = removeVietnameseTones(currentUserContext.username || '').toLowerCase();
-                    const gv = removeVietnameseTones(cls.gv).toLowerCase();
-
-                    if ((name && gv.includes(name)) || (username && gv.includes(username))) {
-                        isRegistered = true;
-                    }
-                }
-            }
-
-            if (!isRegistered) return; // Skip if not my class
+            if (!isRegistered) return; // Skip if not registered for this class
 
             // 2. Check for Attendance Match
             const schedStart = new Date(`${dateStr}T${cls.start}`);
@@ -458,6 +445,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const diffMs = schedStart - actualStart;
                     // const diffMins = Math.floor(diffMs / 60000);
 
+                    const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
                     if (diffMs < 0) { // Late
                         const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
                         if (lateMinutesRaw === 0) {
@@ -469,7 +458,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                         label += ` (Trễ ${lateMinutesRaw}p)`;
                         cssClass = lateMinutesRaw > 0 ? 'chip-orange' : cssClass;
-                    } else { // On Time
+                    } else if (diffMs > 0) { // Early
+                        minutes = schedDuration;
+                        const earlyMins = Math.round(diffMs / 60000);
+                        tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
+                    } else { // Exact on-time
                         minutes = schedDuration;
                     }
 
@@ -496,6 +489,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isClickable = true;
                 } else {
                     // No Check Out
+                    const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
+                    const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     const classEndTime = new Date(`${dateStr}T${cls.end}`);
                     if (now > new Date(classEndTime.getTime() + 30 * 60000)) {
                         minutes = schedDuration;
@@ -505,7 +500,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     } else {
                         minutes = 0;
                         cssClass = 'chip-blue';
-                        label += ' (Đang dạy)';
+                        label += ` (Đang dạy | Vào: ${actualStartStrNoCO})`;
                         tooltip += ' - Đang trong ca làm việc';
                     }
                 }
