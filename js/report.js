@@ -210,7 +210,17 @@ async function renderMonthReport(date) {
         dateHeader.style.display = 'flex';
         dateHeader.style.justifyContent = 'space-between';
         dateHeader.style.marginBottom = '0.5rem';
-        dateHeader.innerHTML = `<span style="font-weight: 600;">${d}</span>`;
+
+        // Check if date has a note → show (23) style
+        const allNotes = JSON.parse(localStorage.getItem('daily_notes')) || {};
+        const userNotes = allNotes[staffId] || {};
+        const hasNote = !!userNotes[dateStr];
+
+        if (hasNote) {
+            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);">(${d})</span>`;
+        } else {
+            dateHeader.innerHTML = `<span style="font-weight: 600;">${d}</span>`;
+        }
 
         // --- HOLIDAY CHECK ---
         const holidayName = getHolidayName(dateStr);
@@ -235,12 +245,9 @@ async function renderMonthReport(date) {
         const noteBtn = document.createElement('button');
         noteBtn.innerHTML = '📝';
         noteBtn.className = 'action-btn';
-        noteBtn.title = 'Ghi chú cá nhân';
+        noteBtn.title = hasNote ? 'Xem / Sửa ghi chú' : 'Thêm ghi chú';
         noteBtn.onclick = () => openNoteModal(dateStr);
-        // Check local note cache (still local for now)
-        const allNotes = JSON.parse(localStorage.getItem('daily_notes')) || {};
-        const userNotes = allNotes[staffId] || {};
-        if (userNotes[dateStr]) noteBtn.style.color = 'var(--primary-color)';
+        if (hasNote) noteBtn.style.color = 'var(--primary-color)';
         else noteBtn.style.color = '#ccc';
 
         controlsDiv.appendChild(noteBtn);

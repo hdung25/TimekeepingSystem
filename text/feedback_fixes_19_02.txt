@@ -1,0 +1,114 @@
+=====================================================
+  FEEDBACK FORM - CÁC YÊU CẦU & XỬ LÝ
+  Ngày: 19/02/2026
+=====================================================
+
+Hướng dẫn điền:
+- [OK]   = Đã test, hoạt động đúng
+- [FAIL] = Đã test, vẫn lỗi → ghi mô tả bên dưới
+- [SKIP] = Chưa test được
+
+=====================================================
+A. CÁC BUG ĐÃ FIX
+=====================================================
+
+A1. [OK] Lỗi đăng nhập sai hiện Firebase raw (BUG 1.4/1.5)
+   Cách xử lý: Thêm bắt lỗi `auth/invalid-credential` trong db-service.js
+   → Giờ hiện: "Sai tên đăng nhập hoặc mật khẩu!"
+   Test: Đăng nhập sai mật khẩu hoặc sai username → xem thông báo
+   Feedback: đã hoạt động nhưng đổi thành màu đỏ lại nhé
+
+A2. [OK] Staff không nhận được lớp - permission denied (BUG 3.10)
+   Cách xử lý: Sửa Firestore rules → tách quyền schedules:
+     - create/delete: chỉ Admin + Trợ Lý
+     - update: tất cả authenticated users (để Staff ghi registeredTeachers)
+   ⚠️ YÊU CẦU: Bạn phải deploy rules thủ công qua Firebase Console trước!
+   Test: Đăng nhập Staff → Lịch Làm → Nhận Lớp → xem có lỗi không
+   Feedback: đã hoạt động
+
+A3. [Fail] Ghi chú lưu OK nhưng ô ngày không hiện icon (BUG Extra 2)
+   Cách xử lý: Fixed staffId mismatch - hàm save dùng getTargetStaffId()
+   nhưng hàm render dùng raw select.value → giờ cả hai đều dùng getTargetStaffId()
+   Test: Vào Bảng Công → click ô ngày → ghi chú → Lưu → xem icon 📝 có sáng không (không hoạt động)
+   Feedback: thay vì làm sáng icon tôi nghĩ nên là có dấu khoanh tròn vào cái số trên ô ngày đó Ví dụ: tôi có ghi chú ngày 23 thì sẽ hiển thị là (23)
+
+A4. [OK] Auto Ra Ca chạy khi chưa nhận lớp (BUG 6.2)
+   Cách xử lý: Kiểm tra code → logic đã đúng (line 59: if no registered classes → return)
+   Thêm console.log để debug nếu xảy ra lại
+   Test: Vào Ca mà KHÔNG nhận lớp → đợi 2-3 phút → xem có bị tự Ra Ca không
+   Feedback: đã hoạt động
+
+=====================================================
+B. CẢI TIẾN ĐÃ THÊM
+=====================================================
+
+B1. [OK] Auth guard - bắt buộc đăng nhập tất cả trang (1.7, 11.5)
+   Cách xử lý: Thêm kiểm tra localStorage ở đầu DOMContentLoaded trong main.js
+   Nếu không có currentUser + currentUserId → redirect về index.html
+   Test: Mở tab ẩn danh → vào thẳng admin.html hoặc nhan-vien.html → có bị đẩy về login không
+   Feedback: đã hoạt động
+
+B2. [OK] Icon dấu chấm than click xem chi tiết (5.10)
+   Cách xử lý: Icon ⚠️ giờ clickable → popup hiện:
+   - Ngày, giờ vào ca, giờ ra ca
+   - Lý do: "Chấm công không khớp lịch"
+   - Giải pháp: Nhận lớp trước khi vào ca
+   Tooltip cũng đã bao gồm thời gian vào ca
+   Test: Vào Bảng Công → tìm ô có icon dấu chấm than → click vào → xem popup
+   Feedback: đã hoạt động
+
+=====================================================
+C. CÂU HỎI ĐÃ TRẢ LỜI
+=====================================================
+
+C1. Auto Ra Ca hoạt động thế nào? (4.14)
+   → Timer 60 giây chạy trên trang Chấm Công
+   → Mỗi lần: Có session mở? → Có lớp đã nhận? → Giờ >= giờ kết thúc lớp cuối?
+   → Nếu đủ 3 điều kiện → tự checkout + hiện toast
+   → Tối đa chờ 60 giây sau khi lớp kết thúc
+   Hiểu rõ chưa? [OK] 
+
+C2. Logic các thẻ màu trong Bảng Công (5.3)
+   → 🔵 Xanh dương: Đúng giờ, chưa chọn Role
+   → 🟢 Xanh lá: Hoàn thành (đã chọn Role)
+   → 🟠 Cam: Trễ giờ
+   → ⚫ Xám: Vắng (có lịch nhưng không chấm công)
+   → 🔴 Dấu chấm than: Ca ngoài lịch
+   → 🟡 Vàng: Đang trong ca (chưa checkout)
+   → 🚩: Ngày lễ
+   các màu này chúng ta cần trao đổi thêm nhé về tôi cần biết hiện tại có các trường hợp xảy ra trên bảng lịch và nêu ra cho tôi biết tại các trường hợp đó hiện màu như thế nào tôi sẽ test và báo lại 
+
+
+=====================================================
+D. CHƯA XỬ LÝ (BATCH SAU)
+=====================================================
+
+D1. [  ] Lịch kế thừa cần nút "Lưu" thủ công (3.4)
+   Hiện tại tự kế thừa → bạn muốn phải bấm "Lưu Lịch Tuần Sau"
+   Trạng thái: Chưa làm, đợi feedback batch này xong
+
+D2. [  ] Bảng lịch bị vỡ khi zoom (Extra 1)
+   Trạng thái: Chưa làm → gửi screenshot để tôi fix
+
+=====================================================
+E. HÀNH ĐỘNG CẦN LÀM TRƯỚC KHI TEST
+=====================================================
+
+□ Bước 1: Vào Firebase Console → Firestore → Rules
+  → Copy nội dung file firestore.rules → Paste → Publish
+  (Nếu không làm bước này, BUG A2 sẽ chưa fix)
+
+□ Bước 2: Ctrl+Shift+R (hard refresh xóa cache)
+
+□ Bước 3: Test từng mục A1 → B2, điền [OK] hoặc [FAIL]
+
+□ Bước 4: Gửi lại file này cho tôi
+
+=====================================================
+
+lỗi mới phát hiện:
+bảng công chỗ bảng lịch tôi vào ca lúc 18:58 tuy nhiên trên lịch lại hiển thị "19
+🚩 Tết Nguyên Đán
+📝
+07:30-09:00 (Vắng)
+19:30-21:00 (Đang dạy) // chỗ này đang sai vì không khớp với giờ vô ca thực tế"

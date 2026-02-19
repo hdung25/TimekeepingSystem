@@ -190,6 +190,10 @@ async function handleLogin(e) {
     btn.innerText = 'Đang kiểm tra...';
     btn.disabled = true;
 
+    // Hide previous error
+    const errorDiv = document.getElementById('login-error');
+    if (errorDiv) errorDiv.style.display = 'none';
+
     try {
         // Call Secure Cloud Login
         // DBService.loginUser now throws Error if fail
@@ -211,8 +215,11 @@ async function handleLogin(e) {
         }
     } catch (error) {
         console.error(error);
-        // Error message is already friendly from DBService
-        alert(error.message);
+        // Show red error message inline
+        if (errorDiv) {
+            errorDiv.innerText = error.message;
+            errorDiv.style.display = 'block';
+        }
         btn.innerText = originalText;
         btn.disabled = false;
     }
