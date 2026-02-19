@@ -303,13 +303,63 @@ async function renderMonthReport(date) {
                     const s = chip.sessionData;
                     const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
                     const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
-                    let detail = `⚠️ CA NGOÀI LỊCH\n\n`;
-                    detail += `📅 Ngày: ${dateStr}\n`;
-                    detail += `🕐 Vào ca: ${startTime}\n`;
-                    detail += `🕐 Ra ca: ${endTime}\n\n`;
-                    detail += `📋 Lý do: Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.\n\n`;
-                    detail += `💡 Giải pháp: Nhân viên cần "Nhận Lớp" trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này.`;
-                    alert(detail);
+
+                    // Create professional modal
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease';
+                    overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
+
+                    const modal = document.createElement('div');
+                    modal.style.cssText = 'background:white;border-radius:16px;padding:2rem;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;animation:slideUp 0.3s ease';
+                    modal.innerHTML = `
+                        <div style="text-align:center;margin-bottom:1.5rem">
+                            <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            </div>
+                            <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca Ngoài Lịch</h3>
+                        </div>
+
+                        <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
+                            <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
+                                <span style="font-size:1.25rem">📅</span>
+                                <div>
+                                    <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                    <div style="font-weight:600;color:#1F2937">${dateStr}</div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:1.5rem">
+                                <div style="display:flex;gap:0.5rem;align-items:center">
+                                    <span style="font-size:1.25rem">🟢</span>
+                                    <div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
+                                        <div style="font-weight:600;color:#1F2937">${startTime}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:0.5rem;align-items:center">
+                                    <span style="font-size:1.25rem">🔴</span>
+                                    <div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
+                                        <div style="font-weight:600;color:#1F2937">${endTime}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
+                            <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Lý do</div>
+                            <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.</div>
+                        </div>
+
+                        <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
+                            <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                            <div style="font-size:0.85rem;color:#065F46">Nhân viên cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này.</div>
+                        </div>
+
+                        <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                    `;
+                    overlay.appendChild(modal);
+                    document.body.appendChild(overlay);
+                    document.getElementById('warning-modal-close-btn').onclick = () => overlay.remove();
                 };
                 div.appendChild(warningIcon);
             }
