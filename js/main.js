@@ -181,10 +181,15 @@ document.addEventListener('DOMContentLoaded', () => {
 // ================= STAFF NOTIFICATIONS =================
 async function loadStaffNotifications() {
     const staffId = localStorage.getItem('currentUserId');
-    if (!staffId || typeof DBService === 'undefined') return;
+    console.log('[Notif Bell] staffId:', staffId, '| DBService:', typeof DBService !== 'undefined');
+    if (!staffId || typeof DBService === 'undefined') {
+        console.warn('[Notif Bell] Skipped: missing staffId or DBService');
+        return;
+    }
 
     try {
         const notifications = await DBService.getStaffNotifications(staffId);
+        console.log('[Notif Bell] Got', notifications.length, 'unread notifications');
         if (notifications.length === 0) return;
 
         // Create floating bell
@@ -208,7 +213,7 @@ async function loadStaffNotifications() {
         ], { duration: 600, iterations: 3 });
 
     } catch (e) {
-        console.warn('[Notif] Error loading:', e);
+        console.error('[Notif Bell] Error:', e);
     }
 }
 

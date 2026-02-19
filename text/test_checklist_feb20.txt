@@ -1,0 +1,101 @@
+=============================================
+  TEST CHECKLIST - Admin Session & Notification
+  Ngày: 2026-02-20
+=============================================
+
+Hướng dẫn: Điền [OK] hoặc [FAIL] + ghi chú vào cột Kết quả
+
+
+=== FIX A: ADMIN SESSION CHIP ===
+
+A1. Admin tạo ca mới cho nhân viên (VD: 08:00-10:00)
+    Mong đợi: Alert "Đã tạo ca làm việc mới!"
+    Kết quả: [OK]
+    Ghi chú: 
+
+A2. Xem chip vừa tạo
+    Mong đợi: Chip màu TÍM, text "08:00-10:00 (Chọn Role?)"
+    Kết quả: [OK]
+    Ghi chú: lúc đầu màu vàng, khi chọn role xong thì thành lại màu xanh lá cây 
+
+A3. Hover lên chip
+    Mong đợi: Tooltip "Admin đã thêm ca này thủ công..."
+    Kết quả: [FAIL]
+    Ghi chú: nhấp vào dấu chấm than đo thì lỗi là "📋 Lý do
+Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp."
+
+A4. Bấm icon cạnh chip
+    Mong đợi: Modal "Ca Được Admin Thêm" (icon xanh, KHÔNG phải đỏ)
+    Kết quả: [OK]
+    Ghi chú: 
+
+A5. Bấm vào chip -> Chọn Role
+    Mong đợi: Chip chuyển XANH, hiện tên role
+    Kết quả: [OK]
+    Ghi chú: 
+
+
+=== FIX B: STAFF NOTIFICATION ===
+
+B1. Admin thêm ca mới cho nhân viên X
+    Mong đợi: Thành công + console "[Notification] Created: add_session"
+    Kết quả: [OK]
+    Ghi chú: 
+
+B2. Admin sửa giờ ca đã có của nhân viên X
+    Mong đợi: Alert "Cập nhật thành công!"
+    Kết quả: [OK]
+    Ghi chú: 
+
+B3. Admin xóa 1 ca của nhân viên X
+    Mong đợi: Alert "Đã xóa!"
+    Kết quả: [OK]
+    Ghi chú: 
+
+B4. Admin chọn Role cho 1 ca
+    Mong đợi: Chip chuyển xanh
+    Kết quả: [OK]
+    Ghi chú: 
+
+B5. Đăng xuất -> Đăng nhập bằng TK nhân viên X
+    Mong đợi: Thấy 🔔 bell góc phải trên, badge đỏ có số
+    Kết quả: [Fail]
+    Ghi chú: không thấy biểu tượng chuông
+
+B6. Bấm vào 🔔
+    Mong đợi: Popup danh sách thông báo (Thêm ca, Sửa giờ, Xóa ca, Chọn vai trò)
+    Kết quả: [   ]
+    Ghi chú: 
+
+B7. Bấm "Đã đọc tất cả"
+    Mong đợi: Popup đóng, bell biến mất
+    Kết quả: [   ]
+    Ghi chú: 
+
+B8. Refresh trang
+    Mong đợi: Bell KHÔNG hiện lại
+    Kết quả: [   ]
+    Ghi chú: 
+
+
+=== EDGE CASES ===
+
+E1. Staff đăng nhập khi không có notification
+    Mong đợi: Không hiện bell
+    Kết quả: [   ]
+    Ghi chú: 
+
+E2. Admin tạo ca nhưng KHÔNG chọn role
+    Mong đợi: Chip tím + icon xanh (wrench)
+    Kết quả: [   ]
+    Ghi chú: 
+
+
+=== TỔNG KẾT ===
+Tổng test: 12
+Passed:    /12
+Failed:    /12
+Ghi chú chung:
+
+
+các mục kia không test được do bị lỗi không hiện chuông khi đã có chỉnh sửa kiểm tra lại code coi có match dữ liệu với nhau không
