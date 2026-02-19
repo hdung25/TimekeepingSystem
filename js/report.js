@@ -211,13 +211,18 @@ async function renderMonthReport(date) {
         dateHeader.style.justifyContent = 'space-between';
         dateHeader.style.marginBottom = '0.5rem';
 
-        // Check if date has a note → show (23) style
+        // Check if date has a note
         const allNotes = JSON.parse(localStorage.getItem('daily_notes')) || {};
         const userNotes = allNotes[staffId] || {};
-        const hasNote = !!userNotes[dateStr];
+        const noteText = userNotes[dateStr] || '';
+        const hasNote = !!noteText;
 
         if (hasNote) {
-            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);">(${d})</span>`;
+            // Highlighted date number with pin
+            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);">📌 ${d}</span>`;
+            // Highlight entire cell background
+            cell.style.backgroundColor = '#EFF6FF'; // Light blue
+            cell.style.borderLeft = '3px solid var(--primary-color)';
         } else {
             dateHeader.innerHTML = `<span style="font-weight: 600;">${d}</span>`;
         }
@@ -233,8 +238,8 @@ async function renderMonthReport(date) {
             holDiv.innerText = `🚩 ${holidayName}`;
             dateHeader.appendChild(holDiv);
 
-            // Highlight cell background slightly
-            cell.style.backgroundColor = '#FEF2F2';
+            // Highlight cell background slightly (holiday takes priority if also has note)
+            if (!hasNote) cell.style.backgroundColor = '#FEF2F2';
         }
 
         // Note Button
@@ -245,7 +250,7 @@ async function renderMonthReport(date) {
         const noteBtn = document.createElement('button');
         noteBtn.innerHTML = '📝';
         noteBtn.className = 'action-btn';
-        noteBtn.title = hasNote ? 'Xem / Sửa ghi chú' : 'Thêm ghi chú';
+        noteBtn.title = hasNote ? `Ghi chú: ${noteText.substring(0, 50)}...` : 'Thêm ghi chú';
         noteBtn.onclick = () => openNoteModal(dateStr);
         if (hasNote) noteBtn.style.color = 'var(--primary-color)';
         else noteBtn.style.color = '#ccc';
