@@ -898,13 +898,8 @@ const DBService = {
             console.log('[Alert] Creating alert:', alertId, 'for', userName);
             const ref = db.collection('unregistered_alerts').doc(alertId);
 
-            // Only create if not already exists for today
-            const existing = await ref.get();
-            if (existing.exists) {
-                console.log('[Alert] Alert already exists for today, skipping');
-                return;
-            }
-
+            // Use set() directly — no need to check existence first
+            // (Staff can't read this collection, and overwriting same-day alert is fine)
             await ref.set({
                 userId: userId,
                 userName: userName,

@@ -79,12 +79,12 @@ service cloud.firestore {
     }
 
     // 5. Unregistered Alerts (Check-in without class registration)
-    // Any authenticated user can create (triggered on check-in)
-    // Admin can read all and update (resolve)
+    // Any authenticated user can create/update (triggered on check-in, set() needs both)
+    // Admin can read all and delete
     match /unregistered_alerts/{alertId} {
       allow read: if isAuthenticated() && isAdmin();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isAdmin();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated() && isAdmin();
     }
     
     // Default Block
