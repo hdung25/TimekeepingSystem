@@ -1,0 +1,78 @@
+=====================================================
+  BẢNG KẾ HOẠCH PHÁT TRIỂN WEB CHẤM CÔNG
+  Cập nhật: 19/02/2026 - 20:22
+=====================================================
+
+Hướng dẫn:
+- Ưu tiên: ⭐⭐⭐ = Cao, ⭐⭐ = Trung bình, ⭐ = Thấp
+- Trạng thái: [  ] Chưa làm, [/] Đang làm, [x] Xong
+- BẠN ĐIỀN THÊM cải tiến cần làm vào MỤC A
+
+=====================================================
+A. CẢI TIẾN CỦA BẠN (ưu tiên cao nhất — điền vào đây)
+=====================================================
+
+A1. [  ] _______________
+   Mô tả: 
+   Ưu tiên: 
+
+A2. [  ] _______________
+   Mô tả: 
+   Ưu tiên: 
+
+A3. [  ] _______________
+   Mô tả: 
+   Ưu tiên: 
+
+A4. [  ] _______________
+   Mô tả: 
+   Ưu tiên: 
+
+A5. [  ] _______________
+   Mô tả: 
+   Ưu tiên: 
+
+(Thêm dòng nếu cần)
+
+=====================================================
+B. LỖI/TÍNH NĂNG CÒN LẠI TỪ CHECKLIST
+=====================================================
+
+B1. [  ] Nút "Lưu Lịch Tuần Sau" (3.4)         ⭐⭐
+   Hiện tại: Lịch tự kế thừa sang tuần sau
+   Yêu cầu: Phải bấm nút mới copy lịch sang tuần mới
+
+B2. [  ] Bảng lịch vỡ khi zoom (Extra 1)         ⭐
+   Cần screenshot từ bạn để fix
+
+=====================================================
+C. Ý TƯỞNG CẢI TIẾN (GỢI Ý TỪ TÔI — sau khi xong A+B)
+=====================================================
+
+C1. [  ] Push Notification nhắc vào/ra ca       ⭐⭐⭐
+C2. [  ] Dashboard Staff (thống kê cá nhân)     ⭐⭐⭐
+C3. [  ] PWA (cài app trên điện thoại)          ⭐⭐
+C4. [  ] Biểu đồ Admin                          ⭐⭐
+C5. [  ] Chấm công sớm = thưởng phút            ⭐⭐⭐
+C6. [  ] Ghi chú lên cloud (Firestore)          ⭐
+C7. [  ] Realtime sync Dashboard                 ⭐⭐
+C8. [  ] Xuất Excel tổng hợp ALL nhân viên      ⭐⭐
+
+=====================================================
+D. ĐÃ HOÀN THÀNH (19/02/2026)
+=====================================================
+
+[x] Login error → text đỏ inline
+[x] Ghi chú → 📌 nền xanh, viền
+[x] Popup Ca Ngoài Lịch → modal chuyên nghiệp
+[x] Bỏ fallback tên GV → chỉ registeredTeachers
+[x] Chip trễ → luôn cam
+[x] Ca Ngoài Lịch → chip cam
+[x] Dashboard cảnh báo → hoạt động
+[x] Chips sắp xếp theo giờ
+[x] Hiện giờ vào ca thực tế
+[x] Auth guard tất cả trang
+[x] Fix timezone UTC → local
+[x] Deploy Firestore rules
+
+=====================================================
