@@ -101,9 +101,14 @@ async function loadUnregisteredAlerts() {
         }).join('');
 
     } catch (e) {
-        console.warn("[Alerts] Error loading:", e);
+        console.warn('[Alerts] Error loading:', e);
         container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">Không tải được cảnh báo.</p>';
     }
+}
+
+// Auto-refresh alerts every 30 seconds on admin dashboard
+if (document.getElementById('unregistered-alerts-body')) {
+    setInterval(() => loadUnregisteredAlerts(), 30000);
 }
 
 window.resolveAlertBtn = async function (alertId, btn) {
@@ -444,7 +449,7 @@ window.globalCheckIn = async function (btn) {
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
 
         // Check if user has registered for any class today → alert Admin if not
-        checkAndAlertUnregistered(currentUserId, userFullName);
+        await checkAndAlertUnregistered(currentUserId, userFullName);
     } catch (e) {
         alert("Lỗi: " + e.message);
         if (btn) {
@@ -461,9 +466,11 @@ async function checkAndAlertUnregistered(userId, userName) {
     try {
         const now = new Date();
         const dateKey = getLocalDateKeyFromDate(now);
+        console.log('[AlertCheck] Checking registration for', userName, 'on', dateKey);
         const schedule = await DBService.getSchedule(dateKey);
         if (!schedule) {
             // No schedule today → create alert (checking in without any class)
+            console.log('[AlertCheck] No schedule today → creating alert');
             await DBService.createUnregisteredAlert(userId, userName, dateKey, now.toISOString());
             return;
         }
@@ -481,10 +488,13 @@ async function checkAndAlertUnregistered(userId, userName) {
         });
 
         if (!hasRegistered) {
+            console.log('[AlertCheck] User NOT registered for any class → creating alert');
             await DBService.createUnregisteredAlert(userId, userName, dateKey, now.toISOString());
+        } else {
+            console.log('[AlertCheck] User is registered for at least one class → no alert');
         }
     } catch (e) {
-        console.warn("[AlertCheck] Error:", e);
+        console.error('[AlertCheck] Error:', e);
     }
 }
 

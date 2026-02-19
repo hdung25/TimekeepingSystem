@@ -895,11 +895,15 @@ const DBService = {
     createUnregisteredAlert: async (userId, userName, dateKey, checkInTime) => {
         try {
             const alertId = `${dateKey}_${userId}`;
+            console.log('[Alert] Creating alert:', alertId, 'for', userName);
             const ref = db.collection('unregistered_alerts').doc(alertId);
 
             // Only create if not already exists for today
             const existing = await ref.get();
-            if (existing.exists) return; // Already alerted today
+            if (existing.exists) {
+                console.log('[Alert] Alert already exists for today, skipping');
+                return;
+            }
 
             await ref.set({
                 userId: userId,
@@ -911,9 +915,9 @@ const DBService = {
                 resolvedAt: null,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            console.log("[Alert] Created unregistered check-in alert for", userName);
+            console.log('[Alert] Successfully created alert for', userName);
         } catch (e) {
-            console.warn("[Alert] Error creating alert:", e);
+            console.error('[Alert] FAILED to create alert:', e.code, e.message);
         }
     },
 
