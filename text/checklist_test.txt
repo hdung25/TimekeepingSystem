@@ -1,0 +1,246 @@
+=====================================================
+  CHECKLIST TEST TOÀN BỘ CHỨC NĂNG WEB CHẤM CÔNG
+  Ngày tạo: 19/02/2026
+=====================================================
+
+Hướng dẫn: 
+- [  ] = Chưa test
+- [OK] = Test thành công
+- [BUG] = Có lỗi → ghi mô tả lỗi bên cạnh
+- Test theo thứ tự từ trên xuống
+
+=====================================================
+PHẦN 1: ĐĂNG NHẬP & PHÂN QUYỀN
+=====================================================
+
+1.1 [OK] Đăng nhập bằng tài khoản Admin → vào được trang admin.html
+1.2 [OK] Đăng nhập bằng tài khoản Trợ Lý → vào được trang nhan-vien.html
+1.3 [OK] Đăng nhập bằng tài khoản Staff → vào được trang nhan-vien.html
+1.4 [BUG] Đăng nhập sai mật khẩu → hiện thông báo lỗi
+mô tả: "Firebase: The supplied auth credential is incorrect, malformed or has expired. (auth/invalid-credential)." thay bằng thông báo "Sai mật khẩu"
+1.5 [BUG] Đăng nhập sai tên đăng nhập → hiện thông báo lỗi
+mô tả: "Firebase: The supplied auth credential is incorrect, malformed or has expired. (auth/invalid-credential)." thay bằng thông báo "Sai mật khẩu"
+1.6 [OK] Đăng xuất → quay về trang đăng nhập
+1.7 [OK] Truy cập trực tiếp admin.html khi chưa đăng nhập → chuyển về đăng nhập
+mô tả: tuy nhiên tôi muốn nó là logic bắt buộc phải đăng nhập mới vào được tất cả các trang bên trong kể cả các trang như admin.html, nhan-vien.html,  he-thong.html,... 
+1.8 [OK] Staff truy cập admin.html → bị chặn / chuyển hướng
+1.9 [OK] Admin bấm "Chế độ nhân viên" → chuyển sang giao diện Staff
+
+=====================================================
+PHẦN 2: QUẢN LÝ NHÂN SỰ (Admin only)
+=====================================================
+
+--- 2A. Danh sách nhân viên ---
+2.1  [OK] Trang hiện đầy đủ danh sách nhân viên (bao gồm cả Admin)
+2.2  [OK] Hiện đúng Họ Tên, Tên Đăng Nhập, Mật Khẩu
+2.3  [OK] Hiện đúng vai trò (Quản trị viên / Trợ Lý / Nhân viên)
+
+--- 2B. Thêm nhân viên ---
+2.4  [OK] Bấm "Thêm Nhân Viên" → mở modal
+2.5  [OK] Điền đầy đủ thông tin → Lưu → nhân viên xuất hiện trong danh sách
+2.6  [OK] Nhân viên mới có thể đăng nhập được
+2.7  [OK] Thêm nhân viên trùng username → báo lỗi
+
+--- 2C. Sửa nhân viên ---
+2.8  [OK] Bấm icon sửa → mở modal với thông tin cũ
+2.9  [OK] Đổi tên → Lưu → tên mới hiển thị đúng
+2.10 [OK] Đổi mật khẩu → Lưu → đăng nhập bằng mật khẩu mới OK
+
+--- 2D. Xóa nhân viên ---
+2.11 [OK] Bấm icon xóa → hiện xác nhận
+2.12 [OK] Xác nhận → nhân viên biến mất khỏi danh sách
+2.13 [OK] Nhân viên đã xóa không đăng nhập được nữa
+
+--- 2E. Cấu hình lương ---
+2.14 [OK] Bấm icon ⚙️ → mở modal "Cấu Hình Lương & Vai Trò"
+2.15 [OK] Thêm Role mới (ví dụ: GV Tiếng Anh, 120.000đ/h) → hiện trong danh sách
+2.16 [OK] Xóa Role → biến mất
+2.17 [OK] Cấu hình lương cho Admin (Quản Trị Viên) → OK
+2.18 [OK] Cấu hình lương cho Staff (Test Staff) → OK
+
+=====================================================
+PHẦN 3: XẾP LỊCH (Admin + Trợ Lý)
+=====================================================
+
+--- 3A. Xem lịch ---
+3.1 [OK] Trang hiện đúng tuần hiện tại
+3.2 [OK] Bấm mũi tên trái/phải → chuyển tuần trước/sau
+3.3 [OK] Bấm tab ngày (T2, T3...) → hiện đúng lịch ngày đó
+3.4 [OK] Lịch kế thừa từ tuần trước (nếu chưa xếp tuần mới)
+tuy nhiên đang tự kế thừa vì tôi muốn là phải bấm lưu lịch thì mới có thể lưu lịch cho tuần sau 
+còn giữ nguyên việc auto lưu lịch ngay khi có chỉnh sửa 
+
+--- 3B. Thêm lớp ---
+3.5 [OK] Bấm "Thêm Lớp" → mở dòng mới để nhập
+3.6 [OK] Nhập đầy đủ (Lớp, Phòng, Giờ bắt đầu, Giờ kết thúc) → Lưu OK
+3.7 [OK] Thêm nhiều lớp cùng buổi → OK
+
+--- 3C. Sửa/Xóa lớp ---
+3.8 [OK] Bấm vào lớp đã tạo → sửa thông tin → Lưu OK
+3.9 [OK] Bấm xóa lớp → lớp biến mất
+
+--- 3D. Nhận lớp (Staff) ---
+3.10 [BUG] Staff nhấn "Nhận Lớp" → tên hiện trong cột GV
+mô tả: tài khoản Staff không nhận được lớp "logger.ts:115 
+ [2026-02-19T03:23:38.644Z]  @firebase/firestore: Firestore (10.7.1): RestConnection RPC 'Commit' 0x633b9c28 failed with error:  {"code":"permission-denied","name":"FirebaseError"} url:  https://firestore.googleapis.com/v1/projects/timekeeping-69f3f/databases/(default)/documents:commit request: {"writes":[{"update":{"name":"projects/timekeeping-69f3f/databases/(default)/documents/schedules/2026-02-19","fields":{"evening1":{"arrayValue":{"values":[{"mapValue":{"fields":{"registeredTeachers":{"arrayValue":{"values":[]}},"phong":{"stringValue":""},"gv":{"stringValue":""},"note":{"stringValue":""},"start":{"stringValue":"18:00"},"lop":{"stringValue":""},"end":{"stringValue":"19:30"}}}},{"mapValue":{"fields":{"note":{"stringValue":""},"lop":{"stringValue":""},"registeredTeachers":{"arrayValue":{"values":[{"mapValue":{"fields":{"id":{"stringValue":"nv_1769754914133"},"name":{"stringValue":"Hà Huy Dũng"},"timestamp":{"stringValue":"2026-02-19T03:23:38.538Z"}}}}]}},"end":{"stringValue":"19:30"},"gv":{"stringValue":""},"phong":{"stringValue":""},"start":{"stringValue":"18:00"}}}}]}},"morning1":{"arrayValue":{"values":[{"mapValue":{"fields":{"end":{"stringValue":"09:00"},"start":{"stringValue":"07:30"},"note":{"stringValue":""},"lop":{"stringValue":""},"registeredTeachers":{"arrayValue":{"values":[]}},"phong":{"stringValue":""},"gv":{"stringValue":""}}}},{"mapValue":{"fields":{"phong":{"stringValue":"P10"},"lop":{"stringValue":"Tin học"},"gv":{"stringValue":"Dũng"},"start":{"stringValue":"07:30"},"note":{"stringValue":"thầy nước ngoài"},"end":{"stringValue":"09:00"}}}}]}},"evening2":{"arrayValue":{"values":[{"mapValue":{"fields":{"note":{"stringValue":""},"end":{"stringValue":"21:00"},"phong":{"stringValue":"CS3"},"lop":{"stringValue":"Tin học"},"start":{"stringValue":"19:30"},"gv":{"stringValue":"Dũng"},"registeredTeachers":{"arrayValue":{"values":[{"mapValue":{"fields":{"id":{"stringValue":"admin"},"name":{"stringValue":"Quản Trị Viên"},"timestamp":{"stringValue":"2026-02-19T03:20:01.149Z"}}}}]}}}}}]}}}},"currentDocument":{"updateTime":"2026-02-19T03:20:02.343264000Z"}}]}
+db-service.js:309 
+ Registration error: FirebaseError: Missing or insufficient permissions.
+registerClass	@	db-service.js:309
+await in registerClass		
+window.registerClass	@	schedule.js:331
+await in window.registerClass		
+onclick"
+chế độ nhân viên của admin thì có thể nhấn nút nhận lớp và thành công
+3.11 [OK] Staff nhấn "Hủy Nhận" → tên biến mất
+mô tả: vì tôi chỉ mới nhận lớp được bên chế độ nhân viên của admin thì nó hoạt đông tuy nhiên chưa test được các tài khoản khác vì lỗi ở 3.10
+3.12 [] Nhiều Staff nhận cùng 1 lớp → hiện tất cả tên
+mô tả: chưa test được vì lỗi 3.10
+3.13 [OK] Nhận lớp SAU giờ kết thúc → bị chặn
+
+--- 3E. Trợ Lý xếp lịch ---
+3.14 [OK] Đăng nhập Trợ Lý → vào được trang Xếp Lịch
+3.15 [OK] Trợ Lý thêm lớp → OK
+3.16 [OK] Trợ Lý xóa lớp → OK
+
+=====================================================
+PHẦN 4: CHẤM CÔNG
+=====================================================
+
+--- 4A. Vào Ca ---
+4.1  [OK] Bấm "VÀO CA" → hiện "ĐANG TRONG CA" + giờ vào
+4.2  [] Bấm "VÀO CA" khi đang có ca mở → báo lỗi (tôi chưa hiểu trường hợp này)
+4.3  [OK] Vào ca từ IP đúng (WiFi trung tâm) → OK
+4.4  [OK] Vào ca từ IP sai (4G / WiFi khác) → bị chặn
+4.5  [OK] Vào ca khi chưa cấu hình IP (allowedIP trống) → OK (cho phép tất cả)
+
+--- 4B. Ra Ca ---
+4.6  [OK] Bấm "RA CA" → hiện "BẮT ĐẦU CA MỚI"
+4.7  [OK] Lịch sử Vào/Ra hiện đúng giờ vào + giờ ra
+4.8  [OK] Bấm "RA CA" khi chưa vào ca → không có nút RA CA
+
+--- 4C. Nhiều ca trong ngày ---
+4.9  [OK] Ra ca buổi sáng → Vào ca buổi chiều → hiện 2 dòng lịch sử
+4.10 [OK] Ra ca buổi chiều → Vào ca buổi tối → hiện 3 dòng
+
+--- 4D. Danh Sách Lớp Dạy (MỚI) ---
+4.11 [OK] Chỉ hiện lớp mà mình đã "Nhận Lớp" → KHÔNG hiện lớp khác
+4.12 [OK] Chưa nhận lớp nào → hiện "Bạn chưa nhận lớp nào hôm nay"
+4.13 [OK] Nhận lớp trong Lịch Làm → quay lại Chấm Công → lớp xuất hiện
+
+--- 4E. Auto Ra Ca (MỚI) ---
+4.14 [OK] Nhận lớp (ví dụ 10:00-10:30) → Vào Ca → đến 10:30 → tự Ra CA
+trao đổi: nói rõ cho tôi biết khoảng thời gian tầm bao lâu thì tự ra ca và code BE đã xử lí thế nào
+4.15 [OK] Hiện toast "Đã tự động Ra Ca"
+4.16 [OK] Nhận nhiều lớp → Ra Ca khi hết giờ lớp CUỐI CÙNG
+
+--- 4F. Xóa lượt chấm công ---
+4.17 [OK] Bấm icon xóa trong lịch sử → xác nhận → dòng biến mất
+
+=====================================================
+PHẦN 5: BÁO CÁO / TÍNH LƯƠNG (Bảng Công)
+=====================================================
+
+--- 5A. Xem lịch tháng --- 
+5.1 [OK] Lịch hiện đúng tháng hiện tại
+5.2 [OK] Chuyển tháng trước/sau → OK
+5.3 [OK] Ô ngày hiện đúng chip (xanh = đúng giờ, cam = trễ, xám = vắng)
+mô tả: đang có 1 thứ cần cập nhật lại nhé các thẻ màu (Sắp tới
+Đang dạy / Quên ra
+Hoàn thành
+Vắng
+🚩) xem lại logic các thẻ này sao cho khớp với dự án hiện tại và cho tôi biết các thẻ hạot động như thế nào
+5.4 [OK] Ô ngày lễ hiện icon 🚩 + tên ngày lễ
+5.5 [OK] Tổng giờ làm hiện đúng ở cuối
+
+--- 5B. Chọn Role (Tính lương) ---
+5.6 [OK] Bấm chip "(Chọn Role?)" → mở modal chọn Role
+5.7 [OK] Chọn Role → chip đổi màu xanh + hiện tên Role
+5.8 [OK] Lương tính đúng: giờ × rate
+5.9 [OK] Admin chọn nhân viên trong dropdown → xem đúng báo cáo nhân viên đó
+
+--- 5C. Ca ngoài lịch ---
+5.10 [BUG] Vào ca không khớp lịch → hiện chip cam "Ca Ngoài Lịch"
+mô tả: hiện tại kh phải chip cam nhé mà là các icon dấu chấm than màu đỏ
+thêm 1 phần cần thay đổi ở dấu icon này, nếu trỏ tới thì có hiển ra nguyên nhân rồi nhưng tôi muốn thêm thời gian chính xác vào ca nữa (VD: khi có icon dấu chấm than tôi trỏ tới thì nó có hiện là chấm công không khớp lịch)
+nếu cần có thể nhấp vào dấu chấm than để hiển được nguyên nhân và bằng chứng tại sao phần mềm lại đánh dấu 
+5.11 [OK] Có thể chọn Role cho ca ngoài lịch
+
+--- 5D. Đánh giá & Thưởng/Phạt ---
+5.12 [OK] Admin: bảng đánh giá 10 tiêu chí hiện đúng
+5.13 [OK] Nhập thưởng/phạt → tổng lương thay đổi
+5.14 [OK] Bấm Lưu → reload lại vẫn giữ nguyên
+
+--- 5E. Xuất PDF ---
+5.15 [OK] Bấm "Xuất PDF" → tải file PDF
+5.16 [OK] PDF hiện đúng tên, giờ, lương
+
+=====================================================
+PHẦN 6: THÔNG BÁO ADMIN (MỚI)
+=====================================================
+
+6.1 [OK] Dashboard Admin hiện bảng "⚠️ Cần Xử Lý"
+6.2 [BUG] Staff vào ca mà CHƯA nhận lớp → cảnh báo xuất hiện
+mô tả: hiện tại tôi mới phạt hiện ra là khi tôi bấm vào ca mà chưa nhận lớp thì khi tôi thoát ra ngoài thì hệ thống sẽ tự ra ca cho tôi 
+tôi không muốn chuyện này xảy ra vì tôi muốn họ có thể chấm công kể cả khi họ không bấm nhận lớp 
+
+6.3 [OK] Staff vào ca ĐÃ nhận lớp → KHÔNG có cảnh báo
+6.4 [  ] Admin bấm "Đã Xử Lý" → cảnh báo biến mất
+chưa test được vì lỗi 6.2
+=====================================================
+PHẦN 7: HỆ THỐNG (Admin only)
+=====================================================
+
+7.1 [OK] Trang hiện cấu hình hiện tại (tên công ty, IP cho phép)
+7.2 [OK] Sửa tên công ty → Lưu → hiện đúng
+7.3 [OK] Thêm IP vào danh sách → Lưu → chấm công chỉ từ IP đó
+7.4 [OK] Bấm "Xem IP hiện tại" → hiện IP public đúng
+7.5 [OK] Bỏ trống IP → Lưu → chấm công từ mọi nơi
+
+=====================================================
+PHẦN 8: DASHBOARD ADMIN
+=====================================================
+
+8.1 [OK] Số "Tổng nhân viên" đúng
+8.2 [OK] Số "Đã chấm công hôm nay" cập nhật khi có người vào ca
+8.3 [OK] Bảng "Hoạt động gần đây" hiện 5 dòng mới nhất
+8.4 [  ] Bảng "Cần Xử Lý" hiện cảnh báo (test ở Phần 6)
+chưa test được
+=====================================================
+PHẦN 9: BẢO TRÌ (Maintenance)
+=====================================================
+
+9.1 [OK] Tab Bảo Trì hiện trên sidebar Admin
+9.2 [OK] Chọn thời gian → Quét → hiện số bản ghi cũ
+9.3 [OK] Xuất Excel → tải file
+9.4 [] Xóa dữ liệu cũ → dữ liệu biến mất khỏi Firestore
+chưa test vì cần hướng dẫn kĩ để test phần này
+=====================================================
+PHẦN 10: GIAO DIỆN & RESPONSIVE
+=====================================================
+
+10.1 [OK] Web hiển thị đẹp trên Desktop (1920x1080)
+10.2 [OK] Web hiển thị đẹp trên Tablet (768px)
+10.3 [OK] Web hiển thị đẹp trên Điện thoại (375px)
+10.4 [OK] Sidebar thu gọn trên mobile → có nút hamburger
+10.5 [OK] Bảng/Table scroll ngang trên mobile
+10.6 [OK] Nút bấm đủ lớn để bấm trên điện thoại
+
+=====================================================
+PHẦN 11: BẢO MẬT
+=====================================================
+
+11.1 [OK] Staff KHÔNG thể tự đổi role thành Admin (qua DevTools)
+11.2 [OK] Staff KHÔNG thể truy cập trang Admin
+11.3 [OK] Staff KHÔNG thể sửa dữ liệu của người khác
+11.4 [OK] Đăng xuất → localStorage bị xóa sạch
+11.5 [OK] Mở tab ẩn danh → không tự đăng nhập
+tuy nhiền còn lỗi nếu tôi vào thẳng các trang khác thì vẫn có thể vào được sửa lại phần này nhé 
+=====================================================
+GHI CHÚ TEST
+=====================================================
+Lỗi phát hiện:
+1. bảng lịch trong bảng công có tự scale lại khi phóng to thu nhỏ tab tuy nhiên có bị vỡ bảng lịch (nếu cần xem hình thì báo tôi nhé)
+2. Phần ghi chú cá nhân sau khi bấm lưu nội dung lưu ghi chứ được tuy nhiên lại không có hiển thị là có ghi chú chỗ ô ngày này 
+3. _______________
+
+=====================================================

@@ -7,6 +7,12 @@ Hướng dẫn:
 - Điền vào cột [Ghi chú] → bổ sung nếu cần
 - Thêm trường hợp mới nếu thiếu
 
+NOTE: 
+- Danh Sách Lớp Dạy tôi muốn nó chỉ hiện lớp mà nhân viên đó đã nhấn vào nút nhận lớp trong lịch làm thôi
+- Các trường hợp vào/ ra ca đúng giờ thì tôi không cần nói gì thêm 
+- Các trường hợp ra ca nếu như nhân viên đã bấm nút nhận lớp thì sẽ tự động ra ca khi hết giờ khớp với giờ mà nhân viên đã nhận lớp 
+- Các trường hợp vào ca/ ra ca khi không có bấm nút nhận lớp thì sẽ phải báo lại cho admin để admin có thể thấy và xử lý (phần xử lí này thì sẽ là phần xử lí nghiệp ngoài web chúng ta không cần quan tâm chỉ cần làm tốt phần thông báo cho admin tôi gợi ý sẽ có 1 bảng để admin theo dõi và 1 nút bấm đã xử lý)
+- Kiểm tra lại phần chế độ nhân viên khi tôi sử dụng tài khoản admin bấm vào chế độ admin để test thì tôi không thể chọn role cho thanh 23:20-23:25 (Trễ 0p) (Chọn Role?) 
 =====================================================
 A. VÀO CA (CHECK-IN)
 =====================================================

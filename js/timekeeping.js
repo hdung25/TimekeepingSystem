@@ -56,7 +56,10 @@ async function checkAutoCheckout() {
             }
         });
 
-        if (!latestEndTime) return; // No registered classes → don't auto-checkout
+        if (!latestEndTime) {
+            console.log("[AutoCheckout] No registered classes found for user → skipping auto-checkout");
+            return; // No registered classes → don't auto-checkout
+        }
 
         // 3. If current time >= latest registered class end time → auto checkout
         if (now >= latestEndTime) {

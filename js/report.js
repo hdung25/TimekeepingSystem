@@ -134,21 +134,7 @@ async function renderMonthReport(date) {
 
     // Resolve Context (Who are we viewing?)
     const role = localStorage.getItem('currentRole');
-    let staffId = null;
-
-    if (role === 'admin') {
-        const select = document.getElementById('staff-select');
-        staffId = select ? select.value : 'all';
-    } else {
-        staffId = localStorage.getItem('currentUserId');
-        if (!staffId) {
-            // Fallback lookup
-            const username = localStorage.getItem('currentUser');
-            const users = JSON.parse(localStorage.getItem('users_data')) || [];
-            const me = users.find(u => u.username === username);
-            if (me) staffId = me.id;
-        }
-    }
+    let staffId = getTargetStaffId();
 
 
 
@@ -289,13 +275,31 @@ async function renderMonthReport(date) {
             div.innerHTML = `<span>${chip.text}</span>`;
 
             if (chip.isWarning) {
-                div.innerHTML += `
+                const warningIcon = document.createElement('span');
+                warningIcon.innerHTML = `
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="#EF4444" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <line x1="12" y1="8" x2="12" y2="12"></line>
                         <line x1="12" y1="16" x2="12.01" y2="16"></line>
                     </svg>
-                 `;
+                `;
+                warningIcon.style.cursor = 'pointer';
+                warningIcon.style.marginLeft = '4px';
+                warningIcon.title = 'Click để xem chi tiết';
+                warningIcon.onclick = (e) => {
+                    e.stopPropagation();
+                    const s = chip.sessionData;
+                    const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+                    const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
+                    let detail = `⚠️ CA NGOÀI LỊCH\n\n`;
+                    detail += `📅 Ngày: ${dateStr}\n`;
+                    detail += `🕐 Vào ca: ${startTime}\n`;
+                    detail += `🕐 Ra ca: ${endTime}\n\n`;
+                    detail += `📋 Lý do: Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.\n\n`;
+                    detail += `💡 Giải pháp: Nhân viên cần "Nhận Lớp" trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này.`;
+                    alert(detail);
+                };
+                div.appendChild(warningIcon);
             }
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
@@ -538,11 +542,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let label = 'Ca Ngoài Lịch';
             let duration = 0;
             let cssClass = 'chip-orange';
-            let tooltip = 'Chấm công không khớp lịch';
             let isClickable = false;
 
             const start = new Date(s.checkIn || s.start);
             const startStr = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            let tooltip = `Chấm công không khớp lịch (Vào ca: ${startStr})`;
 
             if (s.checkOut) {
                 const end = new Date(s.checkOut);

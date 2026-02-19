@@ -63,10 +63,12 @@ service cloud.firestore {
     }
 
     // 3. Schedules
-    // Admin & Assistant can write
+    // Admin & Assistant can create schedules
+    // All authenticated users can update (needed for "Nhận Lớp" → writes registeredTeachers)
     match /schedules/{dateId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
+      allow create, delete: if isAuthenticated() && (isAdmin() || isAssistant());
+      allow update: if isAuthenticated();
     }
 
     // 4. Settings

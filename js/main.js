@@ -129,13 +129,21 @@ document.addEventListener('DOMContentLoaded', () => {
         loginForm.addEventListener('submit', handleLogin);
         // ... animation ...
     } else {
+        // AUTH GUARD: Require login for ALL internal pages
+        const currentUser = localStorage.getItem('currentUser');
+        const currentUserId = localStorage.getItem('currentUserId');
+        if (!currentUser || !currentUserId) {
+            // Not logged in → redirect to login page
+            window.location.href = 'index.html';
+            return;
+        }
+
         // We are inside the app, render sidebar
         renderSidebar();
         loadDashboardStats(); // Fetch real data
 
         // Check if "Back to Admin" button should be shown
         // Simplified: If current user is Admin (regardless of role state), show the button if it exists.
-        const currentUser = localStorage.getItem('currentUser');
         if (currentUser === 'admin') {
             const btnBack = document.getElementById('btn-back-admin');
             if (btnBack) {

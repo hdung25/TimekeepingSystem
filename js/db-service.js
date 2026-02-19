@@ -87,6 +87,7 @@ const DBService = {
             console.error("Secure Login Error:", error);
             if (error.code === 'auth/wrong-password') throw new Error("Sai mật khẩu!");
             if (error.code === 'auth/user-not-found') throw new Error("Tài khoản không tồn tại!");
+            if (error.code === 'auth/invalid-credential') throw new Error("Sai tên đăng nhập hoặc mật khẩu!");
             if (error.code === 'auth/too-many-requests') throw new Error("Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau!");
             throw error;
         }
