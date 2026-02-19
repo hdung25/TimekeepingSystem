@@ -517,7 +517,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     } else if (diffMs > 0) { // Early
                         minutes = schedDuration;
                         const earlyMins = Math.round(diffMs / 60000);
-                        tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
+
+                        // BONUS LOGIC (C5): 9 to 15 minutes early -> +10 mins bonus
+                        if (earlyMins >= 9 && earlyMins <= 15) {
+                            minutes += 10;
+                            tooltip += ` | Vào sớm ${earlyMins}p (+10p thưởng)`;
+                            label += ` (+10p)`;
+                        } else if (earlyMins > 15) {
+                            // Too early -> No bonus, show warning
+                            tooltip += ` | Vào quá sớm (${earlyMins}p) - Chỉ thưởng nếu sớm 9-15p`;
+                            label += ` <span style="color:red; font-weight:bold" title="Vào quá sớm, không được thưởng">(!)</span>`;
+                        } else {
+                            tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
+                        }
                     } else { // Exact on-time
                         minutes = schedDuration;
                     }
