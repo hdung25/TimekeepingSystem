@@ -147,13 +147,17 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSidebar();
         loadDashboardStats(); // Fetch real data
 
+        // ===== STAFF NOTIFICATION BELL =====
+        const role = localStorage.getItem('currentRole') || 'staff';
+        if (role === 'staff' || role === 'assistant') {
+            loadStaffNotifications();
+        }
+
         // Check if "Back to Admin" button should be shown
-        // Simplified: If current user is Admin (regardless of role state), show the button if it exists.
         if (currentUser === 'admin') {
             const btnBack = document.getElementById('btn-back-admin');
             if (btnBack) {
                 btnBack.style.display = 'inline-flex';
-                // Ensure correct styling override
                 btnBack.style.setProperty('display', 'inline-flex', 'important');
             }
         }
@@ -169,12 +173,105 @@ document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const tab = urlParams.get('openTab');
         if (tab && typeof switchTab === 'function') {
-            // Small delay to ensure Sidebar rendered
             setTimeout(() => switchTab(tab), 100);
         }
     }
 });
 
+// ================= STAFF NOTIFICATIONS =================
+async function loadStaffNotifications() {
+    const staffId = localStorage.getItem('currentUserId');
+    if (!staffId || typeof DBService === 'undefined') return;
+
+    try {
+        const notifications = await DBService.getStaffNotifications(staffId);
+        if (notifications.length === 0) return;
+
+        // Create floating bell
+        const bell = document.createElement('div');
+        bell.id = 'notif-bell';
+        bell.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:999;cursor:pointer;background:white;border-radius:50%;width:48px;height:48px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,0.15);border:2px solid #3B82F6;transition:transform 0.2s';
+        bell.innerHTML = `
+            <span style="font-size:1.5rem">🔔</span>
+            <span id="notif-badge" style="position:absolute;top:-4px;right:-4px;background:#EF4444;color:white;font-size:0.7rem;font-weight:700;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 4px">${notifications.length}</span>
+        `;
+        bell.onmouseover = () => { bell.style.transform = 'scale(1.1)'; };
+        bell.onmouseout = () => { bell.style.transform = 'scale(1)'; };
+        bell.onclick = () => showNotificationPopup(notifications);
+        document.body.appendChild(bell);
+
+        // Pulse animation
+        bell.animate([
+            { transform: 'scale(1)' },
+            { transform: 'scale(1.15)' },
+            { transform: 'scale(1)' }
+        ], { duration: 600, iterations: 3 });
+
+    } catch (e) {
+        console.warn('[Notif] Error loading:', e);
+    }
+}
+
+function showNotificationPopup(notifications) {
+    // Remove existing popup
+    const existing = document.getElementById('notif-popup-overlay');
+    if (existing) existing.remove();
+
+    const actionLabels = {
+        'add_session': '➕ Thêm ca',
+        'edit_session': '✏️ Sửa giờ',
+        'delete_session': '🗑️ Xóa ca',
+        'select_role': '🎯 Chọn vai trò'
+    };
+
+    const overlay = document.createElement('div');
+    overlay.id = 'notif-popup-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding-top:5rem;animation:fadeIn 0.2s ease';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+    const popup = document.createElement('div');
+    popup.style.cssText = 'background:white;border-radius:16px;max-width:450px;width:90%;max-height:70vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:slideUp 0.3s ease';
+
+    const header = `
+        <div style="padding:1.25rem;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:white;border-radius:16px 16px 0 0;z-index:1">
+            <h3 style="margin:0;font-size:1.1rem;font-weight:700;color:#1F2937">🔔 Thông Báo</h3>
+            <span style="color:#6B7280;font-size:0.85rem">${notifications.length} mới</span>
+        </div>
+    `;
+
+    const items = notifications.map(n => {
+        const actionLabel = actionLabels[n.action] || n.action;
+        const timeStr = n.createdAt ? new Date(n.createdAt.seconds * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+        return `
+            <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
+                    <span style="font-size:0.85rem;font-weight:600;color:#3B82F6">${actionLabel}</span>
+                    <span style="font-size:0.75rem;color:#9CA3AF">${timeStr}</span>
+                </div>
+                <div style="font-size:0.85rem;color:#374151">${n.details || ''}</div>
+                <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Ngày: ${n.dateKey || ''} · Bởi: ${n.adminName || 'Admin'}</div>
+            </div>
+        `;
+    }).join('');
+
+    const footer = `
+        <div style="padding:1rem 1.25rem;border-top:1px solid #E5E7EB;text-align:center;position:sticky;bottom:0;background:white;border-radius:0 0 16px 16px">
+            <button id="btn-mark-all-read" style="background:#3B82F6;color:white;border:none;padding:0.6rem 1.5rem;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">✅ Đã đọc tất cả</button>
+        </div>
+    `;
+
+    popup.innerHTML = header + items + footer;
+    overlay.appendChild(popup);
+    document.body.appendChild(overlay);
+
+    document.getElementById('btn-mark-all-read').onclick = async () => {
+        const staffId = localStorage.getItem('currentUserId');
+        await DBService.markAllNotificationsRead(staffId);
+        overlay.remove();
+        const bell = document.getElementById('notif-bell');
+        if (bell) bell.remove();
+    };
+}
 // ================= AUTH LOGIC =================
 
 async function handleLogin(e) {

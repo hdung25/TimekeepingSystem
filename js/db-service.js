@@ -947,5 +947,87 @@ const DBService = {
             console.error("[Alert] Error resolving:", e);
             throw e;
         }
+    },
+
+    // ================= ADMIN NOTIFICATIONS =================
+
+    // Create notification for staff when admin modifies their data
+    createAdminNotification: async (staffId, staffName, action, dateKey, details) => {
+        try {
+            const currentUser = firebase.auth().currentUser;
+            const adminName = currentUser ? (currentUser.displayName || currentUser.email || 'Admin') : 'Admin';
+
+            await db.collection('admin_notifications').add({
+                staffId: staffId,
+                staffName: staffName || 'N/A',
+                action: action, // 'add_session', 'edit_session', 'delete_session', 'select_role'
+                dateKey: dateKey,
+                details: details,
+                adminName: adminName,
+                read: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('[Notification] Created:', action, 'for', staffName);
+        } catch (e) {
+            console.warn('[Notification] Failed to create:', e.message);
+            // Non-blocking: don't throw, notification failure shouldn't stop main action
+        }
+    },
+
+    // Get unread notifications for a staff member
+    getStaffNotifications: async (staffId) => {
+        try {
+            const snap = await db.collection('admin_notifications')
+                .where('staffId', '==', staffId)
+                .where('read', '==', false)
+                .limit(20)
+                .get();
+
+            const results = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort client-side (newest first) to avoid composite index
+            results.sort((a, b) => {
+                const ta = a.createdAt ? a.createdAt.seconds : 0;
+                const tb = b.createdAt ? b.createdAt.seconds : 0;
+                return tb - ta;
+            });
+            return results;
+        } catch (e) {
+            console.warn('[Notification] Error fetching:', e.message);
+            return [];
+        }
+    },
+
+    // Mark a notification as read
+    markNotificationRead: async (notifId) => {
+        try {
+            await db.collection('admin_notifications').doc(notifId).update({
+                read: true,
+                readAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (e) {
+            console.warn('[Notification] Error marking read:', e.message);
+        }
+    },
+
+    // Mark ALL notifications for a staff as read
+    markAllNotificationsRead: async (staffId) => {
+        try {
+            const snap = await db.collection('admin_notifications')
+                .where('staffId', '==', staffId)
+                .where('read', '==', false)
+                .get();
+
+            const batch = db.batch();
+            snap.docs.forEach(doc => {
+                batch.update(doc.ref, {
+                    read: true,
+                    readAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            await batch.commit();
+            console.log('[Notification] Marked all read for', staffId);
+        } catch (e) {
+            console.warn('[Notification] Error marking all read:', e.message);
+        }
     }
 };

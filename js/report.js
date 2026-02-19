@@ -288,75 +288,110 @@ async function renderMonthReport(date) {
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
-                warningIcon.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="#EF4444" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                `;
-                warningIcon.style.cursor = 'pointer';
-                warningIcon.style.marginLeft = '4px';
-                warningIcon.title = 'Click để xem chi tiết';
+                const isAdmin = chip.isAdminCreated;
+                warningIcon.innerHTML = isAdmin
+                    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'
+                    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+                warningIcon.style.cssText = 'cursor:pointer;margin-left:4px;display:inline-flex;align-items:center';
+                warningIcon.title = isAdmin ? 'Admin đã thêm ca này' : 'Click để xem chi tiết';
                 warningIcon.onclick = (e) => {
                     e.stopPropagation();
                     const s = chip.sessionData;
                     const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
                     const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
 
-                    // Create professional modal
                     const overlay = document.createElement('div');
                     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease';
                     overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
 
                     const modal = document.createElement('div');
                     modal.style.cssText = 'background:white;border-radius:16px;padding:2rem;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;animation:slideUp 0.3s ease';
-                    modal.innerHTML = `
-                        <div style="text-align:center;margin-bottom:1.5rem">
-                            <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                            </div>
-                            <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca Ngoài Lịch</h3>
-                        </div>
 
-                        <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
-                            <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                <span style="font-size:1.25rem">📅</span>
-                                <div>
-                                    <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
-                                    <div style="font-weight:600;color:#1F2937">${dateStr}</div>
+                    if (isAdmin) {
+                        // Admin-created session modal
+                        modal.innerHTML = `
+                            <div style="text-align:center;margin-bottom:1.5rem">
+                                <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#EFF6FF;margin-bottom:0.75rem">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                                 </div>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca Được Admin Thêm</h3>
                             </div>
-                            <div style="display:flex;gap:1.5rem">
-                                <div style="display:flex;gap:0.5rem;align-items:center">
-                                    <span style="font-size:1.25rem">🟢</span>
+                            <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
+                                <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
+                                    <span style="font-size:1.25rem">📅</span>
                                     <div>
-                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
-                                        <div style="font-weight:600;color:#1F2937">${startTime}</div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-weight:600;color:#1F2937">${dateStr}</div>
                                     </div>
                                 </div>
-                                <div style="display:flex;gap:0.5rem;align-items:center">
-                                    <span style="font-size:1.25rem">🔴</span>
-                                    <div>
-                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
-                                        <div style="font-weight:600;color:#1F2937">${endTime}</div>
+                                <div style="display:flex;gap:1.5rem">
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🟢</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
+                                            <div style="font-weight:600;color:#1F2937">${startTime}</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🔴</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
+                                            <div style="font-weight:600;color:#1F2937">${endTime}</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                            <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Lý do</div>
-                            <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.</div>
-                        </div>
-
-                        <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                            <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
-                            <div style="font-size:0.85rem;color:#065F46">Nhân viên cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này.</div>
-                        </div>
-
-                        <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
-                    `;
+                            <div style="background:#EFF6FF;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #3B82F6">
+                                <div style="font-size:0.8rem;font-weight:600;color:#2563EB;margin-bottom:0.25rem">🛠️ Thông tin</div>
+                                <div style="font-size:0.85rem;color:#1E40AF">Ca này được <strong>Quản lý thêm thủ công</strong>. Nếu chưa chọn vai trò, hãy bấm vào chip để chọn.</div>
+                            </div>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:#3B82F6;color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                        `;
+                    } else {
+                        // Regular "Ca Ngoài Lịch" modal
+                        modal.innerHTML = `
+                            <div style="text-align:center;margin-bottom:1.5rem">
+                                <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                </div>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca Ngoài Lịch</h3>
+                            </div>
+                            <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
+                                <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
+                                    <span style="font-size:1.25rem">📅</span>
+                                    <div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-weight:600;color:#1F2937">${dateStr}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:1.5rem">
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🟢</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
+                                            <div style="font-weight:600;color:#1F2937">${startTime}</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🔴</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
+                                            <div style="font-weight:600;color:#1F2937">${endTime}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Lý do</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.</div>
+                            </div>
+                            <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                                <div style="font-size:0.85rem;color:#065F46">Nhân viên cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này.</div>
+                            </div>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                        `;
+                    }
                     overlay.appendChild(modal);
                     document.body.appendChild(overlay);
                     document.getElementById('warning-modal-close-btn').onclick = () => overlay.remove();
@@ -616,14 +651,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // 4. Handle Unmatched Sessions
     attendanceSessions.forEach(s => {
         if (!usedSessionIds.has(s.id)) {
-            let label = 'Ca Ngoài Lịch';
+            const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
+            let label = isAdminCreated ? 'Ca Thêm' : 'Ca Ngoài Lịch';
             let duration = 0;
             let cssClass = 'chip-orange';
             let isClickable = false;
 
             const start = new Date(s.checkIn || s.start);
             const startStr = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-            let tooltip = `Chấm công không khớp lịch (Vào ca: ${startStr})`;
+            let tooltip = isAdminCreated
+                ? `Admin đã thêm ca này thủ công (Vào: ${startStr})`
+                : `Chấm công không khớp lịch (Vào ca: ${startStr})`;
 
             if (s.checkOut) {
                 const end = new Date(s.checkOut);
@@ -636,7 +674,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     label = `${startStr}-${endStr} (${s.roleName})`;
                     tooltip += ` - Vai trò: ${s.roleName}`;
                 } else {
-                    cssClass = 'chip-orange';
+                    cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
                     label = `${startStr}-${endStr} (Chọn Role?)`;
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
@@ -649,14 +687,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
 
             chips.push({
-                text: label, // Keep text clean
+                text: label,
                 class: cssClass,
                 paidMinutes: Math.max(0, Math.round(duration)),
                 tooltip: tooltip,
                 sessionId: s.id,
                 sessionData: s,
                 isClickable: isClickable,
-                isWarning: true // Set flag
+                isWarning: true,
+                isAdminCreated: isAdminCreated
             });
         }
     });
@@ -971,7 +1010,6 @@ function getTargetStaffId() {
     const role = localStorage.getItem('currentRole');
     if (role === 'admin') {
         const select = document.getElementById('staff-select');
-        // Handle missing staff-select (e.g., on nhan-vien.html in admin view)
         if (!select) {
             return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
         }
@@ -979,6 +1017,14 @@ function getTargetStaffId() {
     } else {
         return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
     }
+}
+
+function getTargetStaffName() {
+    const select = document.getElementById('staff-select');
+    if (select && select.value !== 'all') {
+        return select.options[select.selectedIndex].text.split('(')[0].trim();
+    }
+    return localStorage.getItem('currentUserName') || 'N/A';
 }
 
 
@@ -1062,6 +1108,7 @@ function closeEditModal() {
 
 async function saveEditedTime() {
     const staffId = getTargetStaffId();
+    const staffName = getTargetStaffName();
     const dateKey = document.getElementById('edit-date-key').value;
     const sessionIdRaw = document.getElementById('edit-session-id').value;
 
@@ -1076,6 +1123,9 @@ async function saveEditedTime() {
     const checkInDate = new Date(checkIn);
     const checkOutDate = checkOut ? new Date(checkOut) : null;
 
+    const checkInStr = checkInDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+
     const newData = {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
@@ -1084,14 +1134,21 @@ async function saveEditedTime() {
 
     try {
         if (sessionIdRaw === 'NEW') {
-            // CREATE NEW SESSION
-            // We need to fetch current sessions, add new one, and save.
             await DBService.addSession(staffId, dateKey, newData);
+            // Send notification to staff
+            await DBService.createAdminNotification(
+                staffId, staffName, 'add_session', dateKey,
+                `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`
+            );
             alert("Đã tạo ca làm việc mới!");
         } else {
-            // UPDATE EXISTING
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
             await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
+            // Send notification to staff
+            await DBService.createAdminNotification(
+                staffId, staffName, 'edit_session', dateKey,
+                `Admin đã chỉnh sửa giờ làm: ${checkInStr} - ${checkOutStr}`
+            );
             alert("Cập nhật thành công!");
         }
         closeEditModal();
@@ -1299,12 +1356,18 @@ async function deleteSessionFromModal() {
     if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không?")) return;
 
     const staffId = getTargetStaffId();
+    const staffName = getTargetStaffName();
     const dateKey = document.getElementById('edit-date-key').value;
     const sessionId = document.getElementById('edit-session-id').value;
     const parsedSessionId = isNaN(sessionId) ? sessionId : Number(sessionId);
 
     try {
         await DBService.deleteSession(staffId, dateKey, parsedSessionId);
+        // Send notification to staff
+        await DBService.createAdminNotification(
+            staffId, staffName, 'delete_session', dateKey,
+            `Admin đã xóa một ca làm việc ngày ${dateKey}`
+        );
         alert("Đã xóa!");
         closeEditModal();
         renderMonthReport(currentDate);
@@ -1414,13 +1477,19 @@ function closeRoleSelectModal() {
 
 async function selectRoleForSession(role) {
     const staffId = getTargetStaffId();
+    const staffName = getTargetStaffName();
     const dateKey = document.getElementById('role-select-date').value;
     const sessionId = document.getElementById('role-select-session').value;
 
     try {
         await DBService.updateSessionRole(staffId, dateKey, sessionId, role);
+        // Send notification to staff
+        await DBService.createAdminNotification(
+            staffId, staffName, 'select_role', dateKey,
+            `Admin đã chọn vai trò "${role.name}" cho ca ngày ${dateKey}`
+        );
         closeRoleSelectModal();
-        renderMonthReport(new Date(dateKey)); // Reload report specifically around this date
+        renderMonthReport(new Date(dateKey));
     } catch (e) {
         alert("Lỗi lưu vai trò: " + e.message);
     }

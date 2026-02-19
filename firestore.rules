@@ -86,6 +86,14 @@ service cloud.firestore {
       allow create, update: if isAuthenticated();
       allow delete: if isAuthenticated() && isAdmin();
     }
+
+    // 6. Admin Notifications (Admin → Staff communication)
+    // Admin creates notifications when modifying staff data
+    // Staff reads their own (filtered by staffId in client query)
+    // Note: staffId = Firestore doc ID ≠ Auth UID, so server-side filtering is done in client
+    match /admin_notifications/{notifId} {
+      allow read, write: if isAuthenticated();
+    }
     
     // Default Block
     match /{document=**} {
