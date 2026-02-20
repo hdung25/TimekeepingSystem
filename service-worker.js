@@ -1,5 +1,5 @@
-// Service Worker v2 — Cache-first for static, Network-first for Firestore
-const CACHE_NAME = 'tdt-chamcong-v2';
+// Service Worker v3 — Cache-first for static, Network-first for Firestore
+const CACHE_NAME = 'tdt-chamcong-v3';
 
 // Static files to pre-cache on install
 const STATIC_ASSETS = [

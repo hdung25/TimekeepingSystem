@@ -167,18 +167,31 @@ async function renderMonthReport(date) {
     });
 
     // B. Schedule Data (For the whole month)
-    // We need to fetch schedule for every day to see "Registered" classes.
-    // Optimization: Parallel Fetch
+    // Fetch from BOTH branches (cs1, cs2) and merge
+    const BRANCHES = ['cs1', 'cs2'];
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const schedulePromises = [];
     for (let d = 1; d <= daysInMonth; d++) {
         const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        schedulePromises.push(DBService.getSchedule(dateKey).then(data => ({ date: dateKey, data: data || {} })));
+        BRANCHES.forEach(branch => {
+            const compositeKey = `${branch}__${dateKey}`;
+            schedulePromises.push(
+                DBService.getSchedule(compositeKey).then(data => ({ date: dateKey, data: data || {}, branch }))
+            );
+        });
     }
     const scheduleResults = await Promise.all(schedulePromises);
-    const scheduleMap = {}; // "YYYY-MM-DD" -> ScheduleObject
+    const scheduleMap = {}; // "YYYY-MM-DD" -> merged ScheduleObject
     scheduleResults.forEach(item => {
-        scheduleMap[item.date] = item.data;
+        if (!scheduleMap[item.date]) scheduleMap[item.date] = {};
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        sections.forEach(sec => {
+            const rows = item.data[sec] || [];
+            // Inject _branch into each class row for chip display
+            const taggedRows = rows.map(row => ({ ...row, _branch: item.branch }));
+            if (!scheduleMap[item.date][sec]) scheduleMap[item.date][sec] = [];
+            scheduleMap[item.date][sec] = scheduleMap[item.date][sec].concat(taggedRows);
+        });
     });
 
 
@@ -517,8 +530,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // 3. Determine Status
             let minutes = 0;
             let cssClass = 'chip-blue';
-            let label = `${cls.start}-${cls.end}`;
-            let tooltip = `Lớp ${cls.lop || '?'}`;
+            // Branch tag
+            const branchTag = cls._branch === 'cs2' ? ' [CS2]' : (cls._branch ? ' [CS1]' : '');
+            let label = `${cls.start}-${cls.end}${branchTag}`;
+            let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
 
             const schedEnd = new Date(`${dateStr}T${cls.end}`);
             const schedDuration = (schedEnd - schedStart) / 60000;
