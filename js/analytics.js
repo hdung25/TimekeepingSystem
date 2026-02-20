@@ -1,14 +1,15 @@
-// Analytics Tab — Chart Rendering (admin.html)
+// Analytics Tab v2 — Premium UI + Optimized Data Flow
 // Depends on: Chart.js (CDN), ChartService (chart-service.js), DBService (db-service.js)
 
 let analyticsDate = new Date();
-let chartInstances = {}; // Track chart instances for cleanup
+let chartInstances = {};
 
 // ============================
 // Month Navigation
 // ============================
 function changeAnalyticsMonth(offset) {
     analyticsDate.setMonth(analyticsDate.getMonth() + offset);
+    ChartService._clearCache(); // Clear cache when month changes
     loadAnalyticsTab();
 }
 
@@ -26,13 +27,10 @@ function updateMonthLabel() {
 }
 
 // ============================
-// Chart Helper: Safe destroy + create
+// Chart Helpers
 // ============================
-function destroyChart(chartId) {
-    if (chartInstances[chartId]) {
-        chartInstances[chartId].destroy();
-        delete chartInstances[chartId];
-    }
+function destroyChart(id) {
+    if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
 }
 
 function createChart(canvasId, config) {
@@ -44,53 +42,44 @@ function createChart(canvasId, config) {
 }
 
 // ============================
-// Colors
+// Premium Color Palette
 // ============================
-const CHART_COLORS = {
-    green: 'rgba(16, 185, 129, 0.8)',
-    greenBg: 'rgba(16, 185, 129, 0.15)',
-    orange: 'rgba(245, 158, 11, 0.8)',
-    orangeBg: 'rgba(245, 158, 11, 0.15)',
-    gray: 'rgba(156, 163, 175, 0.8)',
-    grayBg: 'rgba(156, 163, 175, 0.15)',
-    blue: 'rgba(59, 130, 246, 0.8)',
-    blueBg: 'rgba(59, 130, 246, 0.15)',
-    purple: 'rgba(139, 92, 246, 0.8)',
-    purpleBg: 'rgba(139, 92, 246, 0.15)',
-    red: 'rgba(239, 68, 68, 0.8)',
-    redBg: 'rgba(239, 68, 68, 0.15)',
-    teal: 'rgba(20, 184, 166, 0.8)',
-    pink: 'rgba(236, 72, 153, 0.8)',
-    indigo: 'rgba(99, 102, 241, 0.8)',
-    amber: 'rgba(217, 119, 6, 0.8)',
+const C = {
+    blue: { bg: 'rgba(59,130,246,0.8)', light: 'rgba(59,130,246,0.12)' },
+    green: { bg: 'rgba(16,185,129,0.8)', light: 'rgba(16,185,129,0.12)' },
+    orange: { bg: 'rgba(245,158,11,0.85)', light: 'rgba(245,158,11,0.12)' },
+    purple: { bg: 'rgba(139,92,246,0.8)', light: 'rgba(139,92,246,0.12)' },
+    teal: { bg: 'rgba(20,184,166,0.8)', light: 'rgba(20,184,166,0.12)' },
+    pink: { bg: 'rgba(236,72,153,0.8)', light: 'rgba(236,72,153,0.12)' },
+    indigo: { bg: 'rgba(99,102,241,0.8)', light: 'rgba(99,102,241,0.12)' },
+    red: { bg: 'rgba(239,68,68,0.8)', light: 'rgba(239,68,68,0.12)' },
+    gray: { bg: 'rgba(156,163,175,0.8)', light: 'rgba(156,163,175,0.12)' },
+    amber: { bg: 'rgba(217,119,6,0.8)', light: 'rgba(217,119,6,0.12)' },
 };
 
-const PALETTE = [
-    CHART_COLORS.blue, CHART_COLORS.green, CHART_COLORS.orange,
-    CHART_COLORS.purple, CHART_COLORS.teal, CHART_COLORS.pink,
-    CHART_COLORS.indigo, CHART_COLORS.amber, CHART_COLORS.red
-];
+const PALETTE = [C.blue.bg, C.green.bg, C.purple.bg, C.teal.bg, C.pink.bg, C.indigo.bg, C.orange.bg, C.amber.bg, C.red.bg];
+const PALETTE_LIGHT = [C.blue.light, C.green.light, C.purple.light, C.teal.light, C.pink.light, C.indigo.light, C.orange.light, C.amber.light, C.red.light];
 
 // ============================
-// Chart.js Global Defaults
+// Chart.js Global Theme
 // ============================
 if (typeof Chart !== 'undefined') {
-    Chart.defaults.font.family = "'Inter', 'Segoe UI', sans-serif";
-    Chart.defaults.font.size = 13;
+    Chart.defaults.font.family = "'Inter', 'Segoe UI', -apple-system, sans-serif";
+    Chart.defaults.font.size = 12;
     Chart.defaults.color = '#6B7280';
     Chart.defaults.plugins.legend.labels.usePointStyle = true;
+    Chart.defaults.plugins.legend.labels.padding = 16;
     Chart.defaults.responsive = true;
     Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.animation.duration = 800;
+    Chart.defaults.animation.easing = 'easeOutQuart';
 }
 
 // ============================
 // MAIN: Load Analytics Tab
 // ============================
 async function loadAnalyticsTab() {
-    if (typeof Chart === 'undefined') {
-        console.warn('[Analytics] Chart.js not loaded');
-        return;
-    }
+    if (typeof Chart === 'undefined') return;
 
     updateMonthLabel();
     const monthStr = getAnalyticsMonthStr();
@@ -98,70 +87,129 @@ async function loadAnalyticsTab() {
     // Show loading
     const loading = document.getElementById('analytics-loading');
     const charts = document.getElementById('analytics-charts');
-    if (loading) loading.style.display = 'block';
-    if (charts) charts.style.display = 'none';
+    if (loading) loading.style.display = 'flex';
+    if (charts) charts.style.opacity = '0.3';
+
+    const t0 = performance.now();
 
     try {
-        // Populate staff dropdown
-        await populateAnalyticsStaffSelect();
+        // === SINGLE BATCH FETCH ===
+        const { allLogs, schedules, users } = await ChartService.loadMonthData(monthStr);
+        const staffUsers = users.filter(u => u.role !== 'admin');
 
-        // Load global charts in parallel
-        await Promise.all([
-            renderStaffComparison(monthStr),
-            renderRoleDistribution(monthStr),
-            renderLateTrend()
-        ]);
+        // Populate staff dropdown
+        populateAnalyticsStaffSelect(staffUsers);
+
+        // === COMPUTE ALL from cached data (synchronous, fast!) ===
+        const comparison = ChartService.getAllStaffComparison(allLogs, users);
+        const roles = ChartService.getRoleDistribution(allLogs);
+        const summary = ChartService.getSummaryStats(allLogs, users);
+
+        // Render summary cards
+        renderSummaryCards(summary);
+
+        // Render charts
+        renderStaffComparison(comparison);
+        renderRoleDistribution(roles);
+
+        // Late trend needs multi-month data (async)
+        const lateTrend = await ChartService.getLateTrend(3);
+        renderLateTrend(lateTrend);
+
+        const elapsed = Math.round(performance.now() - t0);
+        const timing = document.getElementById('analytics-timing');
+        if (timing) timing.textContent = `⚡ ${elapsed}ms`;
 
     } catch (e) {
-        console.error('[Analytics] Error loading:', e);
+        console.error('[Analytics] Error:', e);
     } finally {
         if (loading) loading.style.display = 'none';
-        if (charts) charts.style.display = 'grid';
+        if (charts) {
+            charts.style.opacity = '1';
+            charts.style.transition = 'opacity 0.4s ease';
+        }
     }
+}
+
+// ============================
+// Summary Cards
+// ============================
+function renderSummaryCards(stats) {
+    const container = document.getElementById('analytics-summary');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="analytics-stat-card" style="--accent: #3B82F6">
+            <div class="analytics-stat-icon">👥</div>
+            <div>
+                <div class="analytics-stat-value">${stats.totalStaff}</div>
+                <div class="analytics-stat-label">Nhân viên</div>
+            </div>
+        </div>
+        <div class="analytics-stat-card" style="--accent: #10B981">
+            <div class="analytics-stat-icon">⏱️</div>
+            <div>
+                <div class="analytics-stat-value">${stats.totalHours}</div>
+                <div class="analytics-stat-label">Tổng giờ làm</div>
+            </div>
+        </div>
+        <div class="analytics-stat-card" style="--accent: #8B5CF6">
+            <div class="analytics-stat-icon">📋</div>
+            <div>
+                <div class="analytics-stat-value">${stats.totalSessions}</div>
+                <div class="analytics-stat-label">Tổng ca</div>
+            </div>
+        </div>
+        <div class="analytics-stat-card" style="--accent: #F59E0B">
+            <div class="analytics-stat-icon">📅</div>
+            <div>
+                <div class="analytics-stat-value">${stats.activeDays}</div>
+                <div class="analytics-stat-label">Ngày hoạt động</div>
+            </div>
+        </div>
+    `;
 }
 
 // ============================
 // Populate Staff Dropdown
 // ============================
-async function populateAnalyticsStaffSelect() {
+function populateAnalyticsStaffSelect(staffUsers) {
     const select = document.getElementById('analytics-staff-select');
-    if (!select || select.options.length > 1) return; // Already populated
+    if (!select) return;
 
-    try {
-        const users = await DBService.getUsers();
-        const staffUsers = users.filter(u => u.role !== 'admin').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-        staffUsers.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u.id;
-            opt.textContent = u.name || u.username || u.id;
-            select.appendChild(opt);
-        });
-    } catch (e) {
-        console.error('[Analytics] Error getting users:', e);
-    }
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
+    staffUsers.sort((a, b) => (a.name || '').localeCompare(b.name || '')).forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.name || u.username || u.id;
+        select.appendChild(opt);
+    });
+    if (currentVal) select.value = currentVal;
 }
 
 // ============================
-// CHART 1: Staff Comparison (Horizontal Bar)
+// CHART 1: Staff Comparison
 // ============================
-async function renderStaffComparison(monthStr) {
-    const data = await ChartService.getAllStaffComparison(monthStr);
-    if (!data.length) {
-        showNoData('chart-staff-comparison', 'Không có dữ liệu nhân viên');
-        return;
-    }
+function renderStaffComparison(data) {
+    if (!data.length) { showNoData('chart-staff-comparison'); return; }
+
+    const filtered = data.filter(d => d.hours > 0);
+    if (!filtered.length) { showNoData('chart-staff-comparison'); return; }
 
     createChart('chart-staff-comparison', {
         type: 'bar',
         data: {
-            labels: data.map(d => d.name),
+            labels: filtered.map(d => d.name),
             datasets: [{
-                label: 'Tổng giờ làm',
-                data: data.map(d => d.hours),
-                backgroundColor: data.map((_, i) => PALETTE[i % PALETTE.length]),
-                borderRadius: 6,
-                barThickness: 28
+                label: 'Tổng giờ',
+                data: filtered.map(d => d.hours),
+                backgroundColor: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
+                borderColor: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
+                borderWidth: 0,
+                borderRadius: 8,
+                borderSkipped: false,
+                barThickness: Math.max(20, Math.min(40, 300 / filtered.length))
             }]
         },
         options: {
@@ -169,19 +217,25 @@ async function renderStaffComparison(monthStr) {
             plugins: {
                 legend: { display: false },
                 tooltip: {
+                    backgroundColor: 'rgba(17,24,39,0.9)',
+                    titleFont: { weight: '600' },
+                    padding: 12,
+                    cornerRadius: 8,
                     callbacks: {
-                        label: (ctx) => `${ctx.raw} giờ (${data[ctx.dataIndex].sessions} ca)`
+                        label: (ctx) => `  ${ctx.raw} giờ  •  ${data[ctx.dataIndex].sessions} ca`
                     }
                 }
             },
             scales: {
                 x: {
                     beginAtZero: true,
-                    title: { display: true, text: 'Giờ' },
-                    grid: { color: 'rgba(0,0,0,0.05)' }
+                    grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+                    ticks: { font: { size: 11 } },
+                    title: { display: true, text: 'Giờ', font: { size: 11, weight: '500' }, color: '#9CA3AF' }
                 },
                 y: {
-                    grid: { display: false }
+                    grid: { display: false, drawBorder: false },
+                    ticks: { font: { size: 12, weight: '500' } }
                 }
             }
         }
@@ -189,14 +243,10 @@ async function renderStaffComparison(monthStr) {
 }
 
 // ============================
-// CHART 2: Role Distribution (Doughnut)
+// CHART 2: Role Distribution
 // ============================
-async function renderRoleDistribution(monthStr) {
-    const data = await ChartService.getRoleDistribution(monthStr);
-    if (!data.length) {
-        showNoData('chart-role-distribution', 'Chưa có dữ liệu vai trò');
-        return;
-    }
+function renderRoleDistribution(data) {
+    if (!data.length) { showNoData('chart-role-distribution'); return; }
 
     createChart('chart-role-distribution', {
         type: 'doughnut',
@@ -205,21 +255,29 @@ async function renderRoleDistribution(monthStr) {
             datasets: [{
                 data: data.map(d => d.hours),
                 backgroundColor: PALETTE.slice(0, data.length),
-                borderWidth: 2,
-                borderColor: '#fff',
-                hoverOffset: 8
+                borderWidth: 3,
+                borderColor: '#ffffff',
+                hoverOffset: 12,
+                hoverBorderWidth: 0
             }]
         },
         options: {
-            cutout: '55%',
+            cutout: '58%',
             plugins: {
                 legend: {
                     position: 'bottom',
-                    labels: { padding: 16 }
+                    labels: { padding: 20, font: { size: 12 } }
                 },
                 tooltip: {
+                    backgroundColor: 'rgba(17,24,39,0.9)',
+                    padding: 12,
+                    cornerRadius: 8,
                     callbacks: {
-                        label: (ctx) => `${ctx.label}: ${ctx.raw} giờ`
+                        label: (ctx) => {
+                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            const pct = Math.round(ctx.raw / total * 100);
+                            return `  ${ctx.label}: ${ctx.raw}h (${pct}%)`;
+                        }
                     }
                 }
             }
@@ -228,112 +286,83 @@ async function renderRoleDistribution(monthStr) {
 }
 
 // ============================
-// CHART 3: Late Trend (Line / Area)
+// CHART 3: Late Trend
 // ============================
-async function renderLateTrend() {
-    // Get late trend for ALL staff combined
-    try {
-        const users = await DBService.getUsers();
-        const staffUsers = users.filter(u => u.role !== 'admin');
+function renderLateTrend(data) {
+    if (!data || !data.length || data.every(d => d.lateCount === 0)) {
+        showNoData('chart-late-trend');
+        return;
+    }
 
-        // Aggregate late data across all staff
-        const monthLabels = [];
-        const avgLateData = [];
-        const lateCountData = [];
-
-        // Get 3 months range
-        const now = new Date();
-        for (let i = 2; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            monthLabels.push(`T${d.getMonth() + 1}/${d.getFullYear()}`);
-
-            let totalLate = 0, totalCount = 0;
-            for (const u of staffUsers) {
-                try {
-                    const trend = await ChartService.getLateTrend(u.id, 1);
-                    // We only get 1 month but for the specific month
-                    // Actually, let's just use getStaffPunctuality for simplicity
-                    const punct = await ChartService.getStaffPunctuality(u.id, monthStr);
-                    totalLate += punct.late;
-                    totalCount += punct.total;
-                } catch (e) { /* skip */ }
-            }
-
-            avgLateData.push(totalCount > 0 ? Math.round(totalLate / totalCount * 100) : 0);
-            lateCountData.push(totalLate);
-        }
-
-        if (lateCountData.every(v => v === 0)) {
-            showNoData('chart-late-trend', 'Không có dữ liệu đi trễ');
-            return;
-        }
-
-        createChart('chart-late-trend', {
-            type: 'line',
-            data: {
-                labels: monthLabels,
-                datasets: [
-                    {
-                        label: 'Số lần trễ',
-                        data: lateCountData,
-                        borderColor: CHART_COLORS.orange,
-                        backgroundColor: CHART_COLORS.orangeBg,
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 6,
-                        pointHoverRadius: 8
-                    },
-                    {
-                        label: '% Trễ',
-                        data: avgLateData,
-                        borderColor: CHART_COLORS.red,
-                        backgroundColor: 'transparent',
-                        borderDash: [5, 5],
-                        tension: 0.4,
-                        pointRadius: 4,
-                        yAxisID: 'y2'
-                    }
-                ]
-            },
-            options: {
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => {
-                                if (ctx.datasetIndex === 0) return `${ctx.raw} lần trễ`;
-                                return `${ctx.raw}% tỷ lệ trễ`;
-                            }
-                        }
-                    }
+    createChart('chart-late-trend', {
+        type: 'line',
+        data: {
+            labels: data.map(d => d.month),
+            datasets: [
+                {
+                    label: 'Số lần trễ',
+                    data: data.map(d => d.lateCount),
+                    borderColor: C.orange.bg,
+                    backgroundColor: C.orange.light,
+                    fill: true,
+                    tension: 0.45,
+                    pointRadius: 7,
+                    pointHoverRadius: 10,
+                    pointBackgroundColor: '#fff',
+                    pointBorderWidth: 3,
+                    pointBorderColor: C.orange.bg,
+                    borderWidth: 3
                 },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: { display: true, text: 'Số lần' },
-                        grid: { color: 'rgba(0,0,0,0.05)' }
-                    },
-                    y2: {
-                        position: 'right',
-                        beginAtZero: true,
-                        max: 100,
-                        title: { display: true, text: '%' },
-                        grid: { display: false }
-                    },
-                    x: {
-                        grid: { display: false }
+                {
+                    label: '% Trễ',
+                    data: data.map(d => d.latePercent),
+                    borderColor: C.red.bg,
+                    backgroundColor: 'transparent',
+                    borderDash: [6, 4],
+                    tension: 0.45,
+                    pointRadius: 5,
+                    pointBorderWidth: 2,
+                    pointBackgroundColor: '#fff',
+                    pointBorderColor: C.red.bg,
+                    borderWidth: 2,
+                    yAxisID: 'y2'
+                }
+            ]
+        },
+        options: {
+            plugins: {
+                tooltip: {
+                    backgroundColor: 'rgba(17,24,39,0.9)',
+                    padding: 12,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: (ctx) => ctx.datasetIndex === 0
+                            ? `  ${ctx.raw} lần trễ`
+                            : `  ${ctx.raw}% tỷ lệ trễ`
                     }
                 }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Lần', font: { size: 11 }, color: '#9CA3AF' },
+                    grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false }
+                },
+                y2: {
+                    position: 'right',
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: '%', font: { size: 11 }, color: '#9CA3AF' },
+                    grid: { display: false }
+                },
+                x: { grid: { display: false } }
             }
-        });
-    } catch (e) {
-        console.error('[Analytics] Late trend error:', e);
-        showNoData('chart-late-trend', 'Lỗi tải dữ liệu');
-    }
+        }
+    });
 }
 
 // ============================
-// PER-STAFF: Punctuality + Weekly Hours
+// PER-STAFF CHARTS
 // ============================
 async function loadStaffAnalytics() {
     const select = document.getElementById('analytics-staff-select');
@@ -341,22 +370,18 @@ async function loadStaffAnalytics() {
     if (!userId) return;
 
     const monthStr = getAnalyticsMonthStr();
+    const { allLogs, schedules } = await ChartService.loadMonthData(monthStr);
 
-    // Load both charts in parallel
-    await Promise.all([
-        renderPunctuality(userId, monthStr),
-        renderWeeklyHours(userId, monthStr)
-    ]);
+    // Synchronous computation from cached data
+    const punct = ChartService.getStaffPunctuality(allLogs, schedules, userId);
+    const weekly = ChartService.getWeeklyHours(allLogs, monthStr, userId);
+
+    renderPunctuality(punct);
+    renderWeeklyHours(weekly);
 }
 
-// CHART 4: Punctuality Doughnut
-async function renderPunctuality(userId, monthStr) {
-    const data = await ChartService.getStaffPunctuality(userId, monthStr);
-
-    if (data.total === 0) {
-        showNoData('chart-punctuality', 'Chưa có dữ liệu');
-        return;
-    }
+function renderPunctuality(data) {
+    if (data.total === 0) { showNoData('chart-punctuality'); return; }
 
     createChart('chart-punctuality', {
         type: 'doughnut',
@@ -364,24 +389,24 @@ async function renderPunctuality(userId, monthStr) {
             labels: ['Đúng giờ', 'Trễ', 'Vắng'],
             datasets: [{
                 data: [data.ontime, data.late, data.absent],
-                backgroundColor: [CHART_COLORS.green, CHART_COLORS.orange, CHART_COLORS.gray],
-                borderWidth: 2,
+                backgroundColor: [C.green.bg, C.orange.bg, C.gray.bg],
+                borderWidth: 3,
                 borderColor: '#fff',
-                hoverOffset: 6
+                hoverOffset: 8
             }]
         },
         options: {
-            cutout: '60%',
+            cutout: '62%',
             plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { padding: 12 }
-                },
+                legend: { position: 'bottom', labels: { padding: 16, font: { size: 12 } } },
                 tooltip: {
+                    backgroundColor: 'rgba(17,24,39,0.9)',
+                    padding: 12,
+                    cornerRadius: 8,
                     callbacks: {
                         label: (ctx) => {
-                            const pct = data.total > 0 ? Math.round(ctx.raw / data.total * 100) : 0;
-                            return `${ctx.label}: ${ctx.raw} ca (${pct}%)`;
+                            const pct = Math.round(ctx.raw / data.total * 100);
+                            return `  ${ctx.label}: ${ctx.raw} ca (${pct}%)`;
                         }
                     }
                 }
@@ -390,14 +415,10 @@ async function renderPunctuality(userId, monthStr) {
     });
 }
 
-// CHART 5: Weekly Hours Line
-async function renderWeeklyHours(userId, monthStr) {
-    const data = await ChartService.getWeeklyHours(userId, monthStr);
+function renderWeeklyHours(data) {
+    if (!data.length || data.every(d => d.hours === 0)) { showNoData('chart-weekly-hours'); return; }
 
-    if (!data.length || data.every(d => d.hours === 0)) {
-        showNoData('chart-weekly-hours', 'Chưa có dữ liệu');
-        return;
-    }
+    const avg = data.reduce((a, b) => a + b.hours, 0) / data.length;
 
     createChart('chart-weekly-hours', {
         type: 'bar',
@@ -406,49 +427,49 @@ async function renderWeeklyHours(userId, monthStr) {
             datasets: [{
                 label: 'Giờ làm',
                 data: data.map(d => d.hours),
-                backgroundColor: data.map((d, i) => {
-                    // Color based on value relative to average
-                    const avg = data.reduce((a, b) => a + b.hours, 0) / data.length;
-                    return d.hours >= avg ? CHART_COLORS.green : CHART_COLORS.orange;
-                }),
-                borderRadius: 8,
-                barThickness: 40
+                backgroundColor: data.map(d => d.hours >= avg ? C.green.bg : C.orange.bg),
+                borderRadius: 10,
+                borderSkipped: false,
+                barThickness: 36
             }]
         },
         options: {
             plugins: {
                 legend: { display: false },
                 tooltip: {
-                    callbacks: {
-                        label: (ctx) => `${ctx.raw} giờ`
-                    }
+                    backgroundColor: 'rgba(17,24,39,0.9)',
+                    padding: 12,
+                    cornerRadius: 8,
+                    callbacks: { label: (ctx) => `  ${ctx.raw} giờ` }
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
-                    title: { display: true, text: 'Giờ' },
-                    grid: { color: 'rgba(0,0,0,0.05)' }
+                    title: { display: true, text: 'Giờ', font: { size: 11 }, color: '#9CA3AF' },
+                    grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false }
                 },
-                x: {
-                    grid: { display: false }
-                }
+                x: { grid: { display: false } }
             }
         }
     });
 }
 
 // ============================
-// Helper: Show "No Data" on canvas
+// No Data Message
 // ============================
-function showNoData(canvasId, message) {
+function showNoData(canvasId) {
     destroyChart(canvasId);
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#9CA3AF';
-    ctx.font = '14px Inter, sans-serif';
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#D1D5DB';
+    ctx.font = '13px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+    ctx.fillText('📭 Chưa có dữ liệu', w / 2, h / 2 - 8);
+    ctx.fillStyle = '#E5E7EB';
+    ctx.font = '11px Inter, sans-serif';
+    ctx.fillText('Hãy chấm công để hiển thị biểu đồ', w / 2, h / 2 + 12);
 }

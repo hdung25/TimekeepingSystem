@@ -253,77 +253,255 @@
                 </div>
             </div>
 
-            <!-- TAB 3: ANALYTICS (NEW) -->
+            <!-- TAB 3: ANALYTICS (PREMIUM) -->
             <div id="tab-analytics" class="tab-section" style="display: none;">
-                <!-- Month Picker -->
-                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
-                    <button class="btn" onclick="changeAnalyticsMonth(-1)" style="padding: 0.5rem 1rem;">◀</button>
-                    <h2 id="analytics-month-label"
-                        style="font-size: 1.25rem; font-weight: 700; min-width: 160px; text-align: center;">--</h2>
-                    <button class="btn" onclick="changeAnalyticsMonth(1)" style="padding: 0.5rem 1rem;">▶</button>
-                    <button class="btn btn-primary" onclick="loadAnalyticsTab()" style="margin-left: auto;">🔄 Tải
-                        lại</button>
+
+                <!-- Inline Styles for Analytics -->
+                <style>
+                    .analytics-header {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.75rem;
+                        margin-bottom: 1.75rem;
+                        flex-wrap: wrap;
+                    }
+
+                    .analytics-header .month-nav {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                        background: var(--bg-body);
+                        border: 1px solid var(--border-color);
+                        border-radius: 12px;
+                        padding: 0.35rem;
+                    }
+
+                    .analytics-header .month-nav button {
+                        background: transparent;
+                        border: none;
+                        cursor: pointer;
+                        padding: 0.4rem 0.65rem;
+                        border-radius: 8px;
+                        font-size: 0.85rem;
+                        color: var(--text-muted);
+                        transition: all 0.2s;
+                    }
+
+                    .analytics-header .month-nav button:hover {
+                        background: var(--primary-color);
+                        color: #fff;
+                    }
+
+                    .analytics-header .month-label {
+                        font-size: 1.05rem;
+                        font-weight: 700;
+                        min-width: 140px;
+                        text-align: center;
+                        color: var(--text-color);
+                    }
+
+                    .analytics-timing {
+                        margin-left: auto;
+                        font-size: 0.75rem;
+                        color: var(--text-muted);
+                        background: var(--bg-body);
+                        padding: 0.3rem 0.75rem;
+                        border-radius: 20px;
+                        border: 1px solid var(--border-color);
+                    }
+
+                    .analytics-summary {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                        gap: 1rem;
+                        margin-bottom: 1.75rem;
+                    }
+
+                    .analytics-stat-card {
+                        background: #fff;
+                        border: 1px solid var(--border-color);
+                        border-radius: 14px;
+                        padding: 1.1rem 1.25rem;
+                        display: flex;
+                        align-items: center;
+                        gap: 0.9rem;
+                        transition: all 0.25s ease;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+                    }
+
+                    .analytics-stat-card:hover {
+                        transform: translateY(-2px);
+                        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+                    }
+
+                    .analytics-stat-icon {
+                        font-size: 1.5rem;
+                        width: 44px;
+                        height: 44px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-radius: 12px;
+                        background: color-mix(in srgb, var(--accent) 10%, transparent);
+                        flex-shrink: 0;
+                    }
+
+                    .analytics-stat-value {
+                        font-size: 1.4rem;
+                        font-weight: 800;
+                        color: var(--text-color);
+                        line-height: 1.1;
+                    }
+
+                    .analytics-stat-label {
+                        font-size: 0.78rem;
+                        color: var(--text-muted);
+                        margin-top: 2px;
+                    }
+
+                    .chart-panel {
+                        background: #fff;
+                        border: 1px solid var(--border-color);
+                        border-radius: 16px;
+                        padding: 1.5rem;
+                        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+                        transition: box-shadow 0.3s ease;
+                    }
+
+                    .chart-panel:hover {
+                        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+                    }
+
+                    .chart-panel h3 {
+                        font-size: 0.95rem;
+                        font-weight: 700;
+                        margin-bottom: 1.25rem;
+                        color: var(--text-color);
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                    }
+
+                    .chart-panel h3 .chart-icon {
+                        font-size: 1.1rem;
+                    }
+
+                    .chart-panel h4 {
+                        font-size: 0.82rem;
+                        font-weight: 600;
+                        color: var(--text-muted);
+                        margin-bottom: 0.75rem;
+                        text-transform: uppercase;
+                        letter-spacing: 0.3px;
+                    }
+
+                    .charts-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+                        gap: 1.25rem;
+                    }
+
+                    .charts-grid .full-width {
+                        grid-column: 1 / -1;
+                    }
+
+                    .staff-charts-inner {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                        gap: 1.25rem;
+                    }
+
+                    #analytics-loading {
+                        display: none;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 4rem 2rem;
+                        color: var(--text-muted);
+                    }
+
+                    #analytics-loading .loader-icon {
+                        width: 48px;
+                        height: 48px;
+                        border: 3px solid var(--border-color);
+                        border-top-color: var(--primary-color);
+                        border-radius: 50%;
+                        animation: spin 0.8s linear infinite;
+                        margin-bottom: 1rem;
+                    }
+
+                    @keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
+                <!-- Header: Month Picker -->
+                <div class="analytics-header">
+                    <div class="month-nav">
+                        <button onclick="changeAnalyticsMonth(-1)" title="Tháng trước">◀</button>
+                        <span id="analytics-month-label" class="month-label">--</span>
+                        <button onclick="changeAnalyticsMonth(1)" title="Tháng sau">▶</button>
+                    </div>
+                    <span id="analytics-timing" class="analytics-timing"></span>
                 </div>
 
-                <!-- Loading Overlay -->
-                <div id="analytics-loading"
-                    style="display:none; text-align:center; padding:3rem; color: var(--text-muted);">
-                    <div style="font-size:2rem; margin-bottom:1rem; animation: pulse 1.5s infinite;">📊</div>
-                    <p>Đang phân tích dữ liệu...</p>
+                <!-- Loading -->
+                <div id="analytics-loading">
+                    <div class="loader-icon"></div>
+                    <p style="font-size: 0.9rem;">Đang phân tích dữ liệu...</p>
                 </div>
 
-                <!-- Charts Grid -->
-                <div id="analytics-charts"
-                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
-                    <!-- Chart 1: Staff Comparison (Full width) -->
-                    <div class="glass-panel" style="padding: 1.5rem; grid-column: 1 / -1;">
-                        <h3 style="font-weight: 600; margin-bottom: 1rem; color: var(--text-color);">📊 So Sánh Nhân
-                            Viên (Tổng giờ làm)</h3>
-                        <div style="position: relative; height: 300px;">
+                <!-- Summary Cards -->
+                <div id="analytics-summary" class="analytics-summary"></div>
+
+                <!-- Charts -->
+                <div id="analytics-charts" class="charts-grid">
+                    <!-- Staff Comparison -->
+                    <div class="chart-panel full-width">
+                        <h3><span class="chart-icon">📊</span> So Sánh Nhân Viên</h3>
+                        <div style="position: relative; height: 280px;">
                             <canvas id="chart-staff-comparison"></canvas>
                         </div>
                     </div>
 
-                    <!-- Chart 2: Role Distribution -->
-                    <div class="glass-panel" style="padding: 1.5rem;">
-                        <h3 style="font-weight: 600; margin-bottom: 1rem; color: var(--text-color);">🥧 Phân Bổ Vai Trò
-                        </h3>
+                    <!-- Role Distribution -->
+                    <div class="chart-panel">
+                        <h3><span class="chart-icon">🎯</span> Phân Bổ Vai Trò</h3>
                         <div style="position: relative; height: 300px; display: flex; justify-content: center;">
                             <canvas id="chart-role-distribution"></canvas>
                         </div>
                     </div>
 
-                    <!-- Chart 3: Late Trend (All staff avg) -->
-                    <div class="glass-panel" style="padding: 1.5rem;">
-                        <h3 style="font-weight: 600; margin-bottom: 1rem; color: var(--text-color);">📉 Xu Hướng Đi Trễ
-                            (Trung bình)</h3>
+                    <!-- Late Trend -->
+                    <div class="chart-panel">
+                        <h3><span class="chart-icon">📉</span> Xu Hướng Đi Trễ</h3>
                         <div style="position: relative; height: 300px;">
                             <canvas id="chart-late-trend"></canvas>
                         </div>
                     </div>
 
-                    <!-- Per-Staff Section -->
-                    <div class="glass-panel" style="padding: 1.5rem; grid-column: 1 / -1;">
+                    <!-- Per-Staff Analysis -->
+                    <div class="chart-panel full-width">
                         <div
-                            style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
-                            <h3 style="font-weight: 600; color: var(--text-color);">👤 Phân Tích Cá Nhân</h3>
-                            <select id="analytics-staff-select" class="form-input" style="width: 200px;"
+                            style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                            <h3 style="margin-bottom: 0;"><span class="chart-icon">👤</span> Phân Tích Cá Nhân</h3>
+                            <select id="analytics-staff-select" class="form-input"
+                                style="width: 220px; border-radius: 10px; font-size: 0.9rem;"
                                 onchange="loadStaffAnalytics()">
                                 <option value="">-- Chọn nhân viên --</option>
                             </select>
                         </div>
-                        <div
-                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                        <div class="staff-charts-inner">
                             <div>
-                                <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">🍩 Tỷ Lệ
-                                    Đúng Giờ</h4>
+                                <h4>🍩 Tỷ Lệ Đúng Giờ</h4>
                                 <div style="position: relative; height: 250px; display: flex; justify-content: center;">
                                     <canvas id="chart-punctuality"></canvas>
                                 </div>
                             </div>
                             <div>
-                                <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">📈 Giờ
-                                    Làm Theo Tuần</h4>
+                                <h4>📈 Giờ Làm Theo Tuần</h4>
                                 <div style="position: relative; height: 250px;">
                                     <canvas id="chart-weekly-hours"></canvas>
                                 </div>

@@ -279,7 +279,6 @@ function showNotificationPopup(notifications) {
 
 // ================= STAFF PERSONAL CHARTS =================
 async function loadStaffPersonalCharts() {
-    // Only run if canvases exist (nhan-vien.html)
     const punctCanvas = document.getElementById('staff-chart-punctuality');
     const weeklyCanvas = document.getElementById('staff-chart-weekly');
     if (!punctCanvas || !weeklyCanvas) return;
@@ -292,11 +291,10 @@ async function loadStaffPersonalCharts() {
     const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     try {
-        // Load both in parallel
-        const [punctData, weeklyData] = await Promise.all([
-            ChartService.getStaffPunctuality(userId, monthStr),
-            ChartService.getWeeklyHours(userId, monthStr)
-        ]);
+        // Single batch fetch, then synchronous processing
+        const { allLogs, schedules } = await ChartService.loadMonthData(monthStr);
+        const punctData = ChartService.getStaffPunctuality(allLogs, schedules, userId);
+        const weeklyData = ChartService.getWeeklyHours(allLogs, monthStr, userId);
 
         // Punctuality Doughnut
         if (punctData.total > 0) {
@@ -306,22 +304,20 @@ async function loadStaffPersonalCharts() {
                     labels: ['Đúng giờ', 'Trễ', 'Vắng'],
                     datasets: [{
                         data: [punctData.ontime, punctData.late, punctData.absent],
-                        backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(245,158,11,0.8)', 'rgba(156,163,175,0.8)'],
-                        borderWidth: 2,
-                        borderColor: '#fff'
+                        backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(245,158,11,0.85)', 'rgba(156,163,175,0.8)'],
+                        borderWidth: 3, borderColor: '#fff', hoverOffset: 8
                     }]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '60%',
+                    responsive: true, maintainAspectRatio: false, cutout: '62%',
                     plugins: {
-                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 12 } },
+                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16 } },
                         tooltip: {
+                            backgroundColor: 'rgba(17,24,39,0.9)', padding: 12, cornerRadius: 8,
                             callbacks: {
                                 label: (ctx) => {
                                     const pct = Math.round(ctx.raw / punctData.total * 100);
-                                    return `${ctx.label}: ${ctx.raw} ca (${pct}%)`;
+                                    return `  ${ctx.label}: ${ctx.raw} ca (${pct}%)`;
                                 }
                             }
                         }
@@ -340,20 +336,21 @@ async function loadStaffPersonalCharts() {
                     datasets: [{
                         label: 'Giờ làm',
                         data: weeklyData.map(d => d.hours),
-                        backgroundColor: weeklyData.map(d => d.hours >= avg ? 'rgba(16,185,129,0.8)' : 'rgba(245,158,11,0.8)'),
-                        borderRadius: 8,
-                        barThickness: 36
+                        backgroundColor: weeklyData.map(d => d.hours >= avg ? 'rgba(16,185,129,0.8)' : 'rgba(245,158,11,0.85)'),
+                        borderRadius: 10, borderSkipped: false, barThickness: 36
                     }]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
+                    responsive: true, maintainAspectRatio: false,
                     plugins: {
                         legend: { display: false },
-                        tooltip: { callbacks: { label: (ctx) => `${ctx.raw} giờ` } }
+                        tooltip: {
+                            backgroundColor: 'rgba(17,24,39,0.9)', padding: 12, cornerRadius: 8,
+                            callbacks: { label: (ctx) => `  ${ctx.raw} giờ` }
+                        }
                     },
                     scales: {
-                        y: { beginAtZero: true, title: { display: true, text: 'Giờ' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y: { beginAtZero: true, title: { display: true, text: 'Giờ', font: { size: 11 }, color: '#9CA3AF' }, grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false } },
                         x: { grid: { display: false } }
                     }
                 }
@@ -475,7 +472,7 @@ function renderSidebar() {
             link: '#',
             id: 'nav-analytics',
             event: "switchTab('tab-analytics', event); return false;",
-            icon: '<path d="M21 12a9 9 0 1 1-9-9"></path><path d="M21 3v9h-9"></path>',
+            icon: '<line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line>',
             roles: ['admin']
         }
     ];
