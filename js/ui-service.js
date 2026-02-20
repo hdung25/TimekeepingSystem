@@ -109,14 +109,19 @@ window.switchTab = function (tabId, event) {
         if (titleEl) {
             if (tabId === 'tab-dashboard') titleEl.innerText = "Tổng Quan";
             if (tabId === 'tab-maintenance') titleEl.innerText = "Bảo Trì & Dọn Dẹp";
+            if (tabId === 'tab-analytics') titleEl.innerText = "Thống Kê & Phân Tích";
         }
 
         // Update Nav Active State
         document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
-        // Find the link that triggered this? Or find by ID
         if (tabId === 'tab-maintenance') {
             const nav = document.getElementById('nav-maintenance');
             if (nav) nav.classList.add('active');
+        } else if (tabId === 'tab-analytics') {
+            const nav = document.getElementById('nav-analytics');
+            if (nav) nav.classList.add('active');
+            // Auto-load analytics when tab is opened
+            if (typeof loadAnalyticsTab === 'function') loadAnalyticsTab();
         } else {
             // Default to Dashboard link (approximated)
             const nav = document.querySelector('a[href="admin.html"]');

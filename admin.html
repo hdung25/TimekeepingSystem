@@ -16,6 +16,9 @@
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js'></script> <!-- Security Guard -->
     <script src='js/db-service.js'></script>
+    <!-- Chart.js CDN -->
+    <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
+    <script src='js/chart-service.js'></script>
 </head>
 
 <body>
@@ -90,6 +93,17 @@
                         <line x1="14" y1="11" x2="14" y2="17"></line>
                     </svg>
                     Bảo Trì
+                </a>
+
+                <!-- NEW: Analytics Tab -->
+                <a href="#" class="nav-link" id="nav-analytics"
+                    onclick="switchTab('tab-analytics', event); return false;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    Thống Kê
                 </a>
 
                 <a href="index.html" class="nav-link" style="margin-top: auto; color: #ef4444;">
@@ -239,10 +253,91 @@
                 </div>
             </div>
 
+            <!-- TAB 3: ANALYTICS (NEW) -->
+            <div id="tab-analytics" class="tab-section" style="display: none;">
+                <!-- Month Picker -->
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+                    <button class="btn" onclick="changeAnalyticsMonth(-1)" style="padding: 0.5rem 1rem;">◀</button>
+                    <h2 id="analytics-month-label"
+                        style="font-size: 1.25rem; font-weight: 700; min-width: 160px; text-align: center;">--</h2>
+                    <button class="btn" onclick="changeAnalyticsMonth(1)" style="padding: 0.5rem 1rem;">▶</button>
+                    <button class="btn btn-primary" onclick="loadAnalyticsTab()" style="margin-left: auto;">🔄 Tải
+                        lại</button>
+                </div>
+
+                <!-- Loading Overlay -->
+                <div id="analytics-loading"
+                    style="display:none; text-align:center; padding:3rem; color: var(--text-muted);">
+                    <div style="font-size:2rem; margin-bottom:1rem; animation: pulse 1.5s infinite;">📊</div>
+                    <p>Đang phân tích dữ liệu...</p>
+                </div>
+
+                <!-- Charts Grid -->
+                <div id="analytics-charts"
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
+                    <!-- Chart 1: Staff Comparison (Full width) -->
+                    <div class="glass-panel" style="padding: 1.5rem; grid-column: 1 / -1;">
+                        <h3 style="font-weight: 600; margin-bottom: 1rem; color: var(--text-color);">📊 So Sánh Nhân
+                            Viên (Tổng giờ làm)</h3>
+                        <div style="position: relative; height: 300px;">
+                            <canvas id="chart-staff-comparison"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Role Distribution -->
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-weight: 600; margin-bottom: 1rem; color: var(--text-color);">🥧 Phân Bổ Vai Trò
+                        </h3>
+                        <div style="position: relative; height: 300px; display: flex; justify-content: center;">
+                            <canvas id="chart-role-distribution"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 3: Late Trend (All staff avg) -->
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <h3 style="font-weight: 600; margin-bottom: 1rem; color: var(--text-color);">📉 Xu Hướng Đi Trễ
+                            (Trung bình)</h3>
+                        <div style="position: relative; height: 300px;">
+                            <canvas id="chart-late-trend"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Per-Staff Section -->
+                    <div class="glass-panel" style="padding: 1.5rem; grid-column: 1 / -1;">
+                        <div
+                            style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                            <h3 style="font-weight: 600; color: var(--text-color);">👤 Phân Tích Cá Nhân</h3>
+                            <select id="analytics-staff-select" class="form-input" style="width: 200px;"
+                                onchange="loadStaffAnalytics()">
+                                <option value="">-- Chọn nhân viên --</option>
+                            </select>
+                        </div>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                            <div>
+                                <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">🍩 Tỷ Lệ
+                                    Đúng Giờ</h4>
+                                <div style="position: relative; height: 250px; display: flex; justify-content: center;">
+                                    <canvas id="chart-punctuality"></canvas>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">📈 Giờ
+                                    Làm Theo Tuần</h4>
+                                <div style="position: relative; height: 250px;">
+                                    <canvas id="chart-weekly-hours"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
     <script src="js/ui-service.js"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
+    <script src="js/analytics.js"></script> <!-- Charts -->
     <script src="js/main.js"></script>
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>

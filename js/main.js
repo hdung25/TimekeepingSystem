@@ -151,6 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const role = localStorage.getItem('currentRole') || 'staff';
         if (role === 'staff' || role === 'assistant') {
             loadStaffNotifications();
+            loadStaffPersonalCharts();
         }
 
         // Check if "Back to Admin" button should be shown
@@ -181,15 +182,13 @@ document.addEventListener('DOMContentLoaded', () => {
 // ================= STAFF NOTIFICATIONS =================
 async function loadStaffNotifications() {
     const staffId = localStorage.getItem('currentUserId');
-    console.log('[Notif Bell] staffId:', staffId, '| DBService:', typeof DBService !== 'undefined');
+
     if (!staffId || typeof DBService === 'undefined') {
-        console.warn('[Notif Bell] Skipped: missing staffId or DBService');
         return;
     }
 
     try {
         const notifications = await DBService.getStaffNotifications(staffId);
-        console.log('[Notif Bell] Got', notifications.length, 'unread notifications');
         if (notifications.length === 0) return;
 
         // Create floating bell
@@ -276,6 +275,93 @@ function showNotificationPopup(notifications) {
         const bell = document.getElementById('notif-bell');
         if (bell) bell.remove();
     };
+}
+
+// ================= STAFF PERSONAL CHARTS =================
+async function loadStaffPersonalCharts() {
+    // Only run if canvases exist (nhan-vien.html)
+    const punctCanvas = document.getElementById('staff-chart-punctuality');
+    const weeklyCanvas = document.getElementById('staff-chart-weekly');
+    if (!punctCanvas || !weeklyCanvas) return;
+    if (typeof Chart === 'undefined' || typeof ChartService === 'undefined') return;
+
+    const userId = localStorage.getItem('currentUserId');
+    if (!userId) return;
+
+    const now = new Date();
+    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    try {
+        // Load both in parallel
+        const [punctData, weeklyData] = await Promise.all([
+            ChartService.getStaffPunctuality(userId, monthStr),
+            ChartService.getWeeklyHours(userId, monthStr)
+        ]);
+
+        // Punctuality Doughnut
+        if (punctData.total > 0) {
+            new Chart(punctCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Đúng giờ', 'Trễ', 'Vắng'],
+                    datasets: [{
+                        data: [punctData.ontime, punctData.late, punctData.absent],
+                        backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(245,158,11,0.8)', 'rgba(156,163,175,0.8)'],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 12 } },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    const pct = Math.round(ctx.raw / punctData.total * 100);
+                                    return `${ctx.label}: ${ctx.raw} ca (${pct}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Weekly Hours Bar
+        if (weeklyData.length > 0 && weeklyData.some(d => d.hours > 0)) {
+            const avg = weeklyData.reduce((a, b) => a + b.hours, 0) / weeklyData.length;
+            new Chart(weeklyCanvas, {
+                type: 'bar',
+                data: {
+                    labels: weeklyData.map(d => d.week),
+                    datasets: [{
+                        label: 'Giờ làm',
+                        data: weeklyData.map(d => d.hours),
+                        backgroundColor: weeklyData.map(d => d.hours >= avg ? 'rgba(16,185,129,0.8)' : 'rgba(245,158,11,0.8)'),
+                        borderRadius: 8,
+                        barThickness: 36
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.raw} giờ` } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Giờ' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('[StaffCharts] Error:', e);
+    }
 }
 // ================= AUTH LOGIC =================
 

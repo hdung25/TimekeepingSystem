@@ -649,10 +649,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     });
 
     // 4. Handle Unmatched Sessions
+    // 4. Handle Unmatched Sessions
     attendanceSessions.forEach(s => {
         if (!usedSessionIds.has(s.id)) {
             const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
-            console.log('[Debug Chip] Unmatched session:', s.id, 'type:', s.type, 'isAdminCreated:', isAdminCreated);
             let label = isAdminCreated ? 'Ca Thêm' : 'Ca Ngoài Lịch';
             let duration = 0;
             let cssClass = 'chip-orange';

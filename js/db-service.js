@@ -977,21 +977,16 @@ const DBService = {
     // Get unread notifications for a staff member
     getStaffNotifications: async (staffId) => {
         try {
-            console.log('[Notification] Fetching for staffId:', staffId);
             // Single WHERE to avoid composite index requirement
             const snap = await db.collection('admin_notifications')
                 .where('staffId', '==', staffId)
                 .limit(50)
                 .get();
 
-            console.log('[Notification] Total docs found:', snap.size);
-
             // Client-side filter: only unread
             const results = snap.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
                 .filter(n => n.read === false);
-
-            console.log('[Notification] Unread count:', results.length);
 
             // Sort client-side (newest first)
             results.sort((a, b) => {
@@ -1001,7 +996,7 @@ const DBService = {
             });
             return results;
         } catch (e) {
-            console.error('[Notification] Error fetching:', e.message, e);
+            console.error('[Notification] Error fetching:', e.message);
             return [];
         }
     },
