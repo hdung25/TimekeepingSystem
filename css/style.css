@@ -688,36 +688,96 @@ button {
 /* ================== MOBILE: Bao Cao / Salary Page ================== */
 @media (max-width: 768px) {
 
-    /* Salary Grid → single column */
-    .modern-grid {
-        grid-template-columns: 1fr !important;
-        gap: 1rem;
-    }
-
-    /* Salary card full width, no horizontal overflow */
+    /* ===== Salary Card: Fix overflow & layout ===== */
     .admin-control-card {
-        overflow-x: hidden;
+        overflow: visible !important;
+        padding: 0.75rem;
+        border-radius: var(--radius-md);
     }
 
-    /* Control footer: stack vertically */
+    .admin-control-card::before {
+        border-radius: var(--radius-md) var(--radius-md) 0 0;
+    }
+
+    .control-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+    }
+
+    .control-title {
+        font-size: 1rem;
+    }
+
+    /* ===== Salary Grid → single column, full width ===== */
+    .modern-grid {
+        display: flex !important;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .modern-form-group {
+        width: 100%;
+    }
+
+    .modern-select,
+    .modern-input {
+        width: 100% !important;
+    }
+
+    /* ===== Control footer: stack vertically ===== */
     .control-footer {
         flex-direction: column;
         align-items: stretch;
-        text-align: center;
+        gap: 0.75rem;
+        padding-top: 0.75rem;
     }
 
     .control-footer .action-buttons {
         display: flex;
         gap: 0.5rem;
+        width: 100%;
     }
 
     .control-footer .action-buttons .btn {
         flex: 1;
-        min-height: 44px;
+        min-height: 48px;
+        font-size: 0.9rem;
+    }
+
+    .control-footer>div[style*="text-align: right"] {
+        text-align: center !important;
+        width: 100%;
+        padding: 0.75rem;
+        background: #ECFDF5;
+        border-radius: var(--radius-md);
+    }
+
+    .final-amount-label {
+        font-size: 0.75rem;
     }
 
     .final-amount-value {
-        font-size: 1.35rem;
+        font-size: 1.25rem;
+        word-break: break-all;
+    }
+
+    /* ===== Page header: stack on mobile ===== */
+    .page-header {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .page-header>div:last-child {
+        text-align: left !important;
+        width: 100%;
+    }
+
+    #total-hours-display {
+        font-size: 1.1rem !important;
     }
 
     /* Calendar scroll with touch momentum */
