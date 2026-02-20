@@ -684,3 +684,120 @@ button {
         opacity: 1;
     }
 }
+
+/* ================== MOBILE: Bao Cao / Salary Page ================== */
+@media (max-width: 768px) {
+
+    /* Salary Grid → single column */
+    .modern-grid {
+        grid-template-columns: 1fr !important;
+        gap: 1rem;
+    }
+
+    /* Salary card full width, no horizontal overflow */
+    .admin-control-card {
+        overflow-x: hidden;
+    }
+
+    /* Control footer: stack vertically */
+    .control-footer {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+
+    .control-footer .action-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .control-footer .action-buttons .btn {
+        flex: 1;
+        min-height: 44px;
+    }
+
+    .final-amount-value {
+        font-size: 1.35rem;
+    }
+
+    /* Calendar scroll with touch momentum */
+    .glass-panel:has(#calendar-grid),
+    .glass-panel:has(.calendar-grid) {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #calendar-grid {
+        min-width: 560px;
+    }
+
+    .calendar-header {
+        min-width: 560px;
+    }
+
+    /* Evaluation table scroll with touch momentum */
+    #evaluation-section .glass-panel {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #evaluation-section table {
+        min-width: 800px;
+    }
+
+    /* Page header: stack on mobile */
+    .page-header {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .page-header>div:last-child {
+        text-align: left !important;
+    }
+
+    /* Total hours smaller on mobile */
+    #total-hours-display {
+        font-size: 1.1rem !important;
+    }
+}
+
+/* ================== GLOBAL MOBILE: Touch Targets & Tables ================== */
+@media (max-width: 768px) {
+
+    /* Min touch target for all buttons and selects */
+    .btn,
+    button,
+    select,
+    .modern-select {
+        min-height: 44px;
+    }
+
+    /* Any generic table container → scrollable */
+    .table-scroll-container,
+    div[style*="overflow-x: auto"] {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Forms: ensure inputs are large enough */
+    .modern-input,
+    .modern-select,
+    .form-input,
+    input[type="number"],
+    input[type="text"],
+    input[type="datetime-local"] {
+        min-height: 44px;
+        font-size: 16px !important;
+        /* Prevent iOS zoom on focus */
+    }
+
+    /* Nav links: larger touch areas */
+    .nav-link {
+        padding: 0.85rem 1rem;
+        font-size: 0.92rem;
+    }
+
+    /* Glass panels: reduce padding on mobile */
+    .glass-panel {
+        border-radius: var(--radius-md);
+    }
+}
