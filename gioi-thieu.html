@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 
 <head>
@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Giới Thiệu Dự Án | Hệ Thống Quản Lý Giáo Dục Thông Minh</title>
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -473,6 +478,7 @@
             document.querySelectorAll('.animate-in').forEach(el => observer.observe(el));
         });
     </script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
 </body>
 
 </html>

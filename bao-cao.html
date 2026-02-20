@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bảng Công Cá Nhân - Hệ Thống Chấm Công</title>
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
     <link rel="stylesheet" href="css/style.css">
     <style>
         /* Calendar Styles */
@@ -434,6 +439,7 @@
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script src="js/report.js"></script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
 </body>
 
 </html>
