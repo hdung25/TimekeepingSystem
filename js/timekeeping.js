@@ -217,27 +217,40 @@ window.handleDeleteSession = async function (dateKey, sessionId) {
 
 function renderTodayClasses() {
     const container = document.getElementById('class-list-container');
-    if (!container) return; // Logic check
+    if (!container) return;
 
     const today = new Date();
     const dateKey = getLocalDateKey(today);
     const currentUserId = localStorage.getItem('currentUserId');
 
-    DBService.getSchedule(dateKey).then(todaySchedule => {
-        // Flatten — only include classes where this user is registered
+    // Fetch from BOTH branches
+    const BRANCHES = ['cs1', 'cs2'];
+    const branchPromises = BRANCHES.map(branch => {
+        const compositeKey = `${branch}__${dateKey}`;
+        return DBService.getSchedule(compositeKey).then(data => ({ data: data || {}, branch, compositeKey }));
+    });
+
+    Promise.all(branchPromises).then(results => {
         let classes = [];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
 
-        sections.forEach(sec => {
-            if (todaySchedule[sec]) {
-                todaySchedule[sec].forEach((cls, idx) => {
-                    // Only show classes the user has registered for
-                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
-                    if (!isRegistered) return;
-
-                    classes.push({ ...cls, section: sec, index: idx, id: `${dateKey}-${sec}-${idx}` });
-                });
-            }
+        results.forEach(({ data: todaySchedule, branch, compositeKey }) => {
+            sections.forEach(sec => {
+                if (todaySchedule[sec]) {
+                    todaySchedule[sec].forEach((cls, idx) => {
+                        const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
+                        if (!isRegistered) return;
+                        classes.push({
+                            ...cls,
+                            section: sec,
+                            index: idx,
+                            id: `${dateKey}-${sec}-${idx}`,
+                            _branch: branch,
+                            _compositeKey: compositeKey
+                        });
+                    });
+                }
+            });
         });
 
         if (classes.length === 0) {
@@ -251,18 +264,16 @@ function renderTodayClasses() {
         }
 
         container.innerHTML = '';
-
-        // Sort by Start Time
         classes.sort((a, b) => a.start.localeCompare(b.start));
 
         classes.forEach(cls => {
-            const card = createClassCard(cls, dateKey);
+            const card = createClassCard(cls, cls._compositeKey);
             container.appendChild(card);
         });
     });
 }
 
-function createClassCard(cls, dateKey) {
+function createClassCard(cls, compositeKey) {
     const el = document.createElement('div');
     el.className = 'glass-panel class-card';
     el.style.marginBottom = '1.5rem';
@@ -272,22 +283,25 @@ function createClassCard(cls, dateKey) {
     el.style.justifyContent = 'space-between';
     el.style.alignItems = 'center';
 
-    // Check Status (Registered or not)
     const currentUserId = localStorage.getItem('currentUserId');
     const registeredTeachers = cls.registeredTeachers || [];
     const isRegistered = registeredTeachers.some(t => t.id === currentUserId);
 
+    // Branch badge
+    const branchLabel = cls._branch === 'cs2' ? 'CS2' : 'CS1';
+    const branchBadge = `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:0.7rem; font-weight:700; background:${cls._branch === 'cs2' ? '#EFF6FF' : '#F0FDF4'}; color:${cls._branch === 'cs2' ? '#3B82F6' : '#059669'}; margin-left:0.5rem;">${branchLabel}</span>`;
+
     let statusBadge = '<span style="color: var(--text-muted);">Chưa nhận</span>';
-    let actionBtn = `<button class="btn btn-primary" onclick="registerClass('${dateKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Nhận Lớp</button>`;
+    let actionBtn = `<button class="btn btn-primary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Nhận Lớp</button>`;
 
     if (isRegistered) {
         statusBadge = '<span style="color: var(--secondary-color); font-weight: bold;">Đã nhận lớp</span>';
-        actionBtn = `<button class="btn btn-secondary" onclick="registerClass('${dateKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;
+        actionBtn = `<button class="btn btn-secondary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;
     }
 
     el.innerHTML = `
         <div>
-            <h3 style="font-size: 1.25rem; font-weight: 700;">${cls.lop || 'Lớp chưa nhập tên'}</h3>
+            <h3 style="font-size: 1.25rem; font-weight: 700;">${cls.lop || 'Lớp chưa nhập tên'}${branchBadge}</h3>
             <div style="color: var(--text-muted); margin-top: 0.25rem;">
                 <span style="display:inline-block; margin-right: 1rem;">🕒 ${cls.start} - ${cls.end}</span>
                 <span>🚪 ${cls.phong || 'Chưa xếp phòng'}</span>
@@ -305,9 +319,8 @@ function createClassCard(cls, dateKey) {
     return el;
 }
 
-// 4. Register Class Handler
-// 4. Register Class Handler
-window.registerClass = async function (dateKey, section, index, btn, endTimeStr) {
+// 4. Register Class Handler (compositeKey = 'cs1__2026-02-21' or plain dateKey)
+window.registerClass = async function (compositeKey, section, index, btn, endTimeStr) {
     if (btn) btn.disabled = true;
 
     const currentUserId = localStorage.getItem('currentUserId');
@@ -319,10 +332,11 @@ window.registerClass = async function (dateKey, section, index, btn, endTimeStr)
         return;
     }
 
-    // Time Validation (Match logic in schedule.js)
+    // Time Validation — extract pure dateKey for Date parsing
     if (endTimeStr) {
+        const pureDateKey = compositeKey.includes('__') ? compositeKey.split('__')[1] : compositeKey;
         const now = new Date();
-        const classEnd = new Date(`${dateKey}T${endTimeStr}`);
+        const classEnd = new Date(`${pureDateKey}T${endTimeStr}`);
         if (now > classEnd) {
             UIService.toast("Đã hết giờ học! Không thể nhận lớp khi ca dạy đã kết thúc.", "error");
             if (btn) btn.disabled = false;
@@ -330,7 +344,6 @@ window.registerClass = async function (dateKey, section, index, btn, endTimeStr)
         }
     }
 
-    // Confirm
     if (!await UIService.confirm('Xác nhận thay đổi trạng thái nhận lớp?')) {
         if (btn) btn.disabled = false;
         return;
@@ -340,10 +353,9 @@ window.registerClass = async function (dateKey, section, index, btn, endTimeStr)
         const rowMeta = { index };
         const user = { id: currentUserId, name: userFullName };
 
-        await DBService.registerClass(dateKey, section, rowMeta, user);
+        await DBService.registerClass(compositeKey, section, rowMeta, user);
 
         UIService.toast("Cập nhật thành công!", "success");
-        // Refresh
         renderTodayClasses();
     } catch (e) {
         UIService.toast("Lỗi: " + e, "error");
