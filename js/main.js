@@ -558,19 +558,92 @@ function renderSidebar() {
             Đăng Xuất
         </a>
         `;
-    // Inject Hamburger Button (Hidden on Desktop via CSS)
+
+    // ===== LOGO → HOMEPAGE LINK =====
     const logoArea = document.querySelector('.logo-area');
-    if (logoArea && !logoArea.querySelector('.hamburger-btn')) {
-        const hamburger = document.createElement('button');
-        hamburger.className = 'hamburger-btn';
-        hamburger.innerHTML = '☰';
-        hamburger.onclick = () => {
-            const sidebar = document.querySelector('.sidebar');
-            sidebar.classList.toggle('open');
-            hamburger.innerHTML = sidebar.classList.contains('open') ? '✕' : '☰';
-        };
-        logoArea.appendChild(hamburger);
+    if (logoArea) {
+        const homePage = role === 'admin' ? 'admin.html' : (role === 'assistant' ? 'admin.html' : 'nhan-vien.html');
+        const logoImg = logoArea.querySelector('img');
+        const logoText = logoArea.querySelector('span');
+
+        // Wrap logo content in a link
+        if (logoImg && !logoArea.querySelector('a.logo-link')) {
+            const link = document.createElement('a');
+            link.href = homePage;
+            link.className = 'logo-link';
+            link.style.cssText = 'display:flex; align-items:center; gap:0.5rem; text-decoration:none; color:inherit;';
+            link.appendChild(logoImg.cloneNode(true));
+            if (logoText) link.appendChild(logoText.cloneNode(true));
+
+            // Clear and re-add
+            logoArea.innerHTML = '';
+            logoArea.appendChild(link);
+        }
     }
+
+    // ===== MOBILE: Header Bar + Slide-in Sidebar =====
+    _setupMobileNav(role);
+
+    // ===== Close sidebar when clicking a nav link on mobile =====
+    document.querySelectorAll('.sidebar .nav-link').forEach(link => {
+        link.addEventListener('click', () => {
+            if (window.innerWidth <= 768) _closeMobileSidebar();
+        });
+    });
+}
+
+// ===== Mobile Nav Setup =====
+function _setupMobileNav(role) {
+    // Only create once
+    if (document.querySelector('.mobile-header')) return;
+
+    const homePage = (role === 'admin' || role === 'assistant') ? 'admin.html' : 'nhan-vien.html';
+
+    // Create mobile header bar
+    const header = document.createElement('div');
+    header.className = 'mobile-header';
+    header.style.display = 'none'; // CSS shows it on mobile via !important
+    header.innerHTML = `
+        <button class="hamburger-btn" onclick="_toggleMobileSidebar()" aria-label="Menu">☰</button>
+        <a href="${homePage}" class="mobile-logo">
+            <img src="images/TUDUYTRE.jpg" alt="Logo">
+            <span>NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+        </a>
+    `;
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    overlay.onclick = () => _closeMobileSidebar();
+
+    // Insert before admin-container
+    const container = document.querySelector('.admin-container');
+    if (container) {
+        container.parentNode.insertBefore(header, container);
+        container.parentNode.insertBefore(overlay, container);
+    }
+}
+
+function _toggleMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    const btn = document.querySelector('.mobile-header .hamburger-btn');
+
+    if (sidebar) {
+        const isOpen = sidebar.classList.toggle('open');
+        if (overlay) overlay.classList.toggle('active', isOpen);
+        if (btn) btn.innerHTML = isOpen ? '✕' : '☰';
+    }
+}
+
+function _closeMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    const btn = document.querySelector('.mobile-header .hamburger-btn');
+
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+    if (btn) btn.innerHTML = '☰';
 }
 
 
