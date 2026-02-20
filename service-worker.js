@@ -1,5 +1,5 @@
-// Service Worker v1 — Cache-first for static, Network-first for Firestore
-const CACHE_NAME = 'tdt-chamcong-v1';
+// Service Worker v2 — Cache-first for static, Network-first for Firestore
+const CACHE_NAME = 'tdt-chamcong-v2';
 
 // Static files to pre-cache on install
 const STATIC_ASSETS = [
@@ -21,6 +21,7 @@ const STATIC_ASSETS = [
     '/js/auth-guard.js',
     '/js/chart-service.js',
     '/js/analytics.js',
+    '/js/schedule.js',
     '/images/TUDUYTRE.jpg',
     '/manifest.json'
 ];
