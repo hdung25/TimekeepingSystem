@@ -1,15 +1,17 @@
-// Analytics Tab v2 — Premium UI + Optimized Data Flow
+// Analytics Tab v3 — Multi-select comparison + Overall Punctuality
 // Depends on: Chart.js (CDN), ChartService (chart-service.js), DBService (db-service.js)
 
 let analyticsDate = new Date();
 let chartInstances = {};
+let _cachedMonthData = null; // Store loaded data for interactive use
 
 // ============================
 // Month Navigation
 // ============================
 function changeAnalyticsMonth(offset) {
     analyticsDate.setMonth(analyticsDate.getMonth() + offset);
-    ChartService._clearCache(); // Clear cache when month changes
+    ChartService._clearCache();
+    _cachedMonthData = null;
     loadAnalyticsTab();
 }
 
@@ -58,7 +60,6 @@ const C = {
 };
 
 const PALETTE = [C.blue.bg, C.green.bg, C.purple.bg, C.teal.bg, C.pink.bg, C.indigo.bg, C.orange.bg, C.amber.bg, C.red.bg];
-const PALETTE_LIGHT = [C.blue.light, C.green.light, C.purple.light, C.teal.light, C.pink.light, C.indigo.light, C.orange.light, C.amber.light, C.red.light];
 
 // ============================
 // Chart.js Global Theme
@@ -75,6 +76,13 @@ if (typeof Chart !== 'undefined') {
     Chart.defaults.animation.easing = 'easeOutQuart';
 }
 
+const tooltipStyle = {
+    backgroundColor: 'rgba(17,24,39,0.9)',
+    titleFont: { weight: '600' },
+    padding: 12,
+    cornerRadius: 8
+};
+
 // ============================
 // MAIN: Load Analytics Tab
 // ============================
@@ -84,7 +92,6 @@ async function loadAnalyticsTab() {
     updateMonthLabel();
     const monthStr = getAnalyticsMonthStr();
 
-    // Show loading
     const loading = document.getElementById('analytics-loading');
     const charts = document.getElementById('analytics-charts');
     if (loading) loading.style.display = 'flex';
@@ -94,25 +101,24 @@ async function loadAnalyticsTab() {
 
     try {
         // === SINGLE BATCH FETCH ===
-        const { allLogs, schedules, users } = await ChartService.loadMonthData(monthStr);
+        const data = await ChartService.loadMonthData(monthStr);
+        _cachedMonthData = data;
+        const { allLogs, schedules, users } = data;
         const staffUsers = users.filter(u => u.role !== 'admin');
 
-        // Populate staff dropdown
+        // Populate dropdown + checkboxes
         populateAnalyticsStaffSelect(staffUsers);
+        populateCompareCheckboxes(staffUsers);
 
-        // === COMPUTE ALL from cached data (synchronous, fast!) ===
-        const comparison = ChartService.getAllStaffComparison(allLogs, users);
-        const roles = ChartService.getRoleDistribution(allLogs);
+        // Summary Cards
         const summary = ChartService.getSummaryStats(allLogs, users);
-
-        // Render summary cards
         renderSummaryCards(summary);
 
-        // Render charts
-        renderStaffComparison(comparison);
-        renderRoleDistribution(roles);
+        // === RENDER CHARTS (all from cached data) ===
+        renderOverallPunctuality(allLogs, schedules, staffUsers);
+        renderStaffComparison(allLogs, users); // Default: all staff
 
-        // Late trend needs multi-month data (async)
+        // Late trend (multi-month, async)
         const lateTrend = await ChartService.getLateTrend(3);
         renderLateTrend(lateTrend);
 
@@ -171,12 +177,11 @@ function renderSummaryCards(stats) {
 }
 
 // ============================
-// Populate Staff Dropdown
+// Populate Controls
 // ============================
 function populateAnalyticsStaffSelect(staffUsers) {
     const select = document.getElementById('analytics-staff-select');
     if (!select) return;
-
     const currentVal = select.value;
     select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
     staffUsers.sort((a, b) => (a.name || '').localeCompare(b.name || '')).forEach(u => {
@@ -188,95 +193,86 @@ function populateAnalyticsStaffSelect(staffUsers) {
     if (currentVal) select.value = currentVal;
 }
 
-// ============================
-// CHART 1: Staff Comparison
-// ============================
-function renderStaffComparison(data) {
-    if (!data.length) { showNoData('chart-staff-comparison'); return; }
+function populateCompareCheckboxes(staffUsers) {
+    const container = document.getElementById('staff-compare-checkboxes');
+    if (!container) return;
 
-    const filtered = data.filter(d => d.hours > 0);
-    if (!filtered.length) { showNoData('chart-staff-comparison'); return; }
+    container.innerHTML = staffUsers
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        .map(u => `
+            <label style="
+                display: flex; align-items: center; gap: 0.4rem;
+                padding: 0.35rem 0.7rem; border-radius: 8px;
+                background: #fff; border: 1px solid var(--border-color);
+                cursor: pointer; font-size: 0.82rem; color: var(--text-color);
+                transition: all 0.2s; user-select: none;
+            " onmouseover="this.style.borderColor='var(--primary-color)'" onmouseout="this.style.borderColor='var(--border-color)'">
+                <input type="checkbox" value="${u.id}" checked
+                    onchange="updateStaffComparison()"
+                    style="accent-color: var(--primary-color); cursor: pointer;">
+                ${u.name || u.username || u.id}
+            </label>
+        `).join('');
+}
 
-    createChart('chart-staff-comparison', {
-        type: 'bar',
-        data: {
-            labels: filtered.map(d => d.name),
-            datasets: [{
-                label: 'Tổng giờ',
-                data: filtered.map(d => d.hours),
-                backgroundColor: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
-                borderColor: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
-                borderWidth: 0,
-                borderRadius: 8,
-                borderSkipped: false,
-                barThickness: Math.max(20, Math.min(40, 300 / filtered.length))
-            }]
-        },
-        options: {
-            indexAxis: 'y',
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: 'rgba(17,24,39,0.9)',
-                    titleFont: { weight: '600' },
-                    padding: 12,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: (ctx) => `  ${ctx.raw} giờ  •  ${data[ctx.dataIndex].sessions} ca`
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    beginAtZero: true,
-                    grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
-                    ticks: { font: { size: 11 } },
-                    title: { display: true, text: 'Giờ', font: { size: 11, weight: '500' }, color: '#9CA3AF' }
-                },
-                y: {
-                    grid: { display: false, drawBorder: false },
-                    ticks: { font: { size: 12, weight: '500' } }
-                }
-            }
-        }
-    });
+function selectAllStaffCompare(selectAll) {
+    const checkboxes = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = selectAll);
+    updateStaffComparison();
+}
+
+function updateStaffComparison() {
+    if (!_cachedMonthData) return;
+    const checkboxes = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]:checked');
+    const selectedIds = new Set([...checkboxes].map(cb => cb.value));
+
+    const { allLogs, users } = _cachedMonthData;
+
+    // Filter to selected users only
+    const filteredUsers = users.filter(u => selectedIds.has(u.id));
+    const filteredLogs = allLogs.filter(l => selectedIds.has(l._userId));
+
+    renderStaffComparison(filteredLogs, filteredUsers);
 }
 
 // ============================
-// CHART 2: Role Distribution
+// CHART 1: Overall Punctuality (All Staff Combined)
 // ============================
-function renderRoleDistribution(data) {
-    if (!data.length) { showNoData('chart-role-distribution'); return; }
+function renderOverallPunctuality(allLogs, schedules, staffUsers) {
+    let totalOntime = 0, totalLate = 0, totalAbsent = 0;
 
-    createChart('chart-role-distribution', {
+    staffUsers.forEach(u => {
+        const punct = ChartService.getStaffPunctuality(allLogs, schedules, u.id);
+        totalOntime += punct.ontime;
+        totalLate += punct.late;
+        totalAbsent += punct.absent;
+    });
+
+    const total = totalOntime + totalLate + totalAbsent;
+    if (total === 0) { showNoData('chart-overall-punctuality'); return; }
+
+    createChart('chart-overall-punctuality', {
         type: 'doughnut',
         data: {
-            labels: data.map(d => d.role),
+            labels: ['Đúng giờ', 'Trễ', 'Vắng'],
             datasets: [{
-                data: data.map(d => d.hours),
-                backgroundColor: PALETTE.slice(0, data.length),
+                data: [totalOntime, totalLate, totalAbsent],
+                backgroundColor: [C.green.bg, C.orange.bg, C.gray.bg],
                 borderWidth: 3,
                 borderColor: '#ffffff',
-                hoverOffset: 12,
-                hoverBorderWidth: 0
+                hoverOffset: 12
             }]
         },
         options: {
             cutout: '58%',
             plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { padding: 20, font: { size: 12 } }
-                },
+                legend: { position: 'bottom' },
                 tooltip: {
-                    backgroundColor: 'rgba(17,24,39,0.9)',
-                    padding: 12,
-                    cornerRadius: 8,
+                    ...tooltipStyle,
                     callbacks: {
                         label: (ctx) => {
-                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
                             const pct = Math.round(ctx.raw / total * 100);
-                            return `  ${ctx.label}: ${ctx.raw}h (${pct}%)`;
+                            return `  ${ctx.label}: ${ctx.raw} ca (${pct}%)`;
                         }
                     }
                 }
@@ -286,12 +282,11 @@ function renderRoleDistribution(data) {
 }
 
 // ============================
-// CHART 3: Late Trend
+// CHART 2: Late Trend
 // ============================
 function renderLateTrend(data) {
     if (!data || !data.length || data.every(d => d.lateCount === 0)) {
-        showNoData('chart-late-trend');
-        return;
+        showNoData('chart-late-trend'); return;
     }
 
     createChart('chart-late-trend', {
@@ -332,9 +327,7 @@ function renderLateTrend(data) {
         options: {
             plugins: {
                 tooltip: {
-                    backgroundColor: 'rgba(17,24,39,0.9)',
-                    padding: 12,
-                    cornerRadius: 8,
+                    ...tooltipStyle,
                     callbacks: {
                         label: (ctx) => ctx.datasetIndex === 0
                             ? `  ${ctx.raw} lần trễ`
@@ -349,9 +342,7 @@ function renderLateTrend(data) {
                     grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false }
                 },
                 y2: {
-                    position: 'right',
-                    beginAtZero: true,
-                    max: 100,
+                    position: 'right', beginAtZero: true, max: 100,
                     title: { display: true, text: '%', font: { size: 11 }, color: '#9CA3AF' },
                     grid: { display: false }
                 },
@@ -362,7 +353,7 @@ function renderLateTrend(data) {
 }
 
 // ============================
-// PER-STAFF CHARTS
+// PER-STAFF: Punctuality + Weekly Hours
 // ============================
 async function loadStaffAnalytics() {
     const select = document.getElementById('analytics-staff-select');
@@ -370,9 +361,11 @@ async function loadStaffAnalytics() {
     if (!userId) return;
 
     const monthStr = getAnalyticsMonthStr();
-    const { allLogs, schedules } = await ChartService.loadMonthData(monthStr);
+    if (!_cachedMonthData) {
+        _cachedMonthData = await ChartService.loadMonthData(monthStr);
+    }
+    const { allLogs, schedules } = _cachedMonthData;
 
-    // Synchronous computation from cached data
     const punct = ChartService.getStaffPunctuality(allLogs, schedules, userId);
     const weekly = ChartService.getWeeklyHours(allLogs, monthStr, userId);
 
@@ -390,19 +383,15 @@ function renderPunctuality(data) {
             datasets: [{
                 data: [data.ontime, data.late, data.absent],
                 backgroundColor: [C.green.bg, C.orange.bg, C.gray.bg],
-                borderWidth: 3,
-                borderColor: '#fff',
-                hoverOffset: 8
+                borderWidth: 3, borderColor: '#fff', hoverOffset: 8
             }]
         },
         options: {
             cutout: '62%',
             plugins: {
-                legend: { position: 'bottom', labels: { padding: 16, font: { size: 12 } } },
+                legend: { position: 'bottom' },
                 tooltip: {
-                    backgroundColor: 'rgba(17,24,39,0.9)',
-                    padding: 12,
-                    cornerRadius: 8,
+                    ...tooltipStyle,
                     callbacks: {
                         label: (ctx) => {
                             const pct = Math.round(ctx.raw / data.total * 100);
@@ -428,20 +417,13 @@ function renderWeeklyHours(data) {
                 label: 'Giờ làm',
                 data: data.map(d => d.hours),
                 backgroundColor: data.map(d => d.hours >= avg ? C.green.bg : C.orange.bg),
-                borderRadius: 10,
-                borderSkipped: false,
-                barThickness: 36
+                borderRadius: 10, borderSkipped: false, barThickness: 36
             }]
         },
         options: {
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    backgroundColor: 'rgba(17,24,39,0.9)',
-                    padding: 12,
-                    cornerRadius: 8,
-                    callbacks: { label: (ctx) => `  ${ctx.raw} giờ` }
-                }
+                tooltip: { ...tooltipStyle, callbacks: { label: (ctx) => `  ${ctx.raw} giờ` } }
             },
             scales: {
                 y: {
@@ -456,7 +438,56 @@ function renderWeeklyHours(data) {
 }
 
 // ============================
-// No Data Message
+// CHART: Staff Comparison (Multi-Select)
+// ============================
+function renderStaffComparison(allLogs, users) {
+    const comparison = ChartService.getAllStaffComparison(allLogs, users);
+    const filtered = comparison.filter(d => d.hours > 0);
+
+    if (!filtered.length) { showNoData('chart-staff-comparison'); return; }
+
+    createChart('chart-staff-comparison', {
+        type: 'bar',
+        data: {
+            labels: filtered.map(d => d.name),
+            datasets: [{
+                label: 'Tổng giờ',
+                data: filtered.map(d => d.hours),
+                backgroundColor: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
+                borderWidth: 0,
+                borderRadius: 8,
+                borderSkipped: false,
+                barThickness: Math.max(20, Math.min(40, 300 / Math.max(filtered.length, 1)))
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    ...tooltipStyle,
+                    callbacks: {
+                        label: (ctx) => `  ${ctx.raw} giờ  •  ${filtered[ctx.dataIndex].sessions} ca`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+                    title: { display: true, text: 'Giờ', font: { size: 11 }, color: '#9CA3AF' }
+                },
+                y: {
+                    grid: { display: false },
+                    ticks: { font: { size: 12, weight: '500' } }
+                }
+            }
+        }
+    });
+}
+
+// ============================
+// No Data
 // ============================
 function showNoData(canvasId) {
     destroyChart(canvasId);
