@@ -435,6 +435,91 @@
                             transform: rotate(360deg);
                         }
                     }
+
+                    /* ===== MOBILE RESPONSIVE ===== */
+                    @media (max-width: 600px) {
+                        .analytics-header {
+                            gap: 0.5rem;
+                            margin-bottom: 1.25rem;
+                        }
+
+                        .analytics-header .month-label {
+                            font-size: 0.92rem;
+                            min-width: 120px;
+                        }
+
+                        .analytics-summary {
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 0.6rem;
+                            margin-bottom: 1.25rem;
+                        }
+
+                        .analytics-stat-card {
+                            padding: 0.8rem 0.9rem;
+                            border-radius: 12px;
+                            gap: 0.6rem;
+                        }
+
+                        .analytics-stat-icon {
+                            width: 36px;
+                            height: 36px;
+                            font-size: 1.2rem;
+                            border-radius: 10px;
+                        }
+
+                        .analytics-stat-value {
+                            font-size: 1.15rem;
+                        }
+
+                        .analytics-stat-label {
+                            font-size: 0.7rem;
+                        }
+
+                        .charts-grid {
+                            grid-template-columns: 1fr;
+                            gap: 1rem;
+                        }
+
+                        .chart-panel {
+                            padding: 1rem;
+                            border-radius: 12px;
+                        }
+
+                        .chart-panel h3 {
+                            font-size: 0.88rem;
+                            margin-bottom: 1rem;
+                        }
+
+                        .chart-panel h4 {
+                            font-size: 0.78rem;
+                        }
+
+                        .staff-charts-inner {
+                            grid-template-columns: 1fr;
+                            gap: 1rem;
+                        }
+
+                        #staff-compare-checkboxes {
+                            max-height: 100px !important;
+                            padding: 0.5rem !important;
+                            gap: 0.4rem !important;
+                        }
+
+                        #staff-compare-checkboxes label {
+                            font-size: 0.75rem !important;
+                            padding: 0.3rem 0.5rem !important;
+                        }
+                    }
+
+                    @media (max-width: 480px) {
+                        .analytics-summary {
+                            grid-template-columns: 1fr 1fr;
+                        }
+
+                        .analytics-timing {
+                            display: none;
+                        }
+                    }
                 </style>
 
                 <!-- Header: Month Picker -->
