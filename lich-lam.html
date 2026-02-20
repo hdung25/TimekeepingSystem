@@ -14,6 +14,38 @@
     <link rel="stylesheet" href="css/style.css">
     <style>
         /* Specific Styles for Schedule Page */
+        .branch-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .branch-tab {
+            padding: 0.6rem 1.25rem;
+            background: white;
+            border: 2px solid var(--border-color);
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+            color: var(--text-muted);
+        }
+
+        .branch-tab.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
+        }
+
+        .branch-tab:hover:not(.active) {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+            background: #F0FDF4;
+        }
+
         .week-picker {
             display: flex;
             align-items: center;
@@ -196,6 +228,12 @@
                 </div>
             </header>
 
+            <!-- Branch Tabs -->
+            <div class="branch-tabs">
+                <button class="branch-tab active" data-branch="cs1" onclick="switchBranch('cs1')">📍 Cơ Sở 1</button>
+                <button class="branch-tab" data-branch="cs2" onclick="switchBranch('cs2')">📍 Cơ Sở 2</button>
+            </div>
+
             <!-- Week Picker -->
             <div class="week-picker">
                 <button class="btn-icon" id="prev-week">
@@ -246,7 +284,7 @@
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script src="js/schedule.js"></script>
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
+    <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
 </body>
 
 </html>

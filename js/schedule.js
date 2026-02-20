@@ -9,10 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
+let currentBranch = 'cs1'; // Multi-branch support
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 
-// Define 6 Sections (Shifts)
-// Define 6 Sections (Shifts)
 const SECTIONS = [
     { key: 'morning1', label: 'Sáng - Ca 1', defaultStart: '07:30', defaultEnd: '09:00' },
     { key: 'morning2', label: 'Sáng - Ca 2', defaultStart: '09:15', defaultEnd: '10:45' },
@@ -21,6 +20,20 @@ const SECTIONS = [
     { key: 'evening1', label: 'Tối - Ca 1', defaultStart: '18:00', defaultEnd: '19:30' },
     { key: 'evening2', label: 'Tối - Ca 2', defaultStart: '19:30', defaultEnd: '21:00' }
 ];
+
+// Branch helpers
+function getCompositeKey(dateKey) {
+    return `${currentBranch}__${dateKey}`;
+}
+
+window.switchBranch = function (branchId) {
+    currentBranch = branchId;
+    // Update tab UI
+    document.querySelectorAll('.branch-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.branch === branchId);
+    });
+    renderTable();
+};
 
 function initSchedule() {
     // 1. Align currentWeekStart to the previous Monday
@@ -136,18 +149,21 @@ async function renderTable() {
     todayDate.setDate(todayDate.getDate() + selectedDayIndex);
 
     const dateKey = getLocalDateKey(todayDate);
+    const compositeKey = getCompositeKey(dateKey);
 
     // Check if this is "TODAY" for enabling Join buttons
     const realToday = getLocalDateKey(new Date());
     const isToday = dateKey === realToday;
 
-    document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)}`;
+    // Branch label in header
+    const branchLabel = currentBranch === 'cs1' ? 'Cơ Sở 1' : 'Cơ Sở 2';
+    document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)} — ${branchLabel}`;
 
     // Loading State
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
 
-    // Load Data from Cloud
-    const dayData = await DBService.getSchedule(dateKey) || {};
+    // Load Data from Cloud (branch-prefixed)
+    const dayData = await DBService.getSchedule(compositeKey) || {};
     // Note: Timesheet data for confirmation logic will be handled later or can be fetched here
     // For now we will assume local timesheet or fetch it. To avoid breaking, let's keep timesheet local or mock it until fully migrated.
     // Ideally we fetch timesheets too.
@@ -175,14 +191,14 @@ async function renderTable() {
 
         rows.forEach((row, idx) => {
             const rowId = `${dateKey}-${section.key}-${idx}`;
-            html += renderRow(row, idx, section.key, isAdmin, dateKey, rowId, isToday, timesheetData[rowId]);
+            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId]);
         });
 
         if (isAdmin) {
             html += `
                 <tr>
                     <td colspan="8" style="padding: 0.5rem;">
-                        <button class="add-row-btn" onclick="addNewRow('${dateKey}', '${section.key}', '${section.defaultStart}', '${section.defaultEnd}')">+ Thêm lớp (${section.label})</button>
+                        <button class="add-row-btn" onclick="addNewRow('${compositeKey}', '${section.key}', '${section.defaultStart}', '${section.defaultEnd}')">+ Thêm lớp (${section.label})</button>
                     </td>
                 </tr>
             `;
@@ -192,7 +208,7 @@ async function renderTable() {
     tbody.innerHTML = html;
 }
 
-function renderRow(data, index, caType, isAdmin, dateKey, rowId, isToday, sessionData) {
+function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData) {
     const inputClass = isAdmin ? 'table-input' : 'table-input read-only-input';
     const readonlyAttr = isAdmin ? '' : 'readonly';
 
@@ -206,7 +222,7 @@ function renderRow(data, index, caType, isAdmin, dateKey, rowId, isToday, sessio
         if (isRegistered) {
             actionCell = `
                 <td style="text-align: center;">
-                    <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background-color: var(--secondary-color);" onclick="registerClass('${dateKey}', '${caType}', ${index}, '${data.end}')">
+                    <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background-color: var(--secondary-color);" onclick="registerClass('${compositeKey}', '${caType}', ${index}, '${data.end}')">
                         Đã Nhận (Hủy)
                     </button>
                     ${registeredTeachers.length > 1 ? `<div style="font-size: 0.65rem; color: var(--text-muted);">+${registeredTeachers.length - 1} người khác</div>` : ''}
@@ -214,7 +230,7 @@ function renderRow(data, index, caType, isAdmin, dateKey, rowId, isToday, sessio
         } else {
             actionCell = `
                 <td style="text-align: center;">
-                    <button class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="registerClass('${dateKey}', '${caType}', ${index}, '${data.end}')">
+                    <button class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="registerClass('${compositeKey}', '${caType}', ${index}, '${data.end}')">
                         Nhận Lớp
                     </button>
                      ${registeredTeachers.length > 0 ? `<div style="font-size: 0.65rem; color: var(--text-muted);">${registeredTeachers.length} người đã nhận</div>` : ''}
@@ -224,7 +240,7 @@ function renderRow(data, index, caType, isAdmin, dateKey, rowId, isToday, sessio
         // Admin View - Action is Delete
         actionCell = `
             <td style="text-align: center;">
-                <button class="btn-icon" style="color: #EF4444;" onclick="deleteRow('${dateKey}', '${caType}', ${index})">
+                <button class="btn-icon" style="color: #EF4444;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="3 6 5 6 21 6"></polyline>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -236,12 +252,12 @@ function renderRow(data, index, caType, isAdmin, dateKey, rowId, isToday, sessio
     return `
         <tr>
             <td style="text-align: center;">${index + 1}</td>
-            <td><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${dateKey}', '${caType}', ${index}, 'start', this.value)"></td>
-            <td><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${dateKey}', '${caType}', ${index}, 'end', this.value)"></td>
-            <td><input type="text" class="${inputClass}" value="${data.lop || ''}" placeholder="Tên lớp" ${readonlyAttr} onchange="updateRow('${dateKey}', '${caType}', ${index}, 'lop', this.value)"></td>
-            <td><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${dateKey}', '${caType}', ${index}, 'phong', this.value)"></td>
-            <td><input type="text" class="${inputClass}" value="${data.gv || ''}" placeholder="Giáo viên" ${readonlyAttr} onchange="updateRow('${dateKey}', '${caType}', ${index}, 'gv', this.value)"></td>
-            <td><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${dateKey}', '${caType}', ${index}, 'note', this.value)"></td>
+            <td><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'start', this.value)"></td>
+            <td><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>
+            <td><input type="text" class="${inputClass}" value="${data.lop || ''}" placeholder="Tên lớp" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'lop', this.value)"></td>
+            <td><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
+            <td><input type="text" class="${inputClass}" value="${data.gv || ''}" placeholder="Giáo viên" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'gv', this.value)"></td>
+            <td><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
             ${actionCell}
         </tr>
     `;
@@ -249,8 +265,8 @@ function renderRow(data, index, caType, isAdmin, dateKey, rowId, isToday, sessio
 
 // ================= DATA ACTIONS =================
 
-window.addNewRow = async function (dateKey, caType, defaultStart, defaultEnd) {
-    const dayData = await DBService.getSchedule(dateKey) || {};
+window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEnd) {
+    const dayData = await DBService.getSchedule(compositeKey) || {};
     if (!dayData[caType]) dayData[caType] = [];
 
     dayData[caType].push({
@@ -262,29 +278,27 @@ window.addNewRow = async function (dateKey, caType, defaultStart, defaultEnd) {
         note: ''
     });
 
-    await DBService.saveSchedule(dateKey, dayData);
+    await DBService.saveSchedule(compositeKey, dayData);
     renderTable();
 };
 
-window.updateRow = async function (dateKey, caType, index, field, value) {
-    const dayData = await DBService.getSchedule(dateKey);
+window.updateRow = async function (compositeKey, caType, index, field, value) {
+    const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
 
     dayData[caType][index][field] = value;
-
-    // Auto-save logic (could be optimized with debounce, but direct save is safer for now)
-    await DBService.saveSchedule(dateKey, dayData);
+    await DBService.saveSchedule(compositeKey, dayData);
 };
 
-window.deleteRow = async function (dateKey, caType, index) {
+window.deleteRow = async function (compositeKey, caType, index) {
     if (!await UIService.confirm('Bạn có chắc muốn xóa lớp học này?')) return;
 
-    const dayData = await DBService.getSchedule(dateKey);
+    const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType]) return;
 
     dayData[caType].splice(index, 1);
 
-    await DBService.saveSchedule(dateKey, dayData);
+    await DBService.saveSchedule(compositeKey, dayData);
     renderTable();
 };
 
@@ -297,8 +311,8 @@ window.saveScheduleManual = function () {
     }
 }
 
-// 6. GLOBAL REGISTER CLASS
-window.registerClass = async function (dateKey, caType, index, endTimeStr) {
+// 6. GLOBAL REGISTER CLASS (compositeKey = 'cs1__2026-02-21')
+window.registerClass = async function (compositeKey, caType, index, endTimeStr) {
     const currentUserId = localStorage.getItem('currentUserId');
     const userFullName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser');
 
@@ -307,14 +321,12 @@ window.registerClass = async function (dateKey, caType, index, endTimeStr) {
         return;
     }
 
-    // TIME VALIDATION STRICT MODE
-    // If endTimeStr is provided, check if class has ended.
+    // TIME VALIDATION — extract pure dateKey for Date parsing
     if (endTimeStr) {
+        const pureDateKey = compositeKey.includes('__') ? compositeKey.split('__')[1] : compositeKey;
         const now = new Date();
-        const classEnd = new Date(`${dateKey}T${endTimeStr}`);
+        const classEnd = new Date(`${pureDateKey}T${endTimeStr}`);
 
-        // Add 15 mins buffer? Or strict? User said "tránh việc vào ca ra ca rồi sau đó nút nhận lớp".
-        // Strict END time seems appropriate.
         if (now > classEnd) {
             alert("Đã hết giờ học! Không thể nhận lớp sau khi ca dạy đã kết thúc.");
             return;
@@ -324,12 +336,9 @@ window.registerClass = async function (dateKey, caType, index, endTimeStr) {
     const isConfirm = await UIService.confirm('Xác nhận thay đổi trạng thái đăng ký lớp này?');
     if (!isConfirm) return;
 
-    // UI Optimistic Update (Optional, but let's just reload table after async)
-    // Show loading? table body opacity 0.5?
-
     try {
-        await DBService.registerClass(dateKey, caType, { index }, { id: currentUserId, name: userFullName });
-        await renderTable(); // Reload to see changes
+        await DBService.registerClass(compositeKey, caType, { index }, { id: currentUserId, name: userFullName });
+        await renderTable();
     } catch (e) {
         alert("Lỗi: " + e.message);
     }

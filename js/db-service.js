@@ -125,58 +125,71 @@ const DBService = {
         }
     },
 
-    // 4. Schedule Management
-    getSchedule: async (dateKey) => {
-        try {
-            // 1. Try Direct Fetch (Lịch Riêng)
-            const doc = await db.collection('schedules').doc(dateKey).get();
+    // ===== BRANCH HELPERS =====
+    _parseBranchKey(compositeKey) {
+        // 'cs1__2026-02-21' → { branch: 'cs1', dateKey: '2026-02-21', docId: 'cs1__2026-02-21' }
+        // '2026-02-21' (legacy) → { branch: 'cs1', dateKey: '2026-02-21', docId: '2026-02-21' }
+        if (compositeKey.includes('__')) {
+            const [branch, ...rest] = compositeKey.split('__');
+            return { branch, dateKey: rest.join('__'), docId: compositeKey };
+        }
+        return { branch: 'cs1', dateKey: compositeKey, docId: compositeKey };
+    },
 
-            // Check if document exists AND is not a "Ghost" (empty placeholder)
+    // 4. Schedule Management
+    getSchedule: async (compositeKey) => {
+        try {
+            const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
+            const manifestName = `schedule_manifest_${branch}`;
+
+            // 1. Try Direct Fetch (Lịch Riêng)
+            const doc = await db.collection('schedules').doc(docId).get();
+
             if (doc.exists) {
                 const data = doc.data();
-                // If the user explicitly saved an empty schedule (e.g. deleted all rows), 
-                // it will still have keys like 'morning1' (as empty arrays).
-                // If it's pure empty {}, treat as non-existent -> Fallback.
                 const hasStructure = Object.keys(data).length > 0;
                 if (hasStructure) return data;
             }
 
-            // 2. Fallback: Find Nearest Neighbor (Lịch Kế Thừa)
-            const manifestDoc = await db.collection('settings').doc('schedule_manifest').get();
-            if (!manifestDoc.exists) return {};
+            // 2. Fallback: Find Nearest Neighbor (Lịch Kế Thừa) — branch-specific manifest
+            // Try branch-specific manifest first, then legacy fallback
+            let manifestDoc = await db.collection('settings').doc(manifestName).get();
+            if (!manifestDoc.exists) {
+                // Legacy fallback: old manifest (for cs1 backward compat)
+                if (branch === 'cs1') {
+                    manifestDoc = await db.collection('settings').doc('schedule_manifest').get();
+                }
+                if (!manifestDoc || !manifestDoc.exists) return {};
+            }
 
             const manifest = manifestDoc.data();
 
-            // Determine Day of Week (0=Sun, 1=Mon...)
             const [y, m, d] = dateKey.split('-').map(Number);
             const localDate = new Date(y, m - 1, d);
             const dayOfWeek = localDate.getDay();
-            const dayKey = String(dayOfWeek); // Force String Key
+            const dayKey = String(dayOfWeek);
 
             const availableDates = manifest[dayKey] || manifest[dayOfWeek] || [];
-
-            // Find max date < dateKey
-            const pastDates = availableDates.filter(d => d < dateKey);
+            const pastDates = availableDates.filter(d => d < docId);
 
             if (pastDates.length === 0) return {};
 
             pastDates.sort().reverse();
-            const neighborDate = pastDates[0];
+            const neighborDocId = pastDates[0];
 
-            console.log(`[Schedule] Inheriting from ${neighborDate} for ${dateKey}`);
+            console.log(`[Schedule] Inheriting from ${neighborDocId} for ${docId}`);
 
-            const neighborDoc = await db.collection('schedules').doc(neighborDate).get();
-
+            const neighborDoc = await db.collection('schedules').doc(neighborDocId).get();
             if (!neighborDoc.exists) return {};
 
             const templateData = neighborDoc.data();
 
-            // SANITIZATION: Clean up 'registeredTeachers' so they don't carry over
+            // SANITIZATION: Clean up 'registeredTeachers'
             Object.keys(templateData).forEach(key => {
                 if (Array.isArray(templateData[key])) {
                     templateData[key] = templateData[key].map(row => ({
                         ...row,
-                        registeredTeachers: [] // Reset registrations
+                        registeredTeachers: []
                     }));
                 }
             });
@@ -189,13 +202,14 @@ const DBService = {
         }
     },
 
-    saveSchedule: async (dateKey, data) => {
+    saveSchedule: async (compositeKey, data) => {
         try {
+            const { docId } = DBService._parseBranchKey(compositeKey);
             // 1. Save the actual schedule data
-            await db.collection('schedules').doc(dateKey).set(data);
+            await db.collection('schedules').doc(docId).set(data);
 
-            // 2. Update Manifest (Fire and forget, or await)
-            await DBService.updateScheduleManifest(dateKey);
+            // 2. Update Manifest
+            await DBService.updateScheduleManifest(compositeKey);
 
             return true;
         } catch (error) {
@@ -204,23 +218,26 @@ const DBService = {
         }
     },
 
-    updateScheduleManifest: async (dateKey) => {
+    updateScheduleManifest: async (compositeKey) => {
         try {
+            const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
+            const manifestName = `schedule_manifest_${branch}`;
+
             const [y, m, d] = dateKey.split('-').map(Number);
             const localDate = new Date(y, m - 1, d);
             const dayOfWeek = localDate.getDay();
-            const dayKey = String(dayOfWeek); // Use String Key
+            const dayKey = String(dayOfWeek);
 
-            const ref = db.collection('settings').doc('schedule_manifest');
+            const ref = db.collection('settings').doc(manifestName);
 
             await db.runTransaction(async (t) => {
                 const doc = await t.get(ref);
                 const data = doc.exists ? doc.data() : {};
 
                 const list = data[dayKey] || [];
-                if (!list.includes(dateKey)) {
-                    list.push(dateKey);
-                    list.sort(); // Keep sorted asc
+                if (!list.includes(docId)) {
+                    list.push(docId);
+                    list.sort();
                     data[dayKey] = list;
                     t.set(ref, data, { merge: true });
                 }
@@ -230,20 +247,25 @@ const DBService = {
         }
     },
 
-    // 5. Class Registration (Nhận Lớp)
-    registerClass: async (dateKey, caType, rowMeta, user) => {
-        // rowMeta: { index, ... }
+    // 5. Class Registration (Nhận Lớp) — with branch tagging
+    registerClass: async (compositeKey, caType, rowMeta, user) => {
+        // rowMeta: { index, branch, ... }
         try {
-            const docRef = db.collection('schedules').doc(dateKey);
+            const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
+            const manifestName = `schedule_manifest_${branch}`;
+            const docRef = db.collection('schedules').doc(docId);
 
-            // Use Transaction to ensure atomicity (multiple teachers clicking at once)
             await db.runTransaction(async (transaction) => {
                 let doc = await transaction.get(docRef);
                 let data;
 
                 if (!doc.exists) {
                     // FALLBACK: Materialize from Template inside Transaction
-                    const manifestDoc = await transaction.get(db.collection('settings').doc('schedule_manifest'));
+                    let manifestDoc = await transaction.get(db.collection('settings').doc(manifestName));
+                    // Legacy fallback for cs1
+                    if (!manifestDoc.exists && branch === 'cs1') {
+                        manifestDoc = await transaction.get(db.collection('settings').doc('schedule_manifest'));
+                    }
                     let templateData = {};
 
                     if (manifestDoc.exists) {
@@ -253,12 +275,12 @@ const DBService = {
                         const dayOfWeek = localDate.getDay();
 
                         const availableDates = manifest[dayOfWeek] || [];
-                        const pastDates = availableDates.filter(d => d < dateKey);
+                        const pastDates = availableDates.filter(d => d < docId);
 
                         if (pastDates.length > 0) {
                             pastDates.sort().reverse();
-                            const neighborDate = pastDates[0];
-                            const neighborDoc = await transaction.get(db.collection('schedules').doc(neighborDate));
+                            const neighborDocId = pastDates[0];
+                            const neighborDoc = await transaction.get(db.collection('schedules').doc(neighborDocId));
                             if (neighborDoc.exists) templateData = neighborDoc.data();
                         }
                     }
@@ -283,27 +305,24 @@ const DBService = {
 
                 if (!rows[rowIndex]) throw "Class no longer exists (or structure changed)!";
 
-                // Init teachers array if null
                 if (!rows[rowIndex].registeredTeachers) {
                     rows[rowIndex].registeredTeachers = [];
                 }
 
-                // Check if already registered
                 const isRegistered = rows[rowIndex].registeredTeachers.some(t => t.id === user.id);
 
                 if (isRegistered) {
-                    // Un-register (Toggle off)
                     rows[rowIndex].registeredTeachers = rows[rowIndex].registeredTeachers.filter(t => t.id !== user.id);
                 } else {
-                    // Register
                     rows[rowIndex].registeredTeachers.push({
                         id: user.id,
                         name: user.name || user.username,
-                        timestamp: new Date().toISOString()
+                        timestamp: new Date().toISOString(),
+                        branch: branch   // ← Tag cơ sở
                     });
                 }
 
-                transaction.set(docRef, data); // Write back full object using SET instead of UPDATE
+                transaction.set(docRef, data);
             });
             return true;
         } catch (error) {
