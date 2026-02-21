@@ -1052,5 +1052,27 @@ const DBService = {
         } catch (e) {
             console.warn('[Notification] Error marking all read:', e.message);
         }
+    },
+
+    // ================= RECEPTIONIST SCHEDULE =================
+
+    async getReceptionistSchedule(compositeKey) {
+        try {
+            const doc = await db.collection('receptionist_schedules').doc(compositeKey).get();
+            return doc.exists ? doc.data() : null;
+        } catch (e) {
+            console.error('[ReceptionistSchedule] Error getting:', e);
+            return null;
+        }
+    },
+
+    async saveReceptionistSchedule(compositeKey, data) {
+        try {
+            await db.collection('receptionist_schedules').doc(compositeKey).set(data);
+            return true;
+        } catch (e) {
+            console.error('[ReceptionistSchedule] Error saving:', e);
+            throw e;
+        }
     }
 };

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lịch Tiếp Tân - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Branch Tabs */
+        .branch-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .branch-tab {
+            padding: 0.5rem 1.25rem;
+            border-radius: 999px;
+            border: 2px solid var(--border-color);
+            background: white;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: var(--transition-base);
+        }
+
+        .branch-tab.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .branch-tab:hover:not(.active) {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        /* Week Picker */
+        .week-picker {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .week-picker button {
+            background: none;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: var(--transition-base);
+        }
+
+        .week-picker button:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .week-label {
+            font-weight: 700;
+            font-size: 1.05rem;
+            min-width: 280px;
+            text-align: center;
+        }
+
+        /* Schedule Table */
+        .schedule-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 800px;
+            table-layout: fixed;
+        }
+
+        .schedule-table th,
+        .schedule-table td {
+            border: 1px solid var(--border-color);
+            padding: 0.75rem;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .schedule-table th {
+            background: #F9FAFB;
+            font-weight: 700;
+            font-size: 0.85rem;
+            text-align: center;
+            color: var(--text-color);
+        }
+
+        .schedule-table th:first-child {
+            width: 120px;
+            min-width: 120px;
+        }
+
+        .schedule-table td:first-child {
+            background: #F0FDF4;
+            font-weight: 700;
+            font-size: 0.8rem;
+            color: var(--primary-color);
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .schedule-table td {
+            min-height: 80px;
+            cursor: default;
+            transition: background 0.15s;
+        }
+
+        .schedule-table td.editable:hover {
+            background: #F0F9FF;
+        }
+
+        .schedule-table td.editable {
+            cursor: pointer;
+        }
+
+        /* Staff Tags */
+        .staff-tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin: 2px;
+            white-space: nowrap;
+        }
+
+        .staff-note {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+            font-style: italic;
+        }
+
+        /* Shift Settings */
+        .shift-config {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .shift-config-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .shift-config-item label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .shift-config-item input {
+            padding: 0.4rem 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 0.85rem;
+        }
+
+        /* Modal */
+        .cell-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .cell-modal.open {
+            display: flex;
+        }
+
+        .cell-modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .staff-checkbox-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .staff-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.5rem;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .staff-checkbox-item:hover {
+            background: #f9fafb;
+        }
+
+        .staff-checkbox-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .staff-color-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .note-input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        /* Save Bar */
+        .save-bar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .save-status {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 768px) {
+            .shift-config {
+                grid-template-columns: 1fr;
+            }
+
+            .week-picker {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+        }
+    </style>
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+    <script src='js/auth-guard.js'></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+            <nav id="sidebar-nav"></nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;">Lịch Tiếp Tân</h1>
+                    <p style="color: var(--text-muted);">Quản lý lịch trực tiếp tân theo tuần</p>
+                </div>
+                <div id="save-area" style="display:none">
+                    <button class="btn btn-primary" onclick="saveFullWeek()">
+                        💾 Lưu Lịch Tuần
+                    </button>
+                </div>
+            </header>
+
+            <!-- Branch Tabs -->
+            <div class="branch-tabs">
+                <button class="branch-tab active" onclick="switchBranch('cs1')" id="tab-cs1">📍 Cơ Sở 1</button>
+                <button class="branch-tab" onclick="switchBranch('cs2')" id="tab-cs2">📍 Cơ Sở 2</button>
+            </div>
+
+            <!-- Week Picker -->
+            <div class="week-picker">
+                <button onclick="navigateWeek(-1)">◀</button>
+                <span class="week-label" id="week-label">Đang tải...</span>
+                <button onclick="navigateWeek(1)">▶</button>
+            </div>
+
+            <!-- Shift Time Config (Admin only) -->
+            <div id="shift-config-area" style="display:none">
+                <div class="glass-panel" style="padding:1rem; margin-bottom:1rem">
+                    <details>
+                        <summary style="cursor:pointer; font-weight:600; font-size:0.9rem; color:var(--primary-color)">
+                            ⚙️ Cấu hình giờ ca
+                        </summary>
+                        <div class="shift-config" style="margin-top:1rem">
+                            <div class="shift-config-item">
+                                <label>SÁNG (Bắt đầu - Kết thúc)</label>
+                                <div style="display:flex;gap:0.5rem">
+                                    <input type="time" id="shift-morning-start" value="07:00">
+                                    <input type="time" id="shift-morning-end" value="11:30">
+                                </div>
+                            </div>
+                            <div class="shift-config-item">
+                                <label>CHIỀU (Bắt đầu - Kết thúc)</label>
+                                <div style="display:flex;gap:0.5rem">
+                                    <input type="time" id="shift-afternoon-start" value="14:00">
+                                    <input type="time" id="shift-afternoon-end" value="18:00">
+                                </div>
+                            </div>
+                            <div class="shift-config-item">
+                                <label>TỐI (Bắt đầu - Kết thúc)</label>
+                                <div style="display:flex;gap:0.5rem">
+                                    <input type="time" id="shift-evening-start" value="17:30">
+                                    <input type="time" id="shift-evening-end" value="21:30">
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Schedule Table -->
+            <div class="glass-panel" style="padding:0; overflow:hidden">
+                <div class="schedule-wrapper">
+                    <table class="schedule-table" id="schedule-table">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Thứ 2</th>
+                                <th>Thứ 3</th>
+                                <th>Thứ 4</th>
+                                <th>Thứ 5</th>
+                                <th>Thứ 6</th>
+                                <th>Thứ 7</th>
+                                <th>Chủ Nhật</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-body">
+                            <!-- Rendered by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Cell Edit Modal -->
+    <div class="cell-modal" id="cell-modal">
+        <div class="cell-modal-content">
+            <h3 id="cell-modal-title" style="margin-bottom:1rem; color:var(--primary-color); font-size:1.1rem;"></h3>
+            <div class="staff-checkbox-list" id="staff-checkbox-list">
+                <!-- Populated by JS -->
+            </div>
+            <input type="text" class="note-input" id="cell-note-input"
+                placeholder="Ghi chú (VD: phân công công việc tuần)...">
+            <div style="display:flex; gap:1rem; margin-top:1.5rem;">
+                <button class="btn" style="background:var(--border-color); color:var(--text-main)"
+                    onclick="closeCellModal()">Hủy</button>
+                <button class="btn btn-primary" style="flex:1" onclick="saveCellData()">Xác nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script src="js/receptionist-schedule.js"></script>
+</body>
+
+</html>

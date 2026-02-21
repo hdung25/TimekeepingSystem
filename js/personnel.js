@@ -2,7 +2,23 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     renderStaffTable();
+
+    // Live color preview
+    const colorInput = document.getElementById('staff-color');
+    if (colorInput) {
+        colorInput.addEventListener('input', (e) => _updateColorPreview(e.target.value));
+    }
 });
+
+function _updateColorPreview(color) {
+    const preview = document.getElementById('staff-color-preview');
+    if (preview) {
+        preview.style.background = color;
+        // Auto text color (white for dark bg, black for light bg)
+        const r = parseInt(color.substr(1, 2), 16), g = parseInt(color.substr(3, 2), 16), b = parseInt(color.substr(5, 2), 16);
+        preview.style.color = (r * 0.299 + g * 0.587 + b * 0.114) > 150 ? '#000' : '#fff';
+    }
+}
 
 let isEditing = false;
 
@@ -71,6 +87,8 @@ function openModal() {
     document.getElementById('staff-form').reset();
     document.getElementById('staff-id').value = '';
     document.getElementById('staff-role').value = 'staff'; // Default
+    document.getElementById('staff-color').value = '#4CAF50';
+    _updateColorPreview('#4CAF50');
     document.getElementById('modal-title').innerText = 'Thêm Nhân Viên';
 
     document.getElementById('staff-modal').style.display = 'flex';
@@ -96,6 +114,8 @@ async function editStaff(userId) {
     document.getElementById('staff-username').value = user.username;
     document.getElementById('staff-password').value = user.password;
     document.getElementById('staff-role').value = user.role || 'staff';
+    document.getElementById('staff-color').value = user.scheduleColor || '#4CAF50';
+    _updateColorPreview(user.scheduleColor || '#4CAF50');
 
     // settings removed
 
@@ -112,6 +132,7 @@ async function handleStaffSubmit(e) {
     const password = document.getElementById('staff-password').value.trim();
 
     const role = document.getElementById('staff-role').value;
+    const scheduleColor = document.getElementById('staff-color').value;
 
     // Legacy salary fields removed
     const salary_config = {};
@@ -121,7 +142,8 @@ async function handleStaffSubmit(e) {
         password,
         name,
         salary_config,
-        role: role // Use selected role
+        role,
+        scheduleColor
     };
 
     const isNew = !isEditing || !id;

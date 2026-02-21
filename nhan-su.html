@@ -172,9 +172,21 @@
                     <label for="staff-role">Vai Trò Hệ Thống</label>
                     <select id="staff-role" class="form-input">
                         <option value="staff">Nhân Viên (Mặc định)</option>
+                        <option value="receptionist">Tiếp Tân</option>
                         <option value="assistant">Trợ Lý (Xếp Lịch)</option>
                         <option value="admin">Quản Trị Viên</option>
                     </select>
+                </div>
+                <div class="form-group">
+                    <label for="staff-color">Màu Lịch <span style="font-size:0.8em;color:var(--text-muted)">(hiển thị
+                            trên bảng tiếp tân)</span></label>
+                    <div style="display:flex;align-items:center;gap:0.75rem">
+                        <input type="color" id="staff-color" value="#4CAF50"
+                            style="width:50px;height:38px;border:1px solid var(--border-color);border-radius:var(--radius-md);cursor:pointer;padding:2px">
+                        <span id="staff-color-preview"
+                            style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:0.85rem;font-weight:600;background:#4CAF50;color:#fff">Xem
+                            trước</span>
+                    </div>
                 </div>
                 <!-- Salary Fields removed from here, moved to Config Modal -->
 
@@ -230,7 +242,7 @@
     <script src="js/main.js"></script>
     <script src="js/auth-helper.js"></script>
     <script src="js/personnel.js"></script>
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
+    <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
 </body>
 
 </html>
