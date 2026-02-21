@@ -1,5 +1,5 @@
-// Service Worker v8 — Cache-first for static, Network-first for Firestore
-const CACHE_NAME = 'tdt-chamcong-v8';
+// Service Worker v9 — Network-first for app files, Cache for offline
+const CACHE_NAME = 'tdt-chamcong-v9';
 
 // Static files to pre-cache on install
 const STATIC_ASSETS = [
@@ -37,7 +37,7 @@ self.addEventListener('install', event => {
     );
 });
 
-// Activate: Clean old caches
+// Activate: Clean ALL old caches immediately
 self.addEventListener('activate', event => {
     event.waitUntil(
         caches.keys().then(keys =>
@@ -48,7 +48,7 @@ self.addEventListener('activate', event => {
     );
 });
 
-// Fetch: Network-first for API/Firestore, Cache-first for static
+// Fetch: Network-first for app files, skip Firebase
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
@@ -58,24 +58,39 @@ self.addEventListener('fetch', event => {
     // Skip Firestore/Firebase API calls — always go network
     if (url.hostname.includes('firestore') ||
         url.hostname.includes('googleapis') ||
-        url.hostname.includes('firebase')) {
+        url.hostname.includes('firebase') ||
+        url.hostname.includes('gstatic')) {
         return;
     }
 
-    // For everything else: Cache-first, fallback to network
+    // Network-first for HTML and JS — always get latest, cache for offline
+    if (url.pathname.endsWith('.html') || url.pathname.endsWith('.js') || url.pathname === '/') {
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    if (response.ok) {
+                        const clone = response.clone();
+                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                    }
+                    return response;
+                })
+                .catch(() => caches.match(event.request))
+        );
+        return;
+    }
+
+    // Cache-first for static assets (CSS, images, manifest)
     event.respondWith(
         caches.match(event.request).then(cached => {
             if (cached) return cached;
 
             return fetch(event.request).then(response => {
-                // Cache successful responses
                 if (response.ok) {
                     const clone = response.clone();
                     caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
                 }
                 return response;
             }).catch(() => {
-                // Offline fallback for HTML pages
                 if (event.request.headers.get('accept')?.includes('text/html')) {
                     return caches.match('/index.html');
                 }

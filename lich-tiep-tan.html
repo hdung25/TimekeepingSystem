@@ -169,6 +169,19 @@
             background: white;
             color: #1F2937;
             font-weight: 600;
+            -webkit-appearance: none;
+            -moz-appearance: textfield;
+            appearance: none;
+        }
+
+        /* Hide the clock icon and spinner in Chrome/Edge */
+        .shift-time-inputs input[type="time"]::-webkit-calendar-picker-indicator {
+            display: none;
+            -webkit-appearance: none;
+        }
+
+        .shift-time-inputs input[type="time"]::-webkit-inner-spin-button {
+            display: none;
         }
 
         .shift-time-inputs input[type="time"]:focus {
