@@ -1,18 +1,20 @@
 // Receptionist Schedule — Week-view horizontal table
 // Features: Branch tabs (CS1/CS2), Week picker, 3 shifts × 7 days, Admin edit modal
+// Only shows staff with role = 'receptionist' in the picker
 
 // ==================== STATE ====================
 let currentBranch = localStorage.getItem('currentBranch') || 'cs1';
-let currentWeekStart = getMonday(new Date());  // Always a Monday
-let weekData = {};  // { morning: { mon: [...], tue: [...] }, afternoon: {...}, evening: {...} }
-let allStaff = [];  // Cached user list
+let currentWeekStart = getMonday(new Date());
+let weekData = {};
+let receptionistStaff = [];  // Only receptionist-role users
 let shiftConfig = {
-    morning: { start: '07:00', end: '11:30' },
-    afternoon: { start: '14:00', end: '18:00' },
-    evening: { start: '17:30', end: '21:30' }
+    morning: { label: 'SÁNG', start: '07:00', end: '11:30' },
+    afternoon: { label: 'CHIỀU', start: '14:00', end: '18:00' },
+    evening: { label: 'TỐI', start: '17:30', end: '21:30' }
 };
-let editingCell = null;  // { shift, dayKey }
-const isAdmin = (() => {
+let editingCell = null;
+
+const isEditor = (() => {
     const role = localStorage.getItem('currentRole') || 'staff';
     return role === 'admin' || role === 'assistant';
 })();
@@ -20,34 +22,29 @@ const isAdmin = (() => {
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật'];
 const SHIFTS = ['morning', 'afternoon', 'evening'];
-const SHIFT_LABELS = {
-    morning: 'SÁNG',
-    afternoon: 'CHIỀU',
-    evening: 'TỐI'
-};
 
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', async () => {
     // Show admin controls
-    if (isAdmin) {
+    if (isEditor) {
         const saveArea = document.getElementById('save-area');
         if (saveArea) saveArea.style.display = '';
-        const configArea = document.getElementById('shift-config-area');
-        if (configArea) configArea.style.display = '';
     }
 
     // Set active branch tab
+    document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${currentBranch}`)?.classList.add('active');
 
-    // Load staff list
+    // Load staff list — ONLY receptionist role
     try {
-        allStaff = await DBService.getUsers();
+        const allUsers = await DBService.getUsers();
+        receptionistStaff = allUsers.filter(u => u.role === 'receptionist');
     } catch (e) {
         console.error('Failed to load staff', e);
-        allStaff = [];
+        receptionistStaff = [];
     }
 
-    // Load saved shift config
+    // Load saved shift config from Firestore
     await loadShiftConfig();
 
     // First render
@@ -77,46 +74,49 @@ function getWeekCompositeKey() {
 }
 
 function getContrastColor(hex) {
-    if (!hex) return '#000';
+    if (!hex || hex.length < 7) return '#000';
     const r = parseInt(hex.substr(1, 2), 16);
     const g = parseInt(hex.substr(3, 2), 16);
     const b = parseInt(hex.substr(5, 2), 16);
     return (r * 0.299 + g * 0.587 + b * 0.114) > 150 ? '#000' : '#fff';
 }
 
-// ==================== SHIFT CONFIG ====================
+// ==================== SHIFT CONFIG (inline) ====================
 
 async function loadShiftConfig() {
     try {
         const settings = await DBService.getSystemSettings();
         if (settings?.receptionistShifts) {
-            shiftConfig = settings.receptionistShifts;
+            const saved = settings.receptionistShifts;
+            SHIFTS.forEach(shift => {
+                if (saved[shift]) {
+                    shiftConfig[shift].start = saved[shift].start || shiftConfig[shift].start;
+                    shiftConfig[shift].end = saved[shift].end || shiftConfig[shift].end;
+                }
+            });
         }
     } catch (e) {
         console.warn('Using default shift config');
     }
-
-    // Apply to UI inputs
-    Object.keys(shiftConfig).forEach(shift => {
-        const startEl = document.getElementById(`shift-${shift}-start`);
-        const endEl = document.getElementById(`shift-${shift}-end`);
-        if (startEl) startEl.value = shiftConfig[shift].start;
-        if (endEl) endEl.value = shiftConfig[shift].end;
-    });
 }
 
-async function saveShiftConfig() {
-    // Read from UI
+function readShiftConfigFromUI() {
     SHIFTS.forEach(shift => {
         const startEl = document.getElementById(`shift-${shift}-start`);
         const endEl = document.getElementById(`shift-${shift}-end`);
         if (startEl && endEl) {
-            shiftConfig[shift] = { start: startEl.value, end: endEl.value };
+            shiftConfig[shift].start = startEl.value;
+            shiftConfig[shift].end = endEl.value;
         }
     });
+}
 
+async function saveShiftConfigToFirestore() {
+    readShiftConfigFromUI();
+    const data = {};
+    SHIFTS.forEach(s => { data[s] = { start: shiftConfig[s].start, end: shiftConfig[s].end }; });
     try {
-        await DBService.saveSystemSettings({ receptionistShifts: shiftConfig });
+        await DBService.saveSystemSettings({ receptionistShifts: data });
     } catch (e) {
         console.warn('Failed to save shift config:', e);
     }
@@ -127,44 +127,40 @@ async function saveShiftConfig() {
 function switchBranch(branchId) {
     currentBranch = branchId;
     localStorage.setItem('currentBranch', branchId);
-
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${branchId}`)?.classList.add('active');
-
     renderWeek();
 }
 
 function navigateWeek(offset) {
-    const newDate = new Date(currentWeekStart);
-    newDate.setDate(newDate.getDate() + offset * 7);
-    currentWeekStart = newDate;
+    currentWeekStart.setDate(currentWeekStart.getDate() + offset * 7);
     renderWeek();
 }
 
 // ==================== DATA & RENDER ====================
 
 async function renderWeek() {
-    // Update week label
+    // Week label
     const sunday = new Date(currentWeekStart);
     sunday.setDate(sunday.getDate() + 6);
-    const yearStr = sunday.getFullYear();
-    const label = `Tuần ${formatDate(currentWeekStart)} - ${formatDate(sunday)}/${yearStr}`;
+    const branchLabel = currentBranch === 'cs2' ? 'CƠ SỞ 2' : 'CƠ SỞ 1';
+    const label = `LỊCH TIẾP TÂN ${branchLabel} (${formatDate(currentWeekStart)} - ${formatDate(sunday)}/${sunday.getFullYear()})`;
     document.getElementById('week-label').textContent = label;
 
-    // Update table headers with actual dates
+    // Update headers with dates
     const ths = document.querySelectorAll('#schedule-table thead th');
     for (let i = 0; i < 7; i++) {
         const dayDate = new Date(currentWeekStart);
         dayDate.setDate(dayDate.getDate() + i);
         if (ths[i + 1]) {
-            ths[i + 1].innerHTML = `${DAY_LABELS[i]}<br><span style="font-weight:400;font-size:0.75rem;color:var(--text-muted)">${formatDate(dayDate)}</span>`;
+            ths[i + 1].innerHTML = `<strong>${DAY_LABELS[i]}</strong><br><span style="font-weight:400;font-size:0.75rem;color:var(--text-muted)">${formatDate(dayDate)}</span>`;
         }
     }
 
     // Fetch data
     const key = getWeekCompositeKey();
     const data = await DBService.getReceptionistSchedule(key);
-    weekData = data || { morning: {}, afternoon: {}, evening: {} };
+    weekData = data || {};
 
     // Ensure structure
     SHIFTS.forEach(shift => {
@@ -173,8 +169,6 @@ async function renderWeek() {
             if (!weekData[shift][day]) weekData[shift][day] = [];
         });
     });
-
-    // Load notes
     if (!weekData._notes) weekData._notes = {};
 
     // Render table body
@@ -183,20 +177,36 @@ async function renderWeek() {
 
     SHIFTS.forEach(shift => {
         const tr = document.createElement('tr');
+        const cfg = shiftConfig[shift];
 
-        // Shift label cell
+        // SHIFT LABEL CELL — inline editable times for admin
         const shiftTd = document.createElement('td');
-        const times = shiftConfig[shift];
-        shiftTd.innerHTML = `${SHIFT_LABELS[shift]}<br><span style="font-size:0.7rem;font-weight:400">${times.start}-${times.end}</span>`;
+        shiftTd.className = 'shift-label-cell';
+
+        if (isEditor) {
+            shiftTd.innerHTML = `
+                <div class="shift-name">${cfg.label}</div>
+                <div class="shift-time-inputs">
+                    <input type="time" id="shift-${shift}-start" value="${cfg.start}" title="Giờ bắt đầu">
+                    <span class="shift-dash">–</span>
+                    <input type="time" id="shift-${shift}-end" value="${cfg.end}" title="Giờ kết thúc">
+                </div>
+            `;
+        } else {
+            shiftTd.innerHTML = `
+                <div class="shift-name">${cfg.label}</div>
+                <div class="shift-time-display">${cfg.start} – ${cfg.end}</div>
+            `;
+        }
         tr.appendChild(shiftTd);
 
         // Day cells
         DAY_KEYS.forEach(day => {
             const td = document.createElement('td');
+            td.className = 'day-cell';
             const staffList = weekData[shift][day] || [];
             const note = weekData._notes?.[`${shift}_${day}`] || '';
 
-            // Render staff tags
             let html = '';
             staffList.forEach(s => {
                 const bg = s.color || '#E5E7EB';
@@ -207,12 +217,12 @@ async function renderWeek() {
                 html += `<span class="staff-note">${note}</span>`;
             }
             if (staffList.length === 0 && !note) {
-                html = '<span style="color:#ccc;font-size:0.75rem">—</span>';
+                html = `<span class="empty-cell">—</span>`;
             }
 
             td.innerHTML = html;
 
-            if (isAdmin) {
+            if (isEditor) {
                 td.classList.add('editable');
                 td.onclick = () => openCellModal(shift, day);
             }
@@ -229,34 +239,35 @@ async function renderWeek() {
 function openCellModal(shift, dayKey) {
     editingCell = { shift, dayKey };
 
-    // Day label
     const dayIdx = DAY_KEYS.indexOf(dayKey);
     const dayDate = new Date(currentWeekStart);
     dayDate.setDate(dayDate.getDate() + dayIdx);
-    const title = `${SHIFT_LABELS[shift]} — ${DAY_LABELS[dayIdx]} (${formatDate(dayDate)})`;
+    const title = `${shiftConfig[shift].label} — ${DAY_LABELS[dayIdx]} (${formatDate(dayDate)})`;
     document.getElementById('cell-modal-title').textContent = title;
 
     // Current selections
     const currentStaff = weekData[shift]?.[dayKey] || [];
     const currentIds = currentStaff.map(s => s.id);
 
-    // Render checkbox list
+    // Render checkbox list — ONLY receptionist role
     const listEl = document.getElementById('staff-checkbox-list');
     let html = '';
 
-    if (allStaff.length === 0) {
-        html = '<p style="color:var(--text-muted);padding:1rem">Không có nhân viên nào trong hệ thống.</p>';
+    if (receptionistStaff.length === 0) {
+        html = `<div style="padding:1.5rem;text-align:center;color:var(--text-muted)">
+            <p style="margin-bottom:0.5rem">Chưa có nhân viên tiếp tân nào.</p>
+            <p style="font-size:0.8rem">Vào <strong>Nhân Sự</strong> để tạo tài khoản với vai trò <strong>Tiếp Tân</strong>.</p>
+        </div>`;
     } else {
-        allStaff.forEach(user => {
-            if (user.role === 'admin') return; // Don't show admin in staff picker
+        receptionistStaff.forEach(user => {
             const checked = currentIds.includes(user.id) ? 'checked' : '';
             const color = user.scheduleColor || '#E5E7EB';
+            const fg = getContrastColor(color);
             html += `
                 <label class="staff-checkbox-item">
                     <input type="checkbox" value="${user.id}" data-name="${user.name}" data-color="${color}" ${checked}>
-                    <span class="staff-color-dot" style="background:${color}"></span>
-                    <span>${user.name}</span>
-                    <span style="font-size:0.75rem;color:var(--text-muted);margin-left:auto">${user.role || 'staff'}</span>
+                    <span class="staff-color-dot" style="background:${color};color:${fg}">${user.name.charAt(0)}</span>
+                    <span class="staff-pick-name">${user.name}</span>
                 </label>
             `;
         });
@@ -277,11 +288,10 @@ function closeCellModal() {
 
 function saveCellData() {
     if (!editingCell) return;
-
     const { shift, dayKey } = editingCell;
+
     const checkboxes = document.querySelectorAll('#staff-checkbox-list input[type="checkbox"]:checked');
     const selectedStaff = [];
-
     checkboxes.forEach(cb => {
         selectedStaff.push({
             id: cb.value,
@@ -290,28 +300,25 @@ function saveCellData() {
         });
     });
 
-    // Update weekData
     if (!weekData[shift]) weekData[shift] = {};
     weekData[shift][dayKey] = selectedStaff;
 
-    // Note
     const noteKey = `${shift}_${dayKey}`;
     const note = document.getElementById('cell-note-input').value.trim();
     if (!weekData._notes) weekData._notes = {};
     weekData._notes[noteKey] = note;
 
     closeCellModal();
-    renderWeek();
+    renderWeek();  // Re-render to show changes
 }
 
 // ==================== SAVE ====================
 
 async function saveFullWeek() {
-    // Save shift config first
-    await saveShiftConfig();
+    // Read shift times from inline inputs
+    await saveShiftConfigToFirestore();
 
     const key = getWeekCompositeKey();
-
     try {
         await DBService.saveReceptionistSchedule(key, weekData);
         if (typeof UIService !== 'undefined') {
@@ -321,10 +328,11 @@ async function saveFullWeek() {
         }
     } catch (e) {
         console.error('Save error:', e);
+        const msg = 'Lỗi khi lưu: ' + e.message;
         if (typeof UIService !== 'undefined') {
-            UIService.toast('Lỗi khi lưu: ' + e.message, 'error');
+            UIService.toast(msg, 'error');
         } else {
-            alert('Lỗi khi lưu: ' + e.message);
+            alert(msg);
         }
     }
 }

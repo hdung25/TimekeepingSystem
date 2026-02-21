@@ -95,6 +95,13 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
     
+    // 7. Receptionist Schedules
+    // Admin & Assistant can manage, all authenticated users can read
+    match /receptionist_schedules/{weekId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;
