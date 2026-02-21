@@ -63,6 +63,11 @@ self.addEventListener('fetch', event => {
         return;
     }
 
+    // Skip non-http(s) schemes (chrome-extension, etc.)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return;
+    }
+
     // Network-first for HTML and JS — always get latest, cache for offline
     if (url.pathname.endsWith('.html') || url.pathname.endsWith('.js') || url.pathname === '/') {
         event.respondWith(

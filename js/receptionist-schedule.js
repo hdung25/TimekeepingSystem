@@ -187,9 +187,9 @@ function renderTable() {
             shiftTd.innerHTML = `
                 <div class="shift-name">${cfg.label}</div>
                 <div class="shift-time-inputs">
-                    <input type="time" id="shift-${shift}-start" value="${cfg.start}" title="Giờ bắt đầu">
+                    <input type="text" class="time-text" id="shift-${shift}-start" value="${cfg.start}" maxlength="5" placeholder="HH:MM" title="Giờ bắt đầu (VD: 07:00)">
                     <span class="shift-dash">–</span>
-                    <input type="time" id="shift-${shift}-end" value="${cfg.end}" title="Giờ kết thúc">
+                    <input type="text" class="time-text" id="shift-${shift}-end" value="${cfg.end}" maxlength="5" placeholder="HH:MM" title="Giờ kết thúc (VD: 11:30)">
                 </div>
             `;
         } else {

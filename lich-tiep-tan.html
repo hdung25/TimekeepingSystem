@@ -153,38 +153,26 @@
         .shift-time-inputs {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
             justify-content: center;
-            margin-top: 2px;
+            margin-top: 4px;
         }
 
-        .shift-time-inputs input[type="time"] {
-            width: 70px;
-            padding: 4px 4px;
+        .shift-time-inputs input.time-text {
+            width: 50px;
+            padding: 3px 2px;
             border: 1px solid #D1D5DB;
-            border-radius: 6px;
-            font-size: 0.8rem;
+            border-radius: 5px;
+            font-size: 0.82rem;
             font-family: 'Segoe UI', system-ui, sans-serif;
             text-align: center;
             background: white;
             color: #1F2937;
-            font-weight: 600;
-            -webkit-appearance: none;
-            -moz-appearance: textfield;
-            appearance: none;
+            font-weight: 700;
+            letter-spacing: 0.5px;
         }
 
-        /* Hide the clock icon and spinner in Chrome/Edge */
-        .shift-time-inputs input[type="time"]::-webkit-calendar-picker-indicator {
-            display: none;
-            -webkit-appearance: none;
-        }
-
-        .shift-time-inputs input[type="time"]::-webkit-inner-spin-button {
-            display: none;
-        }
-
-        .shift-time-inputs input[type="time"]:focus {
+        .shift-time-inputs input.time-text:focus {
             outline: none;
             border-color: var(--primary-color);
             box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
