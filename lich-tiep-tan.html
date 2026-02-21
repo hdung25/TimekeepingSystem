@@ -8,7 +8,7 @@
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
     <link rel="stylesheet" href="css/style.css">
@@ -112,9 +112,15 @@
             z-index: 1;
         }
 
+        .schedule-table th .th-date {
+            font-weight: 500;
+            font-size: 0.78rem;
+            color: rgba(255, 255, 255, 0.75);
+        }
+
         .schedule-table th:first-child {
-            width: 130px;
-            min-width: 130px;
+            width: 155px;
+            min-width: 155px;
             border-radius: var(--radius-lg) 0 0 0;
         }
 
@@ -147,31 +153,35 @@
         .shift-time-inputs {
             display: flex;
             align-items: center;
-            gap: 2px;
+            gap: 4px;
             justify-content: center;
+            margin-top: 2px;
         }
 
         .shift-time-inputs input[type="time"] {
-            width: 52px;
-            padding: 2px 3px;
+            width: 80px;
+            padding: 4px 6px;
             border: 1px solid #D1D5DB;
-            border-radius: 4px;
-            font-size: 0.7rem;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             text-align: center;
             background: white;
-            color: var(--text-color);
-            font-weight: 500;
+            color: #1F2937;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }
 
         .shift-time-inputs input[type="time"]:focus {
             outline: none;
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15);
+            box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
         }
 
         .shift-dash {
-            font-size: 0.7rem;
-            color: var(--text-muted);
+            font-size: 0.85rem;
+            color: #6B7280;
+            font-weight: 600;
         }
 
         /* Day cells */

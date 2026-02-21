@@ -6,7 +6,7 @@
 let currentBranch = localStorage.getItem('currentBranch') || 'cs1';
 let currentWeekStart = getMonday(new Date());
 let weekData = {};
-let receptionistStaff = [];  // Only receptionist-role users
+let receptionistStaff = [];
 let shiftConfig = {
     morning: { label: 'SÁNG', start: '07:00', end: '11:30' },
     afternoon: { label: 'CHIỀU', start: '14:00', end: '18:00' },
@@ -25,13 +25,11 @@ const SHIFTS = ['morning', 'afternoon', 'evening'];
 
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', async () => {
-    // Show admin controls
     if (isEditor) {
         const saveArea = document.getElementById('save-area');
         if (saveArea) saveArea.style.display = '';
     }
 
-    // Set active branch tab
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${currentBranch}`)?.classList.add('active');
 
@@ -44,11 +42,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         receptionistStaff = [];
     }
 
-    // Load saved shift config from Firestore
     await loadShiftConfig();
-
-    // First render
-    await renderWeek();
+    await loadAndRender();
 });
 
 // ==================== HELPERS ====================
@@ -81,7 +76,7 @@ function getContrastColor(hex) {
     return (r * 0.299 + g * 0.587 + b * 0.114) > 150 ? '#000' : '#fff';
 }
 
-// ==================== SHIFT CONFIG (inline) ====================
+// ==================== SHIFT CONFIG ====================
 
 async function loadShiftConfig() {
     try {
@@ -129,35 +124,18 @@ function switchBranch(branchId) {
     localStorage.setItem('currentBranch', branchId);
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${branchId}`)?.classList.add('active');
-    renderWeek();
+    loadAndRender();  // Fetch new data from Firestore
 }
 
 function navigateWeek(offset) {
     currentWeekStart.setDate(currentWeekStart.getDate() + offset * 7);
-    renderWeek();
+    loadAndRender();  // Fetch new data from Firestore
 }
 
-// ==================== DATA & RENDER ====================
+// ==================== DATA LOADING ====================
 
-async function renderWeek() {
-    // Week label
-    const sunday = new Date(currentWeekStart);
-    sunday.setDate(sunday.getDate() + 6);
-    const branchLabel = currentBranch === 'cs2' ? 'CƠ SỞ 2' : 'CƠ SỞ 1';
-    const label = `LỊCH TIẾP TÂN ${branchLabel} (${formatDate(currentWeekStart)} - ${formatDate(sunday)}/${sunday.getFullYear()})`;
-    document.getElementById('week-label').textContent = label;
-
-    // Update headers with dates
-    const ths = document.querySelectorAll('#schedule-table thead th');
-    for (let i = 0; i < 7; i++) {
-        const dayDate = new Date(currentWeekStart);
-        dayDate.setDate(dayDate.getDate() + i);
-        if (ths[i + 1]) {
-            ths[i + 1].innerHTML = `<strong>${DAY_LABELS[i]}</strong><br><span style="font-weight:400;font-size:0.75rem;color:var(--text-muted)">${formatDate(dayDate)}</span>`;
-        }
-    }
-
-    // Fetch data
+// Load data from Firestore and render — used on init, branch switch, week change
+async function loadAndRender() {
     const key = getWeekCompositeKey();
     const data = await DBService.getReceptionistSchedule(key);
     weekData = data || {};
@@ -171,6 +149,28 @@ async function renderWeek() {
     });
     if (!weekData._notes) weekData._notes = {};
 
+    renderTable();
+}
+
+// ==================== RENDER (local only, no fetch) ====================
+
+function renderTable() {
+    // Week label
+    const sunday = new Date(currentWeekStart);
+    sunday.setDate(sunday.getDate() + 6);
+    document.getElementById('week-label').textContent =
+        `Tuần ${formatDate(currentWeekStart)} – ${formatDate(sunday)}/${sunday.getFullYear()}`;
+
+    // Update headers with dates
+    const ths = document.querySelectorAll('#schedule-table thead th');
+    for (let i = 0; i < 7; i++) {
+        const dayDate = new Date(currentWeekStart);
+        dayDate.setDate(dayDate.getDate() + i);
+        if (ths[i + 1]) {
+            ths[i + 1].innerHTML = `<strong>${DAY_LABELS[i]}</strong><br><span class="th-date">${formatDate(dayDate)}</span>`;
+        }
+    }
+
     // Render table body
     const tbody = document.getElementById('schedule-body');
     tbody.innerHTML = '';
@@ -179,7 +179,7 @@ async function renderWeek() {
         const tr = document.createElement('tr');
         const cfg = shiftConfig[shift];
 
-        // SHIFT LABEL CELL — inline editable times for admin
+        // SHIFT LABEL CELL
         const shiftTd = document.createElement('td');
         shiftTd.className = 'shift-label-cell';
 
@@ -309,13 +309,12 @@ function saveCellData() {
     weekData._notes[noteKey] = note;
 
     closeCellModal();
-    renderWeek();  // Re-render to show changes
+    renderTable();  // LOCAL re-render only — no Firestore fetch!
 }
 
 // ==================== SAVE ====================
 
 async function saveFullWeek() {
-    // Read shift times from inline inputs
     await saveShiftConfigToFirestore();
 
     const key = getWeekCompositeKey();
