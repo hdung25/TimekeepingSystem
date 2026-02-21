@@ -45,7 +45,7 @@ async function renderStaffTable() {
                 <td>
                     <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">
-                        ${user.role === 'admin' ? 'Quản trị viên' : (user.role === 'assistant' ? 'Trợ Lý' : 'Nhân viên')}
+                        ${user.role === 'admin' ? 'Quản trị viên' : user.role === 'assistant' ? 'Trợ Lý' : user.role === 'receptionist' ? 'Tiếp Tân' : 'Nhân viên'}
                     </div>
                 </td>
                 <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
@@ -83,8 +83,6 @@ async function renderStaffTable() {
 function openModal() {
     isEditing = false;
     document.getElementById('staff-form').reset();
-    isEditing = false;
-    document.getElementById('staff-form').reset();
     document.getElementById('staff-id').value = '';
     document.getElementById('staff-role').value = 'staff'; // Default
     document.getElementById('staff-color').value = '#4CAF50';
@@ -110,7 +108,6 @@ async function editStaff(userId) {
     // Load User Data
     document.getElementById('staff-id').value = user.id;
     document.getElementById('staff-name').value = user.name || '';
-    document.getElementById('staff-username').value = user.username;
     document.getElementById('staff-username').value = user.username;
     document.getElementById('staff-password').value = user.password;
     document.getElementById('staff-role').value = user.role || 'staff';
