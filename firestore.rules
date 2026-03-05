@@ -102,6 +102,19 @@ service cloud.firestore {
       allow write: if isAuthenticated() && (isAdmin() || isAssistant());
     }
 
+    // 8. Daily Notes (Firestore-synced, replaces localStorage)
+    // All authenticated users can read/write (admin writes notes for specific staff, staff reads own)
+    match /daily_notes/{staffId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // 9. Salary Settings (Firestore-synced, replaces localStorage)
+    // Admin reads/writes salary config per staff. Staff can read their own.
+    match /salary_settings/{staffId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;

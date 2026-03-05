@@ -9,14 +9,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let currentDate = new Date(); // Global View Date
 
-function initReport() {
+async function initReport() {
+    // 0. Wait for Firebase Auth to restore session (critical for Firestore permissions)
+    await new Promise((resolve) => {
+        const unsubscribe = firebase.auth().onAuthStateChanged(() => {
+            unsubscribe();
+            resolve();
+        });
+        // Timeout fallback: don't block forever if auth fails
+        setTimeout(resolve, 3000);
+    });
+
     // 1. Title & Admin Controls
     const role = localStorage.getItem('currentRole');
     if (role === 'admin') {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'flex';
         document.getElementById('page-title').innerText = 'Tính Lương & Duyệt Công';
-        populateStaffSelect();
+        await populateStaffSelect();
     } else {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'none';
@@ -36,18 +46,15 @@ async function populateStaffSelect() {
 
     select.innerHTML = '<option value="all">-- Chọn nhân viên --</option>';
 
-    let users = JSON.parse(localStorage.getItem('users_data')) || [];
-
-    // Fallback if local storage is empty
-    if (users.length === 0) {
-        try {
-            console.log("Local users empty, fetching from DB...");
-            users = await DBService.getUsers();
-            // Cache for future
-            localStorage.setItem('users_data', JSON.stringify(users));
-        } catch (e) {
-            console.error("Failed to fetch users for select:", e);
-        }
+    let users = [];
+    try {
+        // Always fetch fresh from Firestore to include newly created employees
+        users = await DBService.getUsers();
+        // Update cache for other pages
+        localStorage.setItem('users_data', JSON.stringify(users));
+    } catch (e) {
+        console.error("Failed to fetch users, falling back to cache:", e);
+        users = JSON.parse(localStorage.getItem('users_data')) || [];
     }
 
     users.forEach(user => {
@@ -60,6 +67,7 @@ async function populateStaffSelect() {
 
     // CRITICAL FIX: Trigger re-render when staff changes
     select.onchange = () => {
+        _cachedStaffId = null; // Reset notes cache so Firestore re-fetches for new staff
         renderMonthReport(currentDate);
     };
 }
@@ -111,6 +119,10 @@ function getHolidayName(dateStr) {
 
 // ================= CORE REPORT RENDERING =================
 
+// Cache for current staff's notes (loaded from Firestore)
+let _cachedStaffNotes = {};
+let _cachedStaffId = null;
+
 function renderPersonalTimesheet() {
     renderMonthReport(currentDate);
 }
@@ -136,14 +148,23 @@ async function renderMonthReport(date) {
     const role = localStorage.getItem('currentRole');
     let staffId = getTargetStaffId();
 
-
-
     // 0. Fetch User Context for Name Matching
     let currentUserContext = null;
     try {
         const userDoc = await DBService.refs.users().doc(staffId).get();
         if (userDoc.exists) currentUserContext = userDoc.data();
     } catch (e) { console.error("Error fetching user context", e); }
+
+    // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
+    if (_cachedStaffId !== staffId) {
+        try {
+            _cachedStaffNotes = await DBService.getDailyNotes(staffId);
+            _cachedStaffId = staffId;
+        } catch (e) {
+            console.error("Error loading notes from Firestore:", e);
+            _cachedStaffNotes = {};
+        }
+    }
 
     if (!staffId) {
         grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red;">Vui lòng đăng nhập hoặc chọn nhân viên.</div>';
@@ -224,10 +245,8 @@ async function renderMonthReport(date) {
         dateHeader.style.justifyContent = 'space-between';
         dateHeader.style.marginBottom = '0.5rem';
 
-        // Check if date has a note
-        const allNotes = JSON.parse(localStorage.getItem('daily_notes')) || {};
-        const userNotes = allNotes[staffId] || {};
-        const noteText = userNotes[dateStr] || '';
+        // Check if date has a note (from Firestore-cached data)
+        const noteText = _cachedStaffNotes[dateStr] || '';
         const hasNote = !!noteText;
 
         if (hasNote) {
@@ -500,249 +519,10 @@ async function renderMonthReport(date) {
     }
 }
 
-// Logic to Merge Schedule & Attendance
-// Logic to Merge Schedule & Attendance
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext) {
-    const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
-    const chips = [];
-    const usedSessionIds = new Set();
-
-    sections.forEach(secKey => {
-        const classes = schedule[secKey] || [];
-        classes.forEach((cls, idx) => {
-            // 1. Check if User Registered via "Nhận Lớp" button
-            const registeredTeachers = cls.registeredTeachers || [];
-            const isRegistered = registeredTeachers.some(t => t.id === staffId);
-
-            if (!isRegistered) return; // Skip if not registered for this class
-
-            // 2. Check for Attendance Match
-            const schedStart = new Date(`${dateStr}T${cls.start}`);
-
-            const matchedSession = attendanceSessions.find(s => {
-                const checkIn = new Date(s.checkIn || s.start);
-                const diffMs = Math.abs(checkIn - schedStart);
-                return diffMs < 60 * 60 * 1000;
-            });
-
-            if (matchedSession) usedSessionIds.add(matchedSession.id);
-
-            // 3. Determine Status
-            let minutes = 0;
-            let cssClass = 'chip-blue';
-            // Branch tag
-            const branchTag = cls._branch === 'cs2' ? ' [CS2]' : (cls._branch ? ' [CS1]' : '');
-            let label = `${cls.start}-${cls.end}${branchTag}`;
-            let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
-
-            const schedEnd = new Date(`${dateStr}T${cls.end}`);
-            const schedDuration = (schedEnd - schedStart) / 60000;
-            const now = new Date();
-
-            if (matchedSession) {
-                let isClickable = false;
-
-                // --- CASE A: ATTENDED (Has Check-in) ---
-                if (matchedSession.checkOut) {
-                    // FULL CHECK-IN/OUT
-                    const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
-
-                    const diffMs = schedStart - actualStart;
-                    // const diffMins = Math.floor(diffMs / 60000);
-
-                    const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-                    let isLate = false;
-                    if (diffMs < 0) { // Late
-                        const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
-                        if (lateMinutesRaw === 0) {
-                            // Less than 1 minute late → treat as on-time
-                            minutes = schedDuration;
-                        } else {
-                            const remainingSched = (schedEnd - actualStart) / 60000;
-                            minutes = Math.max(0, Math.round(remainingSched));
-                            isLate = true;
-                        }
-                        label += ` (Trễ ${lateMinutesRaw}p)`;
-                    } else if (diffMs > 0) { // Early
-                        minutes = schedDuration;
-                        const earlyMins = Math.round(diffMs / 60000);
-
-                        // BONUS LOGIC (C5): 9 to 15 minutes early -> +10 mins bonus
-                        if (earlyMins >= 9 && earlyMins <= 15) {
-                            minutes += 10;
-                            tooltip += ` | Vào sớm ${earlyMins}p (+10p thưởng)`;
-                            label += ` (+10p)`;
-                        } else if (earlyMins > 15) {
-                            // Too early -> No bonus, show warning
-                            tooltip += ` | Vào quá sớm (${earlyMins}p) - Chỉ thưởng nếu sớm 9-15p`;
-                            label += ` <span style="color:red; font-weight:bold" title="Vào quá sớm, không được thưởng">(!)</span>`;
-                        } else {
-                            tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
-                        }
-                    } else { // Exact on-time
-                        minutes = schedDuration;
-                    }
-
-                    // Role Logic
-                    if (matchedSession.role) {
-                        label += ` (${matchedSession.roleName})`;
-                        tooltip += ` - Vai trò: ${matchedSession.roleName}`;
-
-                        // Fallback: If roleRate is missing (legacy data), try to find in user config
-                        if (!matchedSession.roleRate && currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
-                            const foundRole = currentUserContext.salary_config.roles.find(r => r.id === matchedSession.role);
-                            if (foundRole) {
-                                matchedSession.roleRate = foundRole.rate;
-                            }
-                        }
-                    } else {
-                        label += ` (Chọn Role?)`;
-                        tooltip += ' - Bấm để chọn vai trò tính lương';
-                    }
-
-                    // FIX 1: Late → always orange, regardless of role
-                    if (isLate) {
-                        cssClass = 'chip-orange';
-                    } else if (matchedSession.role) {
-                        cssClass = 'chip-green';
-                    } else {
-                        cssClass = 'chip-waiting';
-                    }
-
-                    tooltip += ' - Đã chấm công đầy đủ';
-                    isClickable = true;
-                } else {
-                    // No Check Out
-                    const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
-                    const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                    const classEndTime = new Date(`${dateStr}T${cls.end}`);
-                    if (now > new Date(classEndTime.getTime() + 90 * 60000)) {
-                        minutes = schedDuration;
-                        cssClass = 'chip-orange';
-                        label += ' (Quên ra)';
-                        tooltip += ' - Quên Check-out (Tính đủ giờ)';
-                    } else {
-                        minutes = 0;
-                        cssClass = 'chip-blue';
-                        label += ` (Đang dạy | Vào: ${actualStartStrNoCO})`;
-                        tooltip += ' - Đang trong ca làm việc';
-                    }
-                }
-
-                chips.push({
-                    text: label,
-                    class: cssClass,
-                    paidMinutes: Math.max(0, Math.round(minutes)),
-                    tooltip: tooltip,
-                    sessionId: matchedSession.id,
-                    sessionData: matchedSession,
-                    isClickable: isClickable,
-                    isTeaching: true // Flag for filter
-                });
-
-            } else {
-                // --- CASE B: NO ATTENDANCE ---
-                const classDateTime = new Date(`${dateStr}T${cls.start}`);
-                if (classDateTime > now) {
-                    // User requested to hide future classes (Sắp tới)
-                    // Do nothing
-                } else {
-                    chips.push({
-                        text: label + ' (Vắng)', // Keep text clean
-                        class: 'chip-gray',
-                        paidMinutes: 0,
-                        tooltip: 'Không có dữ liệu chấm công',
-                        sessionId: null,
-                        schedData: { start: cls.start, end: cls.end },
-                        isClickable: true,
-                        isWarning: true // Set flag
-                    });
-                }
-            }
-        });
-    });
-
-    // 4. Handle Unmatched Sessions
-    // 4. Handle Unmatched Sessions
-    attendanceSessions.forEach(s => {
-        if (!usedSessionIds.has(s.id)) {
-            const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
-            let label = isAdminCreated ? 'Ca Thêm' : 'Ca Ngoài Lịch';
-            let duration = 0;
-            let cssClass = 'chip-orange';
-            let isClickable = false;
-
-            const start = new Date(s.checkIn || s.start);
-            const startStr = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-            let tooltip = isAdminCreated
-                ? `Admin đã thêm ca này thủ công (Vào: ${startStr})`
-                : `Chấm công không khớp lịch (Vào ca: ${startStr})`;
-
-            if (s.checkOut) {
-                const end = new Date(s.checkOut);
-                const endStr = end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                duration = (end - start) / 60000;
-
-                // Role Logic for unmatched sessions
-                if (s.role) {
-                    cssClass = 'chip-green';
-                    label = `${startStr}-${endStr} (${s.roleName})`;
-                    tooltip += ` - Vai trò: ${s.roleName}`;
-                } else {
-                    cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
-                    label = `${startStr}-${endStr} (Chọn Role?)`;
-                    tooltip += ' - Bấm để chọn vai trò tính lương';
-                }
-
-                tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
-                isClickable = true;
-            } else {
-                label = `${startStr}-??? (Đang dạy)`;
-                cssClass = 'chip-blue';
-            }
-
-            chips.push({
-                text: label,
-                class: cssClass,
-                paidMinutes: Math.max(0, Math.round(duration)),
-                tooltip: tooltip,
-                sessionId: s.id,
-                sessionData: s,
-                isClickable: isClickable,
-                isWarning: true,
-                isAdminCreated: isAdminCreated
-            });
-        }
-    });
-
-    // FIX 5: Sort chips by start time (morning → evening)
-    chips.sort((a, b) => {
-        const getTime = (text) => {
-            const match = text.match(/(\d{1,2}:\d{2})/);
-            if (!match) return '99:99';
-            return match[1].padStart(5, '0');
-        };
-        return getTime(a.text).localeCompare(getTime(b.text));
-    });
-
-    return chips;
-}
+// calculateDailyChips() → Moved to evaluation-service.js
 
 // ================= SALARY CALCULATION & EVALUATION =================
-
-const EVALUATION_CRITERIA = [
-    { label: 'I', tooltip: 'CHUYÊN CẦN – TÁC PHONG', default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
-    { label: 'II', tooltip: 'ĐÚNG GIỜ', default: 0, template: 'Trễ: ... giờ; Số lần trễ: ... lần' },
-    { label: 'III', tooltip: 'TẬP TRUNG LÀM VIỆC', default: 0 },
-    { label: 'IV', tooltip: 'NHIỆT TÌNH', default: 0 },
-    { label: 'V', tooltip: 'TRÁCH NHIỆM', default: 0 },
-    { label: 'VI', tooltip: 'SOẠN BÀI / NHẬN XÉT', default: 0 },
-    { label: 'VII', tooltip: 'CHUYÊN MÔN', default: 0 },
-    { label: 'VIII', tooltip: 'KỸ NĂNG SƯ PHẠM', default: 0 },
-    { label: 'IX', tooltip: 'SỐ GIỜ LÀM', default: 0 },
-    { label: 'X', tooltip: 'HỌP ĐỊNH KÌ', default: 0, template: 'Tiếng Anh: ...; T-TV: ...; TTD: ...; (0: vắng; có: đi họp; x: không dạy)' }
-];
+// EVALUATION_CRITERIA → Moved to evaluation-service.js
 
 let currentEvalIndex = null;
 
@@ -919,13 +699,12 @@ function calculateSalary() {
     // const advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
 }
 
-function saveSalarySettings() {
+async function saveSalarySettings() {
     const staffId = document.getElementById('staff-select').value;
     if (staffId === 'all') return;
 
-    // const rate = document.getElementById('salary-rate').value; // Removed
     const rate = 0; // Legacy
-    const advance = document.getElementById('salary-advance').value || 0; // NEW
+    const advance = document.getElementById('salary-advance').value || 0;
     const evaluationData = [];
 
     document.querySelectorAll('.eval-note').forEach((noteInp, index) => {
@@ -937,20 +716,37 @@ function saveSalarySettings() {
         });
     });
 
-    const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
-    allSettings[staffId] = { rate, advance, evaluation: evaluationData }; // Added advance
-    localStorage.setItem('salary_settings', JSON.stringify(allSettings));
+    const settingsObj = { rate, advance, evaluation: evaluationData };
 
-    alert('Đã lưu bảng lương!');
+    try {
+        // Save to Firestore for cross-account sync
+        await DBService.saveSalarySettings(staffId, settingsObj);
+        // Also keep localStorage as fallback
+        const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
+        allSettings[staffId] = settingsObj;
+        localStorage.setItem('salary_settings', JSON.stringify(allSettings));
+        alert('Đã lưu bảng lương!');
+    } catch (e) {
+        console.error('Error saving salary settings to Firestore:', e);
+        alert('Lỗi khi lưu bảng lương. Vui lòng thử lại.');
+    }
 }
 
-function loadSalarySettings() {
+async function loadSalarySettings() {
     const staffId = document.getElementById('staff-select').value;
-    const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
-    const settings = allSettings[staffId] || {};
 
-    // document.getElementById('salary-rate').value = settings.rate || 100000; // Removed
-    document.getElementById('salary-advance').value = settings.advance || 0; // NEW
+    let settings = {};
+    try {
+        // Load from Firestore first
+        settings = await DBService.getSalarySettings(staffId);
+    } catch (e) {
+        console.error('Error loading salary settings from Firestore:', e);
+        // Fallback to localStorage
+        const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
+        settings = allSettings[staffId] || {};
+    }
+
+    document.getElementById('salary-advance').value = settings.advance || 0;
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
 }
@@ -963,11 +759,9 @@ function openNoteModal(dateKey) {
     currentNoteDateKey = dateKey;
     currentEvalIndex = null;
 
-    const staffId = getTargetStaffId();
-    const allNotes = JSON.parse(localStorage.getItem('daily_notes')) || {};
-    const userNotes = allNotes[staffId] || {};
+    // Use cached notes from Firestore
     document.getElementById('note-modal-title').innerText = `Ghi Chú Ngày ${dateKey}`;
-    document.getElementById('note-content').value = userNotes[dateKey] || '';
+    document.getElementById('note-content').value = _cachedStaffNotes[dateKey] || '';
     document.getElementById('note-modal').style.display = 'flex';
 }
 
@@ -997,16 +791,21 @@ function saveNote() {
     else if (currentEvalIndex !== null) saveEvaluationNote();
 }
 
-function saveCalendarNote() {
+async function saveCalendarNote() {
     const staffId = getTargetStaffId();
     const note = document.getElementById('note-content').value.trim();
-    const allNotes = JSON.parse(localStorage.getItem('daily_notes')) || {};
-    if (!allNotes[staffId]) allNotes[staffId] = {};
 
-    if (note) allNotes[staffId][currentNoteDateKey] = note;
-    else delete allNotes[staffId][currentNoteDateKey];
+    // Update local cache immediately
+    if (note) _cachedStaffNotes[currentNoteDateKey] = note;
+    else delete _cachedStaffNotes[currentNoteDateKey];
 
-    localStorage.setItem('daily_notes', JSON.stringify(allNotes));
+    // Save to Firestore
+    try {
+        await DBService.saveDailyNotes(staffId, _cachedStaffNotes);
+    } catch (e) {
+        console.error('Error saving note to Firestore:', e);
+    }
+
     closeNoteModal();
     renderMonthReport(currentDate);
 }
@@ -1049,24 +848,7 @@ window.onclick = function (event) {
     if (event.target == modal) closeNoteModal();
 }
 
-function removeVietnameseTones(str) {
-    if (!str) return '';
-    str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
-    str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
-    str = str.replace(/ì|í|ị|ỉ|ĩ/g, "i");
-    str = str.replace(/o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
-    str = str.replace(/u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
-    str = str.replace(/y|ỳ|ý|ỵ|ỷ|ỹ/g, "y");
-    str = str.replace(/đ/g, "d");
-    str = str.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
-    str = str.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
-    str = str.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
-    str = str.replace(/Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
-    str = str.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
-    str = str.replace(/Y|Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
-    str = str.replace(/Đ/g, "D");
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
+// removeVietnameseTones() → Moved to evaluation-service.js
 
 // ================= ADMIN EDIT LOGIC =================
 // ================= ADMIN EDIT LOGIC =================
@@ -1174,199 +956,6 @@ async function saveEditedTime() {
     }
 }
 
-// ================= EXPORT PDF (CUSTOM FORM) =================
-
-function exportSalaryPDF() {
-    // 1. Get Data
-    const staffSelect = document.getElementById('staff-select');
-    const staffId = staffSelect.value;
-    const staffName = staffSelect.options[staffSelect.selectedIndex].text.split('(')[0].trim();
-    if (staffId === 'all') { alert("Vui lòng chọn nhân viên để xuất file"); return; }
-
-    // const rate = parseFloat(document.getElementById('salary-rate').value) || 0; // Removed
-    const rate = 0; // Legacy logic removal
-    const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
-
-    // Evaluation Items
-    let totalBonus = 0;
-    const evalItems = [];
-    document.querySelectorAll('.eval-amount').forEach((inp, idx) => {
-        const val = parseFloat(inp.value) || 0;
-        totalBonus += val;
-        // Find saved note
-        const noteInp = document.querySelector(`.eval-note[data-index="${idx}"]`);
-        const item = EVALUATION_CRITERIA[idx];
-
-        let displayNote = '';
-        // If template exists and not much note, show template? Or show saved note? 
-        // User form shows specific text like "Vắng phép: 0...". 
-        // We will assume the Note input contains this text if edited, or empty.
-        // If user didn't edit note, we might want to show default template if available?
-        // Let's rely on what's in the note field (user should fill it).
-        // Fallback: if note is empty, show template (if any)
-
-        /// ACTUALLY: User form has specific text. The User should input this into the Note field using the Edit 📝 button.
-        displayNote = noteInp.value || item.template || '';
-
-        evalItems.push({
-            label: item.label,
-            title: item.tooltip,
-            note: displayNote,
-            amount: val
-        });
-    });
-
-    // --- FIX: Use Filtered Data for PDF ---
-    // Ensure data is fresh
-    calculateSalary();
-
-    const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
-    const chips = window.currentMonthChips || [];
-    let filteredMinutes = 0;
-
-    // Recalculate filtered minutes matching calculateSalary logic
-    chips.forEach(chip => {
-        if (!chip.sessionData) return;
-        let include = false;
-        if (filterType === 'all') {
-            include = true;
-        } else if (filterType === 'giao-vien') {
-            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
-            const name = removeVietnameseTones(nameRaw);
-            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
-                include = false;
-            } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
-                include = true;
-            }
-        } else if (filterType === 'tiep-tan') {
-            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
-            const name = removeVietnameseTones(nameRaw);
-            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
-                include = true;
-            }
-        }
-
-        if (include) {
-            filteredMinutes += (chip.paidMinutes || 0);
-        }
-    });
-
-    const totalHoursDecimal = filteredMinutes / 60;
-    const baseSalary = window.currentMonthSalary || 0; // Use global calc from calculateSalary()
-    const initialTotal = baseSalary + totalBonus;
-    const finalNet = initialTotal - advance;
-
-    const month = currentDate.getMonth() + 1;
-    const year = currentDate.getFullYear();
-
-    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
-
-    // 2. Build HTML
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-        <html>
-        <head>
-            <title>Bang_Luong_${staffName}_${month}_${year}</title>
-            <style>
-                body { font-family: 'Times New Roman', serif; padding: 20px; }
-                .header { text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
-                .sub-header { margin-bottom: 10px; font-weight: bold; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-                th, td { border: 1px solid black; padding: 8px; vertical-align: middle; }
-                .red-text { color: red; font-weight: bold; }
-                .bold { font-weight: bold; }
-                .right { text-align: right; }
-                .center { text-align: center; }
-                .no-border-top { border-top: none; }
-                .footer-note { font-style: italic; margin-top: 10px; font-size: 0.9em; }
-                .warning { color: red; font-weight: bold; margin-top: 10px; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ
-            </div>
-            
-            <div class="sub-header">
-                MÃ NHÂN VIÊN: ${staffId.substring(0, 6).toUpperCase()} &nbsp;&nbsp;&nbsp;&nbsp; HỌ VÀ TÊN: ${staffName.toUpperCase()}
-                <br>LOẠI CÔNG VIỆC: ${filterType === 'all' ? 'Tất cả' : (filterType === 'tiep-tan' ? 'Tiếp tân' : 'Giáo viên/Trợ giảng')}
-            </div>
-            <div style="margin-bottom: 15px;">
-                Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
-            </div>
-
-            <table>
-                <!-- TOTAL SALARY ROW -->
-                <tr>
-                    <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
-                    <td class="bold red-text right">${fmt(initialTotal)}</td>
-                </tr>
-
-                <!-- HOURS & RATE -->
-                <tr>
-                    <td class="bold">
-                        TỔNG SỐ GIỜ: ${Math.floor(filteredMinutes / 60)} giờ ${Math.floor(filteredMinutes % 60)} phút
-                        <br><br>
-                        LƯƠNG CƠ BẢN:
-                    </td>
-                    <td class="bold right" style="vertical-align: top;">${fmt(baseSalary)}</td>
-                </tr>
-
-                <!-- PLACEHOLDERS FOR SPECIFIC TYPES -->
-                <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ MẦM NON: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ GTNL/TOEIC/IELTS: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ LIÊN KẾT: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ KÈM 1:1 TẠI NHÀ: giờ</td><td></td></tr>
-                <tr><td>TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
-
-                <!-- TOTAL BONUS ROW -->
-                <tr>
-                    <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
-                    <td class="bold right">${fmt(totalBonus)}</td>
-                </tr>
-
-                <!-- EVALUATION ITEMS Rows -->
-                ${evalItems.map(item => `
-                    <tr>
-                        <td>
-                            <div style="display:flex;">
-                                <div style="width: 40%; font-weight:bold;">(${item.label}) ${item.title}</div>
-                                <div style="width: 60%;">${item.note}</div>
-                            </div>
-                        </td>
-                        <td class="right">${item.amount !== 0 ? fmt(item.amount) : ''}</td>
-                    </tr>
-                `).join('')}
-
-                <!-- ADVANCE -->
-                <tr>
-                    <td class="bold red-text">TẠM ỨNG (2)</td>
-                    <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
-                </tr>
-
-                <!-- NET PAY -->
-                <tr>
-                    <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
-                    <td class="bold red-text right">${fmt(finalNet)}</td>
-                </tr>
-            </table>
-
-            <div class="footer-note">
-                Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)
-            </div>
-            <div class="warning">
-                *LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!
-            </div>
-
-            <script>
-                window.print();
-            </script>
-        </body>
-        </html>
-    `);
-    printWindow.document.close();
-}
 
 async function deleteSessionFromModal() {
     if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không?")) return;
@@ -1511,27 +1100,4 @@ async function selectRoleForSession(role) {
     }
 }
 
-// Helper for Vietnamese String Comparison
-function removeVietnameseTones(str) {
-    if (!str) return '';
-    str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
-    str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, "e");
-    str = str.replace(/ì|í|ị|ỉ|ĩ/g, "i");
-    str = str.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, "o");
-    str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, "u");
-    str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
-    str = str.replace(/đ/g, "d");
-    str = str.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
-    str = str.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, "E");
-    str = str.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, "I");
-    str = str.replace(/Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, "O");
-    str = str.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, "U");
-    str = str.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, "Y");
-    str = str.replace(/Đ/g, "D");
-    // Some system encode vietnamese combining accent as individual utf-8 characters
-    str = str.replace(/\u0300|\u0301|\u0303|\u0309|\u0323/g, ""); // ̀ ́ ̃ ̉ ̣ 
-    str = str.replace(/\u02C6|\u0306|\u031B/g, ""); // ˆ ̆ ̛  Â, Ê, Ă, Ơ, Ư
-    str = str.replace(/ + /g, " ");
-    str = str.trim();
-    return str;
-}
+// removeVietnameseTones() → Moved to evaluation-service.js

@@ -184,6 +184,9 @@ async function handleStaffSubmit(e) {
         // 3. Save to Firestore
         await DBService.saveUser(userPayload);
 
+        // 4. Invalidate users cache so salary page picks up new employees
+        localStorage.removeItem('users_data');
+
         UIService.toast("Lưu thành công (Đã đồng bộ Tài khoản)!", "success");
         closeModal();
         renderStaffTable();
@@ -212,6 +215,7 @@ async function handleStaffSubmit(e) {
 
                     // If success, user is reclaimed. Proceed to save to Firestore.
                     await DBService.saveUser(userPayload);
+                    localStorage.removeItem('users_data'); // Invalidate cache
 
                     UIService.toast("Đã khôi phục tài khoản cũ thành công!", "success");
                     closeModal();
@@ -257,6 +261,7 @@ async function deleteStaff(id) {
         }
 
         await DBService.deleteUser(id);
+        localStorage.removeItem('users_data'); // Invalidate cache
         UIService.toast("Đã xóa nhân viên", "success");
         renderStaffTable();
     } catch (err) {

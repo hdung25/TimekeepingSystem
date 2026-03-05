@@ -1074,5 +1074,53 @@ const DBService = {
             console.error('[ReceptionistSchedule] Error saving:', e);
             throw e;
         }
+    },
+
+    // ================= DAILY NOTES (Firestore-synced) =================
+
+    // Get all daily notes for a staff member
+    async getDailyNotes(staffId) {
+        try {
+            const doc = await db.collection('daily_notes').doc(staffId).get();
+            return doc.exists ? doc.data() : {};
+        } catch (e) {
+            console.error('[DailyNotes] Error getting:', e);
+            return {};
+        }
+    },
+
+    // Save daily notes for a staff member (full object: { "2026-03-01": "note text", ... })
+    async saveDailyNotes(staffId, notesObj) {
+        try {
+            await db.collection('daily_notes').doc(staffId).set(notesObj);
+            return true;
+        } catch (e) {
+            console.error('[DailyNotes] Error saving:', e);
+            throw e;
+        }
+    },
+
+    // ================= SALARY SETTINGS (Firestore-synced) =================
+
+    // Get salary settings for a staff member
+    async getSalarySettings(staffId) {
+        try {
+            const doc = await db.collection('salary_settings').doc(staffId).get();
+            return doc.exists ? doc.data() : {};
+        } catch (e) {
+            console.error('[SalarySettings] Error getting:', e);
+            return {};
+        }
+    },
+
+    // Save salary settings for a staff member
+    async saveSalarySettings(staffId, settingsObj) {
+        try {
+            await db.collection('salary_settings').doc(staffId).set(settingsObj, { merge: true });
+            return true;
+        } catch (e) {
+            console.error('[SalarySettings] Error saving:', e);
+            throw e;
+        }
     }
 };

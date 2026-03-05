@@ -1,5 +1,5 @@
-// Service Worker v9 — Network-first for app files, Cache for offline
-const CACHE_NAME = 'tdt-chamcong-v9';
+// Service Worker v10 — Network-first for app files, Cache for offline
+const CACHE_NAME = 'tdt-chamcong-v10';
 
 // Static files to pre-cache on install
 const STATIC_ASSETS = [
