@@ -427,9 +427,6 @@ async function renderMonthReport(date) {
                 warningIcon.title = isAdmin ? 'Admin đã thêm ca này' : 'Click để xem chi tiết';
                 warningIcon.onclick = (e) => {
                     e.stopPropagation();
-                    const s = chip.sessionData;
-                    const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
-                    const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
 
                     const overlay = document.createElement('div');
                     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease';
@@ -438,8 +435,56 @@ async function renderMonthReport(date) {
                     const modal = document.createElement('div');
                     modal.style.cssText = 'background:white;border-radius:16px;padding:2rem;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;animation:slideUp 0.3s ease';
 
-                    if (isAdmin) {
+                    if (chip.isReceptionist && !chip.sessionData) {
+                        // === RECEPTIONIST ABSENT SHIFT MODAL ===
+                        const schedInfo = chip.schedData || {};
+                        modal.innerHTML = `
+                            <div style="text-align:center;margin-bottom:1.5rem">
+                                <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                </div>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Vắng Ca Tiếp Tân</h3>
+                            </div>
+                            <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
+                                <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
+                                    <span style="font-size:1.25rem">📅</span>
+                                    <div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-weight:600;color:#1F2937">${dateStr}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:1.5rem">
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🟢</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca bắt đầu</div>
+                                            <div style="font-weight:600;color:#1F2937">${schedInfo.start || '???'}</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🔴</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca kết thúc</div>
+                                            <div style="font-weight:600;color:#1F2937">${schedInfo.end || '???'}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Trạng thái</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">Tiếp tân đã được xếp lịch cho ca này nhưng <strong>không có dữ liệu chấm công</strong>.</div>
+                            </div>
+                            <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                                <div style="font-size:0.85rem;color:#065F46">Tiếp tân cần <strong>"Vào Ca"</strong> trên trang Chấm Công trước khi bắt đầu ca, hoặc Admin hãy chấm công bù.</div>
+                            </div>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                        `;
+                    } else if (isAdmin) {
                         // Admin-created session modal
+                        const s = chip.sessionData || {};
+                        const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+                        const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
                         modal.innerHTML = `
                             <div style="text-align:center;margin-bottom:1.5rem">
                                 <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#EFF6FF;margin-bottom:0.75rem">
@@ -478,8 +523,56 @@ async function renderMonthReport(date) {
                             </div>
                             <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:#3B82F6;color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
                         `;
+                    } else if (!chip.sessionData && chip.schedData) {
+                        // Teacher absent chip (has schedData, no sessionData)
+                        const schedInfo = chip.schedData || {};
+                        modal.innerHTML = `
+                            <div style="text-align:center;margin-bottom:1.5rem">
+                                <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                </div>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Vắng Ca</h3>
+                            </div>
+                            <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
+                                <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
+                                    <span style="font-size:1.25rem">📅</span>
+                                    <div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-weight:600;color:#1F2937">${dateStr}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:1.5rem">
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🟢</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giờ bắt đầu</div>
+                                            <div style="font-weight:600;color:#1F2937">${schedInfo.start || '???'}</div>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:0.5rem;align-items:center">
+                                        <span style="font-size:1.25rem">🔴</span>
+                                        <div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giờ kết thúc</div>
+                                            <div style="font-weight:600;color:#1F2937">${schedInfo.end || '???'}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Trạng thái</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">Đã nhận lớp nhưng <strong>không có dữ liệu chấm công</strong>.</div>
+                            </div>
+                            <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                                <div style="font-size:0.85rem;color:#065F46">Trợ giảng cần <strong>"Vào Ca"</strong> trên trang Chấm Công trước khi bắt đầu lớp, hoặc Admin hãy chấm công bù.</div>
+                            </div>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                        `;
                     } else {
-                        // Regular "Ca Ngoài Lịch" modal
+                        // Regular "Ca Ngoài Lịch" modal (has sessionData)
+                        const s = chip.sessionData || {};
+                        const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+                        const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
                         modal.innerHTML = `
                             <div style="text-align:center;margin-bottom:1.5rem">
                                 <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
@@ -514,11 +607,11 @@ async function renderMonthReport(date) {
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
                                 <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Lý do</div>
-                                <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp nào trong lịch đã xếp.</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp/ca nào trong lịch đã xếp.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
                                 <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
-                                <div style="font-size:0.85rem;color:#065F46">Nhân viên cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm trước khi Vào Ca, hoặc Admin xếp lịch cho khung giờ này.</div>
+                                <div style="font-size:0.85rem;color:#065F46">Trợ giảng cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm, hoặc Tiếp tân cần được Admin <strong>xếp lịch</strong> trước khi Vào Ca.</div>
                             </div>
                             <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
                         `;

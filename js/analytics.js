@@ -149,7 +149,7 @@ function renderSummaryCards(stats) {
             <div class="analytics-stat-icon">👥</div>
             <div>
                 <div class="analytics-stat-value">${stats.totalStaff}</div>
-                <div class="analytics-stat-label">Nhân viên</div>
+                <div class="analytics-stat-label">Trợ giảng</div>
             </div>
         </div>
         <div class="analytics-stat-card" style="--accent: #10B981">
