@@ -103,6 +103,14 @@
             opacity: 0.8;
         }
 
+        .chip-future {
+            background: #EDE9FE;
+            color: #5B21B6;
+            border-left: 3px solid #8B5CF6;
+            opacity: 0.85;
+            font-style: italic;
+        }
+
         @keyframes pulse-border {
             0% {
                 box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4);
@@ -224,7 +232,7 @@
                 <div class="modern-grid">
                     <!-- Staff Selector -->
                     <div class="modern-form-group" style="grid-column: 1 / -1;">
-                        <label class="modern-label">Chọn Nhân Viên</label>
+                        <label class="modern-label">Chọn Nhân Viên / Trợ Giảng</label>
                         <select id="staff-select" class="modern-select" onchange="loadSalarySettings()">
                             <option value="all">-- Vui lòng chọn nhân viên --</option>
                             <!-- Populated by JS -->
@@ -298,6 +306,10 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="schedule-chip chip-gray" style="width: 1rem; height: 1rem; padding: 0;"></span> Vắng
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="schedule-chip chip-future" style="width: 1rem; height: 1rem; padding: 0;"></span> Sắp
+                    tới
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <span>🚩</span> Ngày Lễ

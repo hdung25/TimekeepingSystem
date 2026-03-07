@@ -316,7 +316,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // === NO ATTENDANCE FOR THIS SHIFT ===
             const shiftDateTime = new Date(`${dateStr}T${rs.start}`);
             if (shiftDateTime > now) {
-                // Future shift → don't show
+                // Future shift → show as "Sắp tới" so receptionist can see upcoming schedule
+                chips.push({
+                    text: label + ' (Sắp tới)',
+                    class: 'chip-future',
+                    paidMinutes: 0,
+                    tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
+                    sessionId: null,
+                    schedData: { start: rs.start, end: rs.end },
+                    isClickable: false,
+                    isReceptionist: true
+                });
             } else {
                 chips.push({
                     text: label + ' (Vắng)',
