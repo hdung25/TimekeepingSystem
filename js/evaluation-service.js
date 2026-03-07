@@ -25,7 +25,7 @@ const EVALUATION_CRITERIA = [
 // ================= DAILY CHIPS CALCULATION =================
 // Logic to Merge Schedule & Attendance → Returns chip array for a single day
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext) {
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = []) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIds = new Set();
@@ -43,6 +43,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const schedStart = new Date(`${dateStr}T${cls.start}`);
 
             const matchedSession = attendanceSessions.find(s => {
+                if (usedSessionIds.has(s.id)) return false;
                 const checkIn = new Date(s.checkIn || s.start);
                 const diffMs = Math.abs(checkIn - schedStart);
                 return diffMs < 60 * 60 * 1000;
@@ -184,6 +185,152 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 }
             }
         });
+    });
+
+    // ==================== RECEPTIONIST SHIFTS ====================
+    // Process receptionist schedule shifts (from lich-tiep-tan.html)
+    // receptionistShifts = [{ shift: 'morning', label: 'SÁNG', start: '07:00', end: '11:30' }, ...]
+
+    receptionistShifts.forEach(rs => {
+        const schedStart = new Date(`${dateStr}T${rs.start}`);
+        const schedEnd = new Date(`${dateStr}T${rs.end}`);
+        const schedDuration = (schedEnd - schedStart) / 60000;
+        const now = new Date();
+
+        // Label format: "SÁNG 07:00–11:30"
+        let label = `${rs.label} ${rs.start}–${rs.end}`;
+        let tooltip = `Ca Tiếp Tân: ${rs.label} (${rs.start}–${rs.end})`;
+
+        // Find matching attendance session (within ±60 min of shift start)
+        const matchedSession = attendanceSessions.find(s => {
+            if (usedSessionIds.has(s.id)) return false;
+            const checkIn = new Date(s.checkIn || s.start);
+            const diffMs = Math.abs(checkIn - schedStart);
+            return diffMs < 60 * 60 * 1000;
+        });
+
+        if (matchedSession) {
+            usedSessionIds.add(matchedSession.id);
+
+            let minutes = 0;
+            let cssClass = 'chip-blue';
+            let isClickable = false;
+            let isLate = false;
+
+            if (matchedSession.checkOut) {
+                // === HAS CHECK-OUT ===
+                const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
+                const diffMs = schedStart - actualStart;
+                const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+                if (diffMs < 0) {
+                    // Late
+                    const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
+                    if (lateMinutesRaw === 0) {
+                        minutes = schedDuration;
+                    } else {
+                        const remainingSched = (schedEnd - actualStart) / 60000;
+                        minutes = Math.max(0, Math.round(remainingSched));
+                        isLate = true;
+                    }
+                    label += ` (Trễ ${lateMinutesRaw}p)`;
+                } else if (diffMs > 0) {
+                    // Early
+                    minutes = schedDuration;
+                    const earlyMins = Math.round(diffMs / 60000);
+
+                    if (earlyMins >= 9 && earlyMins <= 15) {
+                        minutes += 10;
+                        tooltip += ` | Vào sớm ${earlyMins}p (+10p thưởng)`;
+                        label += ` (+10p)`;
+                    } else if (earlyMins > 15) {
+                        tooltip += ` | Vào quá sớm (${earlyMins}p)`;
+                        label += ` <span style="color:red; font-weight:bold" title="Vào quá sớm">(!)</span>`;
+                    } else {
+                        tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
+                    }
+                } else {
+                    minutes = schedDuration;
+                }
+
+                // Role Logic for receptionist
+                if (matchedSession.role) {
+                    label += ` (${matchedSession.roleName})`;
+                    tooltip += ` - Vai trò: ${matchedSession.roleName}`;
+
+                    if (!matchedSession.roleRate && currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                        const foundRole = currentUserContext.salary_config.roles.find(r => r.id === matchedSession.role);
+                        if (foundRole) {
+                            matchedSession.roleRate = foundRole.rate;
+                        }
+                    }
+                } else {
+                    label += ` (Chọn Role?)`;
+                    tooltip += ' - Bấm để chọn vai trò tính lương';
+                }
+
+                if (isLate) {
+                    cssClass = 'chip-orange';
+                } else if (matchedSession.role) {
+                    cssClass = 'chip-green';
+                } else {
+                    cssClass = 'chip-waiting';
+                }
+
+                tooltip += ' - Đã chấm công đầy đủ';
+                isClickable = true;
+
+            } else {
+                // === NO CHECK-OUT (Quên ra ca) ===
+                const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
+                const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+                if (now > schedEnd) {
+                    // Shift has ended → auto-treat as "quên ra", pay full shift duration
+                    minutes = schedDuration;
+                    cssClass = 'chip-orange';
+                    label += ' (Quên ra)';
+                    tooltip += ' - Quên Ra Ca (Tính đủ giờ theo ca)';
+                    isClickable = true;
+                } else {
+                    // Still within shift → "Đang làm"
+                    minutes = 0;
+                    cssClass = 'chip-blue';
+                    label += ` (Đang làm | Vào: ${actualStartStrNoCO})`;
+                    tooltip += ' - Đang trong ca làm việc';
+                }
+            }
+
+            chips.push({
+                text: label,
+                class: cssClass,
+                paidMinutes: Math.max(0, Math.round(minutes)),
+                tooltip: tooltip,
+                sessionId: matchedSession.id,
+                sessionData: matchedSession,
+                isClickable: isClickable,
+                isReceptionist: true // Flag for salary filter
+            });
+
+        } else {
+            // === NO ATTENDANCE FOR THIS SHIFT ===
+            const shiftDateTime = new Date(`${dateStr}T${rs.start}`);
+            if (shiftDateTime > now) {
+                // Future shift → don't show
+            } else {
+                chips.push({
+                    text: label + ' (Vắng)',
+                    class: 'chip-gray',
+                    paidMinutes: 0,
+                    tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công',
+                    sessionId: null,
+                    schedData: { start: rs.start, end: rs.end },
+                    isClickable: true,
+                    isWarning: true,
+                    isReceptionist: true
+                });
+            }
+        }
     });
 
     // 4. Handle Unmatched Sessions

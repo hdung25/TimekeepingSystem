@@ -19,6 +19,7 @@ function initTimekeeping() {
 }
 
 // Auto Ra Ca: If user has open session and registered class has ended → auto checkout
+// Also handles receptionist shifts: auto checkout when shift end time has passed
 async function checkAutoCheckout() {
     const currentUserId = localStorage.getItem('currentUserId');
     if (!currentUserId) return;
@@ -34,6 +35,85 @@ async function checkAutoCheckout() {
         const openSession = sessions.find(s => !s.checkOut);
         if (!openSession) return; // No open session → nothing to auto-close
 
+        // 2. Check user role
+        const currentRole = localStorage.getItem('currentRole');
+
+        if (currentRole === 'receptionist') {
+            // === RECEPTIONIST AUTO-CHECKOUT ===
+            // Check receptionist schedule for today's shift end time
+            try {
+                const shiftConfig = await DBService.getReceptionistShiftConfig();
+                const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
+                const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+                // Calculate Monday of this week
+                const getMonday = (d) => {
+                    const date = new Date(d);
+                    const day = date.getDay();
+                    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+                    date.setDate(diff);
+                    date.setHours(0, 0, 0, 0);
+                    return date;
+                };
+
+                const monday = getMonday(now);
+                const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+
+                const dayOfWeek = now.getDay();
+                const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                const dayKey = DAY_KEYS_MAP[dayIdx];
+
+                // Fetch from both branches
+                const BRANCHES = ['cs1', 'cs2'];
+                let latestShiftEnd = null;
+
+                for (const branch of BRANCHES) {
+                    const compositeKey = `${branch}__${mondayKey}`;
+                    const weekData = await DBService.getReceptionistSchedule(compositeKey);
+                    if (!weekData) continue;
+
+                    SHIFT_KEYS.forEach(shiftKey => {
+                        const shiftData = weekData[shiftKey];
+                        if (!shiftData || !shiftData[dayKey]) return;
+
+                        const staffList = shiftData[dayKey];
+                        const isAssigned = staffList.some(s => s.id === currentUserId);
+                        if (!isAssigned) return;
+
+                        // Found assigned shift — get end time
+                        const endTimeStr = shiftConfig[shiftKey]?.end || '11:30';
+                        const shiftEnd = new Date(`${dateKey}T${endTimeStr}`);
+
+                        if (!latestShiftEnd || shiftEnd > latestShiftEnd) {
+                            latestShiftEnd = shiftEnd;
+                        }
+                    });
+                }
+
+                if (latestShiftEnd && now >= latestShiftEnd) {
+                    console.log(`[AutoCheckout] Receptionist shift ended at ${latestShiftEnd.toLocaleTimeString()}. Auto checking out...`);
+
+                    await DBService.checkOutPersonal(currentUserId);
+
+                    if (typeof UIService !== 'undefined' && UIService.toast) {
+                        UIService.toast("Đã tự động Ra Ca (hết giờ ca tiếp tân)", "success");
+                    }
+
+                    if (typeof renderGlobalCheckIn === 'function') {
+                        await renderGlobalCheckIn();
+                    }
+                    return; // Done
+                }
+
+                // If no receptionist shift found, fall through to teacher logic
+                if (latestShiftEnd) return; // Has shift but not ended yet
+            } catch (e) {
+                console.warn("[AutoCheckout] Error checking receptionist schedule:", e);
+                // Fall through to teacher logic
+            }
+        }
+
+        // === TEACHER/STAFF AUTO-CHECKOUT (original logic) ===
         // 2. Get today's schedule and find registered classes
         const schedule = await DBService.getSchedule(dateKey);
         if (!schedule) return;

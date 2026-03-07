@@ -1076,6 +1076,25 @@ const DBService = {
         }
     },
 
+    // Get receptionist shift time config from system settings
+    async getReceptionistShiftConfig() {
+        try {
+            const settings = await this.getSystemSettings();
+            return settings?.receptionistShifts || {
+                morning: { start: '07:00', end: '11:30' },
+                afternoon: { start: '14:00', end: '18:00' },
+                evening: { start: '17:30', end: '21:30' }
+            };
+        } catch (e) {
+            console.warn('[ReceptionistSchedule] Using default shift config');
+            return {
+                morning: { start: '07:00', end: '11:30' },
+                afternoon: { start: '14:00', end: '18:00' },
+                evening: { start: '17:30', end: '21:30' }
+            };
+        }
+    },
+
     // ================= DAILY NOTES (Firestore-synced) =================
 
     // Get all daily notes for a staff member

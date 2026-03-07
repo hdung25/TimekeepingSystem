@@ -215,6 +215,104 @@ async function renderMonthReport(date) {
         });
     });
 
+    // C. Receptionist Schedule Data (only for receptionist role staff)
+    const receptionistShiftsMap = {}; // "YYYY-MM-DD" -> [{ shift, label, start, end }]
+    const isReceptionistStaff = currentUserContext && currentUserContext.role === 'receptionist';
+
+    if (isReceptionistStaff) {
+        try {
+            // 1. Get shift config (times for morning/afternoon/evening)
+            const shiftConfig = await DBService.getReceptionistShiftConfig();
+            const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
+            const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
+            const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+            // 2. Calculate which week-start Mondays cover this month
+            // Helper: getMonday for a given date
+            const getMonday = (d) => {
+                const date = new Date(d);
+                const day = date.getDay();
+                const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+                date.setDate(diff);
+                date.setHours(0, 0, 0, 0);
+                return date;
+            };
+
+            const mondaysSet = new Set();
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateObj = new Date(year, month, d);
+                const monday = getMonday(dateObj);
+                const mKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+                mondaysSet.add(mKey);
+            }
+
+            // 3. Fetch receptionist schedules for each unique Monday from both branches
+            const recepPromises = [];
+            const mondaysList = [...mondaysSet];
+            BRANCHES.forEach(branch => {
+                mondaysList.forEach(mondayKey => {
+                    const compositeKey = `${branch}__${mondayKey}`;
+                    recepPromises.push(
+                        DBService.getReceptionistSchedule(compositeKey).then(data => ({
+                            branch,
+                            mondayKey,
+                            data: data || {}
+                        }))
+                    );
+                });
+            });
+
+            const recepResults = await Promise.all(recepPromises);
+
+            // 4. For each day in the month, check if this staff was assigned
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateObj = new Date(year, month, d);
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const monday = getMonday(dateObj);
+                const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+
+                // Calculate day of week index (0=mon, 1=tue, ..., 6=sun)
+                const dayOfWeek = dateObj.getDay();
+                const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert Sun=0 → 6, Mon=1 → 0, etc.
+                const dayKey = DAY_KEYS_MAP[dayIdx];
+
+                // Check all fetched receptionist schedules for this monday + day
+                recepResults.forEach(result => {
+                    if (result.mondayKey !== mondayKey) return;
+
+                    SHIFT_KEYS.forEach(shiftKey => {
+                        const shiftData = result.data[shiftKey];
+                        if (!shiftData || !shiftData[dayKey]) return;
+
+                        const staffList = shiftData[dayKey];
+                        const isAssigned = staffList.some(s => s.id === staffId);
+                        if (!isAssigned) return;
+
+                        // This staff is assigned to this shift on this day!
+                        if (!receptionistShiftsMap[dateStr]) receptionistShiftsMap[dateStr] = [];
+
+                        // Avoid duplicates (same shift from different branches → just add once)
+                        const alreadyAdded = receptionistShiftsMap[dateStr].some(
+                            existing => existing.shift === shiftKey
+                        );
+                        if (!alreadyAdded) {
+                            receptionistShiftsMap[dateStr].push({
+                                shift: shiftKey,
+                                label: SHIFT_LABELS[shiftKey],
+                                start: shiftConfig[shiftKey]?.start || '07:00',
+                                end: shiftConfig[shiftKey]?.end || '11:30'
+                            });
+                        }
+                    });
+                });
+            }
+
+            console.log('[Report] Receptionist shifts loaded:', Object.keys(receptionistShiftsMap).length, 'days with shifts');
+        } catch (e) {
+            console.error('[Report] Error loading receptionist schedules:', e);
+        }
+    }
+
 
     // 2. CALCULATE & RENDER
     let totalMinutes = 0;
@@ -306,8 +404,9 @@ async function renderMonthReport(date) {
         // --- Render Chips based on Logic ---
         const dailySchedule = scheduleMap[dateStr] || {};
         const dailyAttendance = attendanceMap[dateStr] || [];
+        const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
 
-        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext);
+        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts);
 
         chips.forEach(chip => {
             const div = document.createElement('div');

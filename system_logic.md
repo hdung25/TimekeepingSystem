@@ -191,6 +191,19 @@ Staff cũng có personal charts trên `nhan-vien.html`: Punctuality Doughnut + W
 ### Receptionist Schedule Flow
 Admin/Trợ Lý/Tiếp Tân mở `lich-tiep-tan.html` → Branch tabs → Week picker → Bảng shift config → Cell editor modal. Data lưu `receptionist_schedules/{weekId}`.
 
+**Tích hợp Bảng Công (report.js):** Khi render bảng công cho nhân viên có `role === 'receptionist'`:
+1. Tính Monday của mỗi ngày trong tháng → composite key per week
+2. Fetch `receptionist_schedules` cho tất cả week overlapping the month (từ cả CS1 & CS2)
+3. Kiểm tra `weekData[shift][dayKey]` xem nhân viên có được xếp lịch không
+4. Truyền danh sách ca vào `calculateDailyChips()` qua param `receptionistShifts`
+5. Chip hiển thị: `SÁNG 07:00–11:30`, `CHIỀU 14:00–18:00`, `TỐI 17:30–21:30`
+
+**Logic chấm công tiếp tân:**
+- Sớm/Muộn/Đúng giờ: Giống giáo viên (early bonus 9-15p, late penalty)
+- Quên ra ca: Tự động tính đủ giờ theo ca (khác GV: không cần chờ 90p)
+- Vào ca không có lịch: Chip cam "Ca Ngoài Lịch" + cảnh báo cho admin
+- Auto checkout (`timekeeping.js`): Khi hết giờ ca → tự động ra ca
+
 ### Archiver Flow (Bảo Trì)
 Admin → Tab "Bảo Trì" trên `admin.html` → `archiver.js` → Scan `attendance_logs` cũ hơn N ngày → Export CSV (BOM UTF-8) → Delete batch (400 docs/batch).
 
@@ -239,6 +252,15 @@ Admin → Tab "Bảo Trì" trên `admin.html` → `archiver.js` → Scan `attend
 
 # 8. NHẬT KÝ TIẾN ĐỘ & CẬP NHẬT MỚI NHẤT
 *(AI sẽ tự động cập nhật vào phần này sau mỗi Task)*
+
+### 07/03/2026 - Tích Hợp Lịch Tiếp Tân Vào Bảng Công & Tính Lương
+- **Thay đổi kỹ thuật:**
+  - `js/db-service.js`: Thêm `getReceptionistShiftConfig()` helper function
+  - `js/evaluation-service.js`: Thêm param `receptionistShifts` vào `calculateDailyChips()` — tạo chip cho ca tiếp tân (sớm/muộn/đúng giờ/vắng/quên ra), flag `isReceptionist` cho salary filter. Fix: prevent double-matching sessions with `usedSessionIds` check.
+  - `js/report.js`: `renderMonthReport()` fetch `receptionist_schedules` per-week cho nhân viên receptionist, build `receptionistShiftsMap`, truyền vào `calculateDailyChips()`
+  - `js/timekeeping.js`: `checkAutoCheckout()` xử lý auto ra ca cho tiếp tân dựa trên shift end time
+- **Rủi ro còn lại:** Cần test thực tế với dữ liệu tiếp tân đã xếp lịch
+- **Tiến độ dự án:** [█████████░] 85%
 
 ### 22/02/2026 - Tách Evaluation Service ra khỏi report.js
 - **Thay đổi kỹ thuật:** Tạo file mới `js/evaluation-service.js` (~250 dòng) chứa `EVALUATION_CRITERIA`, `calculateDailyChips()`, `removeVietnameseTones()`. Xóa các block tương ứng trong `js/report.js` (giảm từ ~1345 → ~890 dòng). Hợp nhất 2 bản `removeVietnameseTones` trùng lặp thành 1. Thêm `<script>` import trong `bao-cao.html` (trước `report.js`).
