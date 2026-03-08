@@ -42,7 +42,6 @@ async function checkAutoCheckout() {
             // === RECEPTIONIST AUTO-CHECKOUT ===
             // Check receptionist schedule for today's shift end time
             try {
-                const shiftConfig = await DBService.getReceptionistShiftConfig();
                 const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
                 const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -63,7 +62,7 @@ async function checkAutoCheckout() {
                 const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
                 const dayKey = DAY_KEYS_MAP[dayIdx];
 
-                // Fetch from both branches
+                // Fetch from all branches with per-branch shift config
                 const BRANCHES = ['cs1', 'cs2', 'cs3'];
                 let latestShiftEnd = null;
 
@@ -72,16 +71,18 @@ async function checkAutoCheckout() {
                     const weekData = await DBService.getReceptionistSchedule(compositeKey);
                     if (!weekData) continue;
 
+                    const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
+
                     SHIFT_KEYS.forEach(shiftKey => {
                         const shiftData = weekData[shiftKey];
                         if (!shiftData || !shiftData[dayKey]) return;
 
                         const staffList = shiftData[dayKey];
-                        const isAssigned = staffList.some(s => s.id === currentUserId);
-                        if (!isAssigned) return;
+                        const staffEntry = staffList.find(s => s.id === currentUserId);
+                        if (!staffEntry) return;
 
-                        // Found assigned shift — get end time
-                        const endTimeStr = shiftConfig[shiftKey]?.end || '11:30';
+                        // Use custom end time if available, otherwise branch config
+                        const endTimeStr = staffEntry.customEnd || branchShiftConfig[shiftKey]?.end || '11:30';
                         const shiftEnd = new Date(`${dateKey}T${endTimeStr}`);
 
                         if (!latestShiftEnd || shiftEnd > latestShiftEnd) {

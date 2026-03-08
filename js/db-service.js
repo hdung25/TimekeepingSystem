@@ -1115,22 +1115,24 @@ const DBService = {
         }
     },
 
-    // Get receptionist shift time config from system settings
-    async getReceptionistShiftConfig() {
+    // Get receptionist shift time config from system settings (per-branch)
+    async getReceptionistShiftConfig(branch) {
+        const defaults = {
+            morning: { start: '07:00', end: '11:30' },
+            afternoon: { start: '14:00', end: '18:00' },
+            evening: { start: '17:30', end: '21:30' }
+        };
         try {
             const settings = await this.getSystemSettings();
-            return settings?.receptionistShifts || {
-                morning: { start: '07:00', end: '11:30' },
-                afternoon: { start: '14:00', end: '18:00' },
-                evening: { start: '17:30', end: '21:30' }
-            };
+            // Try per-branch key first, then fallback to global
+            if (branch) {
+                const branchKey = `receptionistShifts_${branch}`;
+                if (settings?.[branchKey]) return settings[branchKey];
+            }
+            return settings?.receptionistShifts || defaults;
         } catch (e) {
             console.warn('[ReceptionistSchedule] Using default shift config');
-            return {
-                morning: { start: '07:00', end: '11:30' },
-                afternoon: { start: '14:00', end: '18:00' },
-                evening: { start: '17:30', end: '21:30' }
-            };
+            return defaults;
         }
     },
 

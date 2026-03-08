@@ -82,8 +82,10 @@ function getContrastColor(hex) {
 async function loadShiftConfig() {
     try {
         const settings = await DBService.getSystemSettings();
-        if (settings?.receptionistShifts) {
-            const saved = settings.receptionistShifts;
+        // Per-branch config key, fallback to global
+        const branchKey = `receptionistShifts_${currentBranch}`;
+        const saved = settings?.[branchKey] || settings?.receptionistShifts;
+        if (saved) {
             SHIFTS.forEach(shift => {
                 if (saved[shift]) {
                     shiftConfig[shift].start = saved[shift].start || shiftConfig[shift].start;
@@ -112,7 +114,9 @@ async function saveShiftConfigToFirestore() {
     const data = {};
     SHIFTS.forEach(s => { data[s] = { start: shiftConfig[s].start, end: shiftConfig[s].end }; });
     try {
-        await DBService.saveSystemSettings({ receptionistShifts: data });
+        // Save per-branch config
+        const branchKey = `receptionistShifts_${currentBranch}`;
+        await DBService.saveSystemSettings({ [branchKey]: data });
     } catch (e) {
         console.warn('Failed to save shift config:', e);
     }
@@ -125,7 +129,13 @@ function switchBranch(branchId) {
     localStorage.setItem('currentBranch', branchId);
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${branchId}`)?.classList.add('active');
-    loadAndRender();  // Fetch new data from Firestore
+    // Reset shift config to defaults before loading branch-specific config
+    shiftConfig = {
+        morning: { label: 'SÁNG', start: '07:00', end: '11:30' },
+        afternoon: { label: 'CHIỀU', start: '14:00', end: '18:00' },
+        evening: { label: 'TỐI', start: '17:30', end: '21:30' }
+    };
+    loadShiftConfig().then(() => loadAndRender());
 }
 
 function navigateWeek(offset) {
@@ -263,7 +273,9 @@ function renderTable() {
                 const bg = s.color || '#E5E7EB';
                 const fg = getContrastColor(bg);
                 const shortName = s.name ? s.name.trim().split(/\s+/).pop() : '?';
-                html += `<span class="staff-tag" style="background:${bg};color:${fg}" title="${s.name}">${shortName}</span>`;
+                const customLabel = s.customStart ? ` ${s.customStart}` : '';
+                const tooltip = s.customStart ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
+                html += `<span class="staff-tag" style="background:${bg};color:${fg}" title="${tooltip}">${shortName}${customLabel}</span>`;
             });
             if (note) {
                 html += `<span class="staff-note">${note}</span>`;
@@ -315,12 +327,24 @@ function openCellModal(shift, dayKey) {
             const checked = currentIds.includes(user.id) ? 'checked' : '';
             const color = user.scheduleColor || '#E5E7EB';
             const fg = getContrastColor(color);
+            // Check if this user has custom times
+            const existing = currentStaff.find(s => s.id === user.id);
+            const hasCustom = existing?.customStart ? true : false;
+            const customStart = existing?.customStart || '';
+            const customEnd = existing?.customEnd || '';
             html += `
                 <label class="staff-checkbox-item">
                     <input type="checkbox" value="${user.id}" data-name="${user.name}" data-color="${color}" ${checked}>
                     <span class="staff-color-dot" style="background:${color};color:${fg}">${user.name.charAt(0)}</span>
                     <span class="staff-pick-name">${user.name}</span>
+                    <button type="button" class="btn-custom-time" onclick="toggleCustomTime(this)" title="Lịch đặc biệt" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:1.1rem;opacity:${hasCustom ? '1' : '0.4'}">⏰</button>
                 </label>
+                <div class="custom-time-row" style="display:${hasCustom ? 'flex' : 'none'};gap:0.5rem;align-items:center;padding:0.25rem 0 0.5rem 2.5rem;font-size:0.8rem;">
+                    <span style="color:var(--text-muted)">Giờ đặc biệt:</span>
+                    <input type="text" class="time-text custom-start" value="${customStart}" placeholder="HH:MM" maxlength="5" data-uid="${user.id}" style="width:55px;text-align:center;padding:0.2rem;border:1px solid var(--border-color);border-radius:6px;">
+                    <span>–</span>
+                    <input type="text" class="time-text custom-end" value="${customEnd}" placeholder="HH:MM" maxlength="5" data-uid="${user.id}" style="width:55px;text-align:center;padding:0.2rem;border:1px solid var(--border-color);border-radius:6px;">
+                </div>
             `;
         });
     }
@@ -349,11 +373,20 @@ function saveCellData() {
     const checkboxes = document.querySelectorAll('#staff-checkbox-list input[type="checkbox"]:checked');
     const selectedStaff = [];
     checkboxes.forEach(cb => {
-        selectedStaff.push({
-            id: cb.value,
+        const uid = cb.value;
+        const entry = {
+            id: uid,
             name: cb.getAttribute('data-name'),
             color: cb.getAttribute('data-color')
-        });
+        };
+        // Check for custom start/end times
+        const startInput = document.querySelector(`.custom-start[data-uid="${uid}"]`);
+        const endInput = document.querySelector(`.custom-end[data-uid="${uid}"]`);
+        if (startInput?.value?.trim()) {
+            entry.customStart = startInput.value.trim();
+            entry.customEnd = endInput?.value?.trim() || '';
+        }
+        selectedStaff.push(entry);
     });
 
     if (!weekData[shift]) weekData[shift] = {};
@@ -376,8 +409,26 @@ window.filterModalStaff = function (query) {
     document.querySelectorAll('#staff-checkbox-list .staff-checkbox-item').forEach(label => {
         const name = label.querySelector('.staff-pick-name');
         const text = name ? name.textContent.toLowerCase() : label.textContent.toLowerCase();
-        label.style.display = text.includes(q) ? '' : 'none';
+        const customRow = label.nextElementSibling;
+        if (customRow && customRow.classList.contains('custom-time-row')) {
+            label.style.display = text.includes(q) ? '' : 'none';
+            customRow.style.display = text.includes(q) && customRow.dataset.open === 'true' ? 'flex' : 'none';
+        } else {
+            label.style.display = text.includes(q) ? '' : 'none';
+        }
     });
+};
+
+// Toggle custom time inputs for a staff member
+window.toggleCustomTime = function (btn) {
+    const label = btn.closest('.staff-checkbox-item');
+    const customRow = label.nextElementSibling;
+    if (!customRow || !customRow.classList.contains('custom-time-row')) return;
+
+    const isOpen = customRow.style.display === 'flex';
+    customRow.style.display = isOpen ? 'none' : 'flex';
+    customRow.dataset.open = isOpen ? 'false' : 'true';
+    btn.style.opacity = isOpen ? '0.4' : '1';
 };
 
 async function clearCurrentWeek() {

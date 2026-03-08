@@ -253,8 +253,11 @@ async function renderMonthReport(date) {
 
     if (isReceptionistStaff) {
         try {
-            // 1. Get shift config (times for morning/afternoon/evening)
-            const shiftConfig = await DBService.getReceptionistShiftConfig();
+            // 1. Get shift config PER BRANCH
+            const shiftConfigMap = {}; // branch -> config
+            for (const branch of BRANCHES) {
+                shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
+            }
             const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
             const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -278,7 +281,7 @@ async function renderMonthReport(date) {
                 mondaysSet.add(mKey);
             }
 
-            // 3. Fetch receptionist schedules for each unique Monday from both branches
+            // 3. Fetch receptionist schedules for each unique Monday from all branches
             const recepPromises = [];
             const mondaysList = [...mondaysSet];
             BRANCHES.forEach(branch => {
@@ -317,18 +320,23 @@ async function renderMonthReport(date) {
                         if (!shiftData || !shiftData[dayKey]) return;
 
                         const staffList = shiftData[dayKey];
-                        const isAssigned = staffList.some(s => s.id === staffId);
-                        if (!isAssigned) return;
+                        const staffEntry = staffList.find(s => s.id === staffId);
+                        if (!staffEntry) return;
 
                         // This staff is assigned to this shift on this day!
                         if (!receptionistShiftsMap[dateStr]) receptionistShiftsMap[dateStr] = [];
+
+                        // Use per-branch shift config, with custom times override
+                        const branchConfig = shiftConfigMap[result.branch] || {};
+                        const defaultStart = branchConfig[shiftKey]?.start || '07:00';
+                        const defaultEnd = branchConfig[shiftKey]?.end || '11:30';
 
                         // Add entry (allow same shift from different branches as separate entries)
                         receptionistShiftsMap[dateStr].push({
                             shift: shiftKey,
                             label: SHIFT_LABELS[shiftKey],
-                            start: shiftConfig[shiftKey]?.start || '07:00',
-                            end: shiftConfig[shiftKey]?.end || '11:30',
+                            start: staffEntry.customStart || defaultStart,
+                            end: staffEntry.customEnd || defaultEnd,
                             branch: result.branch
                         });
                     });
