@@ -233,6 +233,8 @@
                     <!-- Staff Selector -->
                     <div class="modern-form-group" style="grid-column: 1 / -1;">
                         <label class="modern-label">Chọn Nhân Viên / Trợ Giảng</label>
+                        <input type="text" id="staff-search" class="list-search-input" placeholder="Tìm nhân viên..."
+                            oninput="filterStaffSelect(this.value)" style="margin-bottom: 0.5rem;">
                         <select id="staff-select" class="modern-select" onchange="loadSalarySettings()">
                             <option value="all">-- Vui lòng chọn nhân viên --</option>
                             <!-- Populated by JS -->

@@ -72,6 +72,19 @@ async function populateStaffSelect() {
     };
 }
 
+// Search/filter staff select options
+window.filterStaffSelect = function (query) {
+    const select = document.getElementById('staff-select');
+    if (!select) return;
+    const normalizedQuery = query.toLowerCase().trim();
+    Array.from(select.options).forEach(opt => {
+        if (opt.value === 'all') return; // Always show default
+        const text = opt.textContent.toLowerCase();
+        opt.style.display = text.includes(normalizedQuery) ? '' : 'none';
+        opt.hidden = !text.includes(normalizedQuery);
+    });
+};
+
 function changeReportMonth(offset) {
     currentDate.setMonth(currentDate.getMonth() + offset);
     renderMonthReport(currentDate);

@@ -537,6 +537,8 @@
                 style="margin-bottom: 1.25rem; color: var(--primary-color); font-size: 1.05rem; font-weight: 700;"></h3>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Chọn nhân viên tiếp tân cho
                 ca này:</p>
+            <input type="text" id="modal-staff-search" class="list-search-input" placeholder="Tìm tiếp tân..."
+                oninput="filterModalStaff(this.value)" style="margin-bottom: 0.5rem;">
             <div class="staff-checkbox-list" id="staff-checkbox-list">
                 <!-- Populated by JS -->
             </div>

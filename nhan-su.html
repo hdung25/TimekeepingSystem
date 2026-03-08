@@ -131,6 +131,10 @@
                 </button>
             </header>
 
+            <div style="margin-bottom: 1rem;">
+                <input type="text" id="staff-search" class="list-search-input"
+                    placeholder="Tìm nhân viên theo tên hoặc tên đăng nhập..." oninput="filterStaffTable(this.value)">
+            </div>
             <div class="glass-panel" style="overflow: hidden;">
                 <table class="staff-table">
                     <thead>

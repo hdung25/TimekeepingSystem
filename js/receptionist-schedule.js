@@ -274,6 +274,10 @@ function openCellModal(shift, dayKey) {
     }
     listEl.innerHTML = html;
 
+    // Clear search input
+    const searchInput = document.getElementById('modal-staff-search');
+    if (searchInput) searchInput.value = '';
+
     // Note
     const noteKey = `${shift}_${dayKey}`;
     document.getElementById('cell-note-input').value = weekData._notes?.[noteKey] || '';
@@ -313,6 +317,16 @@ function saveCellData() {
 }
 
 // ==================== CLEAR ====================
+
+// Search/filter modal staff checkboxes
+window.filterModalStaff = function (query) {
+    const q = query.toLowerCase().trim();
+    document.querySelectorAll('#staff-checkbox-list .staff-checkbox-item').forEach(label => {
+        const name = label.querySelector('.staff-pick-name');
+        const text = name ? name.textContent.toLowerCase() : label.textContent.toLowerCase();
+        label.style.display = text.includes(q) ? '' : 'none';
+    });
+};
 
 async function clearCurrentWeek() {
     // Confirmation dialog

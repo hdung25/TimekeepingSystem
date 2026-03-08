@@ -861,3 +861,29 @@ button {
         border-radius: var(--radius-md);
     }
 }
+
+/* ================== LIST SEARCH INPUTS ================== */
+.list-search-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem 0.6rem 2.25rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: #F9FAFB url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'%3E%3C/line%3E%3C/svg%3E") no-repeat 0.65rem center;
+    background-size: 15px;
+    transition: var(--transition-base);
+    color: var(--text-main);
+}
+
+.list-search-input:focus {
+    background-color: white;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+    outline: none;
+}
+
+.list-search-input::placeholder {
+    color: var(--text-muted);
+    font-weight: 400;
+}

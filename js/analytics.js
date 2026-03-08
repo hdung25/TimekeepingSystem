@@ -197,10 +197,14 @@ function populateCompareCheckboxes(staffUsers) {
     const container = document.getElementById('staff-compare-checkboxes');
     if (!container) return;
 
-    container.innerHTML = staffUsers
+    // Preserve search input if it exists
+    const searchInput = container.querySelector('#compare-search');
+    const searchHTML = searchInput ? searchInput.outerHTML : '';
+
+    container.innerHTML = searchHTML + staffUsers
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
         .map(u => `
-            <label style="
+            <label class="compare-staff-label" style="
                 display: flex; align-items: center; gap: 0.4rem;
                 padding: 0.35rem 0.7rem; border-radius: 8px;
                 background: #fff; border: 1px solid var(--border-color);
@@ -214,6 +218,30 @@ function populateCompareCheckboxes(staffUsers) {
             </label>
         `).join('');
 }
+
+// Search/filter analytics staff select
+window.filterAnalyticsSelect = function (query) {
+    const select = document.getElementById('analytics-staff-select');
+    if (!select) return;
+    const q = query.toLowerCase().trim();
+    Array.from(select.options).forEach(opt => {
+        if (!opt.value) return; // Keep default
+        const text = opt.textContent.toLowerCase();
+        opt.style.display = text.includes(q) ? '' : 'none';
+        opt.hidden = !text.includes(q);
+    });
+};
+
+// Search/filter compare checkboxes
+window.filterCompareCheckboxes = function (query) {
+    const container = document.getElementById('staff-compare-checkboxes');
+    if (!container) return;
+    const q = query.toLowerCase().trim();
+    container.querySelectorAll('.compare-staff-label').forEach(label => {
+        const text = label.textContent.toLowerCase();
+        label.style.display = text.includes(q) ? '' : 'none';
+    });
+};
 
 function selectAllStaffCompare(selectAll) {
     const checkboxes = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]');

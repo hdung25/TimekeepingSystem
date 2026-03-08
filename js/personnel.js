@@ -10,6 +10,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// Search/Filter staff table rows
+window.filterStaffTable = function (query) {
+    const normalizedQuery = query.toLowerCase().trim();
+    const rows = document.querySelectorAll('#staff-table-body tr');
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(normalizedQuery) ? '' : 'none';
+    });
+};
+
 function _updateColorPreview(color) {
     const preview = document.getElementById('staff-color-preview');
     if (preview) {
