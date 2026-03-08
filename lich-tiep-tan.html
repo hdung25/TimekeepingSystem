@@ -479,7 +479,11 @@
                     <h1 style="font-size: 1.5rem; font-weight: 700;">📋 Lịch Tiếp Tân</h1>
                     <p style="color: var(--text-muted); margin-top: 0.25rem;">Quản lý lịch trực tiếp tân theo tuần</p>
                 </div>
-                <div id="save-area" style="display:none">
+                <div id="save-area" style="display:none; gap: 0.5rem; flex-wrap: wrap;">
+                    <button class="btn" onclick="clearCurrentWeek()"
+                        style="font-size:0.95rem; padding:0.6rem 1.25rem; background:#FEE2E2; color:#DC2626; border:1px solid #FECACA; font-weight:600;">
+                        🗑 Xóa Lịch
+                    </button>
                     <button class="btn btn-primary" onclick="saveFullWeek()"
                         style="font-size:0.95rem; padding:0.6rem 1.5rem;">
                         💾 Lưu Lịch Tuần
@@ -491,6 +495,7 @@
             <div class="branch-tabs">
                 <button class="branch-tab active" onclick="switchBranch('cs1')" id="tab-cs1">📍 Cơ Sở 1</button>
                 <button class="branch-tab" onclick="switchBranch('cs2')" id="tab-cs2">📍 Cơ Sở 2</button>
+                <button class="branch-tab" onclick="switchBranch('cs3')" id="tab-cs3">📍 Cơ Sở 3</button>
             </div>
 
             <!-- Week Picker -->

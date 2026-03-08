@@ -64,7 +64,7 @@ async function checkAutoCheckout() {
                 const dayKey = DAY_KEYS_MAP[dayIdx];
 
                 // Fetch from both branches
-                const BRANCHES = ['cs1', 'cs2'];
+                const BRANCHES = ['cs1', 'cs2', 'cs3'];
                 let latestShiftEnd = null;
 
                 for (const branch of BRANCHES) {
@@ -304,7 +304,7 @@ function renderTodayClasses() {
     const currentUserId = localStorage.getItem('currentUserId');
 
     // Fetch from BOTH branches
-    const BRANCHES = ['cs1', 'cs2'];
+    const BRANCHES = ['cs1', 'cs2', 'cs3'];
     const branchPromises = BRANCHES.map(branch => {
         const compositeKey = `${branch}__${dateKey}`;
         return DBService.getSchedule(compositeKey).then(data => ({ data: data || {}, branch, compositeKey }));
@@ -368,8 +368,10 @@ function createClassCard(cls, compositeKey) {
     const isRegistered = registeredTeachers.some(t => t.id === currentUserId);
 
     // Branch badge
-    const branchLabel = cls._branch === 'cs2' ? 'CS2' : 'CS1';
-    const branchBadge = `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:0.7rem; font-weight:700; background:${cls._branch === 'cs2' ? '#EFF6FF' : '#F0FDF4'}; color:${cls._branch === 'cs2' ? '#3B82F6' : '#059669'}; margin-left:0.5rem;">${branchLabel}</span>`;
+    const branchLabel = cls._branch ? cls._branch.toUpperCase() : 'CS1';
+    const branchColors = { cs1: { bg: '#F0FDF4', fg: '#059669' }, cs2: { bg: '#EFF6FF', fg: '#3B82F6' }, cs3: { bg: '#FEF3C7', fg: '#D97706' } };
+    const bColor = branchColors[cls._branch] || branchColors.cs1;
+    const branchBadge = `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:0.7rem; font-weight:700; background:${bColor.bg}; color:${bColor.fg}; margin-left:0.5rem;">${branchLabel}</span>`;
 
     let statusBadge = '<span style="color: var(--text-muted);">Chưa nhận</span>';
     let actionBtn = `<button class="btn btn-primary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Nhận Lớp</button>`;

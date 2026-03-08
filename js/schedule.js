@@ -156,7 +156,7 @@ async function renderTable() {
     const isToday = dateKey === realToday;
 
     // Branch label in header
-    const branchLabel = currentBranch === 'cs1' ? 'Cơ Sở 1' : 'Cơ Sở 2';
+    const branchLabel = { cs1: 'Cơ Sở 1', cs2: 'Cơ Sở 2', cs3: 'Cơ Sở 3' }[currentBranch] || currentBranch.toUpperCase();
     document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)} — ${branchLabel}`;
 
     // Loading State

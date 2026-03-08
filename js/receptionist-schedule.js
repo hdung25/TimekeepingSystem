@@ -27,7 +27,7 @@ const SHIFTS = ['morning', 'afternoon', 'evening'];
 document.addEventListener('DOMContentLoaded', async () => {
     if (isEditor) {
         const saveArea = document.getElementById('save-area');
-        if (saveArea) saveArea.style.display = '';
+        if (saveArea) saveArea.style.display = 'flex';
     }
 
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
@@ -310,6 +310,33 @@ function saveCellData() {
 
     closeCellModal();
     renderTable();  // LOCAL re-render only — no Firestore fetch!
+}
+
+// ==================== CLEAR ====================
+
+async function clearCurrentWeek() {
+    // Confirmation dialog
+    const confirmed = typeof UIService !== 'undefined'
+        ? await UIService.confirm('⚠️ Bạn có chắc muốn XÓA TOÀN BỘ lịch tiếp tân tuần này?\n\n(Dữ liệu sẽ bị xóa trên màn hình. Bấm "Lưu Lịch Tuần" để lưu thay đổi.)')
+        : confirm('Bạn có chắc muốn xóa toàn bộ lịch tuần này?');
+
+    if (!confirmed) return;
+
+    // Reset all shifts and notes locally
+    SHIFTS.forEach(shift => {
+        weekData[shift] = {};
+        DAY_KEYS.forEach(day => {
+            weekData[shift][day] = [];
+        });
+    });
+    weekData._notes = {};
+
+    // Re-render table (local only, no Firestore save)
+    renderTable();
+
+    if (typeof UIService !== 'undefined') {
+        UIService.toast('Đã xóa lịch tuần. Bấm "Lưu Lịch Tuần" để lưu thay đổi.', 'info');
+    }
 }
 
 // ==================== SAVE ====================

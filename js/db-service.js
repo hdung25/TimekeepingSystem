@@ -1054,6 +1054,45 @@ const DBService = {
         }
     },
 
+    // ================= AUTO-CLOSE STALE SESSIONS =================
+    // Close open sessions from past days that were never checked out
+    autoCloseStaleSession: async (userId, dateKey, sessionId) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+
+        try {
+            return db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) return false;
+
+                const data = doc.data();
+                if (!data.sessions || !Array.isArray(data.sessions)) return false;
+
+                // Find the open session by ID
+                const idx = data.sessions.findIndex(s => String(s.id) === String(sessionId) && !s.checkOut);
+                if (idx === -1) return false; // Already closed or not found
+
+                // Close it at 23:59 of the session's date
+                const endOfDayISO = new Date(`${dateKey}T23:59:00`).toISOString();
+                data.sessions[idx].checkOut = endOfDayISO;
+                data.sessions[idx].autoClosedReason = 'stale_session'; // Marker
+
+                // Sync top level if last session
+                if (idx === data.sessions.length - 1) {
+                    data.checkOut = endOfDayISO;
+                }
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+
+                t.set(ref, data);
+                console.log(`[AutoClose] Closed stale session ${sessionId} for ${userId} on ${dateKey}`);
+                return true;
+            });
+        } catch (e) {
+            console.warn('[AutoClose] Error:', e);
+            return false;
+        }
+    },
+
     // ================= RECEPTIONIST SCHEDULE =================
 
     async getReceptionistSchedule(compositeKey) {

@@ -187,9 +187,28 @@ async function renderMonthReport(date) {
         }
     });
 
+    // === AUTO-CLOSE STALE SESSIONS ===
+    // If any past-day session has no checkOut, auto-close it in Firestore (fire-and-forget)
+    const todayKey = getLocalDateKey(new Date());
+    Object.entries(attendanceMap).forEach(([dateKey, sessions]) => {
+        if (dateKey >= todayKey) return; // Skip today and future
+        sessions.forEach(s => {
+            if (!s.checkOut && s.id) {
+                // Fire-and-forget: close stale session in background
+                DBService.autoCloseStaleSession(staffId, dateKey, s.id).then(closed => {
+                    if (closed) {
+                        // Update local data so display is correct even before next fetch
+                        s.checkOut = new Date(`${dateKey}T23:59:00`).toISOString();
+                        s.autoClosedReason = 'stale_session';
+                    }
+                });
+            }
+        });
+    });
+
     // B. Schedule Data (For the whole month)
     // Fetch from BOTH branches (cs1, cs2) and merge
-    const BRANCHES = ['cs1', 'cs2'];
+    const BRANCHES = ['cs1', 'cs2', 'cs3'];
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const schedulePromises = [];
     for (let d = 1; d <= daysInMonth; d++) {
@@ -291,18 +310,14 @@ async function renderMonthReport(date) {
                         // This staff is assigned to this shift on this day!
                         if (!receptionistShiftsMap[dateStr]) receptionistShiftsMap[dateStr] = [];
 
-                        // Avoid duplicates (same shift from different branches → just add once)
-                        const alreadyAdded = receptionistShiftsMap[dateStr].some(
-                            existing => existing.shift === shiftKey
-                        );
-                        if (!alreadyAdded) {
-                            receptionistShiftsMap[dateStr].push({
-                                shift: shiftKey,
-                                label: SHIFT_LABELS[shiftKey],
-                                start: shiftConfig[shiftKey]?.start || '07:00',
-                                end: shiftConfig[shiftKey]?.end || '11:30'
-                            });
-                        }
+                        // Add entry (allow same shift from different branches as separate entries)
+                        receptionistShiftsMap[dateStr].push({
+                            shift: shiftKey,
+                            label: SHIFT_LABELS[shiftKey],
+                            start: shiftConfig[shiftKey]?.start || '07:00',
+                            end: shiftConfig[shiftKey]?.end || '11:30',
+                            branch: result.branch
+                        });
                     });
                 });
             }

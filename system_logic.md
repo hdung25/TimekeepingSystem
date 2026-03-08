@@ -35,12 +35,12 @@
   - `db-service.js` — Tầng trung gian Firestore (~1080 dòng). Quản lý: users, attendance, schedules, settings, alerts, notifications, receptionist schedules
   - `main.js` — Logic chính (~920 dòng): login (`handleLogin`), sidebar (`renderSidebar`), dashboard stats, unregistered alerts (auto-refresh 30s), staff notifications (bell icon), staff personal charts, global check-in/out, mobile nav
   - `timekeeping.js` — Trang Chấm Công: `initTimekeeping`, `renderGlobalCheckIn`, `renderTodayClasses`, `checkAutoCheckout`, `fetchAndRenderHistory`, `registerClass`
-  - `schedule.js` — Quản lý Lịch Học: branch tabs (CS1/CS2), week picker, day tabs, CRUD rows, `registerClass`, `saveScheduleManual`, schedule inheritance
+  - `schedule.js` — Quản lý Lịch Học: branch tabs (CS1/CS2/CS3), week picker, day tabs, CRUD rows, `registerClass`, `saveScheduleManual`, schedule inheritance
   - `personnel.js` — CRUD nhân viên + multi-role salary config (`configureSalary`) + staff color picker
   - `report.js` — Báo cáo & Tính Lương (~890 dòng): calendar grid render, salary calculation UI (với DOM), notes system, admin edit/manual modals, session role selection
   - `evaluation-service.js` — Logic tính toán thuần túy (~250 dòng): `EVALUATION_CRITERIA` (10 tiêu chí), `calculateDailyChips()` (merge schedule + attendance → chips), `removeVietnameseTones()` (tách từ `report.js`)
   - `pdf-export.js` — Xuất PDF bảng lương (~190 dòng): `exportSalaryPDF()` — Custom PDF generation với bảng lương chi tiết (tách từ `report.js`)
-  - `receptionist-schedule.js` — Lịch Tiếp Tân: branch tabs, week picker, shift config, cell editor modal
+  - `receptionist-schedule.js` — Lịch Tiếp Tân: branch tabs (CS1/CS2/CS3), week picker, shift config, cell editor modal, `clearCurrentWeek()` (xóa lịch tuần + confirm dialog)
   - `analytics.js` — Thống kê: Punctuality, Late Trend, Staff Comparison, Weekly Hours, Role Distribution, Summary Stats (dùng Chart.js)
   - `chart-service.js` — Data service cho charts: memory cache, batch fetch (`_getAllMonthAttendance`, `_getAllMonthSchedules`), compute functions
   - `ui-service.js` — Toast notification + confirm dialog
@@ -189,14 +189,17 @@ Data layer: `chart-service.js` — Batch fetch attendance + schedules cho 1 thá
 Staff cũng có personal charts trên `nhan-vien.html`: Punctuality Doughnut + Weekly Hours Bar.
 
 ### Receptionist Schedule Flow
-Admin/Trợ Lý/Tiếp Tân mở `lich-tiep-tan.html` → Branch tabs → Week picker → Bảng shift config → Cell editor modal. Data lưu `receptionist_schedules/{weekId}`.
+Admin/Trợ Lý/Tiếp Tân mở `lich-tiep-tan.html` → Branch tabs (CS1/CS2/CS3) → Week picker → Bảng shift config → Cell editor modal. Data lưu `receptionist_schedules/{weekId}`.
+
+**Nút Xóa Lịch:** Admin/Trợ Lý bấm "🗑 Xóa Lịch" → UIService.confirm() hỏi xác nhận → Nếu OK: reset tất cả shifts/notes trên UI (local) → User phải bấm "Lưu" để persist lên Firestore.
 
 **Tích hợp Bảng Công (report.js):** Khi render bảng công cho nhân viên có `role === 'receptionist'`:
 1. Tính Monday của mỗi ngày trong tháng → composite key per week
-2. Fetch `receptionist_schedules` cho tất cả week overlapping the month (từ cả CS1 & CS2)
+2. Fetch `receptionist_schedules` cho tất cả week overlapping the month (từ CS1, CS2, CS3)
 3. Kiểm tra `weekData[shift][dayKey]` xem nhân viên có được xếp lịch không
-4. Truyền danh sách ca vào `calculateDailyChips()` qua param `receptionistShifts`
-5. Chip hiển thị: `SÁNG 07:00–11:30`, `CHIỀU 14:00–18:00`, `TỐI 17:30–21:30`
+4. Truyền danh sách ca vào `calculateDailyChips()` qua param `receptionistShifts` (kèm `branch`)
+5. Chip hiển thị: `SÁNG 07:00–11:30 [CS1]`, `CHIỀU 14:00–18:00 [CS2]`, `TỐI 17:30–21:30 [CS3]`
+6. Cùng 1 ca ở KHÁC branch → hiện chip riêng biệt (không gộp)
 
 **Logic chấm công tiếp tân:**
 - Sớm/Muộn/Đúng giờ: Giống giáo viên (early bonus 9-15p, late penalty)
@@ -252,6 +255,18 @@ Admin → Tab "Bảo Trì" trên `admin.html` → `archiver.js` → Scan `attend
 
 # 8. NHẬT KÝ TIẾN ĐỘ & CẬP NHẬT MỚI NHẤT
 *(AI sẽ tự động cập nhật vào phần này sau mỗi Task)*
+
+### 08/03/2026 - Thêm CS3 + Nút Xóa Lịch + Branch Chips Tiếp Tân
+- **Thay đổi kỹ thuật:**
+  - `lich-tiep-tan.html`: Thêm tab Cơ Sở 3, thêm nút "🗑 Xóa Lịch" (với confirm dialog) cạnh nút Lưu
+  - `lich-lam.html`: Thêm tab Cơ Sở 3
+  - `receptionist-schedule.js`: Thêm hàm `clearCurrentWeek()` (reset local + confirm), display flex cho save-area
+  - `schedule.js`: Dynamic branch label mapping cho 3 cơ sở
+  - `timekeeping.js`: `BRANCHES` array → `['cs1','cs2','cs3']` ×2, dynamic branch badge colors (cs3 = vàng)
+  - `report.js`: `BRANCHES` array → `['cs1','cs2','cs3']`, inject `branch` vào `receptionistShiftsMap` entries, bỏ duplicate-avoidance logic
+  - `evaluation-service.js`: Teacher chip branch tag dynamic (`cls._branch.toUpperCase()`), receptionist chip thêm `[CS1]/[CS2]/[CS3]` tag
+- **Rủi ro còn lại:** Cần test thực tế trên browser
+- **Tiến độ dự án:** [██████████] 90%
 
 ### 07/03/2026 - Tích Hợp Lịch Tiếp Tân Vào Bảng Công & Tính Lương
 - **Thay đổi kỹ thuật:**

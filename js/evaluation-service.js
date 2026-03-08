@@ -55,7 +55,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let minutes = 0;
             let cssClass = 'chip-blue';
             // Branch tag
-            const branchTag = cls._branch === 'cs2' ? ' [CS2]' : (cls._branch ? ' [CS1]' : '');
+            const branchTag = cls._branch ? ` [${cls._branch.toUpperCase()}]` : '';
             let label = `${cls.start}-${cls.end}${branchTag}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
 
@@ -141,11 +141,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
                     const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     const classEndTime = new Date(`${dateStr}T${cls.end}`);
-                    if (now > new Date(classEndTime.getTime() + 90 * 60000)) {
+
+                    // Check if this is a past day (session date < today)
+                    const todayStr = getLocalDateKey ? getLocalDateKey(now) : now.toISOString().split('T')[0];
+                    const isPastDay = dateStr < todayStr;
+
+                    if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = schedDuration;
                         cssClass = 'chip-orange';
                         label += ' (Quên ra)';
                         tooltip += ' - Quên Check-out (Tính đủ giờ)';
+                        isClickable = true;
                     } else {
                         minutes = 0;
                         cssClass = 'chip-blue';
@@ -197,9 +203,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const schedDuration = (schedEnd - schedStart) / 60000;
         const now = new Date();
 
-        // Label format: "SÁNG 07:00–11:30"
-        let label = `${rs.label} ${rs.start}–${rs.end}`;
-        let tooltip = `Ca Tiếp Tân: ${rs.label} (${rs.start}–${rs.end})`;
+        // Branch tag for receptionist shifts
+        const branchTag = rs.branch ? ` [${rs.branch.toUpperCase()}]` : '';
+
+        // Label format: "SÁNG 07:00–11:30 [CS1]"
+        let label = `${rs.label} ${rs.start}–${rs.end}${branchTag}`;
+        let tooltip = `Ca Tiếp Tân: ${rs.label} (${rs.start}–${rs.end})${branchTag}`;
 
         // Find matching attendance session (within ±60 min of shift start)
         const matchedSession = attendanceSessions.find(s => {
@@ -285,8 +294,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
                 const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-                if (now > schedEnd) {
-                    // Shift has ended → auto-treat as "quên ra", pay full shift duration
+                // Check if this is a past day
+                const todayStrR = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
+                const isPastDayR = dateStr < todayStrR;
+
+                if (isPastDayR || now > schedEnd) {
+                    // Shift has ended or day has passed → auto-treat as "quên ra", pay full shift duration
                     minutes = schedDuration;
                     cssClass = 'chip-orange';
                     label += ' (Quên ra)';
@@ -378,8 +391,24 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
                 isClickable = true;
             } else {
-                label = `${startStr}-??? (Đang dạy)`;
-                cssClass = 'chip-blue';
+                // Check if this is a past day — if so, treat as "Quên ra" instead of "Đang dạy"
+                const todayStrU = typeof getLocalDateKey === 'function' ? getLocalDateKey(new Date()) : new Date().toISOString().split('T')[0];
+                const isPastDayU = dateStr < todayStrU;
+
+                if (isPastDayU) {
+                    // Past day: estimate 2 hours of work (default), show as "Quên ra"
+                    const checkInTime = new Date(s.checkIn || s.start);
+                    // Set checkOut to end of that day (23:59)
+                    const endOfDay = new Date(`${dateStr}T23:59:00`);
+                    duration = Math.min((endOfDay - checkInTime) / 60000, 120); // Cap at 2 hours for safety
+                    label = `${startStr}-??? (Quên ra)`;
+                    cssClass = 'chip-orange';
+                    tooltip += ' - Quên Ra Ca (ngày đã qua)';
+                    isClickable = true;
+                } else {
+                    label = `${startStr}-??? (Đang dạy)`;
+                    cssClass = 'chip-blue';
+                }
             }
 
             chips.push({
