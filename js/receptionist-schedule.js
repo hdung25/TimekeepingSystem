@@ -13,6 +13,7 @@ let shiftConfig = {
     evening: { label: 'TỐI', start: '17:30', end: '21:30' }
 };
 let editingCell = null;
+let isInheritedTemplate = false; // True when showing a template from a previous week
 
 const isEditor = (() => {
     const role = localStorage.getItem('currentRole') || 'staff';
@@ -138,7 +139,37 @@ function navigateWeek(offset) {
 async function loadAndRender() {
     const key = getWeekCompositeKey();
     const data = await DBService.getReceptionistSchedule(key);
-    weekData = data || {};
+
+    isInheritedTemplate = false;
+    let inheritedFromDate = null;
+
+    if (data) {
+        // This week has saved data — use it directly
+        weekData = data;
+    } else {
+        // No data for this week — try to inherit from previous weeks (up to 4)
+        let found = false;
+        for (let i = 1; i <= 4; i++) {
+            const prevMonday = new Date(currentWeekStart);
+            prevMonday.setDate(prevMonday.getDate() - i * 7);
+            const y = prevMonday.getFullYear();
+            const m = String(prevMonday.getMonth() + 1).padStart(2, '0');
+            const d = String(prevMonday.getDate()).padStart(2, '0');
+            const prevKey = `${currentBranch}__${y}-${m}-${d}`;
+            const prevData = await DBService.getReceptionistSchedule(prevKey);
+            if (prevData) {
+                // Found a template! Deep clone to avoid mutating original
+                weekData = JSON.parse(JSON.stringify(prevData));
+                isInheritedTemplate = true;
+                inheritedFromDate = `${d}/${m}/${y}`;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            weekData = {};
+        }
+    }
 
     // Ensure structure
     SHIFTS.forEach(shift => {
@@ -148,6 +179,26 @@ async function loadAndRender() {
         });
     });
     if (!weekData._notes) weekData._notes = {};
+
+    // Show/hide banner
+    const banner = document.getElementById('inherit-banner');
+    if (banner) {
+        if (isInheritedTemplate && isEditor) {
+            banner.style.display = 'block';
+            const text = document.getElementById('inherit-banner-text');
+            if (text) {
+                text.textContent = `Lịch này được copy từ tuần ${inheritedFromDate}. Bấm Xác Nhận để áp dụng cho tuần này.`;
+            }
+        } else {
+            banner.style.display = 'none';
+        }
+    }
+
+    // Apply opacity for inherited template
+    const tableEl = document.getElementById('schedule-table');
+    if (tableEl) {
+        tableEl.style.opacity = isInheritedTemplate ? '0.55' : '1';
+    }
 
     renderTable();
 }
@@ -362,6 +413,16 @@ async function saveFullWeek() {
     const key = getWeekCompositeKey();
     try {
         await DBService.saveReceptionistSchedule(key, weekData);
+
+        // Clear inherited state after successful save
+        if (isInheritedTemplate) {
+            isInheritedTemplate = false;
+            const banner = document.getElementById('inherit-banner');
+            if (banner) banner.style.display = 'none';
+            const tableEl = document.getElementById('schedule-table');
+            if (tableEl) tableEl.style.opacity = '1';
+        }
+
         if (typeof UIService !== 'undefined') {
             UIService.toast('Đã lưu lịch tiếp tân!', 'success');
         } else {
@@ -375,5 +436,16 @@ async function saveFullWeek() {
         } else {
             alert(msg);
         }
+    }
+}
+
+// ==================== CONFIRM INHERITED ====================
+
+async function confirmInheritedSchedule() {
+    if (!isInheritedTemplate) return;
+    // Save the inherited template as this week's data
+    await saveFullWeek();
+    if (typeof UIService !== 'undefined') {
+        UIService.toast('Đã xác nhận lịch kế thừa cho tuần này!', 'success');
     }
 }

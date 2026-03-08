@@ -505,6 +505,22 @@
                 <button onclick="navigateWeek(1)" title="Tuần sau">▶</button>
             </div>
 
+            <!-- Inheritance Banner (hidden by default) -->
+            <div id="inherit-banner"
+                style="display: none; background: linear-gradient(135deg, #FEF3C7, #FDE68A); border: 1px solid #F59E0B; border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1rem; display: none;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <span style="font-size: 1.25rem;">📋</span>
+                    <div style="flex: 1; min-width: 200px;">
+                        <strong style="color: #92400E;">Lịch kế thừa</strong>
+                        <p id="inherit-banner-text" style="font-size: 0.85rem; color: #78350F; margin: 0.25rem 0 0;">
+                            Lịch này được copy từ tuần trước. Bấm Xác Nhận để áp dụng cho tuần này.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="confirmInheritedSchedule()" style="white-space: nowrap;">
+                        ✅ Xác Nhận Lịch Tuần Này
+                    </button>
+                </div>
+            </div>
+
             <!-- Schedule Table -->
             <div class="glass-panel" style="padding: 0; overflow: hidden;">
                 <div class="schedule-wrapper">
