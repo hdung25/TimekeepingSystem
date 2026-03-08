@@ -96,6 +96,18 @@ async function loadShiftConfig() {
     } catch (e) {
         console.warn('Using default shift config');
     }
+    renderShiftConfigToUI();
+}
+
+function renderShiftConfigToUI() {
+    SHIFTS.forEach(shift => {
+        const startEl = document.getElementById(`shift-${shift}-start`);
+        const endEl = document.getElementById(`shift-${shift}-end`);
+        if (startEl && endEl) {
+            startEl.value = shiftConfig[shift].start;
+            endEl.value = shiftConfig[shift].end;
+        }
+    });
 }
 
 function readShiftConfigFromUI() {
