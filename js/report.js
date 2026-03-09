@@ -219,60 +219,6 @@ async function renderMonthReport(date) {
         });
     });
 
-    // === AUTO-CLOSE TODAY'S OVERDUE RECEPTIONIST/TEACHER SESSIONS ===
-    // If today has an open session and the shift/class has ended, auto-close it
-    const todaySessions = attendanceMap[todayKey] || [];
-    const nowForAutoClose = new Date();
-    todaySessions.forEach(s => {
-        if (s.checkOut || !s.id) return; // Already closed or no ID
-        const checkInTime = new Date(s.checkIn || s.start);
-
-        // Check receptionist shifts first
-        const todayRecepShifts = receptionistShiftsMap[todayKey] || [];
-        let shiftEnded = false;
-
-        todayRecepShifts.forEach(rs => {
-            const shiftStart = new Date(`${todayKey}T${rs.start}`);
-            const shiftEnd = new Date(`${todayKey}T${rs.end}`);
-            // Match check-in to shift (±60min window)
-            if (Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 && nowForAutoClose >= shiftEnd) {
-                shiftEnded = true;
-            }
-        });
-
-        if (shiftEnded) {
-            // Fire-and-forget: close overdue session
-            DBService.checkOutPersonal(staffId).then(() => {
-                s.checkOut = nowForAutoClose.toISOString();
-                console.log(`[Report AutoClose] Auto-closed today's overdue session for ${staffId}`);
-            }).catch(e => console.warn('[Report AutoClose] Error:', e));
-            return; // Skip further checks for this session
-        }
-
-        // Check teacher classes
-        const todaySchedule = scheduleMap[todayKey] || {};
-        const teacherSections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
-        let classEnded = false;
-
-        teacherSections.forEach(sec => {
-            (todaySchedule[sec] || []).forEach(cls => {
-                const isRegistered = (cls.registeredTeachers || []).some(t => t.id === staffId);
-                if (!isRegistered) return;
-                const classStart = new Date(`${todayKey}T${cls.start}`);
-                const classEnd = new Date(`${todayKey}T${cls.end}`);
-                if (Math.abs(checkInTime - classStart) < 60 * 60 * 1000 && nowForAutoClose >= classEnd) {
-                    classEnded = true;
-                }
-            });
-        });
-
-        if (classEnded) {
-            DBService.checkOutPersonal(staffId).then(() => {
-                s.checkOut = nowForAutoClose.toISOString();
-                console.log(`[Report AutoClose] Auto-closed today's overdue class session for ${staffId}`);
-            }).catch(e => console.warn('[Report AutoClose] Error:', e));
-        }
-    });
 
     // B. Schedule Data (For the whole month)
     // Fetch from BOTH branches (cs1, cs2) and merge
@@ -404,6 +350,49 @@ async function renderMonthReport(date) {
         }
     }
 
+    // === AUTO-CLOSE TODAY'S OVERDUE RECEPTIONIST/TEACHER SESSIONS ===
+    // If today has an open session and the shift/class has ended, auto-close it
+    const todaySessions = attendanceMap[todayKey] || [];
+    const nowForAutoClose = new Date();
+    todaySessions.forEach(s => {
+        if (s.checkOut || !s.id) return;
+        const checkInTime = new Date(s.checkIn || s.start);
+
+        // Check receptionist shifts
+        const todayRecepShifts = receptionistShiftsMap[todayKey] || [];
+        let shiftEnded = false;
+        todayRecepShifts.forEach(rs => {
+            const shiftStart = new Date(`${todayKey}T${rs.start}`);
+            const shiftEnd = new Date(`${todayKey}T${rs.end}`);
+            if (Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 && nowForAutoClose >= shiftEnd) {
+                shiftEnded = true;
+            }
+        });
+        if (shiftEnded) {
+            DBService.checkOutPersonal(staffId).then(() => {
+                s.checkOut = nowForAutoClose.toISOString();
+                console.log(`[Report AutoClose] Auto-closed today's overdue session for ${staffId}`);
+            }).catch(e => console.warn('[Report AutoClose] Error:', e));
+            return;
+        }
+
+        // Check teacher classes
+        const todaySchedule = scheduleMap[todayKey] || {};
+        ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(sec => {
+            (todaySchedule[sec] || []).forEach(cls => {
+                const isRegistered = (cls.registeredTeachers || []).some(t => t.id === staffId);
+                if (!isRegistered) return;
+                const classStart = new Date(`${todayKey}T${cls.start}`);
+                const classEnd = new Date(`${todayKey}T${cls.end}`);
+                if (Math.abs(checkInTime - classStart) < 60 * 60 * 1000 && nowForAutoClose >= classEnd) {
+                    DBService.checkOutPersonal(staffId).then(() => {
+                        s.checkOut = nowForAutoClose.toISOString();
+                        console.log(`[Report AutoClose] Auto-closed today's overdue class session for ${staffId}`);
+                    }).catch(e => console.warn('[Report AutoClose] Error:', e));
+                }
+            });
+        });
+    });
 
     // 2. CALCULATE & RENDER
     let totalMinutes = 0;
