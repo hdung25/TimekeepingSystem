@@ -44,6 +44,7 @@ async function populateStaffSelect() {
     const select = document.getElementById('staff-select');
     if (!select) return;
 
+    _allStaffOptions = null; // Reset search cache when re-populating
     select.innerHTML = '<option value="all">-- Chọn nhân viên --</option>';
 
     let users = [];
@@ -73,16 +74,40 @@ async function populateStaffSelect() {
 }
 
 // Search/filter staff select options
+// Store all options so we can re-populate on filter (hiding <option> doesn't work on mobile)
+let _allStaffOptions = null;
 window.filterStaffSelect = function (query) {
     const select = document.getElementById('staff-select');
     if (!select) return;
-    const normalizedQuery = query.toLowerCase().trim();
-    Array.from(select.options).forEach(opt => {
-        if (opt.value === 'all') return; // Always show default
-        const text = opt.textContent.toLowerCase();
-        opt.style.display = text.includes(normalizedQuery) ? '' : 'none';
-        opt.hidden = !text.includes(normalizedQuery);
+
+    // Cache all options on first call
+    if (!_allStaffOptions) {
+        _allStaffOptions = Array.from(select.options).map(opt => ({
+            value: opt.value,
+            text: opt.textContent,
+            selected: opt.selected
+        }));
+    }
+
+    const normalizedQuery = (query || '').toLowerCase().trim();
+    const currentValue = select.value;
+
+    // Clear and re-populate with matching options
+    select.innerHTML = '';
+
+    _allStaffOptions.forEach(opt => {
+        if (opt.value === 'all' || normalizedQuery === '' || opt.text.toLowerCase().includes(normalizedQuery)) {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.text;
+            select.appendChild(option);
+        }
     });
+
+    // Restore previous selection if still visible
+    if (Array.from(select.options).some(o => o.value === currentValue)) {
+        select.value = currentValue;
+    }
 };
 
 function changeReportMonth(offset) {
