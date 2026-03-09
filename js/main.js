@@ -176,8 +176,173 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tab && typeof switchTab === 'function') {
             setTimeout(() => switchTab(tab), 100);
         }
+
+        // ===== GLOBAL AUTO-CHECKOUT (runs on ALL pages) =====
+        // Ensures receptionist/teacher shifts are auto-closed even if user
+        // navigates away from the Chấm Công page.
+        setTimeout(() => {
+            globalCheckAutoCheckout(); // Run once after 5s
+            setInterval(globalCheckAutoCheckout, 60 * 1000); // Then every 60s
+            console.log('[Global] Auto-checkout interval started');
+        }, 5000);
     }
 });
+
+// ================= GLOBAL AUTO-CHECKOUT FUNCTION =================
+// Runs on ALL pages. Checks if user has an open session and their shift/class has ended.
+async function globalCheckAutoCheckout() {
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (!currentUserId) return;
+    if (typeof DBService === 'undefined') return;
+
+    const now = new Date();
+    const dateKey = getLocalDateKeyFromDate(now);
+
+    try {
+        // 1. Check if user has an open session today
+        const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);
+        if (!attendance) return;
+        const sessions = attendance.sessions || [];
+        const openSession = sessions.find(s => !s.checkOut);
+        if (!openSession) return; // No open session → nothing to auto-close
+
+        // 2. Determine when the user's current shift/class ends
+        const currentRole = localStorage.getItem('currentRole');
+        const checkInTime = new Date(openSession.checkIn || openSession.start);
+
+        if (currentRole === 'receptionist') {
+            // === RECEPTIONIST: find shift end based on schedule ===
+            await autoCheckoutReceptionist(currentUserId, checkInTime, now, dateKey);
+        } else {
+            // === TEACHER/STAFF: find class end from schedule ===
+            await autoCheckoutTeacher(currentUserId, checkInTime, now, dateKey);
+        }
+    } catch (e) {
+        console.warn("[GlobalAutoCheckout] Error:", e);
+    }
+}
+
+async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
+    try {
+        const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
+        const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const BRANCHES = ['cs1', 'cs2', 'cs3'];
+
+        // Calculate Monday of this week
+        const getMonday = (d) => {
+            const date = new Date(d);
+            const day = date.getDay();
+            const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+            date.setDate(diff);
+            date.setHours(0, 0, 0, 0);
+            return date;
+        };
+
+        const monday = getMonday(now);
+        const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+
+        const dayOfWeek = now.getDay();
+        const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        const dayKey = DAY_KEYS_MAP[dayIdx];
+
+        // Find the shift that matches the check-in time (nearest shift end AFTER check-in)
+        let matchedShiftEnd = null;
+
+        for (const branch of BRANCHES) {
+            const compositeKey = `${branch}__${mondayKey}`;
+            const weekData = await DBService.getReceptionistSchedule(compositeKey);
+            if (!weekData) continue;
+
+            const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
+
+            SHIFT_KEYS.forEach(shiftKey => {
+                const shiftData = weekData[shiftKey];
+                if (!shiftData || !shiftData[dayKey]) return;
+
+                const staffList = shiftData[dayKey];
+                const staffEntry = staffList.find(s => s.id === userId);
+                if (!staffEntry) return;
+
+                // Calculate shift start/end times
+                const startTimeStr = staffEntry.customStart || branchShiftConfig[shiftKey]?.start || '07:00';
+                const endTimeStr = staffEntry.customEnd || branchShiftConfig[shiftKey]?.end || '11:30';
+                const shiftStart = new Date(`${dateKey}T${startTimeStr}`);
+                const shiftEnd = new Date(`${dateKey}T${endTimeStr}`);
+
+                // Match: check-in time is within ±60 min of shift start
+                const diffMs = Math.abs(checkInTime - shiftStart);
+                if (diffMs < 60 * 60 * 1000) {
+                    // This is the shift the user checked in for
+                    if (!matchedShiftEnd || shiftEnd < matchedShiftEnd) {
+                        matchedShiftEnd = shiftEnd; // Use earliest matching shift end
+                    }
+                }
+            });
+        }
+
+        if (matchedShiftEnd && now >= matchedShiftEnd) {
+            console.log(`[GlobalAutoCheckout] Receptionist shift ended at ${matchedShiftEnd.toLocaleTimeString()}. Auto checking out...`);
+            await DBService.checkOutPersonal(userId);
+            if (typeof UIService !== 'undefined' && UIService.toast) {
+                UIService.toast("Đã tự động Ra Ca (hết giờ ca tiếp tân)", "success");
+            }
+            // Refresh timekeeping UI if on that page
+            if (typeof renderGlobalCheckIn === 'function') {
+                await renderGlobalCheckIn();
+            }
+        }
+    } catch (e) {
+        console.warn("[GlobalAutoCheckout] Receptionist error:", e);
+    }
+}
+
+async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
+    try {
+        const BRANCHES = ['cs1', 'cs2', 'cs3'];
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+
+        // Find the class that matches the check-in time
+        let matchedClassEnd = null;
+
+        for (const branch of BRANCHES) {
+            const compositeKey = `${branch}__${dateKey}`;
+            const schedule = await DBService.getSchedule(compositeKey);
+            if (!schedule) continue;
+
+            sections.forEach(sec => {
+                if (!schedule[sec]) return;
+                schedule[sec].forEach(cls => {
+                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId);
+                    if (!isRegistered) return;
+
+                    const classStart = new Date(`${dateKey}T${cls.start}`);
+                    const classEnd = new Date(`${dateKey}T${cls.end}`);
+
+                    // Match: check-in is within ±60 min of class start
+                    const diffMs = Math.abs(checkInTime - classStart);
+                    if (diffMs < 60 * 60 * 1000) {
+                        if (!matchedClassEnd || classEnd < matchedClassEnd) {
+                            matchedClassEnd = classEnd;
+                        }
+                    }
+                });
+            });
+        }
+
+        if (matchedClassEnd && now >= matchedClassEnd) {
+            console.log(`[GlobalAutoCheckout] Class ended at ${matchedClassEnd.toLocaleTimeString()}. Auto checking out...`);
+            await DBService.checkOutPersonal(userId);
+            if (typeof UIService !== 'undefined' && UIService.toast) {
+                UIService.toast("Đã tự động Ra Ca (hết giờ lớp)", "success");
+            }
+            if (typeof renderGlobalCheckIn === 'function') {
+                await renderGlobalCheckIn();
+            }
+        }
+    } catch (e) {
+        console.warn("[GlobalAutoCheckout] Teacher error:", e);
+    }
+}
 
 // ================= STAFF NOTIFICATIONS =================
 async function loadStaffNotifications() {

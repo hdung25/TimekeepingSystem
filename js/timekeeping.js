@@ -20,7 +20,7 @@ function initTimekeeping() {
 
 // Auto Ra Ca: If user has open session and registered class has ended → auto checkout
 // Also handles receptionist shifts: auto checkout when shift end time has passed
-async function checkAutoCheckout() {
+window.checkAutoCheckout = async function checkAutoCheckout() {
     const currentUserId = localStorage.getItem('currentUserId');
     if (!currentUserId) return;
 
