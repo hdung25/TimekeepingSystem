@@ -210,12 +210,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         let label = `${rs.label} ${rs.start}–${rs.end}${branchTag}`;
         let tooltip = `Ca Tiếp Tân: ${rs.label} (${rs.start}–${rs.end})${branchTag}`;
 
-        // Find matching attendance session (within ±60 min of shift start)
+        // Find matching attendance session
+        // Match if check-in is within: 60 min before shift start → shift end
+        // This ensures late check-ins during the shift are recognized as "Trễ" not "Vắng"
         const matchedSession = attendanceSessions.find(s => {
             if (usedSessionIds.has(s.id)) return false;
             const checkIn = new Date(s.checkIn || s.start);
-            const diffMs = Math.abs(checkIn - schedStart);
-            return diffMs < 60 * 60 * 1000;
+            const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
+            return checkIn >= earlyLimit && checkIn <= schedEnd;
         });
 
         if (matchedSession) {
