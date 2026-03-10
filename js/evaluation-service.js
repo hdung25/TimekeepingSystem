@@ -25,7 +25,7 @@ const EVALUATION_CRITERIA = [
 // ================= DAILY CHIPS CALCULATION =================
 // Logic to Merge Schedule & Attendance → Returns chip array for a single day
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = []) {
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIds = new Set();
@@ -54,9 +54,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // 3. Determine Status
             let minutes = 0;
             let cssClass = 'chip-blue';
-            // Branch tag
+            // Branch tag — abbreviated (no brackets)
             const branchTag = cls._branch ? ` [${cls._branch.toUpperCase()}]` : '';
-            let label = `${cls.start}-${cls.end}${branchTag}`;
+            const branchShort = cls._branch ? ` ${cls._branch.toUpperCase()}` : '';
+            let label = `${cls.start}–${cls.end}${branchShort}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
 
             const schedEnd = new Date(`${dateStr}T${cls.end}`);
@@ -87,7 +88,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             minutes = Math.max(0, Math.round(remainingSched));
                             isLate = true;
                         }
-                        label += ` (Trễ ${lateMinutesRaw}p)`;
+                        label += ` (T${lateMinutesRaw}p)`;
                     } else if (diffMs > 0) { // Early
                         minutes = schedDuration;
                         const earlyMins = Math.round(diffMs / 60000);
@@ -121,7 +122,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             }
                         }
                     } else {
-                        label += ` (Chọn Role?)`;
+                        label += ` (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
 
@@ -149,26 +150,46 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = schedDuration;
                         cssClass = 'chip-orange';
-                        label += ' (Quên ra)';
+                        label += ' (QR)';
                         tooltip += ' - Quên Check-out (Tính đủ giờ)';
                         isClickable = true;
                     } else {
                         minutes = 0;
                         cssClass = 'chip-blue';
-                        label += ` (Đang dạy | Vào: ${actualStartStrNoCO})`;
-                        tooltip += ' - Đang trong ca làm việc';
+                        label += ` (Teaching)`;
+                        tooltip += ` - Đang dạy | Vào: ${actualStartStrNoCO}`;
+                    }
+                }
+
+                // === OVERTIME INTEGRATION ===
+                const sessionKey = String(matchedSession.id);
+                const otData = overtimeMap[sessionKey];
+                let otMinutes = 0;
+                let otPending = false;
+                let otId = null;
+                if (otData) {
+                    otId = otData.id;
+                    if (otData.status === 'approved') {
+                        otMinutes = otData.minutes || 0;
+                        label += ` ⏱️+${otData.duration}`;
+                    } else if (otData.status === 'pending') {
+                        otPending = true;
+                        label += ` ⏱️?`;
                     }
                 }
 
                 chips.push({
                     text: label,
                     class: cssClass,
-                    paidMinutes: Math.max(0, Math.round(minutes)),
+                    paidMinutes: Math.max(0, Math.round(minutes + otMinutes)),
                     tooltip: tooltip,
                     sessionId: matchedSession.id,
                     sessionData: matchedSession,
                     isClickable: isClickable,
-                    isTeaching: true // Flag for filter
+                    isTeaching: true,
+                    overtimeId: otId,
+                    overtimePending: otPending,
+                    overtimeMinutes: otMinutes
                 });
 
             } else {
@@ -179,14 +200,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // Do nothing
                 } else {
                     chips.push({
-                        text: label + ' (Vắng)', // Keep text clean
+                        text: label + ' (V)',
                         class: 'chip-gray',
                         paidMinutes: 0,
-                        tooltip: 'Không có dữ liệu chấm công',
+                        tooltip: 'Không có dữ liệu chấm công (Vắng)',
                         sessionId: null,
                         schedData: { start: cls.start, end: cls.end },
                         isClickable: true,
-                        isWarning: true // Set flag
+                        isWarning: true
                     });
                 }
             }
@@ -203,11 +224,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const schedDuration = (schedEnd - schedStart) / 60000;
         const now = new Date();
 
-        // Branch tag for receptionist shifts
+        // Branch tag for receptionist shifts — abbreviated
         const branchTag = rs.branch ? ` [${rs.branch.toUpperCase()}]` : '';
+        const branchShortR = rs.branch ? ` ${rs.branch.toUpperCase()}` : '';
+        // Shift label abbreviation: SÁNG→S, CHIỀU→C, TỐI→T
+        const shiftAbbr = { 'SÁNG': 'S', 'CHIỀU': 'C', 'TỐI': 'T' };
+        const labelShort = shiftAbbr[rs.label] || rs.label;
 
-        // Label format: "SÁNG 07:00–11:30 [CS1]"
-        let label = `${rs.label} ${rs.start}–${rs.end}${branchTag}`;
+        // Label format: "C 15:00–18:30 CS2"
+        let label = `${labelShort} ${rs.start}–${rs.end}${branchShortR}`;
         let tooltip = `Ca Tiếp Tân: ${rs.label} (${rs.start}–${rs.end})${branchTag}`;
 
         // Find matching attendance session
@@ -244,7 +269,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         minutes = Math.max(0, Math.round(remainingSched));
                         isLate = true;
                     }
-                    label += ` (Trễ ${lateMinutesRaw}p)`;
+                    label += ` (T${lateMinutesRaw}p)`;
                 } else if (diffMs > 0) {
                     // Early
                     minutes = schedDuration;
@@ -276,7 +301,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                     }
                 } else {
-                    label += ` (Chọn Role?)`;
+                    label += ` (Role?)`;
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
 
@@ -301,30 +326,48 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isPastDayR = dateStr < todayStrR;
 
                 if (isPastDayR || now > schedEnd) {
-                    // Shift has ended or day has passed → auto-treat as "quên ra", pay full shift duration
                     minutes = schedDuration;
                     cssClass = 'chip-orange';
-                    label += ' (Quên ra)';
+                    label += ' (QR)';
                     tooltip += ' - Quên Ra Ca (Tính đủ giờ theo ca)';
                     isClickable = true;
                 } else {
-                    // Still within shift → "Đang làm"
                     minutes = 0;
                     cssClass = 'chip-blue';
-                    label += ` (Đang làm | Vào: ${actualStartStrNoCO})`;
-                    tooltip += ' - Đang trong ca làm việc';
+                    label += ` (Teaching)`;
+                    tooltip += ` - Đang trong ca | Vào: ${actualStartStrNoCO}`;
+                }
+            }
+
+            // === OVERTIME INTEGRATION (Receptionist) ===
+            const sessionKeyR = String(matchedSession.id);
+            const otDataR = overtimeMap[sessionKeyR];
+            let otMinutesR = 0;
+            let otPendingR = false;
+            let otIdR = null;
+            if (otDataR) {
+                otIdR = otDataR.id;
+                if (otDataR.status === 'approved') {
+                    otMinutesR = otDataR.minutes || 0;
+                    label += ` ⏱️+${otDataR.duration}`;
+                } else if (otDataR.status === 'pending') {
+                    otPendingR = true;
+                    label += ` ⏱️?`;
                 }
             }
 
             chips.push({
                 text: label,
                 class: cssClass,
-                paidMinutes: Math.max(0, Math.round(minutes)),
+                paidMinutes: Math.max(0, Math.round(minutes + otMinutesR)),
                 tooltip: tooltip,
                 sessionId: matchedSession.id,
                 sessionData: matchedSession,
                 isClickable: isClickable,
-                isReceptionist: true // Flag for salary filter
+                isReceptionist: true,
+                overtimeId: otIdR,
+                overtimePending: otPendingR,
+                overtimeMinutes: otMinutesR
             });
 
         } else {
@@ -333,7 +376,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (shiftDateTime > now) {
                 // Future shift → show as "Sắp tới" so receptionist can see upcoming schedule
                 chips.push({
-                    text: label + ' (Sắp tới)',
+                    text: label + ' (ST)',
                     class: 'chip-future',
                     paidMinutes: 0,
                     tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
@@ -344,10 +387,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 });
             } else {
                 chips.push({
-                    text: label + ' (Vắng)',
+                    text: label + ' (V)',
                     class: 'chip-gray',
                     paidMinutes: 0,
-                    tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công',
+                    tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công (Vắng)',
                     sessionId: null,
                     schedData: { start: rs.start, end: rs.end },
                     isClickable: true,
@@ -382,11 +425,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Role Logic for unmatched sessions
                 if (s.role) {
                     cssClass = 'chip-green';
-                    label = `${startStr}-${endStr} (${s.roleName})`;
+                    label = `${startStr}–${endStr} (${s.roleName})`;
                     tooltip += ` - Vai trò: ${s.roleName}`;
                 } else {
                     cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
-                    label = `${startStr}-${endStr} (Chọn Role?)`;
+                    label = `${startStr}–${endStr} (Role?)`;
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
 
@@ -398,17 +441,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isPastDayU = dateStr < todayStrU;
 
                 if (isPastDayU) {
-                    // Past day: estimate 2 hours of work (default), show as "Quên ra"
                     const checkInTime = new Date(s.checkIn || s.start);
-                    // Set checkOut to end of that day (23:59)
                     const endOfDay = new Date(`${dateStr}T23:59:00`);
-                    duration = Math.min((endOfDay - checkInTime) / 60000, 120); // Cap at 2 hours for safety
-                    label = `${startStr}-??? (Quên ra)`;
+                    duration = Math.min((endOfDay - checkInTime) / 60000, 120);
+                    label = `${startStr}–??? (QR)`;
                     cssClass = 'chip-orange';
                     tooltip += ' - Quên Ra Ca (ngày đã qua)';
                     isClickable = true;
                 } else {
-                    label = `${startStr}-??? (Đang dạy)`;
+                    label = `${startStr}–??? (Teaching)`;
                     cssClass = 'chip-blue';
                 }
             }

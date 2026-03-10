@@ -1182,5 +1182,100 @@ const DBService = {
             console.error('[SalarySettings] Error saving:', e);
             throw e;
         }
+    },
+
+    // ================= OVERTIME REQUESTS =================
+
+    // Staff submits an overtime request (status: pending)
+    // duration: "HH:MM" string, sessionId: the attendance session this OT belongs to
+    createOvertimeRequest: async (staffId, staffName, dateKey, sessionId, duration) => {
+        try {
+            // Convert HH:MM to minutes
+            const [h, m] = duration.split(':').map(Number);
+            const minutes = (h || 0) * 60 + (m || 0);
+            if (minutes <= 0) throw new Error('Số giờ tăng ca phải lớn hơn 0.');
+
+            const docRef = await db.collection('overtime_requests').add({
+                staffId,
+                staffName: staffName || 'N/A',
+                dateKey,
+                sessionId: String(sessionId),
+                duration,     // "HH:MM"
+                minutes,
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                approvedBy: null,
+                approvedAt: null
+            });
+            console.log('[OT] Request created:', docRef.id);
+            return docRef.id;
+        } catch (e) {
+            console.error('[OT] Error creating request:', e);
+            throw e;
+        }
+    },
+
+    // Admin: get all pending overtime requests
+    getPendingOvertimeRequests: async () => {
+        try {
+            const snap = await db.collection('overtime_requests')
+                .where('status', '==', 'pending')
+                .limit(50)
+                .get();
+            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            list.sort((a, b) => (b.dateKey || '').localeCompare(a.dateKey || ''));
+            return list;
+        } catch (e) {
+            console.warn('[OT] Error getting pending requests:', e);
+            return [];
+        }
+    },
+
+    // Admin approves an overtime request → mark approved
+    approveOvertimeRequest: async (requestId, adminName) => {
+        try {
+            await db.collection('overtime_requests').doc(requestId).update({
+                status: 'approved',
+                approvedBy: adminName || 'Admin',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('[OT] Approved:', requestId);
+        } catch (e) {
+            console.error('[OT] Error approving:', e);
+            throw e;
+        }
+    },
+
+    // Admin rejects an overtime request
+    rejectOvertimeRequest: async (requestId, adminName) => {
+        try {
+            await db.collection('overtime_requests').doc(requestId).update({
+                status: 'rejected',
+                approvedBy: adminName || 'Admin',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('[OT] Rejected:', requestId);
+        } catch (e) {
+            console.error('[OT] Error rejecting:', e);
+            throw e;
+        }
+    },
+
+    // Get overtime requests for a specific staff member in a month ("YYYY-MM")
+    getOvertimeRequestsForStaff: async (staffId, monthStr) => {
+        try {
+            const snap = await db.collection('overtime_requests')
+                .where('staffId', '==', staffId)
+                .limit(100)
+                .get();
+            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Filter by month client-side to avoid composite index
+            return monthStr
+                ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
+                : list;
+        } catch (e) {
+            console.warn('[OT] Error getting staff requests:', e);
+            return [];
+        }
     }
 };

@@ -27,6 +27,17 @@ async function initReport() {
         if (controls) controls.style.display = 'flex';
         document.getElementById('page-title').innerText = 'Tính Lương & Duyệt Công';
         await populateStaffSelect();
+
+        // Auto-select staff from URL param (e.g., from OT alert link: ?staffId=xxx)
+        const urlParams = new URLSearchParams(window.location.search);
+        const paramStaffId = urlParams.get('staffId');
+        if (paramStaffId) {
+            const select = document.getElementById('staff-select');
+            if (select) {
+                select.value = paramStaffId;
+                _cachedStaffId = null; // force re-fetch
+            }
+        }
     } else {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'none';
@@ -222,6 +233,22 @@ async function renderMonthReport(date) {
         // record.date is "YYYY-MM-DD"
         if (record.date) {
             attendanceMap[record.date] = record.sessions || [];
+        }
+    });
+
+    // D. Overtime Requests for this staff+month
+    let overtimeRequestsList = [];
+    try {
+        overtimeRequestsList = await DBService.getOvertimeRequestsForStaff(staffId, monthStr);
+    } catch (e) { console.warn('[OT] Could not load OT requests:', e); }
+
+    // Build overtimeDateMap: "YYYY-MM-DD" -> { sessionId -> otData }
+    const overtimeDateMap = {};
+    overtimeRequestsList.forEach(ot => {
+        if (!overtimeDateMap[ot.dateKey]) overtimeDateMap[ot.dateKey] = {};
+        const existing = overtimeDateMap[ot.dateKey][ot.sessionId];
+        if (!existing || ot.status === 'approved' || (ot.status === 'pending' && existing.status === 'rejected')) {
+            overtimeDateMap[ot.dateKey][ot.sessionId] = ot;
         }
     });
 
@@ -511,7 +538,7 @@ async function renderMonthReport(date) {
         const dailyAttendance = attendanceMap[dateStr] || [];
         const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
 
-        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts);
+        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {});
 
         chips.forEach(chip => {
             const div = document.createElement('div');
@@ -763,6 +790,52 @@ async function renderMonthReport(date) {
                     openEditModal(dateStr, chip.sessionId, chip.sessionData);
                 };
                 div.appendChild(editBtn);
+
+                // Admin: if this chip has a pending overtime, show Confirm/Reject buttons
+                if (chip.overtimePending && chip.overtimeId) {
+                    const confirmBtn = document.createElement('span');
+                    confirmBtn.innerHTML = '✅';
+                    confirmBtn.title = 'Xác nhận tăng ca';
+                    confirmBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;';
+                    confirmBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        if (!confirm('Xác nhận giờ tăng ca này?')) return;
+                        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+                        await DBService.approveOvertimeRequest(chip.overtimeId, adminName);
+                        _cachedStaffId = null;
+                        renderMonthReport(currentDate);
+                    };
+                    div.appendChild(confirmBtn);
+
+                    const rejectBtn = document.createElement('span');
+                    rejectBtn.innerHTML = '❌';
+                    rejectBtn.title = 'Từ chối tăng ca';
+                    rejectBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:2px;';
+                    rejectBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        if (!confirm('Từ chối yêu cầu tăng ca này?')) return;
+                        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+                        await DBService.rejectOvertimeRequest(chip.overtimeId, adminName);
+                        _cachedStaffId = null;
+                        renderMonthReport(currentDate);
+                    };
+                    div.appendChild(rejectBtn);
+                }
+            }
+
+            // Staff: add ⏱️ Overtime Request button on completed sessions with no pending OT
+            if (role !== 'admin' && chip.sessionId && chip.sessionData && chip.sessionData.checkOut && !chip.overtimePending && !chip.overtimeMinutes) {
+                const otBtn = document.createElement('span');
+                otBtn.innerHTML = '⏱️';
+                otBtn.title = 'Yêu cầu tăng ca';
+                otBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;opacity:0.6;';
+                otBtn.onmouseover = () => otBtn.style.opacity = '1';
+                otBtn.onmouseout = () => otBtn.style.opacity = '0.6';
+                otBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    openOvertimeModal(dateStr, chip.sessionId, chip.sessionData);
+                };
+                div.appendChild(otBtn);
             }
 
             cell.appendChild(div);
@@ -1247,6 +1320,7 @@ async function saveEditedTime() {
             alert("Cập nhật thành công!");
         }
         closeEditModal();
+        _cachedStaffId = null; // Force re-fetch from Firestore after edit
         renderMonthReport(currentDate);
     } catch (e) {
         alert("Lỗi: " + e.message);
@@ -1272,6 +1346,7 @@ async function deleteSessionFromModal() {
         );
         alert("Đã xóa!");
         closeEditModal();
+        _cachedStaffId = null; // Force re-fetch from Firestore
         renderMonthReport(currentDate);
     } catch (e) {
         alert("Lỗi xóa: " + e.message);
@@ -1398,3 +1473,54 @@ async function selectRoleForSession(role) {
 }
 
 // removeVietnameseTones() → Moved to evaluation-service.js
+
+// ================= OVERTIME MODAL =================
+
+function openOvertimeModal(dateKey, sessionId, sessionData) {
+    const modal = document.getElementById('overtime-modal');
+    if (!modal) return;
+
+    document.getElementById('overtime-date-key').value = dateKey;
+    document.getElementById('overtime-session-id').value = sessionId;
+    document.getElementById('overtime-duration').value = '';
+
+    const start = sessionData ? new Date(sessionData.checkIn || sessionData.start) : null;
+    const end = sessionData && sessionData.checkOut ? new Date(sessionData.checkOut) : null;
+    const startStr = start ? start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+    const endStr = end ? end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+
+    const infoEl = document.getElementById('overtime-session-info');
+    if (infoEl) infoEl.innerText = `Ca: ${dateKey} | ${startStr} – ${endStr}`;
+
+    modal.style.display = 'flex';
+    setTimeout(() => document.getElementById('overtime-duration').focus(), 100);
+}
+
+function closeOvertimeModal() {
+    const modal = document.getElementById('overtime-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function submitOvertimeRequest() {
+    const dateKey = document.getElementById('overtime-date-key').value;
+    const sessionId = document.getElementById('overtime-session-id').value;
+    const duration = (document.getElementById('overtime-duration').value || '').trim();
+
+    if (!/^\d{1,2}:\d{2}$/.test(duration)) {
+        alert('Vui lòng nhập đúng định dạng HH:MM (VD: 01:30)');
+        return;
+    }
+
+    const staffId = getTargetStaffId();
+    const staffName = localStorage.getItem('currentUserName') || 'N/A';
+
+    try {
+        await DBService.createOvertimeRequest(staffId, staffName, dateKey, sessionId, duration);
+        alert('Đã gửi yêu cầu tăng ca! Admin sẽ xem xét và xác nhận.');
+        closeOvertimeModal();
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } catch (e) {
+        alert('Lỗi: ' + e.message);
+    }
+}
