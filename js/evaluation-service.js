@@ -222,7 +222,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         sessionId: null,
                         schedData: { start: cls.start, end: cls.end },
                         isClickable: true,
-                        isWarning: true
+                        isWarning: true,
+                        isTeaching: true,
+                        classStart: cls.start,
+                        classEnd: cls.end,
+                        classCompositeKey: cls._compositeKey || null,
+                        classSectionKey: secKey,
+                        classIndex: idx
                     });
                 }
             }

@@ -1236,6 +1236,14 @@ function openManualModal(dateKey, preFill = null) {
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
 
+    // Reset class metadata fields just in case
+    if(document.getElementById('edit-class-composite-key')) {
+        document.getElementById('edit-class-composite-key').value = '';
+        document.getElementById('edit-class-section-key').value = '';
+        document.getElementById('edit-class-index').value = '';
+        document.getElementById('edit-class-is-receptionist').value = '';
+    }
+
     let startVal = '08:00';
     let endVal = '10:00';
 
@@ -1244,8 +1252,9 @@ function openManualModal(dateKey, preFill = null) {
         if (preFill.end) endVal = preFill.end;
     }
 
-    const d = new Date(dateKey); // Local date from string YYYY-MM-DD
-    const isoDate = d.toISOString().split('T')[0];
+    // Safely map 'YYYY-MM-DD' directly instead of parsing with `new Date()`
+    // to strictly prevent Timezone shifts or Day/Month swapping 
+    const isoDate = dateKey; 
     document.getElementById('edit-check-in').value = `${isoDate}T${startVal}`;
     document.getElementById('edit-check-out').value = `${isoDate}T${endVal}`;
 
@@ -1372,7 +1381,10 @@ async function deleteSessionFromModal() {
     const isReceptionistStr = document.getElementById('edit-class-is-receptionist').value;
 
     try {
-        await DBService.deleteSession(staffId, dateKey, parsedSessionId);
+        // Only attempt to delete an attendance session if one actually exists
+        if (sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null') {
+            await DBService.deleteSession(staffId, dateKey, parsedSessionId);
+        }
         
         // Unregister from class if linked
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
