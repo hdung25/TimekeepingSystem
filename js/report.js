@@ -1243,6 +1243,9 @@ function openManualModal(dateKey, preFill = null) {
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
+    // Hide delete button in add-new mode
+    const delSection = document.querySelector('#edit-time-modal .delete-section');
+    if (delSection) delSection.style.display = 'none';
 }
 
 function openEditModal(dateKey, sessionId, sessionData, classStart) {
@@ -1272,6 +1275,9 @@ function openEditModal(dateKey, sessionId, sessionData, classStart) {
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
+    // Show delete button in edit mode
+    const delSection = document.querySelector('#edit-time-modal .delete-section');
+    if (delSection) delSection.style.display = 'block';
 }
 
 function closeEditModal() {

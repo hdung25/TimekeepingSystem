@@ -718,7 +718,20 @@ const DBService = {
             if (!doc.exists) return;
 
             const data = doc.data();
-            if (!data.sessions) return;
+
+            // MIGRATION LOGIC (Important for consistency)
+            if (!data.sessions || !Array.isArray(data.sessions)) {
+                if (data.checkIn) {
+                    data.sessions = [{
+                        id: 'legacy',
+                        start: data.checkIn,
+                        checkIn: data.checkIn,
+                        checkOut: data.checkOut || null
+                    }];
+                } else {
+                    data.sessions = [];
+                }
+            }
 
             // Filter out the session
             const originalLength = data.sessions.length;
