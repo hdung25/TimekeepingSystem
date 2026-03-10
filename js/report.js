@@ -787,7 +787,7 @@ async function renderMonthReport(date, forceServer = false) {
                 editBtn.style.marginLeft = '4px';
                 editBtn.onclick = (e) => {
                     e.stopPropagation();
-                    openEditModal(dateStr, chip.sessionId, chip.sessionData);
+                    openEditModal(dateStr, chip.sessionId, chip.sessionData, chip.classStart);
                 };
                 div.appendChild(editBtn);
 
@@ -1245,10 +1245,14 @@ function openManualModal(dateKey, preFill = null) {
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
 }
 
-function openEditModal(dateKey, sessionId, sessionData) {
+function openEditModal(dateKey, sessionId, sessionData, classStart) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
+    // Store the original class start time (if editing a class-matched session)
+    // so after saving, the session still links to its class via linkedClassStart
+    const linkedEl = document.getElementById('edit-linked-class-start');
+    if (linkedEl) linkedEl.value = classStart || (sessionData ? (sessionData.linkedClassStart || '') : '');
 
     // Convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
     const toLocalISO = (isoStr) => {
@@ -1294,10 +1298,13 @@ async function saveEditedTime() {
     const checkInStr = checkInDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
 
+    const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
+
     const newData = {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
-        checkOut: checkOutDate ? checkOutDate.toISOString() : null
+        checkOut: checkOutDate ? checkOutDate.toISOString() : null,
+        ...(linkedClassStart ? { linkedClassStart } : {}) // Preserve class link after edit
     };
 
     try {
@@ -1482,7 +1489,11 @@ function openOvertimeModal(dateKey, sessionId, sessionData) {
 
     document.getElementById('overtime-date-key').value = dateKey;
     document.getElementById('overtime-session-id').value = sessionId;
-    document.getElementById('overtime-duration').value = '';
+    // Reset spinners to default (0h 30m)
+    const hoursEl = document.getElementById('overtime-hours');
+    const minsEl = document.getElementById('overtime-minutes');
+    if (hoursEl) hoursEl.value = '0';
+    if (minsEl) minsEl.value = '30';
 
     const start = sessionData ? new Date(sessionData.checkIn || sessionData.start) : null;
     const end = sessionData && sessionData.checkOut ? new Date(sessionData.checkOut) : null;
@@ -1493,7 +1504,7 @@ function openOvertimeModal(dateKey, sessionId, sessionData) {
     if (infoEl) infoEl.innerText = `Ca: ${dateKey} | ${startStr} – ${endStr}`;
 
     modal.style.display = 'flex';
-    setTimeout(() => document.getElementById('overtime-duration').focus(), 100);
+    if (hoursEl) setTimeout(() => hoursEl.focus(), 100);
 }
 
 function closeOvertimeModal() {

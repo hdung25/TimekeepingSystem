@@ -40,14 +40,24 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (!isRegistered) return; // Skip if not registered for this class
 
             // 2. Check for Attendance Match
+            // Priority 1: Exact match by linkedClassStart (set when admin edits a session)
+            // Priority 2: Proximity match within 60 min of class start
             const schedStart = new Date(`${dateStr}T${cls.start}`);
 
-            const matchedSession = attendanceSessions.find(s => {
+            let matchedSession = attendanceSessions.find(s => {
                 if (usedSessionIds.has(s.id)) return false;
-                const checkIn = new Date(s.checkIn || s.start);
-                const diffMs = Math.abs(checkIn - schedStart);
-                return diffMs < 60 * 60 * 1000;
+                return s.linkedClassStart === cls.start; // Exact link preserved after admin edit
             });
+
+            if (!matchedSession) {
+                matchedSession = attendanceSessions.find(s => {
+                    if (usedSessionIds.has(s.id)) return false;
+                    if (s.linkedClassStart) return false; // Already linked to another class
+                    const checkIn = new Date(s.checkIn || s.start);
+                    const diffMs = Math.abs(checkIn - schedStart);
+                    return diffMs < 60 * 60 * 1000;
+                });
+            }
 
             if (matchedSession) usedSessionIds.add(matchedSession.id);
 
@@ -187,6 +197,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     sessionData: matchedSession,
                     isClickable: isClickable,
                     isTeaching: true,
+                    classStart: cls.start, // Store original class start for edit-match preservation
+                    classEnd: cls.end,
                     overtimeId: otId,
                     overtimePending: otPending,
                     overtimeMinutes: otMinutes
