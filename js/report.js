@@ -1230,7 +1230,24 @@ window.onclick = function (event) {
 // removeVietnameseTones() → Moved to evaluation-service.js
 
 // ================= ADMIN EDIT LOGIC =================
-// ================= ADMIN EDIT LOGIC =================
+let fpCheckIn = null;
+let fpCheckOut = null;
+
+function initFlatpickr() {
+    if (typeof flatpickr !== 'undefined') {
+        const config = {
+            enableTime: true,
+            dateFormat: "Y-m-d\\TH:i",
+            altInput: true,
+            altFormat: "d/m/Y h:i K",
+            locale: "vn",
+            time_24hr: false
+        };
+        if (!fpCheckIn) fpCheckIn = flatpickr("#edit-check-in", config);
+        if (!fpCheckOut) fpCheckOut = flatpickr("#edit-check-out", config);
+    }
+}
+
 function openManualModal(dateKey, preFill = null) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
@@ -1255,8 +1272,16 @@ function openManualModal(dateKey, preFill = null) {
     // Safely map 'YYYY-MM-DD' directly instead of parsing with `new Date()`
     // to strictly prevent Timezone shifts or Day/Month swapping 
     const isoDate = dateKey; 
-    document.getElementById('edit-check-in').value = `${isoDate}T${startVal}`;
-    document.getElementById('edit-check-out').value = `${isoDate}T${endVal}`;
+    const startIso = `${isoDate}T${startVal}`;
+    const endIso = `${isoDate}T${endVal}`;
+
+    initFlatpickr();
+
+    if (fpCheckIn) fpCheckIn.setDate(startIso);
+    else document.getElementById('edit-check-in').value = startIso;
+
+    if (fpCheckOut) fpCheckOut.setDate(endIso);
+    else document.getElementById('edit-check-out').value = endIso;
 
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
@@ -1293,8 +1318,22 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
         return `${year}-${month}-${day}T${hour}:${min}`;
     };
 
-    document.getElementById('edit-check-in').value = toLocalISO(sessionData.checkIn || sessionData.start);
-    document.getElementById('edit-check-out').value = toLocalISO(sessionData.checkOut);
+    const inIso = toLocalISO(sessionData.checkIn || sessionData.start);
+    const outIso = toLocalISO(sessionData.checkOut);
+
+    initFlatpickr();
+
+    if (fpCheckIn) {
+        fpCheckIn.setDate(inIso);
+    } else {
+        document.getElementById('edit-check-in').value = inIso;
+    }
+
+    if (fpCheckOut) {
+        fpCheckOut.setDate(outIso);
+    } else {
+        document.getElementById('edit-check-out').value = outIso;
+    }
 
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";

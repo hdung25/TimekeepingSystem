@@ -11,6 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link rel="stylesheet" href="css/style.css">
     <style>
         /* Calendar Styles */
@@ -401,13 +402,13 @@
 
             <div style="margin-bottom: 1rem;">
                 <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Giờ Vào (Check-in)</label>
-                <input type="datetime-local" id="edit-check-in" class="table-input"
+                <input type="text" id="edit-check-in" class="table-input"
                     style="width: 100%; height: 40px; border: 1px solid var(--border-color);">
             </div>
 
             <div style="margin-bottom: 1rem;">
                 <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Giờ Ra (Check-out)</label>
-                <input type="datetime-local" id="edit-check-out" class="table-input"
+                <input type="text" id="edit-check-out" class="table-input"
                     style="width: 100%; height: 40px; border: 1px solid var(--border-color);">
             </div>
 
@@ -491,6 +492,8 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/vn.js"></script>
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script src="js/evaluation-service.js"></script>
