@@ -419,8 +419,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
                     sessionId: null,
                     schedData: { start: rs.start, end: rs.end },
-                    isClickable: false,
-                    isReceptionist: true
+                    isClickable: false, // User requested future shifts not to be clickable for checkin, though admin could delete them if needed
+                    isReceptionist: true,
+                    classCompositeKey: compositeKeyLocal,
+                    classSectionKey: rs.shift,
+                    classIndex: dayKeyLocal
                 });
             } else {
                 chips.push({
@@ -432,7 +435,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     schedData: { start: rs.start, end: rs.end },
                     isClickable: true,
                     isWarning: true,
-                    isReceptionist: true
+                    isReceptionist: true,
+                    classCompositeKey: compositeKeyLocal,
+                    classSectionKey: rs.shift,
+                    classIndex: dayKeyLocal
                 });
             }
         }
