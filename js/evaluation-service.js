@@ -199,6 +199,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isTeaching: true,
                     classStart: cls.start, // Store original class start for edit-match preservation
                     classEnd: cls.end,
+                    classCompositeKey: cls._compositeKey || null,
+                    classSectionKey: secKey,
+                    classIndex: idx,
                     overtimeId: otId,
                     overtimePending: otPending,
                     overtimeMinutes: otMinutes

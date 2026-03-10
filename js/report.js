@@ -787,7 +787,7 @@ async function renderMonthReport(date, forceServer = false) {
                 editBtn.style.marginLeft = '4px';
                 editBtn.onclick = (e) => {
                     e.stopPropagation();
-                    openEditModal(dateStr, chip.sessionId, chip.sessionData, chip.classStart);
+                    openEditModal(dateStr, chip.sessionId, chip.sessionData, chip.classStart, chip.classCompositeKey, chip.classSectionKey, chip.classIndex);
                 };
                 div.appendChild(editBtn);
 
@@ -1248,7 +1248,7 @@ function openManualModal(dateKey, preFill = null) {
     if (delSection) delSection.style.display = 'none';
 }
 
-function openEditModal(dateKey, sessionId, sessionData, classStart) {
+function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
@@ -1256,6 +1256,11 @@ function openEditModal(dateKey, sessionId, sessionData, classStart) {
     // so after saving, the session still links to its class via linkedClassStart
     const linkedEl = document.getElementById('edit-linked-class-start');
     if (linkedEl) linkedEl.value = classStart || (sessionData ? (sessionData.linkedClassStart || '') : '');
+
+    // Store class metadata for deletion
+    document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
+    document.getElementById('edit-class-section-key').value = classSectionKey || '';
+    document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
 
     // Convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
     const toLocalISO = (isoStr) => {
@@ -1342,22 +1347,44 @@ async function saveEditedTime() {
 
 
 async function deleteSessionFromModal() {
-    if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không?")) return;
+    if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không? Ca làm việc sẽ bị xóa hoàn toàn khỏi bảng.")) return;
 
     const staffId = getTargetStaffId();
     const staffName = getTargetStaffName();
     const dateKey = document.getElementById('edit-date-key').value;
     const sessionId = document.getElementById('edit-session-id').value;
     const parsedSessionId = isNaN(sessionId) ? sessionId : Number(sessionId);
+    
+    // Class unregistration metadata
+    const classCompositeKey = document.getElementById('edit-class-composite-key').value;
+    const classSectionKey = document.getElementById('edit-class-section-key').value;
+    const classIndexRaw = document.getElementById('edit-class-index').value;
 
     try {
         await DBService.deleteSession(staffId, dateKey, parsedSessionId);
+        
+        // Unregister from class if linked
+        if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
+            const classIndex = Number(classIndexRaw);
+            const branch = classCompositeKey.split('_')[0];
+            const mockUser = {
+                uid: staffId,
+                displayName: staffName
+            };
+            const rowMeta = {
+                branch: branch,
+                section: classSectionKey,
+                index: classIndex
+            };
+            await DBService.registerClass(classCompositeKey, null, rowMeta, mockUser);
+        }
+        
         // Send notification to staff
         await DBService.createAdminNotification(
             staffId, staffName, 'delete_session', dateKey,
             `Admin đã xóa một ca làm việc ngày ${dateKey}`
         );
-        alert("Đã xóa!");
+        alert("Đã xóa hoàn toàn!");
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore
         renderMonthReport(currentDate, true); // true = bypass Firestore cache
