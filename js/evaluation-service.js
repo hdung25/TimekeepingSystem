@@ -250,6 +250,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         let label = `${labelShort} ${rs.start}–${rs.end}${branchShortR}`;
         let tooltip = `Ca Tiếp Tân: ${rs.label} (${rs.start}–${rs.end})${branchTag}`;
 
+        // Calculate keys for un-assignment logic
+        const dateParts = dateStr.split('-');
+        const dateObjLocal = new Date(Number(dateParts[0]), Number(dateParts[1]) - 1, Number(dateParts[2]));
+        const dayIdxLocal = dateObjLocal.getDay() === 0 ? 6 : dateObjLocal.getDay() - 1;
+        const DAY_KEYS_LOCAL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const dayKeyLocal = DAY_KEYS_LOCAL[dayIdxLocal];
+        
+        const mondayLocal = new Date(dateObjLocal);
+        mondayLocal.setDate(mondayLocal.getDate() - dayIdxLocal);
+        const mondayKeyLocal = `${mondayLocal.getFullYear()}-${String(mondayLocal.getMonth() + 1).padStart(2, '0')}-${String(mondayLocal.getDate()).padStart(2, '0')}`;
+        const compositeKeyLocal = `${rs.branch}_${mondayKeyLocal}`;
+
+
         // Find matching attendance session
         // Match if check-in is within: 60 min before shift start → shift end
         // This ensures late check-ins during the shift are recognized as "Trễ" not "Vắng"
@@ -380,6 +393,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 sessionData: matchedSession,
                 isClickable: isClickable,
                 isReceptionist: true,
+                classCompositeKey: compositeKeyLocal,
+                classSectionKey: rs.shift,
+                classIndex: dayKeyLocal,
                 overtimeId: otIdR,
                 overtimePending: otPendingR,
                 overtimeMinutes: otMinutesR

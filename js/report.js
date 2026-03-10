@@ -787,7 +787,16 @@ async function renderMonthReport(date, forceServer = false) {
                 editBtn.style.marginLeft = '4px';
                 editBtn.onclick = (e) => {
                     e.stopPropagation();
-                    openEditModal(dateStr, chip.sessionId, chip.sessionData, chip.classStart, chip.classCompositeKey, chip.classSectionKey, chip.classIndex);
+                    openEditModal(
+                        dateStr, 
+                        chip.sessionId, 
+                        chip.sessionData, 
+                        chip.classStart, 
+                        chip.classCompositeKey, 
+                        chip.classSectionKey, 
+                        chip.classIndex,
+                        chip.isReceptionist
+                    );
                 };
                 div.appendChild(editBtn);
 
@@ -1248,7 +1257,7 @@ function openManualModal(dateKey, preFill = null) {
     if (delSection) delSection.style.display = 'none';
 }
 
-function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex) {
+function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
@@ -1261,6 +1270,7 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
     document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
     document.getElementById('edit-class-section-key').value = classSectionKey || '';
     document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
+    document.getElementById('edit-class-is-receptionist').value = isReceptionist ? 'true' : '';
 
     // Convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
     const toLocalISO = (isoStr) => {
@@ -1359,24 +1369,31 @@ async function deleteSessionFromModal() {
     const classCompositeKey = document.getElementById('edit-class-composite-key').value;
     const classSectionKey = document.getElementById('edit-class-section-key').value;
     const classIndexRaw = document.getElementById('edit-class-index').value;
+    const isReceptionistStr = document.getElementById('edit-class-is-receptionist').value;
 
     try {
         await DBService.deleteSession(staffId, dateKey, parsedSessionId);
         
         // Unregister from class if linked
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
-            const classIndex = Number(classIndexRaw);
-            const branch = classCompositeKey.split('_')[0];
-            const mockUser = {
-                uid: staffId,
-                displayName: staffName
-            };
-            const rowMeta = {
-                branch: branch,
-                section: classSectionKey,
-                index: classIndex
-            };
-            await DBService.registerClass(classCompositeKey, null, rowMeta, mockUser);
+            if (isReceptionistStr === 'true') {
+                // Delete from receptionist schedule
+                await DBService.unassignReceptionist(classCompositeKey, classSectionKey, classIndexRaw, staffId);
+            } else {
+                // Delete from teaching schedule
+                const classIndex = Number(classIndexRaw);
+                const branch = classCompositeKey.split('_')[0];
+                const mockUser = {
+                    uid: staffId,
+                    displayName: staffName
+                };
+                const rowMeta = {
+                    branch: branch,
+                    section: classSectionKey,
+                    index: classIndex
+                };
+                await DBService.registerClass(classCompositeKey, null, rowMeta, mockUser);
+            }
         }
         
         // Send notification to staff

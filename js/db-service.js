@@ -1128,6 +1128,31 @@ const DBService = {
         }
     },
 
+    async unassignReceptionist(compositeKey, shiftKey, dayKey, staffId) {
+        try {
+            return await db.runTransaction(async (t) => {
+                const docRef = db.collection('receptionist_schedules').doc(compositeKey);
+                const doc = await t.get(docRef);
+                if (!doc.exists) return false;
+                
+                const data = doc.data();
+                if (!data[shiftKey] || !data[shiftKey][dayKey]) return false;
+                
+                const originalLength = data[shiftKey][dayKey].length;
+                data[shiftKey][dayKey] = data[shiftKey][dayKey].filter(s => s.id !== staffId);
+                
+                if (data[shiftKey][dayKey].length < originalLength) {
+                    t.update(docRef, { [shiftKey]: data[shiftKey] });
+                    return true;
+                }
+                return false;
+            });
+        } catch (e) {
+            console.error('[ReceptionistSchedule] Error unassigning:', e);
+            throw e;
+        }
+    },
+
     // Get receptionist shift time config from system settings (per-branch)
     async getReceptionistShiftConfig(branch) {
         const defaults = {
