@@ -115,6 +115,16 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isAdmin();
     }
 
+    // 10. Overtime Requests (Staff → Admin for approval)
+    // Staff can create/read their own requests (staffId is a stored field, not path param)
+    // Admin can read all, update (approve/reject)
+    match /overtime_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;

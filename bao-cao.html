@@ -462,13 +462,21 @@
             </div>
 
             <div style="margin-bottom:1rem;">
-                <label style="display:block;margin-bottom:0.5rem;font-weight:600;font-size:0.9rem;">Số giờ tăng ca (HH:MM)</label>
-                <input type="text" id="overtime-duration" class="table-input"
-                    style="width:100%;height:44px;border:1px solid var(--border-color);font-size:1.1rem;text-align:center;letter-spacing:2px;"
-                    placeholder="00:30" maxlength="5"
-                    oninput="this.value=this.value.replace(/[^0-9:]/g,'')"
-                    onkeydown="if(event.key==='Enter')submitOvertimeRequest()">
-                <p style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem;">VD: 00:30 = 30 phút &nbsp;|&nbsp; 01:00 = 1 giờ</p>
+                <label style="display:block;margin-bottom:0.75rem;font-weight:600;font-size:0.9rem;">Số giờ tăng ca</label>
+                <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+                    <div style="text-align:center;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:2px;">Giờ</div>
+                        <input type="number" id="overtime-hours" min="0" max="23" value="0" step="1"
+                            style="width:80px;height:52px;border:2px solid var(--border-color);border-radius:8px;font-size:1.5rem;font-weight:700;text-align:center;background:#f9fafb;">
+                    </div>
+                    <span style="font-size:1.5rem;font-weight:700;color:#6B7280;margin-top:16px;">:</span>
+                    <div style="text-align:center;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:2px;">Phút</div>
+                        <input type="number" id="overtime-minutes" min="0" max="55" value="30" step="5"
+                            style="width:80px;height:52px;border:2px solid var(--border-color);border-radius:8px;font-size:1.5rem;font-weight:700;text-align:center;background:#f9fafb;">
+                    </div>
+                </div>
+                <p style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;text-align:center;">Cuộn hoặc click ▲▼ để chỉnh số</p>
             </div>
 
             <div style="display:flex;gap:0.75rem;">

@@ -176,7 +176,7 @@ function renderPersonalTimesheet() {
     renderMonthReport(currentDate);
 }
 
-async function renderMonthReport(date) {
+async function renderMonthReport(date, forceServer = false) {
     const grid = document.getElementById('calendar-grid');
     if (!grid) return;
 
@@ -225,7 +225,7 @@ async function renderMonthReport(date) {
 
     // A. Attendance Logs (Actual Check-in/out)
     // DBService.getMonthlyAttendance returns array of docs with { sessions: [...] }
-    const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId);
+    const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId, forceServer);
 
     // Normalize Attendance into a Map: "YYYY-MM-DD" -> [sessions]
     const attendanceMap = {};
@@ -1321,7 +1321,7 @@ async function saveEditedTime() {
         }
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore after edit
-        renderMonthReport(currentDate);
+        renderMonthReport(currentDate, true); // true = bypass Firestore cache
     } catch (e) {
         alert("Lỗi: " + e.message);
     }
@@ -1347,7 +1347,7 @@ async function deleteSessionFromModal() {
         alert("Đã xóa!");
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore
-        renderMonthReport(currentDate);
+        renderMonthReport(currentDate, true); // true = bypass Firestore cache
     } catch (e) {
         alert("Lỗi xóa: " + e.message);
     }
@@ -1504,15 +1504,21 @@ function closeOvertimeModal() {
 async function submitOvertimeRequest() {
     const dateKey = document.getElementById('overtime-date-key').value;
     const sessionId = document.getElementById('overtime-session-id').value;
-    const duration = (document.getElementById('overtime-duration').value || '').trim();
 
-    if (!/^\d{1,2}:\d{2}$/.test(duration)) {
-        alert('Vui lòng nhập đúng định dạng HH:MM (VD: 01:30)');
+    // Read from the two number spinners
+    const hours = parseInt(document.getElementById('overtime-hours').value || '0', 10);
+    const mins = parseInt(document.getElementById('overtime-minutes').value || '0', 10);
+
+    if (hours === 0 && mins === 0) {
+        alert('Vui lòng nhập số giờ/phút tăng ca lớn hơn 0.');
         return;
     }
 
+    // Build "HH:MM" string
+    const duration = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+
     const staffId = getTargetStaffId();
-    const staffName = localStorage.getItem('currentUserName') || 'N/A';
+    const staffName = localStorage.getItem('currentUserName') || localStorage.getItem('currentUser') || 'N/A';
 
     try {
         await DBService.createOvertimeRequest(staffId, staffName, dateKey, sessionId, duration);

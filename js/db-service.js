@@ -459,20 +459,20 @@ const DBService = {
     },
 
     // 8. Monthly Attendance Report
-    getMonthlyAttendance: async (monthStr, userId) => {
+    getMonthlyAttendance: async (monthStr, userId, forceServer = false) => {
         // monthStr: "YYYY-MM"
+        // forceServer: bypass Firestore cache (use after editing sessions)
         try {
-            // OPTIMIZATION: Fetch by ID instead of Query.
-            // This guarantees we find the document even if 'date' or 'userId' fields are missing (legacy data issues).
             const [year, month] = monthStr.split('-').map(Number);
             const daysInMonth = new Date(year, month, 0).getDate();
+            const getOptions = forceServer ? { source: 'server' } : {};
 
             const promises = [];
             for (let d = 1; d <= daysInMonth; d++) {
                 const dayStr = String(d).padStart(2, '0');
                 const dateKey = `${year}-${String(month).padStart(2, '0')}-${dayStr}`;
                 const docId = `${dateKey}_${userId}`;
-                promises.push(db.collection('attendance_logs').doc(docId).get());
+                promises.push(db.collection('attendance_logs').doc(docId).get(getOptions));
             }
 
             const snapshots = await Promise.all(promises);
