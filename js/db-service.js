@@ -1130,21 +1130,32 @@ const DBService = {
 
     async unassignReceptionist(compositeKey, shiftKey, dayKey, staffId) {
         try {
+            console.log(`[UnassignReceptionist] Start: composite=${compositeKey}, shift=${shiftKey}, day=${dayKey}, staff=${staffId}`);
             return await db.runTransaction(async (t) => {
                 const docRef = db.collection('receptionist_schedules').doc(compositeKey);
                 const doc = await t.get(docRef);
-                if (!doc.exists) return false;
+                if (!doc.exists) {
+                    console.log(`[UnassignReceptionist] Doc not found: ${compositeKey}`);
+                    return false;
+                }
                 
                 const data = doc.data();
-                if (!data[shiftKey] || !data[shiftKey][dayKey]) return false;
+                if (!data[shiftKey] || !data[shiftKey][dayKey]) {
+                    console.log(`[UnassignReceptionist] Path not found: ${shiftKey}.${dayKey}`);
+                    return false;
+                }
                 
                 const originalLength = data[shiftKey][dayKey].length;
                 data[shiftKey][dayKey] = data[shiftKey][dayKey].filter(s => s.id !== staffId);
                 
+                console.log(`[UnassignReceptionist] Filtered from ${originalLength} to ${data[shiftKey][dayKey].length}`);
+
                 if (data[shiftKey][dayKey].length < originalLength) {
                     t.update(docRef, { [shiftKey]: data[shiftKey] });
+                    console.log(`[UnassignReceptionist] Success! Updated doc.`);
                     return true;
                 }
+                console.log(`[UnassignReceptionist] No match found for staffId: ${staffId}`);
                 return false;
             });
         } catch (e) {

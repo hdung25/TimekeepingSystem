@@ -33,7 +33,7 @@
         alert('Bạn không có quyền truy cập trang này!');
 
         // Redirect based on role
-        if (currentRole === 'staff' || currentRole === 'assistant' || currentRole === 'receptionist') {
+        if (currentRole === 'staff' || currentRole === 'assistant' || currentRole === 'receptionist' || currentRole === 'receptionist_assistant') {
             window.location.href = 'nhan-vien.html';
         } else {
             window.location.href = 'index.html';

@@ -1439,13 +1439,18 @@ async function deleteSessionFromModal() {
     const isReceptionistStr = document.getElementById('edit-class-is-receptionist').value;
 
     try {
+        console.log("[DeleteSession] Starting deletion process...");
+        console.log("[DeleteSession] Values:", {staffId, dateKey, sessionId, classCompositeKey, classSectionKey, classIndexRaw, isReceptionistStr});
+
         // Only attempt to delete an attendance session if one actually exists
         if (sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null') {
+            console.log("[DeleteSession] Deleting attendance session:", parsedSessionId);
             await DBService.deleteSession(staffId, dateKey, parsedSessionId);
         }
         
         // Unregister from class if linked
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
+            console.log("[DeleteSession] Unregistering from class...");
             if (isReceptionistStr === 'true') {
                 // Delete from receptionist schedule
                 await DBService.unassignReceptionist(classCompositeKey, classSectionKey, classIndexRaw, staffId);

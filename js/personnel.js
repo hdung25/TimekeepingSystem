@@ -55,7 +55,7 @@ async function renderStaffTable() {
                 <td>
                     <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">
-                        ${user.role === 'admin' ? 'Quản trị viên' : user.role === 'assistant' ? 'Trợ Lý' : user.role === 'receptionist' ? 'Tiếp Tân' : 'Trợ Giảng'}
+                        ${user.role === 'admin' ? 'Quản trị viên' : user.role === 'assistant' ? 'Trợ Lý' : user.role === 'receptionist' ? 'Tiếp Tân' : user.role === 'receptionist_assistant' ? 'Trợ Lí Tiếp Tân' : 'Trợ Giảng'}
                     </div>
                 </td>
                 <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
