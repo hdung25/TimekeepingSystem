@@ -758,17 +758,22 @@ async function renderMonthReport(date, forceServer = false) {
 
             // --- NEW: Role Selection Click Handler ---
             if (chip.isClickable) {
-                // Only Admin or Owner (but report is mostly Admin managed now)
-                // Actually openRoleSelect logic checks roles locally, but for creating new session, we need Admin.
-
+                // Only Admin or Owner
                 div.style.cursor = 'pointer';
                 div.onclick = (e) => {
                     e.stopPropagation();
                     if (chip.sessionId) {
                         openRoleSelectModal(dateStr, chip.sessionData);
                     } else if (role === 'admin') {
-                        // Creating new session from Registration
-                        openManualModal(dateStr, chip.schedData);
+                        // Creating new session from Registration, pass shift metadata so admin can delete this shift
+                        openManualModal(
+                            dateStr, 
+                            chip.schedData,
+                            chip.classCompositeKey,
+                            chip.classSectionKey,
+                            chip.classIndex,
+                            chip.isReceptionist || chip.isTeaching
+                        );
                     }
                 };
             }
@@ -1248,17 +1253,17 @@ function initFlatpickr() {
     }
 }
 
-function openManualModal(dateKey, preFill = null) {
+function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
 
     // Reset class metadata fields just in case
     if(document.getElementById('edit-class-composite-key')) {
-        document.getElementById('edit-class-composite-key').value = '';
-        document.getElementById('edit-class-section-key').value = '';
-        document.getElementById('edit-class-index').value = '';
-        document.getElementById('edit-class-is-receptionist').value = '';
+        document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
+        document.getElementById('edit-class-section-key').value = classSectionKey || '';
+        document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
+        document.getElementById('edit-class-is-receptionist').value = isLinkable ? 'true' : '';
     }
 
     let startVal = '08:00';
@@ -1277,18 +1282,31 @@ function openManualModal(dateKey, preFill = null) {
 
     initFlatpickr();
 
-    if (fpCheckIn) fpCheckIn.setDate(startIso);
-    else document.getElementById('edit-check-in').value = startIso;
+    if (fpCheckIn) {
+        fpCheckIn.setDate(startIso);
+    } else {
+        document.getElementById('edit-check-in').value = startIso;
+    }
 
-    if (fpCheckOut) fpCheckOut.setDate(endIso);
-    else document.getElementById('edit-check-out').value = endIso;
+    if (fpCheckOut) {
+        fpCheckOut.setDate(endIso);
+    } else {
+        document.getElementById('edit-check-out').value = endIso;
+    }
 
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
-    // Hide delete button in add-new mode
+    
+    // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
     const delSection = document.querySelector('#edit-time-modal .delete-section');
-    if (delSection) delSection.style.display = 'none';
+    if (delSection) {
+        if (classCompositeKey && classSectionKey) {
+            delSection.style.display = 'block';
+        } else {
+            delSection.style.display = 'none';
+        }
+    }
 }
 
 function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
@@ -1405,7 +1423,8 @@ async function saveEditedTime() {
 
 
 async function deleteSessionFromModal() {
-    if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không? Ca làm việc sẽ bị xóa hoàn toàn khỏi bảng.")) return;
+    // Remove confirmation popup as requested by user
+    // if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không? Ca làm việc sẽ bị xóa hoàn toàn khỏi bảng.")) return;
 
     const staffId = getTargetStaffId();
     const staffName = getTargetStaffName();
