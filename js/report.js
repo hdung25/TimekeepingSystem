@@ -22,21 +22,35 @@ async function initReport() {
 
     // 1. Title & Admin Controls
     const role = localStorage.getItem('currentRole');
-    if (role === 'admin') {
+    const isSalaryAdmin = (role === 'admin'); // Only admin sees salary
+    const isAdminLike = (role === 'admin' || role === 'senior_assistant'); // Both see controls
+
+    if (isAdminLike) {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'flex';
-        document.getElementById('page-title').innerText = 'Tính Lương & Duyệt Công';
+        document.getElementById('page-title').innerText = isSalaryAdmin ? 'Tính Lương & Duyệt Công' : 'Duyệt Công Nhân Viên';
         await populateStaffSelect();
 
-        // Auto-select staff from URL param (e.g., from OT alert link: ?staffId=xxx)
+        // Auto-select staff from URL param
         const urlParams = new URLSearchParams(window.location.search);
         const paramStaffId = urlParams.get('staffId');
         if (paramStaffId) {
             const select = document.getElementById('staff-select');
             if (select) {
                 select.value = paramStaffId;
-                _cachedStaffId = null; // force re-fetch
+                _cachedStaffId = null;
             }
+        }
+
+        // Hide salary-related fields for senior_assistant
+        if (!isSalaryAdmin) {
+            // Hide: Tạm Ứng, Thưởng/Phạt, Dự Kiến Thực Lĩnh, Xuất PDF, Lưu & Tính
+            const salaryAdvance = document.getElementById('salary-advance');
+            if (salaryAdvance) salaryAdvance.closest('.modern-form-group').style.display = 'none';
+            const bonusPenalty = document.getElementById('summary-bonus-penalty');
+            if (bonusPenalty) bonusPenalty.closest('.modern-form-group').style.display = 'none';
+            const controlFooter = document.querySelector('.control-footer');
+            if (controlFooter) controlFooter.style.display = 'none';
         }
     } else {
         const controls = document.getElementById('admin-controls');
@@ -898,7 +912,7 @@ async function renderMonthReport(date, forceServer = false) {
     window.lastTotalMinutes = totalMinutes;
     // window.currentMonthSalary set by calculateSalary()
 
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'senior_assistant') {
         loadSalarySettings();
     }
 }
@@ -915,8 +929,9 @@ function renderEvaluationTable(savedData = []) {
     if (!section) return;
 
     const role = localStorage.getItem('currentRole');
-    section.style.display = role === 'admin' ? 'block' : 'none';
-    if (role !== 'admin') return;
+    const showEval = (role === 'admin'); // Only admin sees evaluation table
+    section.style.display = showEval ? 'block' : 'none';
+    if (!showEval) return;
 
     const thead = document.getElementById('eval-thead');
     const tbody = document.getElementById('evaluation-table-body');
@@ -1076,7 +1091,15 @@ function calculateSalary() {
     const totalSalary = filteredSalary + totalBonus;
 
     const finalDisplay = document.getElementById('final-salary-display');
-    if (finalDisplay) finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
+    // Hide salary amount for senior_assistant
+    const currentRole = localStorage.getItem('currentRole');
+    if (finalDisplay) {
+        if (currentRole === 'senior_assistant') {
+            finalDisplay.innerText = '******';
+        } else {
+            finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
+        }
+    }
 
     // Check Advance field
     // const advanceInput = document.getElementById('salary-advance');

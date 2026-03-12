@@ -55,7 +55,7 @@ async function renderStaffTable() {
                 <td>
                     <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">
-                        ${user.role === 'admin' ? 'Quản trị viên' : user.role === 'assistant' ? 'Trợ Lý' : user.role === 'receptionist' ? 'Tiếp Tân' : user.role === 'receptionist_assistant' ? 'Trợ Lí Tiếp Tân' : 'Trợ Giảng'}
+                        ${user.role === 'admin' ? 'Quản trị viên' : user.role === 'senior_assistant' ? 'Trợ Lý Cấp Cao' : user.role === 'assistant' ? 'Trợ Lý' : user.role === 'receptionist' ? 'Tiếp Tân' : user.role === 'receptionist_assistant' ? 'Trợ Lí Tiếp Tân' : 'Trợ Giảng'}
                     </div>
                 </td>
                 <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
@@ -320,6 +320,16 @@ async function configureSalary(userId) {
 
     renderSalaryRoles();
     document.getElementById('salary-modal').style.display = 'flex';
+
+    // Hide add/save for senior_assistant (view-only mode)
+    const currentRole = localStorage.getItem('currentRole');
+    if (currentRole === 'senior_assistant') {
+        const addRoleForm = document.getElementById('new-role-name')?.closest('div[style*="background"]');
+        if (addRoleForm) addRoleForm.style.display = 'none';
+        // Hide save button, keep close button
+        const saveBtn = document.querySelector('#salary-modal .btn-primary');
+        if (saveBtn) saveBtn.style.display = 'none';
+    }
 }
 
 function closeSalaryModal() {
@@ -333,17 +343,21 @@ function renderSalaryRoles() {
         return;
     }
 
+    const currentRole = localStorage.getItem('currentRole');
+    const isSalaryHidden = (currentRole === 'senior_assistant');
+
     let html = '';
     currentSalaryRoles.forEach((role, index) => {
+        const rateDisplay = isSalaryHidden ? '*** / giờ' : formatCurrency(role.rate) + ' / giờ';
         html += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #eee; background: white;">
                 <div>
                     <div style="font-weight: 600;">${role.name}</div>
-                    <div style="font-size: 0.85rem; color: var(--primary-color);">${formatCurrency(role.rate)} / giờ</div>
+                    <div style="font-size: 0.85rem; color: ${isSalaryHidden ? 'var(--text-muted)' : 'var(--primary-color)'};">${rateDisplay}</div>
                 </div>
-                <button onclick="removeRole(${index})" style="color: #EF4444; background: none; border: none; cursor: pointer; padding: 4px;">
+                ${isSalaryHidden ? '' : `<button onclick="removeRole(${index})" style="color: #EF4444; background: none; border: none; cursor: pointer; padding: 4px;">
                     🗑️ Xóa
-                </button>
+                </button>`}
             </div>
         `;
     });

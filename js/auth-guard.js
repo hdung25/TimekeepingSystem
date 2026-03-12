@@ -28,7 +28,7 @@
     const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html'];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
-    if (isTargetingAdminPage && currentRole !== 'admin') {
+    if (isTargetingAdminPage && currentRole !== 'admin' && currentRole !== 'senior_assistant') {
         console.warn(`Auth Guard: User ${currentUser} (Role: ${currentRole}) attempted to access Admin page.`);
         alert('Bạn không có quyền truy cập trang này!');
 

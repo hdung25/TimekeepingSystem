@@ -17,7 +17,7 @@ let isInheritedTemplate = false; // True when showing a template from a previous
 
 const isEditor = (() => {
     const role = localStorage.getItem('currentRole') || 'staff';
-    return role === 'admin' || role === 'assistant' || role === 'receptionist_assistant';
+    return role === 'admin' || role === 'assistant' || role === 'receptionist_assistant' || role === 'senior_assistant';
 })();
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
