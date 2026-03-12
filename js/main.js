@@ -995,8 +995,7 @@ window.globalCheckOut = async function (btn) {
 
 // 2. DASHBOARD STATS (Cloud Only)
 
-// ================= ARCHIVER CONTROLLER (Maintenance Tab) =================
-let archiveCache = null; // Store scan results
+// ================= ARCHIVER CONTROLLER (Maintenance Tab) =================var archiveCache = null; // Store scan results
 
 window.runArchiveScan = async function () {
     const days = document.getElementById('archive-days').value;
