@@ -534,7 +534,7 @@ async function renderMonthReport(date, forceServer = false) {
         controlsDiv.appendChild(noteBtn);
 
         // --- ADMIN ONLY: Manual Add Button ---
-        if (role === 'admin') {
+        if (role === 'admin' || role === 'senior_assistant') {
             const addBtn = document.createElement('button');
             addBtn.innerHTML = '➕';
             addBtn.className = 'action-btn';
@@ -778,7 +778,7 @@ async function renderMonthReport(date, forceServer = false) {
                     e.stopPropagation();
                     if (chip.sessionId) {
                         openRoleSelectModal(dateStr, chip.sessionData);
-                    } else if (role === 'admin') {
+                    } else if (role === 'admin' || role === 'senior_assistant') {
                         // Creating new session from Registration, pass shift metadata so admin can delete this shift
                         openManualModal(
                             dateStr, 
@@ -798,7 +798,7 @@ async function renderMonthReport(date, forceServer = false) {
             }
 
             // Add Edit Icon for Admin if there is an underlying session
-            if (role === 'admin' && chip.sessionId) {
+            if ((role === 'admin' || role === 'senior_assistant') && chip.sessionId) {
                 const editBtn = document.createElement('span');
                 editBtn.innerHTML = '✏️';
                 editBtn.style.cursor = 'pointer';
@@ -1230,7 +1230,7 @@ function saveEvaluationNote() {
 
 function getTargetStaffId() {
     const role = localStorage.getItem('currentRole');
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'senior_assistant') {
         const select = document.getElementById('staff-select');
         if (!select) {
             return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');

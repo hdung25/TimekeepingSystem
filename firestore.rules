@@ -14,7 +14,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return getUserRole() == 'admin';
+      return getUserRole() == 'admin' || getUserRole() == 'senior_assistant';
     }
 
     function isAssistant() {
@@ -41,11 +41,11 @@ service cloud.firestore {
           // First-time creation → allow (loginUser writes correct role from DB)
           resource == null
           ||
-          // Existing doc: not claiming admin → allow
-          request.resource.data.role != 'admin'
+          // Existing doc: not claiming admin/senior_assistant → allow
+          (request.resource.data.role != 'admin' && request.resource.data.role != 'senior_assistant')
           ||
-          // Existing doc: claiming admin → only if already admin
-          resource.data.role == 'admin'
+          // Existing doc: claiming admin/senior_assistant → only if already admin or senior_assistant
+          (resource.data.role == 'admin' || resource.data.role == 'senior_assistant')
         );
     }
     
