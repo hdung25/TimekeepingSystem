@@ -166,8 +166,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     } else {
                         minutes = 0;
                         cssClass = 'chip-blue';
-                        label += ` (Teaching)`;
-                        tooltip += ` - Đang dạy | Vào: ${actualStartStrNoCO}`;
+                        label += ` (Đang làm)`;
+                        tooltip += ` - Đang làm | Vào: ${actualStartStrNoCO}`;
                     }
                 }
 
@@ -368,7 +368,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else {
                     minutes = 0;
                     cssClass = 'chip-blue';
-                    label += ` (Teaching)`;
+                    label += ` (Đang làm)`;
                     tooltip += ` - Đang trong ca | Vào: ${actualStartStrNoCO}`;
                 }
             }
@@ -492,7 +492,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip += ' - Quên Ra Ca (ngày đã qua)';
                     isClickable = true;
                 } else {
-                    label = `${startStr}–??? (Teaching)`;
+                    label = `${startStr}–??? (Đang làm)`;
                     cssClass = 'chip-blue';
                 }
             }
