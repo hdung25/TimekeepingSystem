@@ -18,7 +18,7 @@ service cloud.firestore {
     }
 
     function isAssistant() {
-      return getUserRole() == 'assistant';
+      return getUserRole() == 'assistant' || getUserRole() == 'receptionist_assistant';
     }
 
     // --- COLLECTIONS ---
@@ -27,26 +27,16 @@ service cloud.firestore {
     // Users can sync their own role during login, BUT cannot escalate to 'admin'.
     // This prevents the self-escalation attack while allowing normal login flow.
     match /user_roles/{authUid} {
-      allow read: if isAuthenticated() && request.auth.uid == authUid;
+      allow read: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
       
-      // SECURITY FIX v4 (2026-02-16):
-      // Users can sync their own role doc during login. Rules:
-      // - First-time creation (doc doesn't exist): ALLOWED for all roles
-      //   → loginUser() always writes the correct role from 'users' collection
-      // - Update existing doc: Can NOT change role to 'admin' unless already admin
-      //   → Blocks: Staff DevTools → set({role:'admin'}) on existing doc → DENIED
-      allow write: if isAuthenticated() 
-        && request.auth.uid == authUid
-        && (
-          // First-time creation → allow (loginUser writes correct role from DB)
-          resource == null
-          ||
-          // Existing doc: not claiming admin/senior_assistant → allow
-          (request.resource.data.role != 'admin' && request.resource.data.role != 'senior_assistant')
-          ||
-          // Existing doc: claiming admin/senior_assistant → only if already admin or senior_assistant
+      allow write: if isAuthenticated() && (
+        (request.auth.uid == authUid && (
+          resource == null ||
+          (request.resource.data.role != 'admin' && request.resource.data.role != 'senior_assistant') ||
           (resource.data.role == 'admin' || resource.data.role == 'senior_assistant')
-        );
+        ))
+        || isAdmin()
+      );
     }
     
     // 1. Users 

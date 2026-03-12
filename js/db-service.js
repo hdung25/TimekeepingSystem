@@ -108,6 +108,26 @@ const DBService = {
             // user.id determines update or create
             const ref = db.collection('users').doc(user.id);
             await ref.set(user, { merge: true });
+
+            // Sync role to user_roles collection if admin is modifying
+            const currentRole = localStorage.getItem('currentRole');
+            if (currentRole === 'admin' || currentRole === 'senior_assistant') {
+                try {
+                    const snap = await db.collection('user_roles').where('username', '==', user.username).get();
+                    if (!snap.empty) {
+                        const roleDoc = snap.docs[0];
+                        await roleDoc.ref.update({
+                            role: user.role,
+                            updatedByAdmin: true,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log("[Security] Admin synced role to user_roles for", user.username);
+                    }
+                } catch (e) {
+                    console.warn("[Security] Could not sync user_roles doc", e);
+                }
+            }
+
             return true;
         } catch (error) {
             console.error("Error saving user:", error);
