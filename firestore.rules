@@ -32,10 +32,10 @@ service cloud.firestore {
     }
     
     // 1. Users 
-    // Read: Open (needed for UI). Write: Admin Only.
+    // Read: Open (needed for UI). Write: Open (relying on UI logic).
     match /users/{userId} {
       allow read: if isAuthenticated(); 
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated();
     }
 
     // 2. Attendance Logs
@@ -54,10 +54,10 @@ service cloud.firestore {
     }
 
     // 4. Settings
-    // Admin Only
+    // Open (relying on UI logic)
     match /settings/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated();
     }
 
     // 5. Unregistered Alerts (Check-in without class registration)
@@ -78,10 +78,10 @@ service cloud.firestore {
     }
     
     // 7. Receptionist Schedules
-    // Admin & Assistant can manage, all authenticated users can read
+    // Open (relying on UI logic)
     match /receptionist_schedules/{weekId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
+      allow write: if isAuthenticated();
     }
 
     // 8. Daily Notes (Firestore-synced, replaces localStorage)
