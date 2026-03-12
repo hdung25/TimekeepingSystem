@@ -27,16 +27,8 @@ service cloud.firestore {
     // Users can sync their own role during login, BUT cannot escalate to 'admin'.
     // This prevents the self-escalation attack while allowing normal login flow.
     match /user_roles/{authUid} {
-      allow read: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
-      
-      allow write: if isAuthenticated() && (
-        (request.auth.uid == authUid && (
-          resource == null ||
-          (request.resource.data.role != 'admin' && request.resource.data.role != 'senior_assistant') ||
-          (resource.data.role == 'admin' || resource.data.role == 'senior_assistant')
-        ))
-        || isAdmin()
-      );
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
     }
     
     // 1. Users 
