@@ -38,7 +38,7 @@ window.checkAutoCheckout = async function checkAutoCheckout() {
         // 2. Check user role
         const currentRole = localStorage.getItem('currentRole');
 
-        if (currentRole === 'receptionist') {
+        if (currentRole === 'receptionist' || currentRole === 'receptionist_assistant') {
             // === RECEPTIONIST AUTO-CHECKOUT ===
             // Check receptionist schedule for today's shift end time
             try {
