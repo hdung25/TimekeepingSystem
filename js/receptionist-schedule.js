@@ -470,11 +470,69 @@ async function clearCurrentWeek() {
 
 // ==================== SAVE ====================
 
+function getLocalDateStr(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 async function saveFullWeek() {
+    // 1. Fetch CURRENT global config from DB BEFORE we overwrite it, to use as fallback for past days
+    let oldShiftConfig = {
+        morning: { start: '07:00', end: '11:30' },
+        afternoon: { start: '14:00', end: '18:00' },
+        evening: { start: '17:30', end: '21:30' }
+    };
+    try {
+        const settings = await DBService.getSystemSettings();
+        const branchKey = `receptionistShifts_${currentBranch}`;
+        oldShiftConfig = settings?.[branchKey] || settings?.receptionistShifts || oldShiftConfig;
+    } catch(e) {}
+
+    // 2. Fetch existing week data to preserve past days' exact schedules
+    const key = getWeekCompositeKey();
+    let existingData = null;
+    try {
+        existingData = await DBService.getReceptionistSchedule(key);
+    } catch(e) {}
+
+    const todayStr = getLocalDateStr(new Date());
+
+    // 3. Process weekData to lock in shift times for past days
+    DAY_KEYS.forEach((dayKey, idx) => {
+        const dayDate = new Date(currentWeekStart);
+        dayDate.setDate(dayDate.getDate() + idx);
+        const dayStr = getLocalDateStr(dayDate);
+
+        if (dayStr < todayStr) {
+            SHIFTS.forEach(shift => {
+                let currentStaffList = weekData[shift]?.[dayKey] || [];
+                currentStaffList = currentStaffList.map(s => {
+                    let existingEntry = null;
+                    if (existingData && existingData[shift] && existingData[shift][dayKey]) {
+                        existingEntry = existingData[shift][dayKey].find(pastS => pastS.id === s.id);
+                    }
+                    if (existingEntry && existingEntry.customStart) {
+                        return { ...s, customStart: existingEntry.customStart, customEnd: existingEntry.customEnd };
+                    } else {
+                        return {
+                            ...s,
+                            customStart: s.customStart || oldShiftConfig[shift].start,
+                            customEnd: s.customEnd || oldShiftConfig[shift].end
+                        };
+                    }
+                });
+                weekData[shift][dayKey] = currentStaffList;
+            });
+        }
+    });
+
+    // 4. Save the new global config from the UI
     await saveShiftConfigToFirestore();
 
-    const key = getWeekCompositeKey();
     try {
+        // 5. Save the modified weekData to Firestore
         await DBService.saveReceptionistSchedule(key, weekData);
 
         // Clear inherited state after successful save
