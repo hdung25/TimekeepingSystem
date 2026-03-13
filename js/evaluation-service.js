@@ -103,18 +103,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         minutes = schedDuration;
                         const earlyMins = Math.round(diffMs / 60000);
 
-                        // BONUS LOGIC (C5): 9 to 15 minutes early -> +10 mins bonus
-                        if (earlyMins >= 9 && earlyMins <= 15) {
-                            minutes += 10;
-                            tooltip += ` | Vào sớm ${earlyMins}p (+10p thưởng)`;
-                            label += ` (+10p)`;
-                        } else if (earlyMins > 15) {
-                            // Too early -> No bonus, show warning
-                            tooltip += ` | Vào quá sớm (${earlyMins}p) - Chỉ thưởng nếu sớm 9-15p`;
-                            label += ` <span style="color:red; font-weight:bold" title="Vào quá sớm, không được thưởng">(!)</span>`;
-                        } else {
-                            tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
-                        }
+                        tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
                     } else { // Exact on-time
                         minutes = schedDuration;
                     }
@@ -134,6 +123,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     } else {
                         label += ` (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
+                    }
+
+                    // MANUAL BONUS (10p)
+                    if (matchedSession.bonus10) {
+                        minutes += 10;
+                        label += ` (+10p)`;
+                        tooltip += ` | Thưởng 10p (thủ công)`;
                     }
 
                     // FIX 1: Late → always orange, regardless of role
@@ -309,16 +305,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     minutes = schedDuration;
                     const earlyMins = Math.round(diffMs / 60000);
 
-                    if (earlyMins >= 9 && earlyMins <= 15) {
-                        minutes += 10;
-                        tooltip += ` | Vào sớm ${earlyMins}p (+10p thưởng)`;
-                        label += ` (+10p)`;
-                    } else if (earlyMins > 15) {
-                        tooltip += ` | Vào quá sớm (${earlyMins}p)`;
-                        label += ` <span style="color:red; font-weight:bold" title="Vào quá sớm">(!)</span>`;
-                    } else {
-                        tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
-                    }
+                    tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
                 } else {
                     minutes = schedDuration;
                 }
@@ -337,6 +324,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else {
                     label += ` (Role?)`;
                     tooltip += ' - Bấm để chọn vai trò tính lương';
+                }
+
+                // MANUAL BONUS (10p)
+                if (matchedSession.bonus10) {
+                    minutes += 10;
+                    label += ` (+10p)`;
+                    tooltip += ` | Thưởng 10p (thủ công)`;
                 }
 
                 if (isLate) {

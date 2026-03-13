@@ -839,6 +839,30 @@ const DBService = {
         });
     },
 
+    toggleSessionBonus10: async (userId, dateKey, sessionId) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+
+        return db.runTransaction(async (t) => {
+            const doc = await t.get(ref);
+            if (!doc.exists) throw new Error("Không tìm thấy dữ liệu chấm công ngày này");
+
+            const data = doc.data();
+            if (!data.sessions) throw new Error("Không tìm thấy phiên làm việc nào");
+
+            const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+            if (index === -1) throw new Error("Không tìm thấy phiên làm việc cụ thể");
+
+            // Toggle bonus10 (treat undefined as false, so !undefined -> true)
+            data.sessions[index].bonus10 = !data.sessions[index].bonus10;
+
+            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+            t.set(ref, data);
+            
+            return data.sessions[index].bonus10;
+        });
+    },
+
     // 7.2 Generic Add Session (Admin)
     addSession: async (userId, dateKey, sessionData) => {
         const docId = `${dateKey}_${userId}`;

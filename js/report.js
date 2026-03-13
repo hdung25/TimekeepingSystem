@@ -52,10 +52,20 @@ async function initReport() {
             const controlFooter = document.querySelector('.control-footer');
             if (controlFooter) controlFooter.style.display = 'none';
         }
+
+        const bonusBtn = document.getElementById('btn-manual-bonus');
+        if (bonusBtn) bonusBtn.style.display = 'none';
+        window.isBonusSelectMode = false;
+
     } else {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'none';
         document.getElementById('page-title').innerText = 'Bảng Công Cá Nhân';
+
+        const bonusBtn = document.getElementById('btn-manual-bonus');
+        if (bonusBtn) {
+            bonusBtn.style.display = 'inline-block';
+        }
     }
 
     // 2. Set to 1st of current month
@@ -139,6 +149,21 @@ function changeReportMonth(offset) {
     currentDate.setMonth(currentDate.getMonth() + offset);
     renderMonthReport(currentDate);
 }
+
+window.isBonusSelectMode = false;
+window.toggleBonusSelectionMode = function(btn) {
+    window.isBonusSelectMode = !window.isBonusSelectMode;
+    if (window.isBonusSelectMode) {
+        btn.style.background = '#EF4444'; // Red to cancel
+        btn.innerText = 'Bỏ Chọn Thưởng';
+        if (typeof UIService !== 'undefined') UIService.toast('Chế độ thưởng: Click vào các ca làm để cộng 10p.', 'info');
+    } else {
+        btn.style.background = '#10B981'; // Green
+        btn.innerText = '+ Thưởng 10p';
+        if (typeof UIService !== 'undefined') UIService.toast('Đã tắt chế độ thưởng.', 'info');
+    }
+    renderMonthReport(currentDate);
+};
 
 function getLocalDateKey(date) {
     const year = date.getFullYear();
@@ -414,6 +439,35 @@ async function renderMonthReport(date, forceServer = false) {
         } catch (e) {
             console.error('[Report] Error loading receptionist schedules:', e);
         }
+    }
+
+    // --- NEW: MERGE TOUCHING RECEPTIONIST SHIFTS ---
+    if (Object.keys(receptionistShiftsMap).length > 0) {
+        Object.keys(receptionistShiftsMap).forEach(dateStr => {
+            let dailyShifts = receptionistShiftsMap[dateStr];
+            if (dailyShifts.length > 1) {
+                // Sort by start time just in case
+                dailyShifts.sort((a, b) => a.start.localeCompare(b.start));
+                let mergedShifts = [];
+                let currentShift = { ...dailyShifts[0] };
+
+                for (let i = 1; i < dailyShifts.length; i++) {
+                    let nextShift = dailyShifts[i];
+                    // If shifts touch or overlap (e.g., 18:00 >= 18:00)
+                    if (currentShift.end >= nextShift.start) {
+                        if (nextShift.end > currentShift.end) {
+                            currentShift.end = nextShift.end;
+                        }
+                        currentShift.label = `${currentShift.label} + ${nextShift.label}`;
+                    } else {
+                        mergedShifts.push(currentShift);
+                        currentShift = { ...nextShift };
+                    }
+                }
+                mergedShifts.push(currentShift);
+                receptionistShiftsMap[dateStr] = mergedShifts;
+            }
+        });
     }
 
     // === AUTO-CLOSE TODAY'S OVERDUE RECEPTIONIST/TEACHER SESSIONS ===
@@ -770,24 +824,43 @@ async function renderMonthReport(date, forceServer = false) {
             }
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
-            // --- NEW: Role Selection Click Handler ---
-            if (chip.isClickable) {
-                // Only Admin or Owner
+            // --- Role Selection / Bonus Click Handler ---
+            const isClickable = chip.isClickable || window.isBonusSelectMode;
+            if (isClickable) {
                 div.style.cursor = 'pointer';
-                div.onclick = (e) => {
+                if (window.isBonusSelectMode) {
+                    div.style.border = '2px dashed #10B981';
+                }
+                div.onclick = async (e) => {
                     e.stopPropagation();
-                    if (chip.sessionId) {
-                        openRoleSelectModal(dateStr, chip.sessionData);
-                    } else if (role === 'admin' || role === 'senior_assistant') {
-                        // Creating new session from Registration, pass shift metadata so admin can delete this shift
-                        openManualModal(
-                            dateStr, 
-                            chip.schedData,
-                            chip.classCompositeKey,
-                            chip.classSectionKey,
-                            chip.classIndex,
-                            chip.isReceptionist || chip.isTeaching
-                        );
+                    if (window.isBonusSelectMode) {
+                        if (chip.sessionId) {
+                            try {
+                                const btn = e.currentTarget;
+                                btn.style.opacity = '0.5';
+                                await DBService.toggleSessionBonus10(staffId, dateStr, chip.sessionId);
+                                if (typeof UIService !== 'undefined') UIService.toast("Đã cập nhật thưởng 10p!", "success");
+                                renderMonthReport(currentDate); // re-render
+                            } catch (err) {
+                                if (typeof UIService !== 'undefined') UIService.toast(err.message || 'Lỗi', 'error');
+                            }
+                        } else {
+                            if (typeof UIService !== 'undefined') UIService.toast('Ca này chưa có dữ liệu vào ra.', 'warning');
+                        }
+                    } else if (chip.isClickable) {
+                        if (chip.sessionId) {
+                            openRoleSelectModal(dateStr, chip.sessionData);
+                        } else if (role === 'admin' || role === 'senior_assistant') {
+                            // Creating new session from Registration, pass shift metadata so admin can delete this shift
+                            openManualModal(
+                                dateStr, 
+                                chip.schedData,
+                                chip.classCompositeKey,
+                                chip.classSectionKey,
+                                chip.classIndex,
+                                chip.isReceptionist || chip.isTeaching
+                            );
+                        }
                     }
                 };
             }
