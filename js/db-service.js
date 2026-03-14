@@ -1370,5 +1370,33 @@ const DBService = {
             console.warn('[OT] Error getting staff requests:', e);
             return [];
         }
+    },
+
+    // 10. Fixed Shifts (Receptionist)
+    getFixedShifts: async (monthStr, userId) => {
+        try {
+            const docId = `${monthStr}_${userId}`;
+            const doc = await db.collection('fixed_shifts').doc(docId).get();
+            return doc.exists ? doc.data().shifts || [] : [];
+        } catch (error) {
+            console.error("Error getting fixed shifts:", error);
+            return [];
+        }
+    },
+
+    saveFixedShifts: async (monthStr, userId, shiftsArr) => {
+        try {
+            const docId = `${monthStr}_${userId}`;
+            await db.collection('fixed_shifts').doc(docId).set({
+                userId,
+                month: monthStr,
+                shifts: shiftsArr,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            return true;
+        } catch (error) {
+            console.error("Error saving fixed shifts:", error);
+            throw error;
+        }
     }
 };

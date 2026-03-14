@@ -308,14 +308,29 @@ async function configureSalary(userId) {
     const settings = user.salary_config || {};
     currentSalaryRoles = settings.roles || [];
 
-    // Fallback: If no roles but has legacy "rate", create a default Service Role
-    if (currentSalaryRoles.length === 0 && settings.rate) {
-        currentSalaryRoles.push({
-            id: 'default',
-            name: 'Mặc định (Cũ)',
-            rate: settings.rate,
-            isDefault: true
-        });
+    const isReceptionistType = ['receptionist', 'receptionist_assistant'].includes(user.role);
+    const rolesSection = document.getElementById('roles-config-section');
+    const recSection = document.getElementById('receptionist-config-section');
+
+    if (isReceptionistType) {
+        if (rolesSection) rolesSection.style.display = 'none';
+        if (recSection) recSection.style.display = 'block';
+        
+        document.getElementById('receptionist-normal-rate').value = settings.receptionist_normal_rate || '';
+        document.getElementById('receptionist-fixed-rate').value = settings.receptionist_fixed_rate || '';
+    } else {
+        if (rolesSection) rolesSection.style.display = 'block';
+        if (recSection) recSection.style.display = 'none';
+        
+        // Fallback: If no roles but has legacy "rate", create a default Service Role
+        if (currentSalaryRoles.length === 0 && settings.rate) {
+            currentSalaryRoles.push({
+                id: 'default',
+                name: 'Mặc định (Cũ)',
+                rate: settings.rate,
+                isDefault: true
+            });
+        }
     }
 
     renderSalaryRoles();
@@ -407,7 +422,16 @@ async function saveSalaryConfig() {
 
         // Merge changes
         if (!user.salary_config) user.salary_config = {};
-        user.salary_config.roles = currentSalaryRoles;
+        
+        const isReceptionistType = ['receptionist', 'receptionist_assistant'].includes(user.role);
+        if (isReceptionistType) {
+            const normalRate = document.getElementById('receptionist-normal-rate').value;
+            const fixedRate = document.getElementById('receptionist-fixed-rate').value;
+            user.salary_config.receptionist_normal_rate = normalRate ? Number(normalRate) : 0;
+            user.salary_config.receptionist_fixed_rate = fixedRate ? Number(fixedRate) : 0;
+        } else {
+            user.salary_config.roles = currentSalaryRoles;
+        }
 
         await DBService.saveUser(user);
 

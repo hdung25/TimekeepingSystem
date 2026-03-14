@@ -68,6 +68,12 @@ async function initReport() {
         }
     }
 
+    // Role specific buttons
+    const markFixedBtn = document.getElementById('btn-mark-fixed');
+    if (markFixedBtn && ['admin', 'senior_assistant', 'receptionist_assistant'].includes(role)) {
+        markFixedBtn.style.display = 'inline-block';
+    }
+
     // 2. Set to 1st of current month
     currentDate.setDate(1);
 
@@ -165,6 +171,53 @@ window.toggleBonusSelectionMode = function(btn) {
     renderMonthReport(currentDate);
 };
 
+window.isFixedShiftMode = false;
+window.selectedFixedShifts = new Set();
+window.toggleFixedShiftMode = function(btn) {
+    window.isFixedShiftMode = !window.isFixedShiftMode;
+    const saveBtn = document.getElementById('btn-save-fixed');
+    
+    if (window.isFixedShiftMode) {
+        btn.style.background = '#EF4444'; // Red to cancel
+        btn.innerText = 'Hủy Chọn CĐ';
+        if (saveBtn) saveBtn.style.display = 'inline-block';
+        if (typeof UIService !== 'undefined') UIService.toast('Chế độ Ca Cố Định: Click vào các ca tiếp tân để chọn.', 'info');
+    } else {
+        btn.style.background = '#6366F1'; // Indigo
+        btn.innerText = 'Đánh dấu Ca Cố Định';
+        if (saveBtn) saveBtn.style.display = 'none';
+        window.selectedFixedShifts.clear();
+        if (typeof UIService !== 'undefined') UIService.toast('Đã tắt chế độ Ca Cố Định.', 'info');
+    }
+    renderMonthReport(currentDate);
+};
+
+window.saveFixedShiftsToServer = async function() {
+    if (!window.isFixedShiftMode) return;
+    const staffId = document.getElementById('staff-select') ? document.getElementById('staff-select').value : null;
+    if (!staffId || staffId === 'all') {
+         if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn nhân viên trước.', 'error');
+         return;
+    }
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const monthStr = `${year}-${month}`;
+    
+    try {
+        const shiftsArr = Array.from(window.selectedFixedShifts);
+        await DBService.saveFixedShifts(monthStr, staffId, shiftsArr);
+        if (typeof UIService !== 'undefined') UIService.toast('Đã lưu các Ca Cố Định thành công!', 'success');
+        
+        // Turn off mode
+        const btn = document.getElementById('btn-mark-fixed');
+        if (btn) toggleFixedShiftMode(btn);
+        
+    } catch (e) {
+        console.error("Error saving fixed shifts:", e);
+        if (typeof UIService !== 'undefined') UIService.toast('Lỗi khi lưu.', 'error');
+    }
+};
+
 function getLocalDateKey(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -237,11 +290,12 @@ async function renderMonthReport(date, forceServer = false) {
     let staffId = getTargetStaffId();
 
     // 0. Fetch User Context for Name Matching
-    let currentUserContext = null;
+    window.currentUserContext = null;
     try {
         const userDoc = await DBService.refs.users().doc(staffId).get();
-        if (userDoc.exists) currentUserContext = userDoc.data();
+        if (userDoc.exists) window.currentUserContext = userDoc.data();
     } catch (e) { console.error("Error fetching user context", e); }
+    const currentUserContext = window.currentUserContext;
 
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
     if (_cachedStaffId !== staffId) {
@@ -261,6 +315,16 @@ async function renderMonthReport(date, forceServer = false) {
 
     // 1. Fetch DATA (Attendance + Schedule)
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    // Fetch Fixed Shifts for the month
+    window.savedFixedShiftsMonth = [];
+    try {
+        window.savedFixedShiftsMonth = await DBService.getFixedShifts(monthStr, staffId);
+        // If we are currently IN selection mode, prepopulate the Set on first load
+        if (window.isFixedShiftMode && window.selectedFixedShifts.size === 0 && window.savedFixedShiftsMonth.length > 0) {
+            window.savedFixedShiftsMonth.forEach(id => window.selectedFixedShifts.add(id));
+        }
+    } catch(e) { console.error("Could not fetch fixed shifts:", e); }
 
     // A. Attendance Logs (Actual Check-in/out)
     // DBService.getMonthlyAttendance returns array of docs with { sessions: [...] }
@@ -824,13 +888,27 @@ async function renderMonthReport(date, forceServer = false) {
             }
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
-            // --- Role Selection / Bonus Click Handler ---
-            const isClickable = chip.isClickable || window.isBonusSelectMode;
+            // Look for existing saved fixed shift or selected one
+            const isFixed = window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId);
+            chip.isFixedShift = isFixed;
+            if (isFixed && !window.isFixedShiftMode) {
+               div.innerHTML = `<span>${chip.text} <b>(CĐ)</b></span>`;
+               div.style.border = '2px solid #8B5CF6'; 
+            }
+
+            // --- Role Selection / Bonus/Fixed Click Handler ---
+            const isClickable = chip.isClickable || window.isBonusSelectMode || window.isFixedShiftMode;
             if (isClickable) {
                 div.style.cursor = 'pointer';
                 if (window.isBonusSelectMode) {
                     div.style.border = '2px dashed #10B981';
+                } else if (window.isFixedShiftMode && chip.isReceptionist) {
+                    // Only Receptionist shifts can be selected as Fixed
+                    const isSelected = window.selectedFixedShifts.has(chip.sessionId);
+                    div.style.border = isSelected ? '3px solid #6366F1' : '2px dashed #6366F1';
+                    if (isSelected) div.style.background = '#E0E7FF'; // Highlight selected
                 }
+                
                 div.onclick = async (e) => {
                     e.stopPropagation();
                     if (window.isBonusSelectMode) {
@@ -846,6 +924,17 @@ async function renderMonthReport(date, forceServer = false) {
                             }
                         } else {
                             if (typeof UIService !== 'undefined') UIService.toast('Ca này chưa có dữ liệu vào ra.', 'warning');
+                        }
+                    } else if (window.isFixedShiftMode) {
+                        if (chip.isReceptionist && chip.sessionId) {
+                            if (window.selectedFixedShifts.has(chip.sessionId)) {
+                                window.selectedFixedShifts.delete(chip.sessionId);
+                            } else {
+                                window.selectedFixedShifts.add(chip.sessionId);
+                            }
+                            renderMonthReport(currentDate);
+                        } else {
+                            if (typeof UIService !== 'undefined') UIService.toast('Chỉ có thể chọn các ca tiếp tân có dữ liệu vào ra.', 'warning');
                         }
                     } else if (chip.isClickable) {
                         if (chip.sessionId) {
@@ -1089,7 +1178,18 @@ function calculateSalary() {
                 filteredMinutes += minutes;
 
                 // Calculate Money
-                const rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                
+                let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+                if (window.currentUserContext && window.currentUserContext.salary_config) {
+                     const cfg = window.currentUserContext.salary_config;
+                     if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
+                         rate = Number(cfg.receptionist_fixed_rate);
+                     } else if (isTiepTan && cfg.receptionist_normal_rate) {
+                         rate = Number(cfg.receptionist_normal_rate);
+                     }
+                }
+                
                 filteredSalary += (minutes / 60) * rate;
             });
         }
@@ -1132,7 +1232,18 @@ function calculateSalary() {
                 filteredMinutes += minutes;
 
                 // Calculate Money
-                const rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                
+                let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+                if (window.currentUserContext && window.currentUserContext.salary_config) {
+                     const cfg = window.currentUserContext.salary_config;
+                     if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
+                         rate = Number(cfg.receptionist_fixed_rate);
+                     } else if (isTiepTan && cfg.receptionist_normal_rate) {
+                         rate = Number(cfg.receptionist_normal_rate);
+                     }
+                }
+
                 filteredSalary += (minutes / 60) * rate;
             }
         });

@@ -215,24 +215,41 @@
             <input type="hidden" id="salary-user-id">
 
             <!-- List of Roles -->
-            <div style="margin-bottom: 1.5rem;">
-                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Danh sách Role (Vai
-                    trò):</label>
-                <div id="role-list"
-                    style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden;">
-                    <!-- Roles will be injected here -->
-                    <div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có vai trò nào</div>
+            <div id="roles-config-section">
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Danh sách Role (Vai
+                        trò):</label>
+                    <div id="role-list"
+                        style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden;">
+                        <!-- Roles will be injected here -->
+                        <div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có vai trò nào</div>
+                    </div>
+                </div>
+
+                <!-- Add New Role Form -->
+                <div style="background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Thêm Vai Trò Mới:</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="new-role-name" class="form-input" placeholder="Tên Role (VD: GV Tiếng Anh)"
+                            style="flex: 2;">
+                        <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ" style="flex: 1;">
+                        <button type="button" class="btn btn-primary" onclick="addNewRole()">➕ Thêm</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- Add New Role Form -->
-            <div style="background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
-                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Thêm Vai Trò Mới:</label>
-                <div style="display: flex; gap: 0.5rem;">
-                    <input type="text" id="new-role-name" class="form-input" placeholder="Tên Role (VD: GV Tiếng Anh)"
-                        style="flex: 2;">
-                    <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ" style="flex: 1;">
-                    <button type="button" class="btn btn-primary" onclick="addNewRole()">➕ Thêm</button>
+            <!-- Receptionist Fixed Salary Config -->
+            <div id="receptionist-config-section" style="display: none; background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem; color: var(--primary-color);">Cấu hình Lương Tiếp Tân:</label>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <label style="flex: 1; margin: 0; font-weight: 500;">Lương Ca Bình Thường / Giờ:</label>
+                        <input type="number" id="receptionist-normal-rate" class="form-input" placeholder="VD: 20000" style="flex: 1;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <label style="flex: 1; margin: 0; font-weight: 500;">Lương Ca Cố Định / Giờ:</label>
+                        <input type="number" id="receptionist-fixed-rate" class="form-input" placeholder="VD: 25000" style="flex: 1;">
+                    </div>
                 </div>
             </div>
 

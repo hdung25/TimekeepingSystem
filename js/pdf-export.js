@@ -50,7 +50,10 @@ function exportSalaryPDF() {
 
     const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
     const chips = window.currentMonthChips || [];
-    let filteredMinutes = 0;
+    let normalMinutes = 0;
+    let fixedMinutes = 0;
+    let normalSalary = 0;
+    let fixedSalary = 0;
 
     // Recalculate filtered minutes matching calculateSalary logic
     chips.forEach(chip => {
@@ -75,12 +78,34 @@ function exportSalaryPDF() {
         }
 
         if (include) {
-            filteredMinutes += (chip.paidMinutes || 0);
+            const minutes = chip.paidMinutes || 0;
+            let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+            
+            let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+            let isFixed = false;
+            
+            if (window.currentUserContext && window.currentUserContext.salary_config) {
+                 const cfg = window.currentUserContext.salary_config;
+                 if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
+                     rate = Number(cfg.receptionist_fixed_rate);
+                     isFixed = true;
+                 } else if (isTiepTan && cfg.receptionist_normal_rate) {
+                     rate = Number(cfg.receptionist_normal_rate);
+                 }
+            }
+
+            if (isFixed) {
+                 fixedMinutes += minutes;
+                 fixedSalary += (minutes / 60) * rate;
+            } else {
+                 normalMinutes += minutes;
+                 normalSalary += (minutes / 60) * rate;
+            }
         }
     });
 
-    const totalHoursDecimal = filteredMinutes / 60;
-    const baseSalary = window.currentMonthSalary || 0; // Use global calc from calculateSalary()
+    const filteredMinutes = normalMinutes + fixedMinutes;
+    const baseSalary = normalSalary + fixedSalary; // Recalculated accurately to match window.currentMonthSalary
     const initialTotal = baseSalary + totalBonus;
     const finalNet = initialTotal - advance;
 
@@ -133,12 +158,22 @@ function exportSalaryPDF() {
                 <!-- HOURS & RATE -->
                 <tr>
                     <td class="bold">
-                        TỔNG SỐ GIỜ: ${Math.floor(filteredMinutes / 60)} giờ ${Math.floor(filteredMinutes % 60)} phút
+                        TỔNG SỐ GIỜ CƠ BẢN: ${Math.floor(normalMinutes / 60)} giờ ${Math.floor(normalMinutes % 60)} phút
                         <br><br>
                         LƯƠNG CƠ BẢN:
                     </td>
-                    <td class="bold right" style="vertical-align: top;">${fmt(baseSalary)}</td>
+                    <td class="bold right" style="vertical-align: top;">${fmt(normalSalary)}</td>
                 </tr>
+                ${fixedMinutes > 0 ? `
+                <tr>
+                    <td class="bold" style="color: #6366F1;">
+                        TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
+                        <br><br>
+                        LƯƠNG CA CỐ ĐỊNH:
+                    </td>
+                    <td class="bold right" style="vertical-align: top; color: #6366F1;">${fmt(fixedSalary)}</td>
+                </tr>
+                ` : ''}
 
                 <!-- PLACEHOLDERS FOR SPECIFIC TYPES -->
                 <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
