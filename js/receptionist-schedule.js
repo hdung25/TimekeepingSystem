@@ -14,6 +14,42 @@ let shiftConfig = {
 };
 let editingCell = null;
 let isInheritedTemplate = false; // True when showing a template from a previous week
+window.isFixedShiftMode = false;
+
+window.toggleScheduleFixedShiftMode = function() {
+    window.isFixedShiftMode = !window.isFixedShiftMode;
+    const btn = document.getElementById('btn-mark-fixed');
+    if (!btn) return;
+    
+    if (window.isFixedShiftMode) {
+        btn.style.background = '#EF4444'; // Red to cancel
+        btn.style.borderColor = '#F87171';
+        btn.style.color = 'white';
+        btn.innerText = 'Hủy Chọn CĐ';
+        if (typeof UIService !== 'undefined') UIService.toast('Chế độ Ca Cố Định: Click vào nhãn tên trên lịch để chọn.', 'info');
+    } else {
+        btn.style.background = '#E0E7FF';
+        btn.style.borderColor = '#C7D2FE';
+        btn.style.color = '#4F46E5';
+        btn.innerText = '⭐ Đánh dấu Ca Cố Định';
+        if (typeof UIService !== 'undefined') UIService.toast('Đã tắt chế độ Ca Cố Định.', 'info');
+    }
+    renderTable();
+};
+
+window.toggleStaffFixedShift = function(event, shift, dayKey, staffId) {
+    event.stopPropagation(); // Prevent cell modal from opening
+    if (!window.isFixedShiftMode) return;
+    
+    if (weekData[shift] && weekData[shift][dayKey]) {
+        const staffList = weekData[shift][dayKey];
+        const staffObj = staffList.find(s => s.id === staffId);
+        if (staffObj) {
+            staffObj.isFixedShift = !staffObj.isFixedShift;
+            renderTable(); // Re-render locally without fetching DB
+        }
+    }
+};
 
 const isEditor = (() => {
     const role = localStorage.getItem('currentRole') || 'staff';
@@ -286,8 +322,28 @@ function renderTable() {
                 const fg = getContrastColor(bg);
                 const shortName = s.name ? s.name.trim().split(/\s+/).pop() : '?';
                 const customLabel = s.customStart ? ` ${s.customStart}` : '';
-                const tooltip = s.customStart ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
-                html += `<span class="staff-tag" style="background:${bg};color:${fg}" title="${tooltip}">${shortName}${customLabel}</span>`;
+                
+                const isFixed = s.isFixedShift ? true : false;
+                const fixedLabel = isFixed ? ' ⭐' : '';
+                
+                const tooltipBase = s.customStart ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
+                const tooltip = tooltipBase + (isFixed ? ' [Ca Cố Định]' : '');
+                
+                let borderStyle = '';
+                if (isFixed && !window.isFixedShiftMode) {
+                    borderStyle = 'border: 2px solid #8B5CF6; box-sizing: border-box;'; // Violet border for fixed
+                } else if (window.isFixedShiftMode) {
+                    borderStyle = 'cursor: pointer; box-sizing: border-box; ';
+                    if (isFixed) {
+                        borderStyle += 'border: 2px solid #EF4444; '; // Red border when selected in edit mode
+                    } else {
+                        borderStyle += 'border: 2px dashed #9CA3AF; '; // Dashed for selectable
+                    }
+                }
+                
+                const clickHandler = (isEditor && window.isFixedShiftMode) ? `onclick="toggleStaffFixedShift(event, '${shift}', '${day}', '${s.id}')"` : '';
+
+                html += `<span class="staff-tag" style="background:${bg};color:${fg};${borderStyle}" title="${tooltip}" ${clickHandler}>${shortName}${customLabel}${fixedLabel}</span>`;
             });
             if (note) {
                 html += `<span class="staff-note">${note}</span>`;
@@ -300,7 +356,11 @@ function renderTable() {
 
             if (isEditor) {
                 td.classList.add('editable');
-                td.onclick = () => openCellModal(shift, day);
+                td.onclick = () => {
+                    if (!window.isFixedShiftMode) {
+                        openCellModal(shift, day);
+                    }
+                };
             }
 
             tr.appendChild(td);

@@ -168,6 +168,8 @@ function exportSalaryPDF() {
                 <tr>
                     <td class="bold" style="color: #6366F1;">
                         TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
+                        <br>
+                        (Số ca cố định đi làm: ${window.fixedWorkedCount || 0} ca - OFF ca cố định: ${window.fixedAbsentCount || 0} ca)
                         <br><br>
                         LƯƠNG CA CỐ ĐỊNH:
                     </td>

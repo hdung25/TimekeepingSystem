@@ -493,7 +493,8 @@ async function renderMonthReport(date, forceServer = false) {
                             label: SHIFT_LABELS[shiftKey],
                             start: staffEntry.customStart || defaultStart,
                             end: staffEntry.customEnd || defaultEnd,
-                            branch: result.branch
+                            branch: result.branch,
+                            isFixedShift: staffEntry.isFixedShift ? true : false
                         });
                     });
                 });
@@ -889,7 +890,7 @@ async function renderMonthReport(date, forceServer = false) {
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
             // Look for existing saved fixed shift or selected one
-            const isFixed = window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId);
+            const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
             chip.isFixedShift = isFixed;
             if (isFixed && !window.isFixedShiftMode) {
                div.innerHTML = `<span>${chip.text} <b>(CĐ)</b></span>`;
@@ -1163,6 +1164,23 @@ function calculateSalary() {
     let filteredSalary = 0; // Accumulate salary based on role rates
     const allChips = window.currentMonthChips || [];
 
+    // --- NEW: Calculate Fixed Shift stats globally ---
+    let fixedWorkedCount = 0;
+    let fixedAbsentCount = 0;
+    allChips.forEach(chip => {
+        let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+        if (isTiepTan && chip.isFixedShift) {
+            if (chip.sessionId) {
+                fixedWorkedCount++;
+            } else if (chip.class !== 'chip-future') {
+                fixedAbsentCount++;
+            }
+        }
+    });
+
+    window.fixedWorkedCount = fixedWorkedCount;
+    window.fixedAbsentCount = fixedAbsentCount;
+
     // Debug
     console.log("Calculating Salary. Filters:", roleFilter, "Chips:", allChips.length);
 
@@ -1259,6 +1277,25 @@ function calculateSalary() {
         if (roleFilter === 'giao-vien') label = "Giờ Dạy: ";
 
         hoursDisplay.innerText = `${label}${h}h ${m}p`;
+        
+        // Render Fixed Shift stats
+        let fixedStatsEl = document.getElementById('fixed-shift-stats');
+        if (!fixedStatsEl) {
+            fixedStatsEl = document.createElement('div');
+            fixedStatsEl.id = 'fixed-shift-stats';
+            fixedStatsEl.style.fontSize = '0.85rem';
+            fixedStatsEl.style.marginTop = '6px';
+            fixedStatsEl.style.color = '#4F46E5';
+            fixedStatsEl.style.fontWeight = '600';
+            hoursDisplay.parentNode.appendChild(fixedStatsEl);
+        }
+        
+        if (fixedWorkedCount > 0 || fixedAbsentCount > 0) {
+            fixedStatsEl.innerHTML = `[Ca Cố Định] Đi làm: <span style="color:#059669">${fixedWorkedCount}</span> | OFF: <span style="color:#DC2626">${fixedAbsentCount}</span>`;
+            fixedStatsEl.style.display = 'block';
+        } else {
+            fixedStatsEl.style.display = 'none';
+        }
     }
 
     // 4. Calculate Total Money

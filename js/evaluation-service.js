@@ -398,7 +398,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 classIndex: dayKeyLocal,
                 overtimeId: otIdR,
                 overtimePending: otPendingR,
-                overtimeMinutes: otMinutesR
+                overtimeMinutes: otMinutesR,
+                isFixedShift: rs.isFixedShift
             });
 
         } else {
@@ -417,7 +418,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isReceptionist: true,
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
-                    classIndex: dayKeyLocal
+                    classIndex: dayKeyLocal,
+                    isFixedShift: rs.isFixedShift
                 });
             } else {
                 chips.push({
@@ -432,7 +434,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isReceptionist: true,
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
-                    classIndex: dayKeyLocal
+                    classIndex: dayKeyLocal,
+                    isFixedShift: rs.isFixedShift
                 });
             }
         }
