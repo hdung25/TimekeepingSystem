@@ -164,12 +164,12 @@ function exportSalaryPDF() {
                     </td>
                     <td class="bold right" style="vertical-align: top;">${fmt(normalSalary)}</td>
                 </tr>
-                ${fixedMinutes > 0 ? `
+                ${(fixedMinutes > 0 || window.fixedWorkedCount > 0 || window.fixedAbsentCount > 0) ? `
                 <tr>
                     <td class="bold" style="color: #6366F1;">
                         TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
                         <br>
-                        (Số ca cố định đi làm: ${window.fixedWorkedCount || 0} ca - OFF ca cố định: ${window.fixedAbsentCount || 0} ca)
+                        [Ca Cố Định] Đi làm: ${window.fixedWorkedCount || 0} | OFF: ${window.fixedAbsentCount || 0}
                         <br><br>
                         LƯƠNG CA CỐ ĐỊNH:
                     </td>
