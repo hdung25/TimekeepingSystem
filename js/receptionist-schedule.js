@@ -324,12 +324,14 @@ function renderTable() {
                 const fg = getContrastColor(bg);
                 const globalUser = allLoadedUsers.find(u => u.id === s.id);
                 const shortName = globalUser?.shortName || s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
-                const customLabel = s.customStart ? ` ${s.customStart}` : '';
+                // Only show time if it differs from the column's standard start time
+                const isCustomTime = s.customStart && s.customStart !== shiftConfig[shift].start;
+                const customLabel = isCustomTime ? ` ${s.customStart}` : '';
                 
                 const isFixed = s.isFixedShift ? true : false;
                 const fixedLabel = isFixed ? ' ⭐' : '';
                 
-                const tooltipBase = s.customStart ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
+                const tooltipBase = isCustomTime ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
                 const tooltip = tooltipBase + (isFixed ? ' [Ca Cố Định]' : '');
                 
                 let borderStyle = '';
