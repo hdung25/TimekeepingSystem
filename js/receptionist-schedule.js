@@ -70,10 +70,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${currentBranch}`)?.classList.add('active');
 
-    // Load staff list — ONLY receptionist role
+    // Load staff list — ONLY receptionist, receptionist_assistant, senior_assistant roles
     try {
         const allUsers = await DBService.getUsers();
-        receptionistStaff = allUsers.filter(u => u.role === 'receptionist');
+        receptionistStaff = allUsers.filter(u => ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(u.role));
     } catch (e) {
         console.error('Failed to load staff', e);
         receptionistStaff = [];
