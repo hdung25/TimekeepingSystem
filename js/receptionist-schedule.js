@@ -7,6 +7,7 @@ let currentBranch = localStorage.getItem('currentBranch') || 'cs1';
 let currentWeekStart = getMonday(new Date());
 let weekData = {};
 let receptionistStaff = [];
+let allLoadedUsers = []; // Store all users to map shortName retroactively
 let shiftConfig = {
     morning: { label: 'SÁNG', start: '07:00', end: '11:30' },
     afternoon: { label: 'CHIỀU', start: '14:00', end: '18:00' },
@@ -73,6 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load staff list — ONLY receptionist, receptionist_assistant, senior_assistant roles
     try {
         const allUsers = await DBService.getUsers();
+        allLoadedUsers = allUsers; // Store globally
         receptionistStaff = allUsers.filter(u => ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(u.role));
     } catch (e) {
         console.error('Failed to load staff', e);
@@ -320,7 +322,8 @@ function renderTable() {
             staffList.forEach(s => {
                 const bg = s.color || '#E5E7EB';
                 const fg = getContrastColor(bg);
-                const shortName = s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
+                const globalUser = allLoadedUsers.find(u => u.id === s.id);
+                const shortName = globalUser?.shortName || s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
                 const customLabel = s.customStart ? ` ${s.customStart}` : '';
                 
                 const isFixed = s.isFixedShift ? true : false;
