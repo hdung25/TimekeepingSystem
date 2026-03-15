@@ -1566,7 +1566,7 @@ function openManualModal(dateKey, preFill = null, classCompositeKey = '', classS
     // ------------------------------
 
     // Update Mode Title
-    document.querySelector(\'#edit-time-modal h2\').innerText = "Thêm Ca Làm Việc Mới";
+    document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
     
     // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
@@ -1644,7 +1644,7 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
     // ------------------------------
 
     // Update Mode Title
-    document.querySelector(\'#edit-time-modal h2\').innerText = "Chỉnh Sửa Giờ Làm";
+    document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
     // Show delete button in edit mode
     const delSection = document.querySelector('#edit-time-modal .delete-section');
