@@ -93,10 +93,67 @@ const DBService = {
         }
     },
 
+    generateUniqueShortNames: (users) => {
+        if (!users || !Array.isArray(users)) return users;
+        
+        // 1. Map users to parsing objects
+        let parsingList = users.map(u => {
+            const parts = u.name ? u.name.trim().split(/\s+/) : ['?'];
+            return {
+                ...u,
+                nameParts: parts,
+                lastName: parts[parts.length - 1],
+                shortName: parts[parts.length - 1], // Default to just last name
+                conflictLevel: 0
+            };
+        });
+
+        let hasConflicts = true;
+        let maxIterations = 5; // Prevent infinite loops just in case
+        
+        while (hasConflicts && maxIterations > 0) {
+            hasConflicts = false;
+            
+            // Group by current shortName
+            const nameGroups = {};
+            parsingList.forEach(item => {
+                if (!nameGroups[item.shortName]) nameGroups[item.shortName] = [];
+                nameGroups[item.shortName].push(item);
+            });
+            
+            // Resolve conflicts
+            for (const [sName, group] of Object.entries(nameGroups)) {
+                if (group.length > 1) { // Conflict found!
+                    hasConflicts = true;
+                    group.forEach(item => {
+                        item.conflictLevel += 1;
+                        if (item.nameParts.length > item.conflictLevel) {
+                            // Prepend the initial of the previous name part
+                            const idxToPrepend = item.nameParts.length - 1 - item.conflictLevel;
+                            const initial = item.nameParts[idxToPrepend].charAt(0).toUpperCase();
+                            item.shortName = `${initial}.${item.shortName}`;
+                        } else {
+                            // If we ran out of parts (e.g. 2 exactly same full names), we must append the ID or stop
+                            item.shortName = `${item.shortName}(*${item.id.slice(-2)})`;
+                        }
+                    });
+                }
+            }
+            maxIterations--;
+        }
+
+        // 2. Clean up and return original format with shortName attached
+        return parsingList.map(item => {
+            const { nameParts, lastName, conflictLevel, ...cleanUser } = item;
+            return cleanUser;
+        });
+    },
+
     getUsers: async () => {
         try {
             const snapshot = await db.collection('users').get();
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const rawUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return DBService.generateUniqueShortNames(rawUsers);
         } catch (error) {
             console.error("Error getting users:", error);
             return [];

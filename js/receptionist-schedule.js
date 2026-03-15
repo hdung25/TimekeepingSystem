@@ -320,7 +320,7 @@ function renderTable() {
             staffList.forEach(s => {
                 const bg = s.color || '#E5E7EB';
                 const fg = getContrastColor(bg);
-                const shortName = s.name ? s.name.trim().split(/\s+/).pop() : '?';
+                const shortName = s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
                 const customLabel = s.customStart ? ` ${s.customStart}` : '';
                 
                 const isFixed = s.isFixedShift ? true : false;
