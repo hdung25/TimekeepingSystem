@@ -25,7 +25,7 @@ const EVALUATION_CRITERIA = [
 // ================= DAILY CHIPS CALCULATION =================
 // Logic to Merge Schedule & Attendance → Returns chip array for a single day
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}) {
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = []) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIds = new Set();
@@ -38,6 +38,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const isRegistered = registeredTeachers.some(t => t.id === staffId);
 
             if (!isRegistered) return; // Skip if not registered for this class
+
+            // --- NEW: Check Cancelled Shifts ---
+            const classCompositeKey = cls._compositeKey || null;
+            if (classCompositeKey && cancelledShifts.includes(`${classCompositeKey}_${secKey}_${idx}`)) {
+                return; // Skip this explicitly cancelled shift
+            }
 
             // 2. Check for Attendance Match
             // Priority 1: Exact match by linkedClassStart (set when admin edits a session)
@@ -263,6 +269,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         mondayLocal.setDate(mondayLocal.getDate() - dayIdxLocal);
         const mondayKeyLocal = `${mondayLocal.getFullYear()}-${String(mondayLocal.getMonth() + 1).padStart(2, '0')}-${String(mondayLocal.getDate()).padStart(2, '0')}`;
         const compositeKeyLocal = `${rs.branch}_${mondayKeyLocal}`;
+
+        // --- NEW: Check Cancelled Shifts ---
+        if (cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`)) {
+            return; // Skip this explicitly cancelled shift
+        }
 
 
         // Find matching attendance session

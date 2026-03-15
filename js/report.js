@@ -326,6 +326,14 @@ async function renderMonthReport(date, forceServer = false) {
         }
     } catch(e) { console.error("Could not fetch fixed shifts:", e); }
 
+    // Fetch Cancelled Shifts (Admin specifically excluded)
+    let cancelledShifts = [];
+    try {
+        cancelledShifts = await DBService.getCancelledShifts(monthStr, staffId);
+    } catch (e) {
+        console.error("Could not fetch cancelled shifts:", e);
+    }
+
     // A. Attendance Logs (Actual Check-in/out)
     // DBService.getMonthlyAttendance returns array of docs with { sessions: [...] }
     const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId, forceServer);
@@ -671,7 +679,7 @@ async function renderMonthReport(date, forceServer = false) {
         const dailyAttendance = attendanceMap[dateStr] || [];
         const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
 
-        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {});
+        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts);
 
         chips.forEach(chip => {
             const div = document.createElement('div');
@@ -1538,8 +1546,27 @@ function openManualModal(dateKey, preFill = null, classCompositeKey = '', classS
         document.getElementById('edit-check-out').value = endIso;
     }
 
+        // --- POPULATE ROLE DROPDOWN ---
+    const editRoleEl = document.getElementById('edit-role');
+    if (editRoleEl) {
+        editRoleEl.innerHTML = '<option value="">-- Chưa chọn (Tính theo mặc định) --</option>';
+        if (window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
+            window.currentUserContext.salary_config.roles.forEach(role => {
+                const opt = document.createElement('option');
+                opt.value = role.id;
+                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}₫/h)`;
+                // Pre-select if we have existing sessionData with a role
+                if (typeof sessionData !== 'undefined' && sessionData && sessionData.role === role.id) {
+                    opt.selected = true;
+                }
+                editRoleEl.appendChild(opt);
+            });
+        }
+    }
+    // ------------------------------
+
     // Update Mode Title
-    document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
+    document.querySelector(\'#edit-time-modal h2\').innerText = "Thêm Ca Làm Việc Mới";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
     
     // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
@@ -1597,8 +1624,27 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
         document.getElementById('edit-check-out').value = outIso;
     }
 
+        // --- POPULATE ROLE DROPDOWN ---
+    const editRoleEl = document.getElementById('edit-role');
+    if (editRoleEl) {
+        editRoleEl.innerHTML = '<option value="">-- Chưa chọn (Tính theo mặc định) --</option>';
+        if (window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
+            window.currentUserContext.salary_config.roles.forEach(role => {
+                const opt = document.createElement('option');
+                opt.value = role.id;
+                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}₫/h)`;
+                // Pre-select if we have existing sessionData with a role
+                if (typeof sessionData !== 'undefined' && sessionData && sessionData.role === role.id) {
+                    opt.selected = true;
+                }
+                editRoleEl.appendChild(opt);
+            });
+        }
+    }
+    // ------------------------------
+
     // Update Mode Title
-    document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
+    document.querySelector(\'#edit-time-modal h2\').innerText = "Chỉnh Sửa Giờ Làm";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
     // Show delete button in edit mode
     const delSection = document.querySelector('#edit-time-modal .delete-section');
@@ -1630,12 +1676,27 @@ async function saveEditedTime() {
     const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
 
     const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
+    
+    // Admin explicit role
+    const editRoleEl = document.getElementById('edit-role');
+    const roleId = editRoleEl ? editRoleEl.value : '';
+    let roleName = '';
+    let roleRate = 0;
+    
+    if (roleId && window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
+        const matchingRole = window.currentUserContext.salary_config.roles.find(r => r.id === roleId);
+        if (matchingRole) {
+            roleName = matchingRole.name;
+            roleRate = matchingRole.rate;
+        }
+    }
 
     const newData = {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
-        ...(linkedClassStart ? { linkedClassStart } : {}) // Preserve class link after edit
+        ...(linkedClassStart ? { linkedClassStart } : {}), // Preserve class link after edit
+        ...(roleId ? { role: roleId, roleName, roleRate } : {})
     };
 
     try {
@@ -1695,6 +1756,12 @@ async function deleteSessionFromModal() {
         // Unregister from class if linked
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
             console.log("[DeleteSession] Unregistering from class...");
+            const monthStr = dateKey.substring(0, 7);
+            const cancelKey = `${classCompositeKey}_${classSectionKey}_${classIndexRaw}`;
+            
+            // 1. Ghi log huỷ ca vào DBService (BƯỚC QUAN TRỌNG NHẤT)
+            await DBService.cancelShift(monthStr, staffId, cancelKey);
+            
             if (isReceptionistStr === 'true') {
                 // Delete from receptionist schedule
                 await DBService.unassignReceptionist(classCompositeKey, classSectionKey, classIndexRaw, staffId);

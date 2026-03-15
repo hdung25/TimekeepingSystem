@@ -1398,5 +1398,47 @@ const DBService = {
             console.error("Error saving fixed shifts:", error);
             throw error;
         }
+    },
+
+    // ================= CANCELLED SHIFTS (ADMIN) =================
+
+    getCancelledShifts: async (monthStr, staffId) => {
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            const doc = await db.collection('cancelled_shifts').doc(docId).get();
+            return doc.exists ? doc.data().shifts || [] : [];
+        } catch (error) {
+            console.error("[CancelledShifts] Error getting:", error);
+            return [];
+        }
+    },
+
+    cancelShift: async (monthStr, staffId, shiftKey) => {
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            return await db.runTransaction(async (t) => {
+                const docRef = db.collection('cancelled_shifts').doc(docId);
+                const doc = await t.get(docRef);
+                let shifts = [];
+                if (doc.exists) {
+                    shifts = doc.data().shifts || [];
+                }
+                
+                if (!shifts.includes(shiftKey)) {
+                    shifts.push(shiftKey);
+                }
+
+                t.set(docRef, {
+                    userId: staffId,
+                    month: monthStr,
+                    shifts: shifts,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                return true;
+            });
+        } catch (error) {
+            console.error("[CancelledShifts] Error saving:", error);
+            throw error;
+        }
     }
 };
