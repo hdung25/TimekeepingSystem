@@ -1,4 +1,5 @@
-// Report & Salary Logic
+﻿
+> // Report & Salary Logic
 
 document.addEventListener('DOMContentLoaded', () => {
     // Check if on report page (has calendar grid)
@@ -22,7 +23,7 @@ async function initReport() {
 
     // 1. Title & Admin Controls
     const roleRaw = localStorage.getItem('currentRole') || 'staff';
-    // parseRoles có thể chưa load — dùng fallback an toàn
+    // parseRoles cÃ³ thá»ƒ chÆ°a load â€” dÃ¹ng fallback an toÃ n
     let roles = [];
     try {
         const parsed = JSON.parse(roleRaw);
@@ -37,7 +38,7 @@ async function initReport() {
     if (isAdminLike) {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'flex';
-        document.getElementById('page-title').innerText = isSalaryAdmin ? 'Tính Lương & Duyệt Công' : 'Duyệt Công Nhân Viên';
+        document.getElementById('page-title').innerText = isSalaryAdmin ? 'TÃ­nh LÆ°Æ¡ng & Duyá»‡t CÃ´ng' : 'Duyá»‡t CÃ´ng NhÃ¢n ViÃªn';
         await populateStaffSelect();
 
         // Auto-select staff from URL param
@@ -53,7 +54,7 @@ async function initReport() {
 
         // Hide salary-related fields for senior_assistant
         if (!isSalaryAdmin) {
-            // Hide: Tạm Ứng, Thưởng/Phạt, Dự Kiến Thực Lĩnh, Xuất PDF, Lưu & Tính
+            // Hide: Táº¡m á»¨ng, ThÆ°á»Ÿng/Pháº¡t, Dá»± Kiáº¿n Thá»±c LÄ©nh, Xuáº¥t PDF, LÆ°u & TÃ­nh
             const salaryAdvance = document.getElementById('salary-advance');
             if (salaryAdvance) salaryAdvance.closest('.modern-form-group').style.display = 'none';
             const bonusPenalty = document.getElementById('summary-bonus-penalty');
@@ -69,7 +70,7 @@ async function initReport() {
     } else {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'none';
-        document.getElementById('page-title').innerText = 'Bảng Công Cá Nhân';
+        document.getElementById('page-title').innerText = 'Báº£ng CÃ´ng CÃ¡ NhÃ¢n';
 
         const bonusBtn = document.getElementById('btn-manual-bonus');
         if (bonusBtn) {
@@ -100,18 +101,18 @@ async function populateStaffSelect() {
 
     let users = await DBService.getUsers();
 
-    // Admin thấy tất cả, staff chỉ thấy mình
+    // Admin tháº¥y táº¥t cáº£, staff chá»‰ tháº¥y mÃ¬nh
     if (!isAdmin) {
         const myId = localStorage.getItem('currentUserId');
         users = users.filter(u => u.id === myId);
     }
 
-    // Lưu global để filter
+    // LÆ°u global Ä‘á»ƒ filter
     window._allStaffList = users;
 
     // Populate hidden select (backward compat)
     if (select) {
-        select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
+        select.innerHTML = '<option value="">-- Chá»n nhÃ¢n viÃªn --</option>';
         users.forEach(u => {
             const opt = document.createElement('option');
             opt.value = u.id;
@@ -125,7 +126,7 @@ async function populateStaffSelect() {
         renderStaffDropdownItems(users);
     }
 
-    // Nếu chỉ có 1 user (staff tự xem) → auto-select
+    // Náº¿u chá»‰ cÃ³ 1 user (staff tá»± xem) â†’ auto-select
     if (users.length === 1) {
         selectStaffFromDropdown(users[0]);
     }
@@ -136,17 +137,17 @@ function renderStaffDropdownItems(users) {
     if (!list) return;
 
     const ROLE_LABELS = {
-        'admin': 'Quản Trị Viên',
-        'senior_assistant': 'Trợ Lý Cấp Cao',
-        'assistant': 'Trợ Lý',
-        'teaching_assistant': 'Trợ giảng/ GV TA',
-        'receptionist': 'Tiếp Tân',
-        'receptionist_assistant': 'Trợ Lí Tiếp Tân',
-        'staff': 'Nhân Viên'
+        'admin': 'Quáº£n Trá»‹ ViÃªn',
+        'senior_assistant': 'Trá»£ LÃ½ Cáº¥p Cao',
+        'assistant': 'Trá»£ LÃ½',
+        'teaching_assistant': 'Trá»£ giáº£ng/ GV TA',
+        'receptionist': 'Tiáº¿p TÃ¢n',
+        'receptionist_assistant': 'Trá»£ LÃ­ Tiáº¿p TÃ¢n',
+        'staff': 'NhÃ¢n ViÃªn'
     };
 
     if (users.length === 0) {
-        list.innerHTML = '<div style="padding:1rem;text-align:center;color:#9CA3AF;font-size:0.9rem;">Không tìm thấy nhân viên</div>';
+        list.innerHTML = '<div style="padding:1rem;text-align:center;color:#9CA3AF;font-size:0.9rem;">KhÃ´ng tÃ¬m tháº¥y nhÃ¢n viÃªn</div>';
         return;
     }
 
@@ -164,10 +165,11 @@ function renderStaffDropdownItems(users) {
                 onmouseover="this.style.background='#F0FDF4'"
                 onmouseout="this.style.background=''"
             >
-                <div style="width:36px;height:36px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:white;flex-shrink:0;">${initial}</div>
+                <div 
+style="width:36px;height:36px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:white;flex-shrink:0;">${initial}</div>
                 <div>
                     <div style="font-weight:600;font-size:0.9rem;color:#1F2937;">${u.name || u.username}</div>
-                    <div style="font-size:0.75rem;color:#6B7280;">${roleLabel}${u.username ? ' · ' + u.username : ''}</div>
+                    <div style="font-size:0.75rem;color:#6B7280;">${roleLabel}${u.username ? ' Â· ' + u.username : ''}</div>
                 </div>
             </div>
         `;
@@ -192,7 +194,7 @@ function closeStaffDropdownOnOutside(e) {
     if (wrapper && !wrapper.contains(e.target)) {
         closeStaffDropdown();
     } else {
-        // Still inside — re-attach listener
+        // Still inside â€” re-attach listener
         setTimeout(() => {
             document.addEventListener('click', closeStaffDropdownOnOutside, { once: true });
         }, 0);
@@ -223,7 +225,7 @@ function filterStaffDropdown(query) {
 }
 
 function selectStaffFromDropdown(user) {
-    // 1. Set hidden select value (giữ compat với getTargetStaffId)
+    // 1. Set hidden select value (giá»¯ compat vá»›i getTargetStaffId)
     const select = document.getElementById('staff-select');
     if (select) select.value = user.id;
 
@@ -249,12 +251,12 @@ window.toggleBonusSelectionMode = function(btn) {
     window.isBonusSelectMode = !window.isBonusSelectMode;
     if (window.isBonusSelectMode) {
         btn.style.background = '#EF4444'; // Red to cancel
-        btn.innerText = 'Bỏ Chọn Thưởng';
-        if (typeof UIService !== 'undefined') UIService.toast('Chế độ thưởng: Click vào các ca làm để cộng 10p.', 'info');
+        btn.innerText = 'Bá» Chá»n ThÆ°á»Ÿng';
+        if (typeof UIService !== 'undefined') UIService.toast('Cháº¿ Ä‘á»™ thÆ°á»Ÿng: Click vÃ o cÃ¡c ca lÃ m Ä‘á»ƒ cá»™ng 10p.', 'info');
     } else {
         btn.style.background = '#10B981'; // Green
-        btn.innerText = '+ Thưởng 10p';
-        if (typeof UIService !== 'undefined') UIService.toast('Đã tắt chế độ thưởng.', 'info');
+        btn.innerText = '+ ThÆ°á»Ÿng 10p';
+        if (typeof UIService !== 'undefined') UIService.toast('ÄÃ£ táº¯t cháº¿ Ä‘á»™ thÆ°á»Ÿng.', 'info');
     }
     renderMonthReport(currentDate);
 };
@@ -267,15 +269,15 @@ window.toggleFixedShiftMode = function(btn) {
     
     if (window.isFixedShiftMode) {
         btn.style.background = '#EF4444'; // Red to cancel
-        btn.innerText = 'Hủy Chọn CĐ';
+        btn.innerText = 'Há»§y Chá»n CÄ';
         if (saveBtn) saveBtn.style.display = 'inline-block';
-        if (typeof UIService !== 'undefined') UIService.toast('Chế độ Ca Cố Định: Click vào các ca tiếp tân để chọn.', 'info');
+        if (typeof UIService !== 'undefined') UIService.toast('Cháº¿ Ä‘á»™ Ca Cá»‘ Äá»‹nh: Click vÃ o cÃ¡c ca tiáº¿p tÃ¢n Ä‘á»ƒ chá»n.', 'info');
     } else {
         btn.style.background = '#6366F1'; // Indigo
-        btn.innerText = 'Đánh dấu Ca Cố Định';
+        btn.innerText = 'ÄÃ¡nh dáº¥u Ca Cá»‘ Äá»‹nh';
         if (saveBtn) saveBtn.style.display = 'none';
         window.selectedFixedShifts.clear();
-        if (typeof UIService !== 'undefined') UIService.toast('Đã tắt chế độ Ca Cố Định.', 'info');
+        if (typeof UIService !== 'undefined') UIService.toast('ÄÃ£ táº¯t cháº¿ Ä‘á»™ Ca Cá»‘ Äá»‹nh.', 'info');
     }
     renderMonthReport(currentDate);
 };
@@ -284,7 +286,7 @@ window.saveFixedShiftsToServer = async function() {
     if (!window.isFixedShiftMode) return;
     const staffId = document.getElementById('staff-select') ? document.getElementById('staff-select').value : null;
     if (!staffId || staffId === 'all') {
-         if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn nhân viên trước.', 'error');
+         if (typeof UIService !== 'undefined') UIService.toast('Vui lÃ²ng chá»n nhÃ¢n viÃªn trÆ°á»›c.', 'error');
          return;
     }
     const year = currentDate.getFullYear();
@@ -294,7 +296,7 @@ window.saveFixedShiftsToServer = async function() {
     try {
         const shiftsArr = Array.from(window.selectedFixedShifts);
         await DBService.saveFixedShifts(monthStr, staffId, shiftsArr);
-        if (typeof UIService !== 'undefined') UIService.toast('Đã lưu các Ca Cố Định thành công!', 'success');
+        if (typeof UIService !== 'undefined') UIService.toast('ÄÃ£ lÆ°u cÃ¡c Ca Cá»‘ Äá»‹nh thÃ nh cÃ´ng!', 'success');
         
         // Turn off mode
         const btn = document.getElementById('btn-mark-fixed');
@@ -302,7 +304,7 @@ window.saveFixedShiftsToServer = async function() {
         
     } catch (e) {
         console.error("Error saving fixed shifts:", e);
-        if (typeof UIService !== 'undefined') UIService.toast('Lỗi khi lưu.', 'error');
+        if (typeof UIService !== 'undefined') UIService.toast('Lá»—i khi lÆ°u.', 'error');
     }
 };
 
@@ -317,28 +319,28 @@ function getHolidayName(dateStr) {
     const [y, m, d] = dateStr.split('-').map(Number);
 
     // 1. Fixed Solar Holidays
-    if (m === 1 && d === 1) return "Tết Dương Lịch";
-    if (m === 4 && d === 30) return "Giải phóng MN";
-    if (m === 5 && d === 1) return "Quốc tế LĐ";
-    if (m === 9 && d === 2) return "Quốc Khánh";
-    if (m === 12 && d === 25) return "Giáng Sinh"; // Optional
+    if (m === 1 && d === 1) return "Táº¿t DÆ°Æ¡ng Lá»‹ch";
+    if (m === 4 && d === 30) return "Giáº£i phÃ³ng MN";
+    if (m === 5 && d === 1) return "Quá»‘c táº¿ LÄ";
+    if (m === 9 && d === 2) return "Quá»‘c KhÃ¡nh";
+    if (m === 12 && d === 25) return "GiÃ¡ng Sinh"; // Optional
 
     // 2. Variable Lunar Holidays (Hardcoded for 2024-2026)
     // 2024
     if (y === 2024) {
-        if (m === 2 && (d >= 8 && d <= 14)) return "Tết Nguyên Đán";
-        if (m === 4 && d === 18) return "Giỗ Tổ Hùng Vương";
+        if (m === 2 && (d >= 8 && d <= 14)) return "Táº¿t NguyÃªn ÄÃ¡n";
+        if (m === 4 && d === 18) return "Giá»— Tá»• HÃ¹ng VÆ°Æ¡ng";
     }
     // 2025
     if (y === 2025) {
-        if (m === 1 && d >= 28) return "Tết Nguyên Đán";
-        if (m === 2 && d <= 2) return "Tết Nguyên Đán";
-        if (m === 4 && d === 7) return "Giỗ Tổ Hùng Vương";
+        if (m === 1 && d >= 28) return "Táº¿t NguyÃªn ÄÃ¡n";
+        if (m === 2 && d <= 2) return "Táº¿t NguyÃªn ÄÃ¡n";
+        if (m === 4 && d === 7) return "Giá»— Tá»• HÃ¹ng VÆ°Æ¡ng";
     }
     // 2026
     if (y === 2026) {
-        if (m === 2 && (d >= 17 && d <= 22)) return "Tết Nguyên Đán"; // 1st Tet is 17 Feb 2026
-        if (m === 4 && d === 25) return "Giỗ Tổ Hùng Vương"; // 10/3 Lunar = Apr 25
+        if (m === 2 && (d >= 17 && d <= 22)) return "Táº¿t NguyÃªn ÄÃ¡n"; // 1st Tet is 17 Feb 2026
+        if (m === 4 && d === 25) return "Giá»— Tá»• HÃ¹ng VÆ°Æ¡ng"; // 10/3 Lunar = Apr 25
     }
 
     // Sundays are not holidays by default logic here, just "Weekend"
@@ -361,7 +363,7 @@ async function renderMonthReport(date, forceServer = false) {
     if (!grid) return;
 
     // Loading State
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Đang tải dữ liệu chấm công từ hệ thống...</div>';
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Äang táº£i dá»¯ liá»‡u cháº¥m cÃ´ng tá»« há»‡ thá»‘ng...</div>';
 
     const monthDisplay = document.getElementById('report-month-title');
     const totalHoursEl = document.getElementById('total-hours-display');
@@ -370,7 +372,7 @@ async function renderMonthReport(date, forceServer = false) {
     const month = date.getMonth();
 
     if (monthDisplay) {
-        monthDisplay.innerText = `Tháng ${month + 1}, ${year}`;
+        monthDisplay.innerText = `ThÃ¡ng ${month + 1}, ${year}`;
     }
 
     // Resolve Context (Who are we viewing?)
@@ -411,7 +413,7 @@ async function renderMonthReport(date, forceServer = false) {
     }
 
     if (!staffId) {
-        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red;">Vui lòng đăng nhập hoặc chọn nhân viên.</div>';
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red;">Vui lÃ²ng Ä‘Äƒng nháº­p hoáº·c chá»n nhÃ¢n viÃªn.</div>';
         return;
     }
 
@@ -455,17 +457,17 @@ async function renderMonthReport(date, forceServer = false) {
         overtimeRequestsList = await DBService.getOvertimeRequestsForStaff(staffId, monthStr);
     } catch (e) { console.warn('[OT] Could not load OT requests:', e); }
 
-    // Fetch bonus10 requests cho tháng này
+    // Fetch bonus10 requests cho thÃ¡ng nÃ y
     let bonus10RequestsList = [];
     try {
         bonus10RequestsList = await DBService.getBonus10RequestsForStaff(staffId, monthStr);
     } catch (e) { console.warn('[Bonus10] Could not load requests:', e); }
 
-    // Build bonus10Map: sessionId (string) → request data
+    // Build bonus10Map: sessionId (string) â†’ request data
     const bonus10Map = {};
     bonus10RequestsList.forEach(req => {
         const key = String(req.sessionId);
-        // Ưu tiên: approved > pending > rejected
+        // Æ¯u tiÃªn: approved > pending > rejected
         const existing = bonus10Map[key];
         if (!existing || req.status === 'approved' || (req.status === 'pending' && existing.status === 'rejected')) {
             bonus10Map[key] = req;
@@ -541,7 +543,7 @@ async function renderMonthReport(date, forceServer = false) {
             for (const branch of BRANCHES) {
                 shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
             }
-            const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
+            const SHIFT_LABELS = { morning: 'SÃNG', afternoon: 'CHIá»€U', evening: 'Tá»I' };
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
             const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -591,7 +593,7 @@ async function renderMonthReport(date, forceServer = false) {
 
                 // Calculate day of week index (0=mon, 1=tue, ..., 6=sun)
                 const dayOfWeek = dateObj.getDay();
-                const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert Sun=0 → 6, Mon=1 → 0, etc.
+                const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert Sun=0 â†’ 6, Mon=1 â†’ 0, etc.
                 const dayKey = DAY_KEYS_MAP[dayIdx];
 
                 // Check all fetched receptionist schedules for this monday + day
@@ -741,7 +743,7 @@ async function renderMonthReport(date, forceServer = false) {
 
         if (hasNote) {
             // Highlighted date number with pin
-            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);">📌 ${d}</span>`;
+            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);">ðŸ“Œ ${d}</span>`;
             // Highlight entire cell background
             cell.style.backgroundColor = '#EFF6FF'; // Light blue
             cell.style.borderLeft = '3px solid var(--primary-color)';
@@ -757,7 +759,7 @@ async function renderMonthReport(date, forceServer = false) {
             holDiv.style.color = '#EF4444';
             holDiv.style.marginTop = '2px';
             holDiv.style.fontWeight = 'bold';
-            holDiv.innerText = `🚩 ${holidayName}`;
+            holDiv.innerText = `ðŸš© ${holidayName}`;
             dateHeader.appendChild(holDiv);
 
             // Highlight cell background slightly (holiday takes priority if also has note)
@@ -770,9 +772,9 @@ async function renderMonthReport(date, forceServer = false) {
         controlsDiv.style.gap = '4px';
 
         const noteBtn = document.createElement('button');
-        noteBtn.innerHTML = '📝';
+        noteBtn.innerHTML = 'ðŸ“';
         noteBtn.className = 'action-btn';
-        noteBtn.title = hasNote ? `Ghi chú: ${noteText.substring(0, 50)}...` : 'Thêm ghi chú';
+        noteBtn.title = hasNote ? `Ghi chÃº: ${noteText.substring(0, 50)}...` : 'ThÃªm ghi chÃº';
         noteBtn.onclick = () => openNoteModal(dateStr);
         if (hasNote) noteBtn.style.color = 'var(--primary-color)';
         else noteBtn.style.color = '#ccc';
@@ -782,9 +784,9 @@ async function renderMonthReport(date, forceServer = false) {
         // --- ADMIN ONLY: Manual Add Button ---
         if (role === 'admin' || role === 'senior_assistant') {
             const addBtn = document.createElement('button');
-            addBtn.innerHTML = '➕';
+            addBtn.innerHTML = 'âž•';
             addBtn.className = 'action-btn';
-            addBtn.title = 'Chấm công bù/thủ công';
+            addBtn.title = 'Cháº¥m cÃ´ng bÃ¹/thá»§ cÃ´ng';
             addBtn.style.color = '#10B981'; // Green
             addBtn.onclick = () => openManualModal(dateStr);
             controlsDiv.appendChild(addBtn);
@@ -817,15 +819,18 @@ async function renderMonthReport(date, forceServer = false) {
                 const warningIcon = document.createElement('span');
                 const isAdmin = chip.isAdminCreated;
                 warningIcon.innerHTML = isAdmin
-                    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'
-                    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+                    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 
+0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'
+                    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" 
+y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
                 warningIcon.style.cssText = 'cursor:pointer;margin-left:4px;display:inline-flex;align-items:center';
-                warningIcon.title = isAdmin ? 'Admin đã thêm ca này' : 'Click để xem chi tiết';
+                warningIcon.title = isAdmin ? 'Admin Ä‘Ã£ thÃªm ca nÃ y' : 'Click Ä‘á»ƒ xem chi tiáº¿t';
                 warningIcon.onclick = (e) => {
                     e.stopPropagation();
 
                     const overlay = document.createElement('div');
-                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease';
+                    overlay.style.cssText = 
+'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease';
                     overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
 
                     const modal = document.createElement('div');
@@ -837,75 +842,80 @@ async function renderMonthReport(date, forceServer = false) {
                         modal.innerHTML = `
                             <div style="text-align:center;margin-bottom:1.5rem">
                                 <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" 
+x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                 </div>
-                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Vắng Ca Tiếp Tân</h3>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Váº¯ng Ca Tiáº¿p TÃ¢n</h3>
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="font-size:1.25rem">ðŸ“…</span>
                                     <div>
-                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">NgÃ y</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
                                     </div>
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="font-size:1.25rem">ðŸŸ¢</span>
                                         <div>
-                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca bắt đầu</div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca báº¯t Ä‘áº§u</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.start || '???'}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="font-size:1.25rem">ðŸ”´</span>
                                         <div>
-                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca kết thúc</div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca káº¿t thÃºc</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.end || '???'}</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Trạng thái</div>
-                                <div style="font-size:0.85rem;color:#7F1D1D">Tiếp tân đã được xếp lịch cho ca này nhưng <strong>không có dữ liệu chấm công</strong>.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">ðŸ“‹ Tráº¡ng thÃ¡i</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">Tiáº¿p tÃ¢n Ä‘Ã£ Ä‘Æ°á»£c xáº¿p lá»‹ch cho ca nÃ y nhÆ°ng <strong>khÃ´ng cÃ³ dá»¯ liá»‡u cháº¥m cÃ´ng</strong>.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
-                                <div style="font-size:0.85rem;color:#065F46">Tiếp tân cần <strong>"Vào Ca"</strong> trên trang Chấm Công trước khi bắt đầu ca, hoặc Admin hãy chấm công bù.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">ðŸ’¡ Giáº£i phÃ¡p</div>
+                                <div style="font-size:0.85rem;color:#065F46">Tiáº¿p tÃ¢n cáº§n <strong>"VÃo Ca"</strong> trÃªn trang Cháº¥m CÃ´ng trÆ°á»›c khi báº¯t Ä‘áº§u ca, hoáº·c Admin hÃ£y cháº¥m cÃ´ng 
+bÃ¹.</div>
                             </div>
-                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, 
+#3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">ÄÃ£ 
+hiá»ƒu</button>
                         `;
                     } else if (isAdmin) {
                         // Admin-created session modal
                         const s = chip.sessionData || {};
                         const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
-                        const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
+                        const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'ChÆ°a ra ca';
                         modal.innerHTML = `
                             <div style="text-align:center;margin-bottom:1.5rem">
                                 <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#EFF6FF;margin-bottom:0.75rem">
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 
+1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                                 </div>
-                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca Được Admin Thêm</h3>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca ÄÆ°á»£c Admin ThÃªm</h3>
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="font-size:1.25rem">ðŸ“…</span>
                                     <div>
-                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">NgÃ y</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
                                     </div>
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="font-size:1.25rem">ðŸŸ¢</span>
                                         <div>
-                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">VÃ o ca</div>
                                             <div style="font-weight:600;color:#1F2937">${startTime}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="font-size:1.25rem">ðŸ”´</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
                                             <div style="font-weight:600;color:#1F2937">${endTime}</div>
@@ -914,10 +924,13 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                             </div>
                             <div style="background:#EFF6FF;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #3B82F6">
-                                <div style="font-size:0.8rem;font-weight:600;color:#2563EB;margin-bottom:0.25rem">🛠️ Thông tin</div>
-                                <div style="font-size:0.85rem;color:#1E40AF">Ca này được <strong>Quản lý thêm thủ công</strong>. Nếu chưa chọn vai trò, hãy bấm vào chip để chọn.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#2563EB;margin-bottom:0.25rem">ðŸ› ï¸ ThÃ´ng tin</div>
+                                <div style="font-size:0.85rem;color:#1E40AF">Ca nÃy Ä‘Æ°á»£c <strong>Quáº£n lÃ½ thÃªm thá»§ cÃ´ng</strong>. Náº¿u chÆ°a chá»n vai trÃ², hÃ£y báº¥m vÃo chip Ä‘á»ƒ 
+chá»n.</div>
                             </div>
-                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:#3B82F6;color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                            <button id="warning-modal-close-btn" 
+style="width:100%;padding:0.75rem;background:#3B82F6;color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" 
+onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">ÄÃ£ hiá»ƒu</button>
                         `;
                     } else if (!chip.sessionData && chip.schedData) {
                         // Teacher absent chip (has schedData, no sessionData)
@@ -925,75 +938,80 @@ async function renderMonthReport(date, forceServer = false) {
                         modal.innerHTML = `
                             <div style="text-align:center;margin-bottom:1.5rem">
                                 <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" 
+x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                 </div>
-                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Vắng Ca</h3>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Váº¯ng Ca</h3>
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="font-size:1.25rem">ðŸ“…</span>
                                     <div>
-                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">NgÃ y</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
                                     </div>
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="font-size:1.25rem">ðŸŸ¢</span>
                                         <div>
-                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giờ bắt đầu</div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giá» báº¯t Ä‘áº§u</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.start || '???'}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="font-size:1.25rem">ðŸ”´</span>
                                         <div>
-                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giờ kết thúc</div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giá» káº¿t thÃºc</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.end || '???'}</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Trạng thái</div>
-                                <div style="font-size:0.85rem;color:#7F1D1D">Đã nhận lớp nhưng <strong>không có dữ liệu chấm công</strong>.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">ðŸ“‹ Tráº¡ng thÃ¡i</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">ÄÃ£ nháº­n lá»›p nhÆ°ng <strong>khÃ´ng cÃ³ dá»¯ liá»‡u cháº¥m cÃ´ng</strong>.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
-                                <div style="font-size:0.85rem;color:#065F46">Trợ giảng cần <strong>"Vào Ca"</strong> trên trang Chấm Công trước khi bắt đầu lớp, hoặc Admin hãy chấm công bù.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">ðŸ’¡ Giáº£i phÃ¡p</div>
+                                <div style="font-size:0.85rem;color:#065F46">Trá»£ giáº£ng cáº§n <strong>"VÃo Ca"</strong> trÃªn trang Cháº¥m CÃ´ng trÆ°á»›c khi báº¯t Ä‘áº§u lá»›p, hoáº·c Admin hÃ£y cháº¥m 
+cÃ´ng bÃ¹.</div>
                             </div>
-                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, 
+#3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">ÄÃ£ 
+hiá»ƒu</button>
                         `;
                     } else {
-                        // Regular "Ca Ngoài Lịch" modal (has sessionData)
+                        // Regular "Ca NgoÃ i Lá»‹ch" modal (has sessionData)
                         const s = chip.sessionData || {};
                         const startTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
-                        const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
+                        const endTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'ChÆ°a ra ca';
                         modal.innerHTML = `
                             <div style="text-align:center;margin-bottom:1.5rem">
                                 <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:#FEF2F2;margin-bottom:0.75rem">
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" 
+x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                 </div>
-                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca Ngoài Lịch</h3>
+                                <h3 style="font-size:1.25rem;font-weight:700;color:#1F2937;margin:0">Ca NgoÃ i Lá»‹ch</h3>
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="font-size:1.25rem">ðŸ“…</span>
                                     <div>
-                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
+                                        <div style="font-size:0.75rem;color:#6B7280;font-weight:500">NgÃ y</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
                                     </div>
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="font-size:1.25rem">ðŸŸ¢</span>
                                         <div>
-                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
+                                            <div style="font-size:0.75rem;color:#6B7280;font-weight:500">VÃ o ca</div>
                                             <div style="font-weight:600;color:#1F2937">${startTime}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="font-size:1.25rem">ðŸ”´</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
                                             <div style="font-weight:600;color:#1F2937">${endTime}</div>
@@ -1002,14 +1020,17 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Lý do</div>
-                                <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp/ca nào trong lịch đã xếp.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">ðŸ“‹ LÃ½ do</div>
+                                <div style="font-size:0.85rem;color:#7F1D1D">Thá»i gian cháº¥m cÃ´ng khÃ´ng khá»›p vá»›i báº¥t ká»³ lá»›p/ca nÃ o trong lá»‹ch Ä‘Ã£ xáº¿p.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
-                                <div style="font-size:0.85rem;color:#065F46">Trợ giảng cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm, hoặc Tiếp tân cần được Admin <strong>xếp lịch</strong> trước khi Vào Ca.</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">ðŸ’¡ Giáº£i phÃ¡p</div>
+                                <div style="font-size:0.85rem;color:#065F46">Trá»£ giáº£ng cáº§n <strong>"Nháºn Lá»›p"</strong> trong má»¥c Lá»‹ch LÃm, hoáº·c Tiáº¿p tÃ¢n cáº§n Ä‘Æ°á»£c Admin <strong>xáº¿p 
+lá»‹ch</strong> trÆ°á»›c khi VÃo Ca.</div>
                             </div>
-                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
+                            <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, 
+#3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">ÄÃ£ 
+hiá»ƒu</button>
                         `;
                     }
                     overlay.appendChild(modal);
@@ -1019,25 +1040,25 @@ async function renderMonthReport(date, forceServer = false) {
                 div.appendChild(warningIcon);
             }
 
-            // --- NÚT SỚM 10P ---
+            // --- NÃšT Sá»šM 10P ---
             if (canRequestBonus10 && chip.sessionId && chip.class !== 'chip-blue' && chip.class !== 'chip-gray' && chip.class !== 'chip-future') {
                 const b10Btn = document.createElement('button');
                 b10Btn.className = 'action-btn';
                 b10Btn.style.cssText = 'font-size:0.7rem;padding:1px 5px;border-radius:4px;border:none;cursor:pointer;margin-left:2px;';
 
                 if (chip.bonus10Status === 'approved' || (chip.sessionData && chip.sessionData.bonus10)) {
-                    b10Btn.innerHTML = '⭐ +10p';
+                    b10Btn.innerHTML = 'â­ +10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
                     b10Btn.disabled = true;
-                    b10Btn.title = 'Đã được thưởng 10p';
+                    b10Btn.title = 'ÄÃ£ Ä‘Æ°á»£c thÆ°á»Ÿng 10p';
                 } else if (chip.bonus10Status === 'pending') {
-                    b10Btn.innerHTML = '⭐ Chờ duyệt';
+                    b10Btn.innerHTML = 'â­ Chá» duyá»‡t';
                     b10Btn.style.background = '#FEF3C7';
                     b10Btn.style.color = '#D97706';
-                    b10Btn.title = 'Yêu cầu đang chờ admin duyệt';
+                    b10Btn.title = 'YÃªu cáº§u Ä‘ang chá» admin duyá»‡t';
                     if (isAdminRoleLoop) {
-                        b10Btn.innerHTML = '⭐ Duyệt';
+                        b10Btn.innerHTML = 'â­ Duyá»‡t';
                         b10Btn.style.background = '#FEF3C7';
                         b10Btn.style.color = '#D97706';
                         b10Btn.disabled = false;
@@ -1049,10 +1070,10 @@ async function renderMonthReport(date, forceServer = false) {
                         b10Btn.disabled = true;
                     }
                 } else if (chip.bonus10Status === 'rejected' || !chip.bonus10Status) {
-                    b10Btn.innerHTML = '⭐ Sớm 10p';
+                    b10Btn.innerHTML = 'â­ Sá»›m 10p';
                     b10Btn.style.background = chip.bonus10Status === 'rejected' ? '#FEE2E2' : '#F3F4F6';
                     b10Btn.style.color = chip.bonus10Status === 'rejected' ? '#DC2626' : '#6B7280';
-                    b10Btn.title = chip.bonus10Status === 'rejected' ? 'Bị từ chối — bấm để gửi lại' : 'Yêu cầu thưởng 10p vào sớm';
+                    b10Btn.title = chip.bonus10Status === 'rejected' ? 'Bá»‹ tá»« chá»‘i â€” báº¥m Ä‘á»ƒ gá»­i láº¡i' : 'YÃªu cáº§u thÆ°á»Ÿng 10p vÃ o sá»›m';
                     b10Btn.onclick = (e) => {
                         e.stopPropagation();
                         submitBonus10Request(chip.sessionId, dateStr, staffId);
@@ -1067,7 +1088,7 @@ async function renderMonthReport(date, forceServer = false) {
             const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
             chip.isFixedShift = isFixed;
             if (isFixed && !window.isFixedShiftMode) {
-               div.innerHTML = `<span>${chip.text} <b>(CĐ)</b></span>`;
+               div.innerHTML = `<span>${chip.text} <b>(CÄ)</b></span>`;
                div.style.border = '2px solid #8B5CF6'; 
             }
 
@@ -1092,13 +1113,13 @@ async function renderMonthReport(date, forceServer = false) {
                                 const btn = e.currentTarget;
                                 btn.style.opacity = '0.5';
                                 await DBService.toggleSessionBonus10(staffId, dateStr, chip.sessionId);
-                                if (typeof UIService !== 'undefined') UIService.toast("Đã cập nhật thưởng 10p!", "success");
+                                if (typeof UIService !== 'undefined') UIService.toast("ÄÃ£ cáº­p nháº­t thÆ°á»Ÿng 10p!", "success");
                                 renderMonthReport(currentDate); // re-render
                             } catch (err) {
-                                if (typeof UIService !== 'undefined') UIService.toast(err.message || 'Lỗi', 'error');
+                                if (typeof UIService !== 'undefined') UIService.toast(err.message || 'Lá»—i', 'error');
                             }
                         } else {
-                            if (typeof UIService !== 'undefined') UIService.toast('Ca này chưa có dữ liệu vào ra.', 'warning');
+                            if (typeof UIService !== 'undefined') UIService.toast('Ca nÃ y chÆ°a cÃ³ dá»¯ liá»‡u vÃ o ra.', 'warning');
                         }
                     } else if (window.isFixedShiftMode) {
                         if (chip.isReceptionist && chip.sessionId) {
@@ -1109,7 +1130,7 @@ async function renderMonthReport(date, forceServer = false) {
                             }
                             renderMonthReport(currentDate);
                         } else {
-                            if (typeof UIService !== 'undefined') UIService.toast('Chỉ có thể chọn các ca tiếp tân có dữ liệu vào ra.', 'warning');
+                            if (typeof UIService !== 'undefined') UIService.toast('Chá»‰ cÃ³ thá»ƒ chá»n cÃ¡c ca tiáº¿p tÃ¢n cÃ³ dá»¯ liá»‡u vÃ o ra.', 'warning');
                         }
                     } else if (chip.isClickable) {
                         if (chip.sessionId) {
@@ -1137,7 +1158,7 @@ async function renderMonthReport(date, forceServer = false) {
             // Add Edit Icon for Admin if there is an underlying session
             if ((role === 'admin' || role === 'senior_assistant') && chip.sessionId) {
                 const editBtn = document.createElement('span');
-                editBtn.innerHTML = '✏️';
+                editBtn.innerHTML = 'âœï¸';
                 editBtn.style.cursor = 'pointer';
                 editBtn.style.fontSize = '0.8em';
                 editBtn.style.marginLeft = '4px';
@@ -1159,12 +1180,12 @@ async function renderMonthReport(date, forceServer = false) {
                 // Admin: if this chip has a pending overtime, show Confirm/Reject buttons
                 if (chip.overtimePending && chip.overtimeId) {
                     const confirmBtn = document.createElement('span');
-                    confirmBtn.innerHTML = '✅';
-                    confirmBtn.title = 'Xác nhận tăng ca';
+                    confirmBtn.innerHTML = 'âœ…';
+                    confirmBtn.title = 'XÃ¡c nháº­n tÄƒng ca';
                     confirmBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;';
                     confirmBtn.onclick = async (e) => {
                         e.stopPropagation();
-                        if (!confirm('Xác nhận giờ tăng ca này?')) return;
+                        if (!confirm('XÃ¡c nháº­n giá» tÄƒng ca nÃ y?')) return;
                         const adminName = localStorage.getItem('currentUserName') || 'Admin';
                         await DBService.approveOvertimeRequest(chip.overtimeId, adminName);
                         _cachedStaffId = null;
@@ -1173,12 +1194,12 @@ async function renderMonthReport(date, forceServer = false) {
                     div.appendChild(confirmBtn);
 
                     const rejectBtn = document.createElement('span');
-                    rejectBtn.innerHTML = '❌';
-                    rejectBtn.title = 'Từ chối tăng ca';
+                    rejectBtn.innerHTML = 'âŒ';
+                    rejectBtn.title = 'Tá»« chá»‘i tÄƒng ca';
                     rejectBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:2px;';
                     rejectBtn.onclick = async (e) => {
                         e.stopPropagation();
-                        if (!confirm('Từ chối yêu cầu tăng ca này?')) return;
+                        if (!confirm('Tá»« chá»‘i yÃªu cáº§u tÄƒng ca nÃ y?')) return;
                         const adminName = localStorage.getItem('currentUserName') || 'Admin';
                         await DBService.rejectOvertimeRequest(chip.overtimeId, adminName);
                         _cachedStaffId = null;
@@ -1188,11 +1209,11 @@ async function renderMonthReport(date, forceServer = false) {
                 }
             }
 
-            // Staff: add ⏱️ Overtime Request button on completed sessions with no pending OT
+            // Staff: add â±ï¸ Overtime Request button on completed sessions with no pending OT
             if (role !== 'admin' && chip.sessionId && chip.sessionData && chip.sessionData.checkOut && !chip.overtimePending && !chip.overtimeMinutes) {
                 const otBtn = document.createElement('span');
-                otBtn.innerHTML = '⏱️';
-                otBtn.title = 'Yêu cầu tăng ca';
+                otBtn.innerHTML = 'â±ï¸';
+                otBtn.title = 'YÃªu cáº§u tÄƒng ca';
                 otBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;opacity:0.6;';
                 otBtn.onmouseover = () => otBtn.style.opacity = '1';
                 otBtn.onmouseout = () => otBtn.style.opacity = '0.6';
@@ -1230,7 +1251,7 @@ async function renderMonthReport(date, forceServer = false) {
             footer.style.textAlign = 'right';
 
             // Explicit text node to avoid innerText quirks
-            footer.textContent = `Tổng: ${h}h ${m}p`;
+            footer.textContent = `Tá»•ng: ${h}h ${m}p`;
 
             cell.appendChild(footer);
         }
@@ -1242,7 +1263,7 @@ async function renderMonthReport(date, forceServer = false) {
     if (totalHoursEl) {
         const h = Math.floor(totalMinutes / 60);
         const m = Math.floor(totalMinutes % 60);
-        totalHoursEl.innerText = `Tổng giờ làm: ${h} giờ ${m} phút`;
+        totalHoursEl.innerText = `Tá»•ng giá» lÃ m: ${h} giá» ${m} phÃºt`;
     }
 
     // Update Salary (Admin)
@@ -1254,10 +1275,10 @@ async function renderMonthReport(date, forceServer = false) {
     }
 }
 
-// calculateDailyChips() → Moved to evaluation-service.js
+// calculateDailyChips() â†’ Moved to evaluation-service.js
 
 // ================= SALARY CALCULATION & EVALUATION =================
-// EVALUATION_CRITERIA → Moved to evaluation-service.js
+// EVALUATION_CRITERIA â†’ Moved to evaluation-service.js
 
 let currentEvalIndex = null;
 
@@ -1275,7 +1296,7 @@ function renderEvaluationTable(savedData = []) {
     if (!tbody || !thead) return;
 
     // Headers
-    let headerHtml = '<tr><th style="padding: 0.5rem; border: 1px solid #e5e7eb; width: 100px;">Nội dung</th>';
+    let headerHtml = '<tr><th style="padding: 0.5rem; border: 1px solid #e5e7eb; width: 100px;">Ná»™i dung</th>';
     EVALUATION_CRITERIA.forEach(item => {
         headerHtml += `<th style="padding: 0.5rem; border: 1px solid #e5e7eb; text-align: center;" title="${item.tooltip}">${item.label}</th>`;
     });
@@ -1284,8 +1305,8 @@ function renderEvaluationTable(savedData = []) {
 
     // Rows
     let totalBonus = 0;
-    let trAmount = '<tr><td style="padding: 0.5rem; font-weight: 600;">Thưởng/Phạt</td>';
-    let trNote = '<tr><td style="padding: 0.5rem; font-weight: 600;">Ghi chú</td>';
+    let trAmount = '<tr><td style="padding: 0.5rem; font-weight: 600;">ThÆ°á»Ÿng/Pháº¡t</td>';
+    let trNote = '<tr><td style="padding: 0.5rem; font-weight: 600;">Ghi chÃº</td>';
 
     EVALUATION_CRITERIA.forEach((item, index) => {
         const rowData = savedData[index] || {};
@@ -1305,8 +1326,8 @@ function renderEvaluationTable(savedData = []) {
         trNote += `
             <td style="padding: 0.25rem; border: 1px solid #e5e7eb; text-align: center;">
                 <input type="hidden" class="eval-note" value="${note.replace(/"/g, '&quot;')}" data-index="${index}">
-                <button type="button" onclick="openEvalNoteModal(${index})" style="background: none; border: none; cursor: pointer; color: ${noteBtnColor};" title="${note || 'Thêm ghi chú'}">
-                   📝
+                <button type="button" onclick="openEvalNoteModal(${index})" style="background: none; border: none; cursor: pointer; color: ${noteBtnColor};" title="${note || 'ThÃªm ghi chÃº'}">
+                   ðŸ“
                 </button>
             </td>`;
     });
@@ -1332,7 +1353,7 @@ function calculateSalary() {
 
     // 2. Filter Chips & Calculate Minutes
     const hoursDisplay = document.getElementById('role-hours-display');
-    if (hoursDisplay) hoursDisplay.innerText = "Đang xử lý...";
+    if (hoursDisplay) hoursDisplay.innerText = "Äang xá»­ lÃ½...";
 
     let filteredMinutes = 0;
     let filteredSalary = 0; // Accumulate salary based on role rates
@@ -1446,9 +1467,9 @@ function calculateSalary() {
         const h = Math.floor(filteredMinutes / 60);
         const m = Math.floor(filteredMinutes % 60);
 
-        let label = "Tổng giờ: ";
-        if (roleFilter === 'tiep-tan') label = "Giờ Tiếp Tân: ";
-        if (roleFilter === 'giao-vien') label = "Giờ Dạy: ";
+        let label = "Tá»•ng giá»: ";
+        if (roleFilter === 'tiep-tan') label = "Giá» Tiáº¿p TÃ¢n: ";
+        if (roleFilter === 'giao-vien') label = "Giá» Dáº¡y: ";
 
         hoursDisplay.innerText = `${label}${h}h ${m}p`;
         
@@ -1465,7 +1486,7 @@ function calculateSalary() {
         }
         
         if (fixedWorkedCount > 0 || fixedAbsentCount > 0) {
-            fixedStatsEl.innerHTML = `[Ca Cố Định] Đi làm: <span style="color:#059669">${fixedWorkedCount}</span> | OFF: <span style="color:#DC2626">${fixedAbsentCount}</span>`;
+            fixedStatsEl.innerHTML = `[Ca Cá»‘ Äá»‹nh] Äi lÃ m: <span style="color:#059669">${fixedWorkedCount}</span> | OFF: <span style="color:#DC2626">${fixedAbsentCount}</span>`;
             fixedStatsEl.style.display = 'block';
         } else {
             fixedStatsEl.style.display = 'none';
@@ -1527,10 +1548,10 @@ async function saveSalarySettings() {
         const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
         allSettings[staffId] = settingsObj;
         localStorage.setItem('salary_settings', JSON.stringify(allSettings));
-        alert('Đã lưu bảng lương!');
+        alert('ÄÃ£ lÆ°u báº£ng lÆ°Æ¡ng!');
     } catch (e) {
         console.error('Error saving salary settings to Firestore:', e);
-        alert('Lỗi khi lưu bảng lương. Vui lòng thử lại.');
+        alert('Lá»—i khi lÆ°u báº£ng lÆ°Æ¡ng. Vui lÃ²ng thá»­ láº¡i.');
     }
 }
 
@@ -1562,7 +1583,7 @@ function openNoteModal(dateKey) {
     currentEvalIndex = null;
 
     // Use cached notes from Firestore
-    document.getElementById('note-modal-title').innerText = `Ghi Chú Ngày ${dateKey}`;
+    document.getElementById('note-modal-title').innerText = `Ghi ChÃº NgÃ y ${dateKey}`;
     document.getElementById('note-content').value = _cachedStaffNotes[dateKey] || '';
     document.getElementById('note-modal').style.display = 'flex';
 }
@@ -1579,7 +1600,7 @@ function openEvalNoteModal(index) {
         if (item && item.template) currentVal = item.template;
     }
 
-    document.getElementById('note-modal-title').innerText = `Ghi Chú: ${EVALUATION_CRITERIA[index].tooltip}`;
+    document.getElementById('note-modal-title').innerText = `Ghi ChÃº: ${EVALUATION_CRITERIA[index].tooltip}`;
     document.getElementById('note-content').value = currentVal;
     document.getElementById('note-modal').style.display = 'flex';
 }
@@ -1624,19 +1645,10 @@ function saveEvaluationNote() {
 }
 
 function getTargetStaffId() {
-    const roleRaw = localStorage.getItem('currentRole') || 'staff';
-    let roles = [];
-    try {
-        const parsed = JSON.parse(roleRaw);
-        roles = Array.isArray(parsed) ? parsed : [roleRaw];
-    } catch(e) {
-        roles = [roleRaw];
-    }
-    const isAdmin = roles.some(r => r === 'admin' || r === 'senior_assistant');
-
-    if (isAdmin) {
+    const role = localStorage.getItem('currentRole');
+    if (role === 'admin' || role === 'senior_assistant') {
         const select = document.getElementById('staff-select');
-        if (!select || !select.value) {
+        if (!select) {
             return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
         }
         return select.value === 'all' ? localStorage.getItem('currentUserId') : select.value;
@@ -1659,7 +1671,7 @@ window.onclick = function (event) {
     if (event.target == modal) closeNoteModal();
 }
 
-// removeVietnameseTones() → Moved to evaluation-service.js
+// removeVietnameseTones() â†’ Moved to evaluation-service.js
 
 // ================= ADMIN EDIT LOGIC =================
 let fpCheckIn = null;
@@ -1724,12 +1736,12 @@ function openManualModal(dateKey, preFill = null, classCompositeKey = '', classS
         // --- POPULATE ROLE DROPDOWN ---
     const editRoleEl = document.getElementById('edit-role');
     if (editRoleEl) {
-        editRoleEl.innerHTML = '<option value="">-- Chưa chọn (Tính theo mặc định) --</option>';
+        editRoleEl.innerHTML = '<option value="">-- ChÆ°a chá»n (TÃ­nh theo máº·c Ä‘á»‹nh) --</option>';
         if (window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
             window.currentUserContext.salary_config.roles.forEach(role => {
                 const opt = document.createElement('option');
                 opt.value = role.id;
-                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}₫/h)`;
+                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}â‚«/h)`;
                 // Pre-select if we have existing sessionData with a role
                 if (typeof sessionData !== 'undefined' && sessionData && sessionData.role === role.id) {
                     opt.selected = true;
@@ -1741,8 +1753,8 @@ function openManualModal(dateKey, preFill = null, classCompositeKey = '', classS
     // ------------------------------
 
     // Update Mode Title
-    document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
-    document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
+    document.querySelector('#edit-time-modal h2').innerText = "ThÃªm Ca LÃ m Viá»‡c Má»›i";
+    document.querySelector('#edit-time-modal button.btn-primary').innerText = "Táº¡o Ca";
     
     // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
     const delSection = document.querySelector('#edit-time-modal .delete-section');
@@ -1802,12 +1814,12 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
         // --- POPULATE ROLE DROPDOWN ---
     const editRoleEl = document.getElementById('edit-role');
     if (editRoleEl) {
-        editRoleEl.innerHTML = '<option value="">-- Chưa chọn (Tính theo mặc định) --</option>';
+        editRoleEl.innerHTML = '<option value="">-- ChÆ°a chá»n (TÃ­nh theo máº·c Ä‘á»‹nh) --</option>';
         if (window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
             window.currentUserContext.salary_config.roles.forEach(role => {
                 const opt = document.createElement('option');
                 opt.value = role.id;
-                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}₫/h)`;
+                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}â‚«/h)`;
                 // Pre-select if we have existing sessionData with a role
                 if (typeof sessionData !== 'undefined' && sessionData && sessionData.role === role.id) {
                     opt.selected = true;
@@ -1819,8 +1831,8 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
     // ------------------------------
 
     // Update Mode Title
-    document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
-    document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
+    document.querySelector('#edit-time-modal h2').innerText = "Chá»‰nh Sá»­a Giá» LÃ m";
+    document.querySelector('#edit-time-modal button.btn-primary').innerText = "LÆ°u Thay Äá»•i";
     // Show delete button in edit mode
     const delSection = document.querySelector('#edit-time-modal .delete-section');
     if (delSection) delSection.style.display = 'block';
@@ -1840,7 +1852,7 @@ async function saveEditedTime() {
     const checkOut = document.getElementById('edit-check-out').value;
 
     if (!checkIn) {
-        alert("Giờ vào không được để trống!");
+        alert("Giá» vÃ o khÃ´ng Ä‘Æ°á»£c Ä‘á»ƒ trá»‘ng!");
         return;
     }
 
@@ -1880,31 +1892,31 @@ async function saveEditedTime() {
             // Send notification to staff
             await DBService.createAdminNotification(
                 staffId, staffName, 'add_session', dateKey,
-                `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`
+                `Admin Ä‘Ã£ thÃªm ca lÃ m viá»‡c má»›i: ${checkInStr} - ${checkOutStr}`
             );
-            alert("Đã tạo ca làm việc mới!");
+            alert("ÄÃ£ táº¡o ca lÃ m viá»‡c má»›i!");
         } else {
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
             await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
             // Send notification to staff
             await DBService.createAdminNotification(
                 staffId, staffName, 'edit_session', dateKey,
-                `Admin đã chỉnh sửa giờ làm: ${checkInStr} - ${checkOutStr}`
+                `Admin Ä‘Ã£ chá»‰nh sá»­a giá» lÃ m: ${checkInStr} - ${checkOutStr}`
             );
-            alert("Cập nhật thành công!");
+            alert("Cáº­p nháº­t thÃ nh cÃ´ng!");
         }
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore after edit
         renderMonthReport(currentDate, true); // true = bypass Firestore cache
     } catch (e) {
-        alert("Lỗi: " + e.message);
+        alert("Lá»—i: " + e.message);
     }
 }
 
 
 async function deleteSessionFromModal() {
     // Remove confirmation popup as requested by user
-    // if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không? Ca làm việc sẽ bị xóa hoàn toàn khỏi bảng.")) return;
+    // if (!confirm("Báº¡n cÃ³ cháº¯c cháº¯n muá»‘n xÃ³a phiÃªn lÃ m viá»‡c nÃ y khÃ´ng? Ca lÃ m viá»‡c sáº½ bá»‹ xÃ³a hoÃ n toÃ n khá»i báº£ng.")) return;
 
     const staffId = getTargetStaffId();
     const staffName = getTargetStaffName();
@@ -1934,7 +1946,7 @@ async function deleteSessionFromModal() {
             const monthStr = dateKey.substring(0, 7);
             const cancelKey = `${classCompositeKey}_${classSectionKey}_${classIndexRaw}`;
             
-            // 1. Ghi log huỷ ca vào DBService (BƯỚC QUAN TRỌNG NHẤT)
+            // 1. Ghi log huá»· ca vÃ o DBService (BÆ¯á»šC QUAN TRá»ŒNG NHáº¤T)
             await DBService.cancelShift(monthStr, staffId, cancelKey);
             
             if (isReceptionistStr === 'true') {
@@ -1960,14 +1972,14 @@ async function deleteSessionFromModal() {
         // Send notification to staff
         await DBService.createAdminNotification(
             staffId, staffName, 'delete_session', dateKey,
-            `Admin đã xóa một ca làm việc ngày ${dateKey}`
+            `Admin Ä‘Ã£ xÃ³a má»™t ca lÃ m viá»‡c ngÃ y ${dateKey}`
         );
-        alert("Đã xóa hoàn toàn!");
+        alert("ÄÃ£ xÃ³a hoÃ n toÃ n!");
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore
         renderMonthReport(currentDate, true); // true = bypass Firestore cache
     } catch (e) {
-        alert("Lỗi xóa: " + e.message);
+        alert("Lá»—i xÃ³a: " + e.message);
     }
 }
 
@@ -1989,13 +2001,13 @@ async function renderDebugInfo(staffId, year, month) {
         title.parentNode.insertBefore(debugContainer, title.nextSibling);
     }
 
-    debugContainer.innerText = `🔄 DEBUGGING...\nUserID: ${staffId}\nMonth: ${year}-${month + 1}`;
+    debugContainer.innerText = `ðŸ”„ DEBUGGING...\nUserID: ${staffId}\nMonth: ${year}-${month + 1}`;
 
     try {
         const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
         const records = await DBService.getMonthlyAttendance(monthStr, staffId);
 
-        let msg = `✅ DATA FETCHED: ${records.length} records found.\n`;
+        let msg = `âœ… DATA FETCHED: ${records.length} records found.\n`;
         records.forEach(r => {
             msg += `Date: ${r.date} | Sessions: ${r.sessions ? r.sessions.length : 0} | CheckIn: ${r.checkIn || 'N/A'}\n`;
             if (r.sessions) {
@@ -2007,12 +2019,12 @@ async function renderDebugInfo(staffId, year, month) {
 
         // Check specific date Feb 1
         const feb1 = records.find(r => r.date === '2026-02-01');
-        if (!feb1) msg += `⚠️ WARNING: No record found for 2026-02-01 in query results!\n`;
-        else msg += `✅ FEB 1 RECORD FOUND. Check Logic.\n`;
+        if (!feb1) msg += `âš ï¸ WARNING: No record found for 2026-02-01 in query results!\n`;
+        else msg += `âœ… FEB 1 RECORD FOUND. Check Logic.\n`;
 
         debugContainer.innerText += '\n' + msg;
     } catch (e) {
-        debugContainer.innerText += `\n❌ ERROR: ${e.message}\n${e.stack}`;
+        debugContainer.innerText += `\nâŒ ERROR: ${e.message}\n${e.stack}`;
         debugContainer.style.color = 'red';
     }
 }
@@ -2035,7 +2047,7 @@ async function openRoleSelectModal(dateKey, session) {
     }
 
     if (roles.length === 0) {
-        alert(`Chưa có cấu hình Vai trò cho nhân viên này. [staffId: ${staffId}]`);
+        alert(`ChÆ°a cÃ³ cáº¥u hÃ¬nh Vai trÃ² cho nhÃ¢n viÃªn nÃ y. [staffId: ${staffId}]`);
         return;
     }
 
@@ -2053,7 +2065,7 @@ async function openRoleSelectModal(dateKey, session) {
         btn.style.cursor = 'pointer';
         btn.style.background = '#F9FAFB';
         btn.style.transition = '0.2s';
-        btn.innerHTML = `<strong>${role.name}</strong> <span style="float:right; color:green">${new Intl.NumberFormat('vi-VN').format(role.rate)}đ/h</span>`;
+        btn.innerHTML = `<strong>${role.name}</strong> <span style="float:right; color:green">${new Intl.NumberFormat('vi-VN').format(role.rate)}Ä‘/h</span>`;
 
         btn.onmouseover = () => { btn.style.background = '#D1FAE5'; btn.style.borderColor = 'var(--primary-color)'; };
         btn.onmouseout = () => { btn.style.background = '#F9FAFB'; btn.style.borderColor = 'var(--border-color)'; };
@@ -2081,16 +2093,16 @@ async function selectRoleForSession(role) {
         // Send notification to staff
         await DBService.createAdminNotification(
             staffId, staffName, 'select_role', dateKey,
-            `Admin đã chọn vai trò "${role.name}" cho ca ngày ${dateKey}`
+            `Admin Ä‘Ã£ chá»n vai trÃ² "${role.name}" cho ca ngÃ y ${dateKey}`
         );
         closeRoleSelectModal();
         renderMonthReport(new Date(dateKey));
     } catch (e) {
-        alert("Lỗi lưu vai trò: " + e.message);
+        alert("Lá»—i lÆ°u vai trÃ²: " + e.message);
     }
 }
 
-// removeVietnameseTones() → Moved to evaluation-service.js
+// removeVietnameseTones() â†’ Moved to evaluation-service.js
 
 // ================= OVERTIME MODAL =================
 
@@ -2112,7 +2124,7 @@ function openOvertimeModal(dateKey, sessionId, sessionData) {
     const endStr = end ? end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
 
     const infoEl = document.getElementById('overtime-session-info');
-    if (infoEl) infoEl.innerText = `Ca: ${dateKey} | ${startStr} – ${endStr}`;
+    if (infoEl) infoEl.innerText = `Ca: ${dateKey} | ${startStr} â€“ ${endStr}`;
 
     modal.style.display = 'flex';
     if (hoursEl) setTimeout(() => hoursEl.focus(), 100);
@@ -2132,7 +2144,7 @@ async function submitOvertimeRequest() {
     const mins = parseInt(document.getElementById('overtime-minutes').value || '0', 10);
 
     if (hours === 0 && mins === 0) {
-        alert('Vui lòng nhập số giờ/phút tăng ca lớn hơn 0.');
+        alert('Vui lÃ²ng nháº­p sá»‘ giá»/phÃºt tÄƒng ca lá»›n hÆ¡n 0.');
         return;
     }
 
@@ -2144,44 +2156,44 @@ async function submitOvertimeRequest() {
 
     try {
         await DBService.createOvertimeRequest(staffId, staffName, dateKey, sessionId, duration);
-        alert('Đã gửi yêu cầu tăng ca! Admin sẽ xem xét và xác nhận.');
+        alert('ÄÃ£ gá»­i yÃªu cáº§u tÄƒng ca! Admin sáº½ xem xÃ©t vÃ  xÃ¡c nháº­n.');
         closeOvertimeModal();
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
-        alert('Lỗi: ' + e.message);
+        alert('Lá»—i: ' + e.message);
     }
 }
 
 // ================= BONUS 10P UI FUNCTIONS =================
 
 async function submitBonus10Request(sessionId, dateKey, staffId) {
-    const confirmed = await UIService.confirm('Gửi yêu cầu thưởng 10p vào sớm cho ca này?');
+    const confirmed = await UIService.confirm('Gá»­i yÃªu cáº§u thÆ°á»Ÿng 10p vÃ o sá»›m cho ca nÃ y?');
     if (!confirmed) return;
 
     const staffName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A';
     try {
         await DBService.createBonus10Request(staffId, staffName, dateKey, sessionId);
-        UIService.toast('Đã gửi yêu cầu! Admin sẽ xem xét và duyệt.', 'success');
+        UIService.toast('ÄÃ£ gá»­i yÃªu cáº§u! Admin sáº½ xem xÃ©t vÃ  duyá»‡t.', 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
-        UIService.toast('Lỗi: ' + e.message, 'error');
+        UIService.toast('Lá»—i: ' + e.message, 'error');
     }
 }
 
 async function approveBonus10(requestId, sessionId, dateKey, staffId) {
-    const confirmed = await UIService.confirm('Duyệt thưởng 10p cho ca này?');
+    const confirmed = await UIService.confirm('Duyá»‡t thÆ°á»Ÿng 10p cho ca nÃ y?');
     if (!confirmed) return;
 
     const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
     try {
         await DBService.approveBonus10Request(requestId, adminName, staffId, dateKey, sessionId);
-        UIService.toast('Đã duyệt thưởng 10p!', 'success');
+        UIService.toast('ÄÃ£ duyá»‡t thÆ°á»Ÿng 10p!', 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
-        UIService.toast('Lỗi: ' + e.message, 'error');
+        UIService.toast('Lá»—i: ' + e.message, 'error');
     }
 }
 
@@ -2189,7 +2201,7 @@ async function approveAllBonus10() {
     const staffId = getTargetStaffId();
     if (!staffId) return;
 
-    const confirmed = await UIService.confirm('Duyệt TẤT CẢ yêu cầu Sớm 10p đang chờ trong tháng này?');
+    const confirmed = await UIService.confirm('Duyá»‡t Táº¤T Cáº¢ yÃªu cáº§u Sá»›m 10p Ä‘ang chá» trong thÃ¡ng nÃ y?');
     if (!confirmed) return;
 
     const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
@@ -2200,7 +2212,7 @@ async function approveAllBonus10() {
         const pending = pendingList.filter(r => r.status === 'pending');
 
         if (pending.length === 0) {
-            UIService.toast('Không có yêu cầu nào đang chờ duyệt.', 'info');
+            UIService.toast('KhÃ´ng cÃ³ yÃªu cáº§u nÃ o Ä‘ang chá» duyá»‡t.', 'info');
             return;
         }
 
@@ -2209,10 +2221,14 @@ async function approveAllBonus10() {
             DBService.approveBonus10Request(req.id, adminName, req.staffId, req.dateKey, req.sessionId)
         ));
 
-        UIService.toast(`Đã duyệt ${pending.length} yêu cầu Sớm 10p!`, 'success');
+        UIService.toast(`ÄÃ£ duyá»‡t ${pending.length} yÃªu cáº§u Sá»›m 10p!`, 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
-        UIService.toast('Lỗi: ' + e.message, 'error');
+        UIService.toast('Lá»—i: ' + e.message, 'error');
     }
 }
+
+
+
+

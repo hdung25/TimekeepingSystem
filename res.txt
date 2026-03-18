@@ -1,0 +1,370 @@
+﻿
+  
+      if (isAdminLike) {
+          const controls = document.getElementById('admin-controls');
+          if (controls) controls.style.display = 'flex';
+          document.getElementById('page-title').innerText = isSalaryAdmin ? 'TÃ­nh LÆ°Æ¡ng & Duyá»‡t CÃ´ng' : 'Duyá»‡t CÃ´ng NhÃ¢n ViÃªn';
+>         await populateStaffSelect();
+  
+          // Auto-select staff from URL param
+          const urlParams = new URLSearchParams(window.location.search);
+          const paramStaffId = urlParams.get('staffId');
+          if (paramStaffId) {
+              const select = document.getElementById('staff-select');
+              if (select) {
+                  select.value = paramStaffId;
+                  _cachedStaffId = null;
+              }
+          }
+  
+          // Hide salary-related fields for senior_assistant
+          if (!isSalaryAdmin) {
+              // Hide: Táº¡m á»¨ng, ThÆ°á»Ÿng/Pháº¡t, Dá»± Kiáº¿n Thá»±c LÄ©nh, Xuáº¥t PDF, LÆ°u & TÃ­nh
+              const salaryAdvance = document.getElementById('salary-advance');
+              if (salaryAdvance) salaryAdvance.closest('.modern-form-group').style.display = 'none';
+              const bonusPenalty = document.getElementById('summary-bonus-penalty');
+              if (bonusPenalty) bonusPenalty.closest('.modern-form-group').style.display = 'none';
+              const controlFooter = document.querySelector('.control-footer');
+  
+      // 3. Render
+      renderMonthReport(currentDate);
+  }
+  
+> async function populateStaffSelect() {
+      const select = document.getElementById('staff-select');
+      const dropdownList = document.getElementById('staff-dropdown-list');
+  
+      const roleRaw = localStorage.getItem('currentRole') || 'staff';
+      const roles = typeof parseRoles === 'function' ? parseRoles(roleRaw) : [roleRaw];
+      const isAdmin = roles.some(r => r === 'admin' || r === 'senior_assistant');
+  
+      let users = await DBService.getUsers();
+  
+      // Admin tháº¥y táº¥t cáº£, staff chá»‰ tháº¥y mÃ¬nh
+      if (!isAdmin) {
+          const myId = localStorage.getItem('currentUserId');
+          users = users.filter(u => u.id === myId);
+      }
+  
+      // LÆ°u global Ä‘á»ƒ filter
+      window._allStaffList = users;
+  
+      // Populate hidden select (backward compat)
+      if (select) {
+          renderStaffDropdownItems(users);
+      }
+  
+      // Náº¿u chá»‰ cÃ³ 1 user (staff tá»± xem) â†’ auto-select
+      if (users.length === 1) {
+>         selectStaffFromDropdown(users[0]);
+      }
+  }
+  
+  function renderStaffDropdownItems(users) {
+      const list = document.getElementById('staff-dropdown-list');
+      if (!list) return;
+  
+      const ROLE_LABELS = {
+          'admin': 'Quáº£n Trá»‹ ViÃªn',
+          'senior_assistant': 'Trá»£ LÃ½ Cáº¥p Cao',
+          'assistant': 'Trá»£ LÃ½',
+          'teaching_assistant': 'Trá»£ giáº£ng/ GV TA',
+          'receptionist': 'Tiáº¿p TÃ¢n',
+          'receptionist_assistant': 'Trá»£ LÃ­ Tiáº¿p TÃ¢n',
+          'staff': 'NhÃ¢n ViÃªn'
+      };
+  
+      if (users.length === 0) {
+          list.innerHTML = '<div style="padding:1rem;text-align:center;color:#9CA3AF;font-size:0.9rem;">KhÃ´ng tÃ¬m tháº¥y nhÃ¢n viÃªn</div>';
+          return;
+          const initial = (u.name || u.username || '?').charAt(0).toUpperCase();
+          return `
+              <div
+                  class="staff-dropdown-item"
+                  data-id="${u.id}"
+>                 onclick="selectStaffFromDropdown(${JSON.stringify(u).replace(/"/g, '&quot;')})"
+                  style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1rem;cursor:pointer;transition:background 0.15s;"
+                  onmouseover="this.style.background='#F0FDF4'"
+                  onmouseout="this.style.background=''"
+              >
+                  <div 
+style="width:36px;height:36px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:white;flex-shrink:0;">${initial}</div>
+                  <div>
+                      <div style="font-weight:600;font-size:0.9rem;color:#1F2937;">${u.name || u.username}</div>
+                      <div style="font-size:0.75rem;color:#6B7280;">${roleLabel}${u.username ? ' Â· ' + u.username : ''}</div>
+                  </div>
+              </div>
+          `;
+      }).join('');
+  }
+  
+  function openStaffDropdown() {
+      const list = document.getElementById('staff-dropdown-list');
+      const input = document.getElementById('staff-search-input');
+      if (!list) return;
+      list.style.display = 'block';
+      if (input) input.style.borderColor = 'var(--primary-color)';
+  
+      const list = document.getElementById('staff-dropdown-list');
+      if (list) list.style.display = 'block';
+  }
+  
+> function selectStaffFromDropdown(user) {
+>     // 1. Set hidden select value (giá»¯ compat vá»›i getTargetStaffId)
+      const select = document.getElementById('staff-select');
+      if (select) select.value = user.id;
+  
+      // 2. Update input display
+      const input = document.getElementById('staff-search-input');
+      if (input) input.value = user.name || user.username;
+  
+      // 3. Close dropdown
+      closeStaffDropdown();
+  
+      // 4. Load report
+      _cachedStaffId = null;
+      renderMonthReport(currentDate);
+  }
+  
+  function changeReportMonth(offset) {
+      currentDate.setMonth(currentDate.getMonth() + offset);
+      renderMonthReport(currentDate);
+  }
+  
+          monthDisplay.innerText = `ThÃ¡ng ${month + 1}, ${year}`;
+      }
+  
+      // Resolve Context (Who are we viewing?)
+      const role = localStorage.getItem('currentRole');
+>     let staffId = getTargetStaffId();
+  
+      // 0. Fetch User Context for Name Matching
+      window.currentUserContext = null;
+      try {
+          const userDoc = await DBService.refs.users().doc(staffId).get();
+          if (userDoc.exists) window.currentUserContext = userDoc.data();
+      } catch (e) { console.error("Error fetching user context", e); }
+      const currentUserContext = window.currentUserContext;
+  
+      // --- NEW: Toggle btn-approve-all-bonus10 ---
+      const viewerRole = localStorage.getItem('currentRole') || 'staff';
+      const viewerRoles = typeof parseRoles === 'function' ? parseRoles(viewerRole) : [viewerRole];
+      const isAdminViewer = viewerRoles.some(r => r === 'admin' || r === 'senior_assistant');
+      const staffRole = currentUserContext ? currentUserContext.role : '';
+      const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
+      if (approveAllBtn) {
+          if (isAdminViewer && staffRole === 'teaching_assistant') {
+              approveAllBtn.style.display = 'inline-flex';
+          } else {
+              approveAllBtn.style.display = 'none';
+      if (currentNoteDateKey) saveCalendarNote();
+      else if (currentEvalIndex !== null) saveEvaluationNote();
+  }
+  
+  async function saveCalendarNote() {
+>     const staffId = getTargetStaffId();
+      const note = document.getElementById('note-content').value.trim();
+  
+      // Update local cache immediately
+      if (note) _cachedStaffNotes[currentNoteDateKey] = note;
+      else delete _cachedStaffNotes[currentNoteDateKey];
+  
+      // Save to Firestore
+      try {
+          await DBService.saveDailyNotes(staffId, _cachedStaffNotes);
+      } catch (e) {
+          console.error('Error saving note to Firestore:', e);
+      }
+  
+      closeNoteModal();
+      renderMonthReport(currentDate);
+  }
+  
+  function saveEvaluationNote() {
+      const note = document.getElementById('note-content').value;
+      const noteInput = document.querySelector(`.eval-note[data-index="${currentEvalIndex}"]`);
+          if (btn) btn.style.color = note.trim() ? 'var(--primary-color)' : '#9ca3af';
+      }
+      closeNoteModal();
+  }
+  
+> function getTargetStaffId() {
+      const role = localStorage.getItem('currentRole');
+      if (role === 'admin' || role === 'senior_assistant') {
+          const select = document.getElementById('staff-select');
+          if (!select) {
+              return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
+          }
+          return select.value === 'all' ? localStorage.getItem('currentUserId') : select.value;
+      } else {
+          return localStorage.getItem('currentUserId') || localStorage.getItem('currentUser');
+      }
+  }
+  
+  function getTargetStaffName() {
+      const select = document.getElementById('staff-select');
+      if (select && select.value !== 'all') {
+          return select.options[select.selectedIndex].text.split('(')[0].trim();
+      }
+      return localStorage.getItem('currentUserName') || 'N/A';
+  }
+  
+  function closeEditModal() {
+      document.getElementById('edit-time-modal').style.display = 'none';
+  }
+  
+  async function saveEditedTime() {
+>     const staffId = getTargetStaffId();
+      const staffName = getTargetStaffName();
+      const dateKey = document.getElementById('edit-date-key').value;
+      const sessionIdRaw = document.getElementById('edit-session-id').value;
+  
+      const checkIn = document.getElementById('edit-check-in').value;
+      const checkOut = document.getElementById('edit-check-out').value;
+  
+      if (!checkIn) {
+          alert("Giá» vÃ o khÃ´ng Ä‘Æ°á»£c Ä‘á»ƒ trá»‘ng!");
+          return;
+      }
+  
+      const checkInDate = new Date(checkIn);
+      const checkOutDate = checkOut ? new Date(checkOut) : null;
+  
+      const checkInStr = checkInDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
+  
+      const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
+      
+  
+  async function deleteSessionFromModal() {
+      // Remove confirmation popup as requested by user
+      // if (!confirm("Báº¡n cÃ³ cháº¯c cháº¯n muá»‘n xÃ³a phiÃªn lÃ m viá»‡c nÃ y khÃ´ng? Ca lÃ m viá»‡c sáº½ bá»‹ xÃ³a hoÃ n toÃ n khá»i báº£ng.")) return;
+  
+>     const staffId = getTargetStaffId();
+      const staffName = getTargetStaffName();
+      const dateKey = document.getElementById('edit-date-key').value;
+      const sessionId = document.getElementById('edit-session-id').value;
+      const parsedSessionId = isNaN(sessionId) ? sessionId : Number(sessionId);
+      
+      // Class unregistration metadata
+      const classCompositeKey = document.getElementById('edit-class-composite-key').value;
+      const classSectionKey = document.getElementById('edit-class-section-key').value;
+      const classIndexRaw = document.getElementById('edit-class-index').value;
+      const isReceptionistStr = document.getElementById('edit-class-is-receptionist').value;
+  
+      try {
+          console.log("[DeleteSession] Starting deletion process...");
+          console.log("[DeleteSession] Values:", {staffId, dateKey, sessionId, classCompositeKey, classSectionKey, classIndexRaw, isReceptionistStr});
+  
+          // Only attempt to delete an attendance session if one actually exists
+          if (sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null') {
+              console.log("[DeleteSession] Deleting attendance session:", parsedSessionId);
+              await DBService.deleteSession(staffId, dateKey, parsedSessionId);
+          }
+          debugContainer.style.color = 'red';
+      }
+  }
+  // ================= ROLE SELECTION LOGIC =================
+  async function openRoleSelectModal(dateKey, session) {
+>     const staffId = getTargetStaffId();
+      console.log("[RoleSelect] Looking up staffId:", staffId);
+  
+      // Fetch User Roles
+      let roles = [];
+      try {
+          const users = await DBService.getUsers();
+          const user = users.find(u => u.id === staffId);
+          console.log("[RoleSelect] User found:", user ? user.name : 'NOT FOUND', "salary_config:", user?.salary_config);
+          if (user && user.salary_config && user.salary_config.roles) {
+              roles = user.salary_config.roles;
+          }
+      } catch (e) {
+          console.error("[RoleSelect] Error fetching users:", e);
+      }
+  
+      if (roles.length === 0) {
+          alert(`ChÆ°a cÃ³ cáº¥u hÃ¬nh Vai trÃ² cho nhÃ¢n viÃªn nÃ y. [staffId: ${staffId}]`);
+          return;
+      }
+  
+  function closeRoleSelectModal() {
+      document.getElementById('role-select-modal').style.display = 'none';
+  }
+  
+  async function selectRoleForSession(role) {
+>     const staffId = getTargetStaffId();
+      const staffName = getTargetStaffName();
+      const dateKey = document.getElementById('role-select-date').value;
+      const sessionId = document.getElementById('role-select-session').value;
+  
+      try {
+          await DBService.updateSessionRole(staffId, dateKey, sessionId, role);
+          // Send notification to staff
+          await DBService.createAdminNotification(
+              staffId, staffName, 'select_role', dateKey,
+              `Admin Ä‘Ã£ chá»n vai trÃ² "${role.name}" cho ca ngÃ y ${dateKey}`
+          );
+          closeRoleSelectModal();
+          renderMonthReport(new Date(dateKey));
+      } catch (e) {
+          alert("Lá»—i lÆ°u vai trÃ²: " + e.message);
+      }
+  }
+  
+  // removeVietnameseTones() â†’ Moved to evaluation-service.js
+  
+      }
+  
+      // Build "HH:MM" string
+      const duration = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+  
+>     const staffId = getTargetStaffId();
+      const staffName = localStorage.getItem('currentUserName') || localStorage.getItem('currentUser') || 'N/A';
+  
+      try {
+          await DBService.createOvertimeRequest(staffId, staffName, dateKey, sessionId, duration);
+          alert('ÄÃ£ gá»­i yÃªu cáº§u tÄƒng ca! Admin sáº½ xem xÃ©t vÃ  xÃ¡c nháº­n.');
+          closeOvertimeModal();
+          _cachedStaffId = null;
+          renderMonthReport(currentDate);
+      } catch (e) {
+          alert('Lá»—i: ' + e.message);
+      }
+  }
+  
+  // ================= BONUS 10P UI FUNCTIONS =================
+  
+  async function submitBonus10Request(sessionId, dateKey, staffId) {
+      const confirmed = await UIService.confirm('Gá»­i yÃªu cáº§u thÆ°á»Ÿng 10p vÃ o sá»›m cho ca nÃ y?');
+      if (!confirmed) return;
+  
+      const staffName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A';
+          UIService.toast('Lá»—i: ' + e.message, 'error');
+      }
+  }
+  
+  async function approveAllBonus10() {
+>     const staffId = getTargetStaffId();
+      if (!staffId) return;
+  
+      const confirmed = await UIService.confirm('Duyá»‡t Táº¤T Cáº¢ yÃªu cáº§u Sá»›m 10p Ä‘ang chá» trong thÃ¡ng nÃ y?');
+      if (!confirmed) return;
+  
+      const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+  
+      try {
+          const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+          const pendingList = await DBService.getBonus10RequestsForStaff(staffId, monthStr);
+          const pending = pendingList.filter(r => r.status === 'pending');
+  
+          if (pending.length === 0) {
+              UIService.toast('KhÃ´ng cÃ³ yÃªu cáº§u nÃ o Ä‘ang chá» duyá»‡t.', 'info');
+              return;
+          }
+  
+          // Approve all in parallel
+          await Promise.all(pending.map(req =>
+              DBService.approveBonus10Request(req.id, adminName, req.staffId, req.dateKey, req.sessionId)
+
+
+
