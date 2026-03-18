@@ -297,6 +297,19 @@ async function renderMonthReport(date, forceServer = false) {
     } catch (e) { console.error("Error fetching user context", e); }
     const currentUserContext = window.currentUserContext;
 
+    // --- NEW: Toggle btn-approve-all-bonus10 ---
+    const viewerRole = localStorage.getItem('currentRole') || 'staff';
+    const isAdminViewer = ['admin', 'senior_assistant'].includes(viewerRole);
+    const staffRole = currentUserContext ? currentUserContext.role : '';
+    const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
+    if (approveAllBtn) {
+        if (isAdminViewer && staffRole === 'teaching_assistant') {
+            approveAllBtn.style.display = 'inline-flex';
+        } else {
+            approveAllBtn.style.display = 'none';
+        }
+    }
+
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
     if (_cachedStaffId !== staffId) {
         try {
@@ -352,6 +365,23 @@ async function renderMonthReport(date, forceServer = false) {
     try {
         overtimeRequestsList = await DBService.getOvertimeRequestsForStaff(staffId, monthStr);
     } catch (e) { console.warn('[OT] Could not load OT requests:', e); }
+
+    // Fetch bonus10 requests cho tháng này
+    let bonus10RequestsList = [];
+    try {
+        bonus10RequestsList = await DBService.getBonus10RequestsForStaff(staffId, monthStr);
+    } catch (e) { console.warn('[Bonus10] Could not load requests:', e); }
+
+    // Build bonus10Map: sessionId (string) → request data
+    const bonus10Map = {};
+    bonus10RequestsList.forEach(req => {
+        const key = String(req.sessionId);
+        // Ưu tiên: approved > pending > rejected
+        const existing = bonus10Map[key];
+        if (!existing || req.status === 'approved' || (req.status === 'pending' && existing.status === 'rejected')) {
+            bonus10Map[key] = req;
+        }
+    });
 
     // Build overtimeDateMap: "YYYY-MM-DD" -> { sessionId -> otData }
     const overtimeDateMap = {};
@@ -679,7 +709,11 @@ async function renderMonthReport(date, forceServer = false) {
         const dailyAttendance = attendanceMap[dateStr] || [];
         const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
 
-        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts);
+        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts, bonus10Map);
+
+        const currentRole = localStorage.getItem('currentRole') || 'staff';
+        const canRequestBonus10 = ['teaching_assistant', 'admin', 'senior_assistant'].includes(currentRole);
+        const isAdminRoleLoop = ['admin', 'senior_assistant'].includes(currentRole);
 
         chips.forEach(chip => {
             const div = document.createElement('div');
@@ -895,6 +929,49 @@ async function renderMonthReport(date, forceServer = false) {
                 };
                 div.appendChild(warningIcon);
             }
+
+            // --- NÚT SỚM 10P ---
+            if (canRequestBonus10 && chip.sessionId && chip.class !== 'chip-blue' && chip.class !== 'chip-gray' && chip.class !== 'chip-future') {
+                const b10Btn = document.createElement('button');
+                b10Btn.className = 'action-btn';
+                b10Btn.style.cssText = 'font-size:0.7rem;padding:1px 5px;border-radius:4px;border:none;cursor:pointer;margin-left:2px;';
+
+                if (chip.bonus10Status === 'approved' || (chip.sessionData && chip.sessionData.bonus10)) {
+                    b10Btn.innerHTML = '⭐ +10p';
+                    b10Btn.style.background = '#D1FAE5';
+                    b10Btn.style.color = '#059669';
+                    b10Btn.disabled = true;
+                    b10Btn.title = 'Đã được thưởng 10p';
+                } else if (chip.bonus10Status === 'pending') {
+                    b10Btn.innerHTML = '⭐ Chờ duyệt';
+                    b10Btn.style.background = '#FEF3C7';
+                    b10Btn.style.color = '#D97706';
+                    b10Btn.title = 'Yêu cầu đang chờ admin duyệt';
+                    if (isAdminRoleLoop) {
+                        b10Btn.innerHTML = '⭐ Duyệt';
+                        b10Btn.style.background = '#FEF3C7';
+                        b10Btn.style.color = '#D97706';
+                        b10Btn.disabled = false;
+                        b10Btn.onclick = (e) => {
+                            e.stopPropagation();
+                            approveBonus10(chip.bonus10Id, chip.sessionId, dateStr, staffId);
+                        };
+                    } else {
+                        b10Btn.disabled = true;
+                    }
+                } else if (chip.bonus10Status === 'rejected' || !chip.bonus10Status) {
+                    b10Btn.innerHTML = '⭐ Sớm 10p';
+                    b10Btn.style.background = chip.bonus10Status === 'rejected' ? '#FEE2E2' : '#F3F4F6';
+                    b10Btn.style.color = chip.bonus10Status === 'rejected' ? '#DC2626' : '#6B7280';
+                    b10Btn.title = chip.bonus10Status === 'rejected' ? 'Bị từ chối — bấm để gửi lại' : 'Yêu cầu thưởng 10p vào sớm';
+                    b10Btn.onclick = (e) => {
+                        e.stopPropagation();
+                        submitBonus10Request(chip.sessionId, dateStr, staffId);
+                    };
+                }
+                div.appendChild(b10Btn);
+            }
+
             div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
 
             // Look for existing saved fixed shift or selected one
@@ -1975,5 +2052,69 @@ async function submitOvertimeRequest() {
         renderMonthReport(currentDate);
     } catch (e) {
         alert('Lỗi: ' + e.message);
+    }
+}
+
+// ================= BONUS 10P UI FUNCTIONS =================
+
+async function submitBonus10Request(sessionId, dateKey, staffId) {
+    const confirmed = await UIService.confirm('Gửi yêu cầu thưởng 10p vào sớm cho ca này?');
+    if (!confirmed) return;
+
+    const staffName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A';
+    try {
+        await DBService.createBonus10Request(staffId, staffName, dateKey, sessionId);
+        UIService.toast('Đã gửi yêu cầu! Admin sẽ xem xét và duyệt.', 'success');
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } catch (e) {
+        UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+}
+
+async function approveBonus10(requestId, sessionId, dateKey, staffId) {
+    const confirmed = await UIService.confirm('Duyệt thưởng 10p cho ca này?');
+    if (!confirmed) return;
+
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+    try {
+        await DBService.approveBonus10Request(requestId, adminName, staffId, dateKey, sessionId);
+        UIService.toast('Đã duyệt thưởng 10p!', 'success');
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } catch (e) {
+        UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+}
+
+async function approveAllBonus10() {
+    const staffId = getTargetStaffId();
+    if (!staffId) return;
+
+    const confirmed = await UIService.confirm('Duyệt TẤT CẢ yêu cầu Sớm 10p đang chờ trong tháng này?');
+    if (!confirmed) return;
+
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+
+    try {
+        const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        const pendingList = await DBService.getBonus10RequestsForStaff(staffId, monthStr);
+        const pending = pendingList.filter(r => r.status === 'pending');
+
+        if (pending.length === 0) {
+            UIService.toast('Không có yêu cầu nào đang chờ duyệt.', 'info');
+            return;
+        }
+
+        // Approve all in parallel
+        await Promise.all(pending.map(req =>
+            DBService.approveBonus10Request(req.id, adminName, req.staffId, req.dateKey, req.sessionId)
+        ));
+
+        UIService.toast(`Đã duyệt ${pending.length} yêu cầu Sớm 10p!`, 'success');
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } catch (e) {
+        UIService.toast('Lỗi: ' + e.message, 'error');
     }
 }

@@ -25,7 +25,32 @@ const EVALUATION_CRITERIA = [
 // ================= DAILY CHIPS CALCULATION =================
 // Logic to Merge Schedule & Attendance → Returns chip array for a single day
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = []) {
+function mergeAdjacentShifts(shifts) {
+    if (!shifts || shifts.length === 0) return shifts;
+
+    const sorted = [...shifts].sort((a, b) => a.start.localeCompare(b.start));
+    const merged = [{ ...sorted[0] }];
+
+    for (let i = 1; i < sorted.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = sorted[i];
+
+        // Merge nếu: cùng branch VÀ end của prev === start của curr (tuyệt đối)
+        if (prev.branch === curr.branch && prev.end === curr.start) {
+            merged[merged.length - 1] = {
+                ...prev,
+                end: curr.end,
+                _mergedWith: curr
+            };
+        } else {
+            merged.push({ ...curr });
+        }
+    }
+
+    return merged;
+}
+
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIds = new Set();
@@ -105,11 +130,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             isLate = true;
                         }
                         label += ` (T${lateMinutesRaw}p)`;
-                    } else if (diffMs > 0) { // Early
+                    } else if (diffMs > 0) { // Early — không thưởng tự động
                         minutes = schedDuration;
                         const earlyMins = Math.round(diffMs / 60000);
-
-                        tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
+                        tooltip += ` | Vào sớm ${earlyMins}p`;
                     } else { // Exact on-time
                         minutes = schedDuration;
                     }
@@ -131,11 +155,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
 
-                    // MANUAL BONUS (10p)
-                    if (matchedSession.bonus10) {
+                    // BONUS 10P (từ request được duyệt)
+                    const b10DataT = bonus10Map[String(matchedSession.id)];
+                    const b10StatusT = b10DataT ? b10DataT.status : null;
+                    if (b10StatusT === 'approved' || matchedSession.bonus10) {
                         minutes += 10;
-                        label += ` (+10p)`;
-                        tooltip += ` | Thưởng 10p (thủ công)`;
+                        label += ` ⭐+10p`;
+                        tooltip += ` | Thưởng 10p (đã duyệt)`;
+                    } else if (b10StatusT === 'pending') {
+                        label += ` ⭐?`;
+                        tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                     }
 
                     // FIX 1: Late → always orange, regardless of role
@@ -206,7 +235,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     classIndex: idx,
                     overtimeId: otId,
                     overtimePending: otPending,
-                    overtimeMinutes: otMinutes
+                    overtimeMinutes: otMinutes,
+                    bonus10Status: b10StatusT,
+                    bonus10Id: b10DataT ? b10DataT.id : null
                 });
 
             } else {
@@ -241,6 +272,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // Process receptionist schedule shifts (from lich-tiep-tan.html)
     // receptionistShifts = [{ shift: 'morning', label: 'SÁNG', start: '07:00', end: '11:30' }, ...]
 
+    receptionistShifts = mergeAdjacentShifts(receptionistShifts);
     receptionistShifts.forEach(rs => {
         const schedStart = new Date(`${dateStr}T${rs.start}`);
         const schedEnd = new Date(`${dateStr}T${rs.end}`);
@@ -311,12 +343,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         isLate = true;
                     }
                     label += ` (T${lateMinutesRaw}p)`;
-                } else if (diffMs > 0) {
-                    // Early
+                } else if (diffMs > 0) { // Early — không thưởng tự động
                     minutes = schedDuration;
                     const earlyMins = Math.round(diffMs / 60000);
-
-                    tooltip += ` | Vào sớm ${earlyMins}p (${actualStartStr})`;
+                    tooltip += ` | Vào sớm ${earlyMins}p`;
                 } else {
                     minutes = schedDuration;
                 }
@@ -337,11 +367,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
 
-                // MANUAL BONUS (10p)
-                if (matchedSession.bonus10) {
+                // BONUS 10P (từ request được duyệt)
+                const b10DataR = bonus10Map[String(matchedSession.id)];
+                const b10StatusR = b10DataR ? b10DataR.status : null;
+                if (b10StatusR === 'approved' || matchedSession.bonus10) {
                     minutes += 10;
-                    label += ` (+10p)`;
-                    tooltip += ` | Thưởng 10p (thủ công)`;
+                    label += ` ⭐+10p`;
+                    tooltip += ` | Thưởng 10p (đã duyệt)`;
+                } else if (b10StatusR === 'pending') {
+                    label += ` ⭐?`;
+                    tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                 }
 
                 if (isLate) {
@@ -410,7 +445,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 overtimeId: otIdR,
                 overtimePending: otPendingR,
                 overtimeMinutes: otMinutesR,
-                isFixedShift: rs.isFixedShift
+                isFixedShift: rs.isFixedShift,
+                bonus10Status: b10StatusR,
+                bonus10Id: b10DataR ? b10DataR.id : null
             });
 
         } else {

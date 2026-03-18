@@ -107,6 +107,14 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isAdmin();
     }
 
+    // 11. Bonus 10p Requests
+    match /bonus10_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;
