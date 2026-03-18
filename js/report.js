@@ -21,9 +21,18 @@ async function initReport() {
     });
 
     // 1. Title & Admin Controls
-    const role = localStorage.getItem('currentRole');
-    const isSalaryAdmin = (role === 'admin'); // Only admin sees salary
-    const isAdminLike = (role === 'admin' || role === 'senior_assistant'); // Both see controls
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    // parseRoles có thể chưa load — dùng fallback an toàn
+    let roles = [];
+    try {
+        const parsed = JSON.parse(roleRaw);
+        roles = Array.isArray(parsed) ? parsed : [roleRaw];
+    } catch(e) {
+        roles = [roleRaw];
+    }
+    const role = roles[0] || 'staff'; // primary role (compat)
+    const isSalaryAdmin = roles.includes('admin');
+    const isAdminLike = roles.some(r => r === 'admin' || r === 'senior_assistant');
 
     if (isAdminLike) {
         const controls = document.getElementById('admin-controls');
