@@ -363,3 +363,10 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - UI nút "⭐ Sớm 10p" trên chip trong `report.js` — staff submit, admin duyệt đơn lẻ hoặc duyệt tất cả
 - Cập nhật `calculateDailyChips()` nhận `bonus10Map` param mới
 - Tiến độ: [██████████] ~93%
+
+### 19/03/2026 — Multi-role cho nhân viên
+- users.roles (array) thay thế users.role (string) — backward compat giữ cả 2 field
+- parseRoles() helper toàn cục trong main.js và auth-guard.js
+- Sidebar gộp menu của tất cả roles
+- Modal nhân sự: dropdown → checkboxes multi-select
+- primaryRole = role ưu tiên cao nhất (dùng cho compat)

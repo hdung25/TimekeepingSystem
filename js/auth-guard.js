@@ -6,6 +6,20 @@
 (function () {
     const currentUser = localStorage.getItem('currentUser');
     const currentRole = localStorage.getItem('currentRole');
+    
+    // Parse role — hỗ trợ cả string lẫn JSON array
+    function parseRoles(roleStr) {
+        try {
+            const parsed = JSON.parse(roleStr);
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch(e) {
+            return roleStr ? [roleStr] : [];
+        }
+    }
+    const currentRoles = parseRoles(currentRole);
+    const hasAdminAccess = currentRoles.some(r => r === 'admin' || r === 'senior_assistant');
+    const hasStaffAccess = currentRoles.some(r => ['staff','assistant','receptionist','receptionist_assistant','teaching_assistant'].includes(r));
+
     const path = window.location.pathname;
 
     // List of pages that require Login
@@ -28,12 +42,12 @@
     const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html'];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
-    if (isTargetingAdminPage && currentRole !== 'admin' && currentRole !== 'senior_assistant') {
+    if (isTargetingAdminPage && !hasAdminAccess) {
         console.warn(`Auth Guard: User ${currentUser} (Role: ${currentRole}) attempted to access Admin page.`);
         alert('Bạn không có quyền truy cập trang này!');
 
         // Redirect based on role
-        if (currentRole === 'staff' || currentRole === 'assistant' || currentRole === 'receptionist' || currentRole === 'receptionist_assistant' || currentRole === 'teaching_assistant') {
+        if (hasStaffAccess) {
             window.location.href = 'nhan-vien.html';
         } else {
             window.location.href = 'index.html';

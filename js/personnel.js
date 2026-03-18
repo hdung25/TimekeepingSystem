@@ -94,7 +94,9 @@ function openModal() {
     isEditing = false;
     document.getElementById('staff-form').reset();
     document.getElementById('staff-id').value = '';
-    document.getElementById('staff-role').value = 'staff'; // Default
+    document.querySelectorAll('#staff-roles-checkboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = (cb.value === 'staff');
+    });
     document.getElementById('staff-color').value = '#4CAF50';
     _updateColorPreview('#4CAF50');
     document.getElementById('modal-title').innerText = 'Thêm Nhân Viên';
@@ -120,7 +122,15 @@ async function editStaff(userId) {
     document.getElementById('staff-name').value = user.name || '';
     document.getElementById('staff-username').value = user.username;
     document.getElementById('staff-password').value = user.password;
-    document.getElementById('staff-role').value = user.role || 'staff';
+    
+    // Set checkboxes theo roles array
+    const userRoles = Array.isArray(user.roles) && user.roles.length > 0
+        ? user.roles
+        : (user.role ? [user.role] : ['staff']);
+    document.querySelectorAll('#staff-roles-checkboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = userRoles.includes(cb.value);
+    });
+
     document.getElementById('staff-color').value = user.scheduleColor || '#4CAF50';
     _updateColorPreview(user.scheduleColor || '#4CAF50');
 
@@ -138,7 +148,20 @@ async function handleStaffSubmit(e) {
     const username = document.getElementById('staff-username').value.trim();
     const password = document.getElementById('staff-password').value.trim();
 
-    const role = document.getElementById('staff-role').value;
+    const checkedRoles = Array.from(
+        document.querySelectorAll('#staff-roles-checkboxes input[type="checkbox"]:checked')
+    ).map(cb => cb.value);
+
+    if (checkedRoles.length === 0) {
+        if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn ít nhất 1 vai trò!', 'error');
+        else alert('Vui lòng chọn ít nhất 1 vai trò!');
+        return;
+    }
+
+    // role = role ưu tiên cao nhất (backward compat cho các logic cũ còn dùng .role)
+    const ROLE_PRIORITY = ['admin','senior_assistant','assistant','teaching_assistant','receptionist','receptionist_assistant','staff'];
+    const primaryRole = ROLE_PRIORITY.find(r => checkedRoles.includes(r)) || checkedRoles[0];
+
     const scheduleColor = document.getElementById('staff-color').value;
 
     // Legacy salary fields removed
@@ -149,7 +172,8 @@ async function handleStaffSubmit(e) {
         password,
         name,
         salary_config,
-        role,
+        role: primaryRole,
+        roles: checkedRoles,
         scheduleColor
     };
 

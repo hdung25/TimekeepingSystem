@@ -173,16 +173,30 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="staff-role">Vai Trò Hệ Thống</label>
-                    <select id="staff-role" class="form-input">
-                        <option value="staff">Trợ Giảng (Mặc định)</option>
-                        <option value="teaching_assistant">Trợ giảng/ GV TA</option>
-                        <option value="receptionist">Tiếp Tân</option>
-                        <option value="receptionist_assistant">Trợ Lí Tiếp Tân (Xếp Lịch Tiếp Tân)</option>
-                        <option value="assistant">Trợ Lý (Xếp Lịch)</option>
-                        <option value="senior_assistant">Trợ Lý Cấp Cao</option>
-                        <option value="admin">Quản Trị Viên</option>
-                    </select>
+                    <label>Vai Trò Hệ Thống</label>
+                    <div id="staff-roles-checkboxes" style="display:flex;flex-direction:column;gap:0.5rem;padding:0.5rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);">
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="admin"> Quản Trị Viên
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="senior_assistant"> Trợ Lý Cấp Cao
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="assistant"> Trợ Lý
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="teaching_assistant"> Trợ giảng/ GV TA
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="receptionist"> Tiếp Tân
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="receptionist_assistant"> Trợ Lí Tiếp Tân (Xếp Lịch Tiếp Tân)
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                            <input type="checkbox" value="staff"> Nhân Viên (Trợ Giảng)
+                        </label>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="staff-color">Màu Lịch <span style="font-size:0.8em;color:var(--text-muted)">(hiển thị

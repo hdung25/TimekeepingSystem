@@ -1,5 +1,20 @@
 // Main Logic for Timekeeping System
 
+function parseRoles(roleStr) {
+    try {
+        const parsed = JSON.parse(roleStr);
+        return Array.isArray(parsed) ? parsed : [parsed];
+    } catch(e) {
+        return roleStr ? [roleStr] : [];
+    }
+}
+function hasRole(roleStr, targetRole) {
+    return parseRoles(roleStr).includes(targetRole);
+}
+function hasAnyRole(roleStr, targetRoles) {
+    return parseRoles(roleStr).some(r => targetRoles.includes(r));
+}
+
 // SELF-XSS WARNING
 console.log("%cDừng lại!", "color: red; font-size: 50px; font-weight: bold; text-shadow: 1px 1px 5px black;");
 console.log("%cĐây là tính năng của trình duyệt dành cho các nhà phát triển. Nếu ai đó bảo bạn sao chép-dán nội dung nào đó vào đây để bật một tính năng hoặc 'hack' tài khoản của người khác, thì đó là hành vi lừa đảo và sẽ khiến họ có thể truy cập vào tài khoản của bạn.", "font-size: 18px; color: #333;");
@@ -175,8 +190,9 @@ document.addEventListener('DOMContentLoaded', () => {
         loadDashboardStats(); // Fetch real data
 
         // ===== STAFF NOTIFICATION BELL =====
-        const role = localStorage.getItem('currentRole') || 'staff';
-        if (role === 'staff' || role === 'assistant' || role === 'receptionist' || role === 'receptionist_assistant' || role === 'teaching_assistant') {
+        const roleRaw = localStorage.getItem('currentRole') || 'staff';
+        const roles = parseRoles(roleRaw);
+        if (!roles.some(r => r === 'admin' || r === 'senior_assistant')) {
             loadStaffNotifications();
             loadStaffPersonalCharts();
         }
@@ -595,12 +611,17 @@ async function handleLogin(e) {
         if (user) {
             // Save Session
             localStorage.setItem('currentUser', user.username);
-            localStorage.setItem('currentRole', user.role);
+            // Lưu roles: nếu user.roles là array thì stringify, nếu không thì dùng user.role
+            const rolesValue = Array.isArray(user.roles) && user.roles.length > 0
+                ? JSON.stringify(user.roles)
+                : (user.role || 'staff');
+            localStorage.setItem('currentRole', rolesValue);
             localStorage.setItem('currentUserId', user.id);
             localStorage.setItem('userFullName', user.name);
 
             // Redirect
-            if (user.role === 'admin' || user.role === 'senior_assistant') {
+            const loginRoles = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : [user.role];
+            if (loginRoles.some(r => r === 'admin' || r === 'senior_assistant')) {
                 window.location.href = 'admin.html';
             } else {
                 window.location.href = 'nhan-vien.html';
@@ -637,16 +658,20 @@ function renderSidebar() {
     const sidebarNav = document.getElementById('sidebar-nav') || document.querySelector('.sidebar nav');
     if (!sidebarNav) return;
 
-    const role = localStorage.getItem('currentRole') || 'staff';
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    const roles = parseRoles(roleRaw);
+    // Compat: role = role ưu tiên cao nhất (admin > senior_assistant > assistant > teaching_assistant > receptionist > receptionist_assistant > staff)
+    const ROLE_PRIORITY = ['admin','senior_assistant','assistant','teaching_assistant','receptionist','receptionist_assistant','staff'];
+    const role = ROLE_PRIORITY.find(r => roles.includes(r)) || roles[0] || 'staff';
 
     // Dynamic Naming logic
     let scheduleName = 'Lịch Làm';
     let reportName = 'Bảng Công';
 
-    if (role === 'admin' || role === 'assistant' || role === 'senior_assistant') {
+    if (roles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r))) {
         scheduleName = 'Xếp Lịch';
     }
-    if (role === 'admin' || role === 'senior_assistant') {
+    if (roles.some(r => ['admin', 'senior_assistant'].includes(r))) {
         reportName = 'Tính Lương';
     }
 
@@ -706,6 +731,20 @@ function renderSidebar() {
     if (role === 'teaching_assistant') displayRole = 'Trợ giảng/ GV TA';
     if (role === 'senior_assistant') displayRole = 'Trợ Lý Cấp Cao';
 
+    // Nếu có nhiều role → ghép lại
+    if (roles.length > 1) {
+        const roleLabels = {
+            'admin': 'Quản Trị Viên',
+            'senior_assistant': 'Trợ Lý Cấp Cao',
+            'assistant': 'Trợ Lý',
+            'teaching_assistant': 'Trợ giảng/ GV TA',
+            'receptionist': 'Tiếp Tân',
+            'receptionist_assistant': 'Trợ Lí Tiếp Tân',
+            'staff': 'Nhân Viên'
+        };
+        displayRole = roles.map(r => roleLabels[r] || r).join(' · ');
+    }
+
     const profileHtml = `
         <div class="user-profile-widget" style="
             padding: 1rem;
@@ -740,7 +779,7 @@ function renderSidebar() {
     }
 
     menuItems.forEach(item => {
-        if (item.roles.includes(role)) {
+        if (item.roles.some(r => roles.includes(r))) {
             const isActive = window.location.pathname.includes(item.link);
             const clickAttr = item.event ? `onclick="${item.event}"` : '';
             const idAttr = item.id ? `id="${item.id}"` : '';

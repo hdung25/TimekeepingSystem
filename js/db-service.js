@@ -81,6 +81,11 @@ const DBService = {
                 console.warn("Security: Could not sync role (might lack permission yet).", err);
             }
 
+            // Normalize roles field (backward compat)
+            if (!userData.roles || !Array.isArray(userData.roles)) {
+                userData.roles = userData.role ? [userData.role] : ['staff'];
+            }
+
             return userData;
 
         } catch (error) {
