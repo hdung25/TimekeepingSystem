@@ -115,6 +115,18 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isAdmin();
     }
 
+    // 12. Fixed Shifts (Receptionist — feature tương lai)
+    match /fixed_shifts/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // 13. Cancelled Shifts (Admin hủy ca tiếp tân)
+    match /cancelled_shifts/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;

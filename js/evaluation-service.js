@@ -326,6 +326,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let isClickable = false;
             let isLate = false;
 
+            const b10DataR = bonus10Map[String(matchedSession.id)];
+            const b10StatusR = b10DataR ? b10DataR.status : null;
+
             if (matchedSession.checkOut) {
                 // === HAS CHECK-OUT ===
                 const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
@@ -368,8 +371,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 }
 
                 // BONUS 10P (từ request được duyệt)
-                const b10DataR = bonus10Map[String(matchedSession.id)];
-                const b10StatusR = b10DataR ? b10DataR.status : null;
                 if (b10StatusR === 'approved' || matchedSession.bonus10) {
                     minutes += 10;
                     label += ` ⭐+10p`;
