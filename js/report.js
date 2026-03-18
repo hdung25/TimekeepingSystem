@@ -83,73 +83,158 @@ async function initReport() {
 
 async function populateStaffSelect() {
     const select = document.getElementById('staff-select');
-    if (!select) return;
+    const dropdownList = document.getElementById('staff-dropdown-list');
+    if (!select && !dropdownList) return;
 
-    _allStaffOptions = null; // Reset search cache when re-populating
-    select.innerHTML = '<option value="all">-- Chọn nhân viên --</option>';
-
-    let users = [];
+    let roles = [];
     try {
-        // Always fetch fresh from Firestore to include newly created employees
-        users = await DBService.getUsers();
-        // Update cache for other pages
-        localStorage.setItem('users_data', JSON.stringify(users));
-    } catch (e) {
-        console.error("Failed to fetch users, falling back to cache:", e);
-        users = JSON.parse(localStorage.getItem('users_data')) || [];
+        const roleRaw = localStorage.getItem('currentRole') || 'staff';
+        roles = JSON.parse(roleRaw);
+        if (!Array.isArray(roles)) roles = [roles];
+    } catch(e) {
+        roles = [localStorage.getItem('currentRole') || 'staff'];
+    }
+    const isAdmin = roles.some(r => ['admin', 'senior_assistant'].includes(r));
+
+    let users = await DBService.getUsers();
+
+    // Filter: admin sees all, others see only themselves
+    if (!isAdmin) {
+        const myId = localStorage.getItem('currentUserId');
+        users = users.filter(u => u.id === myId);
     }
 
-    users.forEach(user => {
-        if (user.role === 'admin' && user.username === 'admin') return;
-        const option = document.createElement('option');
-        option.value = user.id;
-        option.innerText = `${user.name} (${user.username})`;
-        select.appendChild(option);
-    });
+    // Store globally for filtering
+    window._allStaffList = users;
 
-    // CRITICAL FIX: Trigger re-render when staff changes
-    select.onchange = () => {
-        _cachedStaffId = null; // Reset notes cache so Firestore re-fetches for new staff
-        renderMonthReport(currentDate);
-    };
+    // Populate hidden select (backward compat với getTargetStaffId)
+    if (select) {
+        select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
+        users.forEach(u => {
+            if (u.role === 'admin' && u.username === 'admin') return;
+            const opt = document.createElement('option');
+            opt.value = u.id;
+            opt.textContent = u.name || u.username;
+            select.appendChild(opt);
+        });
+    }
+
+    // Render dropdown list
+    renderStaffDropdownItems(users.filter(u => !(u.role === 'admin' && u.username === 'admin')));
+
+    // Auto-select nếu chỉ có 1 nhân viên (staff tự xem bảng mình)
+    if (users.length === 1) {
+        selectStaffFromDropdown(users[0]);
+    }
 }
 
-// Search/filter staff select options
-// Store all options so we can re-populate on filter (hiding <option> doesn't work on mobile)
-let _allStaffOptions = null;
-window.filterStaffSelect = function (query) {
+function renderStaffDropdownItems(users) {
+    const list = document.getElementById('staff-dropdown-list');
+    if (!list) return;
+
+    const ROLE_LABELS = {
+        'admin': 'Quản Trị Viên',
+        'senior_assistant': 'Trợ Lý Cấp Cao',
+        'assistant': 'Trợ Lý',
+        'teaching_assistant': 'Trợ giảng/ GV TA',
+        'receptionist': 'Tiếp Tân',
+        'receptionist_assistant': 'Trợ Lí Tiếp Tân',
+        'staff': 'Nhân Viên'
+    };
+
+    if (users.length === 0) {
+        list.innerHTML = '<div style="padding:1rem;text-align:center;color:#9CA3AF;font-size:0.9rem;">Không tìm thấy nhân viên</div>';
+        return;
+    }
+
+    list.innerHTML = users.map(u => {
+        const primaryRole = (u.roles && u.roles[0]) || u.role || '';
+        const roleLabel = ROLE_LABELS[primaryRole] || primaryRole || '';
+        const color = u.scheduleColor || '#E5E7EB';
+        const initial = (u.name || u.username || '?').charAt(0).toUpperCase();
+        return `
+            <div
+                class="staff-dropdown-item"
+                data-id="${u.id}"
+                onclick="selectStaffFromDropdown(${JSON.stringify(u).replace(/"/g, '&quot;')})"
+                style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1rem;cursor:pointer;transition:background 0.15s;"
+                onmouseover="this.style.background='#F0FDF4'"
+                onmouseout="this.style.background=''"
+            >
+                <div style="width:36px;height:36px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:white;flex-shrink:0;">${initial}</div>
+                <div>
+                    <div style="font-weight:600;font-size:0.9rem;color:#1F2937;">${u.name || u.username}</div>
+                    <div style="font-size:0.75rem;color:#6B7280;">${roleLabel}${u.username ? ' · ' + u.username : ''}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function openStaffDropdown() {
+    const list = document.getElementById('staff-dropdown-list');
+    const input = document.getElementById('staff-search-input');
+    if (!list) return;
+    list.style.display = 'block';
+    if (input) input.style.borderColor = 'var(--primary-color)';
+
+    // Close when clicking outside
+    setTimeout(() => {
+        document.addEventListener('click', closeStaffDropdownOnOutside, { once: true });
+    }, 0);
+}
+
+function closeStaffDropdownOnOutside(e) {
+    const wrapper = document.getElementById('staff-search-wrapper');
+    if (wrapper && !wrapper.contains(e.target)) {
+        closeStaffDropdown();
+    } else {
+        // Still inside — re-attach listener
+        setTimeout(() => {
+            document.addEventListener('click', closeStaffDropdownOnOutside, { once: true });
+        }, 0);
+    }
+}
+
+function closeStaffDropdown() {
+    const list = document.getElementById('staff-dropdown-list');
+    const input = document.getElementById('staff-search-input');
+    if (list) list.style.display = 'none';
+    if (input) input.style.borderColor = 'var(--border-color)';
+}
+
+function filterStaffDropdown(query) {
+    if (!window._allStaffList) return;
+    const q = query.toLowerCase().trim();
+    const filtered = q
+        ? window._allStaffList.filter(u =>
+            (u.name || '').toLowerCase().includes(q) ||
+            (u.username || '').toLowerCase().includes(q)
+          )
+        : window._allStaffList;
+
+    renderStaffDropdownItems(filtered.filter(u => !(u.role === 'admin' && u.username === 'admin')));
+
+    const list = document.getElementById('staff-dropdown-list');
+    if (list) list.style.display = 'block';
+}
+
+function selectStaffFromDropdown(user) {
+    // 1. Set hidden select value (giữ compat với getTargetStaffId)
     const select = document.getElementById('staff-select');
-    if (!select) return;
+    if (select) select.value = user.id;
 
-    // Cache all options on first call
-    if (!_allStaffOptions) {
-        _allStaffOptions = Array.from(select.options).map(opt => ({
-            value: opt.value,
-            text: opt.textContent,
-            selected: opt.selected
-        }));
-    }
+    // 2. Update input display
+    const input = document.getElementById('staff-search-input');
+    if (input) input.value = user.name || user.username;
 
-    const normalizedQuery = (query || '').toLowerCase().trim();
-    const currentValue = select.value;
+    // 3. Close dropdown
+    closeStaffDropdown();
 
-    // Clear and re-populate with matching options
-    select.innerHTML = '';
-
-    _allStaffOptions.forEach(opt => {
-        if (opt.value === 'all' || normalizedQuery === '' || opt.text.toLowerCase().includes(normalizedQuery)) {
-            const option = document.createElement('option');
-            option.value = opt.value;
-            option.textContent = opt.text;
-            select.appendChild(option);
-        }
-    });
-
-    // Restore previous selection if still visible
-    if (Array.from(select.options).some(o => o.value === currentValue)) {
-        select.value = currentValue;
-    }
-};
+    // 4. Load report
+    _cachedStaffId = null;
+    renderMonthReport(currentDate);
+}
 
 function changeReportMonth(offset) {
     currentDate.setMonth(currentDate.getMonth() + offset);

@@ -370,3 +370,8 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - Sidebar gộp menu của tất cả roles
 - Modal nhân sự: dropdown → checkboxes multi-select
 - primaryRole = role ưu tiên cao nhất (dùng cho compat)
+
+### 19/03/2026 — Searchable staff dropdown in bao-cao
+- Replace separate input & select in `bao-cao.html` with a custom searchable dropdown wrapped logic in `staff-search-wrapper`.
+- Update `populateStaffSelect` in `js/report.js` to render both `staff-dropdown-list` and the backward-compatible hidden `<select>`.
+- Add global functions logic to toggle visibility and handle internal selection filter of custom dropdown `selectStaffFromDropdown()`.
