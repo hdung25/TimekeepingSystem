@@ -639,20 +639,7 @@ async function handleLogin(e) {
     }
 }
 
-function switchRole() {
-    const currentUser = localStorage.getItem('currentUser');
-    const currentRole = localStorage.getItem('currentRole');
 
-    if (currentUser !== 'admin') return;
-
-    if (currentRole === 'admin') {
-        localStorage.setItem('currentRole', 'staff');
-        window.location.href = 'nhan-vien.html';
-    } else {
-        localStorage.setItem('currentRole', 'admin');
-        window.location.href = 'admin.html';
-    }
-}
 
 function renderSidebar() {
     const sidebarNav = document.getElementById('sidebar-nav') || document.querySelector('.sidebar nav');
@@ -706,20 +693,7 @@ function renderSidebar() {
         }
     ];
 
-    let switchBtnHtml = '';
-    const currentUser = localStorage.getItem('currentUser');
 
-    if (currentUser === 'admin' && role === 'admin') {
-        switchBtnHtml = `
-            <a href="#" class="nav-link" onclick="switchRole(); return false;" style="color: var(--secondary-color);">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                </svg>
-                Chế độ Trợ giảng
-            </a>
-         `;
-    }
 
     // Generate Profile Section
     const fullName = localStorage.getItem('userFullName') || 'Người Dùng';
@@ -794,7 +768,7 @@ function renderSidebar() {
             `;
         }
     });
-    sidebarNav.innerHTML += switchBtnHtml;
+
     sidebarNav.innerHTML += `
         <a href="index.html" class="nav-link" style="margin-top: auto; color: #ef4444;" onclick="localStorage.removeItem('currentUser'); localStorage.removeItem('currentRole'); localStorage.removeItem('currentUserId');">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

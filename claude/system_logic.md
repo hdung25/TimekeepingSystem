@@ -375,3 +375,8 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - Replace separate input & select in `bao-cao.html` with a custom searchable dropdown wrapped logic in `staff-search-wrapper`.
 - Update `populateStaffSelect` in `js/report.js` to render both `staff-dropdown-list` and the backward-compatible hidden `<select>`.
 - Add global functions logic to toggle visibility and handle internal selection filter of custom dropdown `selectStaffFromDropdown()`.
+
+### 19/03/2026 — Hotfix: remove switchRole + fix staff dropdown + fix bonus10 btn
+- Xóa `switchRole()` và nút "Chế độ Trợ giảng" khỏi sidebar (`main.js`)
+- Fix `populateStaffSelect()` dùng `parseRoles()` thay vì `JSON.parse` trực tiếp — admin giờ thấy dropdown nhân viên đúng
+- Fix `btn-approve-all-bonus10` dùng `parseRoles` để check viewer role

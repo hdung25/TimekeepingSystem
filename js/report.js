@@ -84,34 +84,26 @@ async function initReport() {
 async function populateStaffSelect() {
     const select = document.getElementById('staff-select');
     const dropdownList = document.getElementById('staff-dropdown-list');
-    if (!select && !dropdownList) return;
 
-    let roles = [];
-    try {
-        const roleRaw = localStorage.getItem('currentRole') || 'staff';
-        roles = JSON.parse(roleRaw);
-        if (!Array.isArray(roles)) roles = [roles];
-    } catch(e) {
-        roles = [localStorage.getItem('currentRole') || 'staff'];
-    }
-    const isAdmin = roles.some(r => ['admin', 'senior_assistant'].includes(r));
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    const roles = typeof parseRoles === 'function' ? parseRoles(roleRaw) : [roleRaw];
+    const isAdmin = roles.some(r => r === 'admin' || r === 'senior_assistant');
 
     let users = await DBService.getUsers();
 
-    // Filter: admin sees all, others see only themselves
+    // Admin thấy tất cả, staff chỉ thấy mình
     if (!isAdmin) {
         const myId = localStorage.getItem('currentUserId');
         users = users.filter(u => u.id === myId);
     }
 
-    // Store globally for filtering
+    // Lưu global để filter
     window._allStaffList = users;
 
-    // Populate hidden select (backward compat với getTargetStaffId)
+    // Populate hidden select (backward compat)
     if (select) {
         select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
         users.forEach(u => {
-            if (u.role === 'admin' && u.username === 'admin') return;
             const opt = document.createElement('option');
             opt.value = u.id;
             opt.textContent = u.name || u.username;
@@ -120,9 +112,11 @@ async function populateStaffSelect() {
     }
 
     // Render dropdown list
-    renderStaffDropdownItems(users.filter(u => !(u.role === 'admin' && u.username === 'admin')));
+    if (dropdownList) {
+        renderStaffDropdownItems(users);
+    }
 
-    // Auto-select nếu chỉ có 1 nhân viên (staff tự xem bảng mình)
+    // Nếu chỉ có 1 user (staff tự xem) → auto-select
     if (users.length === 1) {
         selectStaffFromDropdown(users[0]);
     }
@@ -384,7 +378,8 @@ async function renderMonthReport(date, forceServer = false) {
 
     // --- NEW: Toggle btn-approve-all-bonus10 ---
     const viewerRole = localStorage.getItem('currentRole') || 'staff';
-    const isAdminViewer = ['admin', 'senior_assistant'].includes(viewerRole);
+    const viewerRoles = typeof parseRoles === 'function' ? parseRoles(viewerRole) : [viewerRole];
+    const isAdminViewer = viewerRoles.some(r => r === 'admin' || r === 'senior_assistant');
     const staffRole = currentUserContext ? currentUserContext.role : '';
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
     if (approveAllBtn) {
