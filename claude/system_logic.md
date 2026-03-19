@@ -394,3 +394,7 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 19/03/2026 — Fix: Bonus10 cho Ca Ngoài Lịch + UX nút Duyệt đã chọn
 - Thêm logic bonus10 cho unmatched sessions (ca ngoài lịch) ở function calculateDailyChips
 - Nâng cấp UX nút "Duyệt đã chọn" thành luồng 2 bước để rõ ràng hơn khi admin tick nhiều chip
+
+### 19/03/2026 — Redesign Dashboard "Cần Xử Lý"
+- Xóa hiển thị cảnh báo nhân viên vào ca chưa nhận lớp trong Dashboard "Cần Xử Lý" (hàm `loadUnregisteredAlerts`).
+- Thêm hiển thị các yêu cầu chờ duyệt: Sớm 10p + Tăng ca với badge màu sắc phân biệt và action link.

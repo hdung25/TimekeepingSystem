@@ -83,57 +83,55 @@ async function loadUnregisteredAlerts() {
     if (!container) return;
 
     try {
-        // Fetch both types of pending items in parallel
-        const [alerts, overtimeRequests] = await Promise.all([
-            DBService.getUnregisteredAlerts(),
-            DBService.getPendingOvertimeRequests().catch(() => [])
+        // Fetch tăng ca + sớm 10p pending song song
+        const [overtimeRequests, bonus10Requests] = await Promise.all([
+            DBService.getPendingOvertimeRequests().catch(() => []),
+            DBService.getPendingBonus10Requests().catch(() => [])
         ]);
 
-        const totalCount = alerts.length + overtimeRequests.length;
+        const totalCount = overtimeRequests.length + bonus10Requests.length;
 
         if (totalCount === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">✅ Không có cảnh báo nào.</p>';
+            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">✅ Không có yêu cầu nào chờ duyệt.</p>';
             if (badge) badge.style.display = 'none';
             return;
         }
 
-        // Show badge count
         if (badge) {
             badge.innerText = totalCount;
             badge.style.display = 'inline';
         }
 
-        // Render unregistered check-in alerts
         let html = '';
-        alerts.forEach(alert => {
-            const checkInTime = alert.checkIn
-                ? new Date(alert.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-                : '?';
+
+        // Render Sớm 10p requests
+        bonus10Requests.forEach(req => {
             html += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid var(--border-color);">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;border-bottom:1px solid var(--border-color);background:#F5F3FF;">
                     <div>
-                        <strong>${alert.userName || 'N/A'}</strong>
-                        <span style="color: var(--text-muted); margin-left: 0.5rem;">Ngày ${alert.date} — Vào ca lúc ${checkInTime}</span>
+                        <span style="background:#7C3AED;color:white;padding:1px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;">⭐ SỚM 10P</span>
+                        <strong>${req.staffName || 'N/A'}</strong>
+                        <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${req.dateKey || ''}</span>
                     </div>
-                    <button class="btn" style="background: var(--primary-color); color: white; padding: 0.4rem 1rem; font-size: 0.85rem;"
-                        onclick="resolveAlertBtn('${alert.id}', this)">
-                        Đã Xử Lý
-                    </button>
+                    <a href="bao-cao.html?staffId=${req.staffId}" class="btn"
+                        style="background:#7C3AED;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
+                        Xem &amp; Duyệt
+                    </a>
                 </div>
             `;
         });
 
-        // Render overtime requests
+        // Render Tăng ca requests
         overtimeRequests.forEach(ot => {
             html += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid var(--border-color); background: #FFFBEB;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;border-bottom:1px solid var(--border-color);background:#FFFBEB;">
                     <div>
                         <span style="background:#F59E0B;color:white;padding:1px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;">⏱️ TĂNG CA</span>
                         <strong>${ot.staffName || 'N/A'}</strong>
-                        <span style="color: var(--text-muted); margin-left: 0.5rem;">Ngày ${ot.dateKey} — +${ot.duration}</span>
+                        <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${ot.dateKey} — +${ot.duration}</span>
                     </div>
                     <a href="bao-cao.html?staffId=${ot.staffId}" class="btn"
-                        style="background: #F59E0B; color: white; padding: 0.4rem 1rem; font-size: 0.85rem; text-decoration: none;">
+                        style="background:#F59E0B;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
                         Xem &amp; Duyệt
                     </a>
                 </div>
@@ -144,7 +142,7 @@ async function loadUnregisteredAlerts() {
 
     } catch (e) {
         console.warn('[Alerts] Error loading:', e);
-        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">Không tải được cảnh báo.</p>';
+        container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem;">Không tải được yêu cầu.</p>';
     }
 }
 
