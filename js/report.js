@@ -391,12 +391,16 @@ async function renderMonthReport(date, forceServer = false) {
     const isAdminViewer = viewerRoles.some(r => r === 'admin' || r === 'senior_assistant');
     const staffRole = currentUserContext ? currentUserContext.role : '';
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
+    const approveSelectedBtn = document.getElementById('btn-approve-selected-bonus10');
     if (approveAllBtn) {
         if (isAdminViewer && staffRole === 'teaching_assistant') {
             approveAllBtn.style.display = 'inline-flex';
         } else {
             approveAllBtn.style.display = 'none';
         }
+    }
+    if (approveSelectedBtn) {
+        approveSelectedBtn.style.display = (isAdminViewer && staffRole === 'teaching_assistant') ? 'inline-flex' : 'none';
     }
 
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
@@ -1046,6 +1050,19 @@ async function renderMonthReport(date, forceServer = false) {
                     b10Btn.title = 'Đã được thưởng 10p';
                 } else if (b10Status === 'pending') {
                     if (isAdminRole2) {
+                        // Checkbox để multi-select
+                        const cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.style.cssText = 'margin-right:2px;cursor:pointer;vertical-align:middle;';
+                        cb.dataset.bonus10Id = chip.bonus10Id;
+                        cb.dataset.sessionId = chip.sessionId;
+                        cb.dataset.dateStr = dateStr;
+                        cb.dataset.staffId = staffId;
+                        cb.className = 'bonus10-pending-cb';
+                        cb.title = 'Chọn để duyệt hàng loạt';
+                        cb.onclick = (e) => e.stopPropagation();
+                        div.appendChild(cb);
+
                         b10Btn.innerHTML = '⭐ Duyệt';
                         b10Btn.style.background = '#FEF3C7';
                         b10Btn.style.color = '#D97706';
@@ -2228,6 +2245,36 @@ async function approveAllBonus10() {
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
+        UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+}
+
+async function approveSelectedBonus10() {
+    const checkboxes = document.querySelectorAll('.bonus10-pending-cb:checked');
+    if (checkboxes.length === 0) {
+        UIService.toast('Chưa chọn ca nào!', 'warning');
+        return;
+    }
+
+    const confirmed = await UIService.confirm(`Duyệt ${checkboxes.length} ca Sớm 10p đã chọn?`);
+    if (!confirmed) return;
+
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+
+    try {
+        await Promise.all([...checkboxes].map(cb =>
+            DBService.approveBonus10Request(
+                cb.dataset.bonus10Id,
+                adminName,
+                cb.dataset.staffId,
+                cb.dataset.dateStr,
+                cb.dataset.sessionId
+            )
+        ));
+        UIService.toast(`Đã duyệt ${checkboxes.length} ca!`, 'success');
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } catch(e) {
         UIService.toast('Lỗi: ' + e.message, 'error');
     }
 }

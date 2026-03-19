@@ -384,3 +384,10 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 19/03/2026 — Hotfix: Sửa Flow Sớm 10p thành per-chip button
 - Ẩn nút `+ Thưởng 10p` (selection mode) trong `bao-cao.html`
 - Đổi UI duyệt thưởng sang per-chip button trên mỗi ca (trong `js/report.js`) để nộp đơn trực tiếp mà không cần selection mode
+
+### 19/03/2026 — Fix: Bonus10 re-render + Admin multi-select duyệt
+- Xác nhận `_cachedStaffId = null` trước `renderMonthReport` đã có → trang luôn re-fetch data mới sau khi duyệt → +10p cộng vào tổng giờ đúng
+- Thêm checkbox cạnh nút `⭐ Duyệt` trên mỗi chip pending — admin tick nhiều chip rồi duyệt 1 lần
+- Thêm nút `⭐ Duyệt đã chọn` trong `bao-cao.html`
+- Thêm hàm `approveSelectedBonus10()` trong `js/report.js`
+
