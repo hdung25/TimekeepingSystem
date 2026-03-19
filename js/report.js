@@ -259,6 +259,36 @@ window.toggleBonusSelectionMode = function(btn) {
     renderMonthReport(currentDate);
 };
 
+window.isBonus10SelectMode = false;
+
+window.toggleBonus10SelectMode = function() {
+    window.isBonus10SelectMode = !window.isBonus10SelectMode;
+    const selectBtn = document.getElementById('btn-select-bonus10-mode');
+    const approveBtn = document.getElementById('btn-approve-selected-bonus10');
+
+    if (window.isBonus10SelectMode) {
+        if (selectBtn) {
+            selectBtn.innerHTML = '✕ Hủy chọn';
+            selectBtn.style.background = '#FEE2E2';
+            selectBtn.style.color = '#DC2626';
+            selectBtn.style.borderColor = '#FECACA';
+        }
+        if (approveBtn) approveBtn.style.display = 'inline-flex';
+        if (typeof UIService !== 'undefined') UIService.toast('Tick ☑ vào các ca muốn duyệt, rồi bấm "Duyệt đã chọn"', 'info');
+    } else {
+        if (selectBtn) {
+            selectBtn.innerHTML = '☑ Chọn để duyệt';
+            selectBtn.style.background = '#E0E7FF';
+            selectBtn.style.color = '#4F46E5';
+            selectBtn.style.borderColor = '#C7D2FE';
+        }
+        if (approveBtn) approveBtn.style.display = 'none';
+    }
+    // Re-render để hiện/ẩn checkboxes
+    _cachedStaffId = null;
+    renderMonthReport(currentDate);
+};
+
 window.isFixedShiftMode = false;
 window.selectedFixedShifts = new Set();
 window.toggleFixedShiftMode = function(btn) {
@@ -392,6 +422,8 @@ async function renderMonthReport(date, forceServer = false) {
     const staffRole = currentUserContext ? currentUserContext.role : '';
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
     const approveSelectedBtn = document.getElementById('btn-approve-selected-bonus10');
+    const selectModeBtn = document.getElementById('btn-select-bonus10-mode');
+
     if (approveAllBtn) {
         if (isAdminViewer && staffRole === 'teaching_assistant') {
             approveAllBtn.style.display = 'inline-flex';
@@ -399,8 +431,11 @@ async function renderMonthReport(date, forceServer = false) {
             approveAllBtn.style.display = 'none';
         }
     }
+    if (selectModeBtn) {
+        selectModeBtn.style.display = (isAdminViewer && staffRole === 'teaching_assistant') ? 'inline-flex' : 'none';
+    }
     if (approveSelectedBtn) {
-        approveSelectedBtn.style.display = (isAdminViewer && staffRole === 'teaching_assistant') ? 'inline-flex' : 'none';
+        approveSelectedBtn.style.display = (isAdminViewer && staffRole === 'teaching_assistant' && window.isBonus10SelectMode) ? 'inline-flex' : 'none';
     }
 
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
@@ -1059,6 +1094,7 @@ async function renderMonthReport(date, forceServer = false) {
                         cb.dataset.dateStr = dateStr;
                         cb.dataset.staffId = staffId;
                         cb.className = 'bonus10-pending-cb';
+                        cb.style.display = window.isBonus10SelectMode ? 'inline' : 'none';
                         cb.title = 'Chọn để duyệt hàng loạt';
                         cb.onclick = (e) => e.stopPropagation();
                         div.appendChild(cb);

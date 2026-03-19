@@ -391,3 +391,6 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - Thêm nút `⭐ Duyệt đã chọn` trong `bao-cao.html`
 - Thêm hàm `approveSelectedBonus10()` trong `js/report.js`
 
+### 19/03/2026 — Fix: Bonus10 cho Ca Ngoài Lịch + UX nút Duyệt đã chọn
+- Thêm logic bonus10 cho unmatched sessions (ca ngoài lịch) ở function calculateDailyChips
+- Nâng cấp UX nút "Duyệt đã chọn" thành luồng 2 bước để rõ ràng hơn khi admin tick nhiều chip

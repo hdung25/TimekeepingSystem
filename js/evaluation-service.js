@@ -522,6 +522,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip += ' - Bấm để chọn vai trò tính lương';
                 }
 
+                // BONUS 10P cho unmatched session
+                const b10DataU = bonus10Map[String(s.id)];
+                const b10StatusU = b10DataU ? b10DataU.status : null;
+                if (b10StatusU === 'approved' || s.bonus10) {
+                    duration += 10;
+                    label += ` ⭐+10p`;
+                    tooltip += ` | Thưởng 10p (đã duyệt)`;
+                } else if (b10StatusU === 'pending') {
+                    label += ` ⭐?`;
+                    tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
+                }
+
                 tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
                 isClickable = true;
             } else {
@@ -552,7 +564,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 sessionData: s,
                 isClickable: isClickable,
                 isWarning: true,
-                isAdminCreated: isAdminCreated
+                isAdminCreated: isAdminCreated,
+                bonus10Status: typeof b10DataU !== 'undefined' ? (b10DataU ? b10DataU.status : null) : null,
+                bonus10Id: typeof b10DataU !== 'undefined' && b10DataU ? b10DataU.id : null
             });
         }
     });
