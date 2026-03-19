@@ -380,3 +380,7 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - Xóa `switchRole()` và nút "Chế độ Trợ giảng" khỏi sidebar (`main.js`)
 - Fix `populateStaffSelect()` dùng `parseRoles()` thay vì `JSON.parse` trực tiếp — admin giờ thấy dropdown nhân viên đúng
 - Fix `btn-approve-all-bonus10` dùng `parseRoles` để check viewer role
+
+### 19/03/2026 — Hotfix: Sửa Flow Sớm 10p thành per-chip button
+- Ẩn nút `+ Thưởng 10p` (selection mode) trong `bao-cao.html`
+- Đổi UI duyệt thưởng sang per-chip button trên mỗi ca (trong `js/report.js`) để nộp đơn trực tiếp mà không cần selection mode

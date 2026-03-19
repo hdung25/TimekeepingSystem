@@ -1019,45 +1019,60 @@ async function renderMonthReport(date, forceServer = false) {
                 div.appendChild(warningIcon);
             }
 
-            // --- NÚT SỚM 10P ---
-            if (canRequestBonus10 && chip.sessionId && chip.class !== 'chip-blue' && chip.class !== 'chip-gray' && chip.class !== 'chip-future') {
-                const b10Btn = document.createElement('button');
-                b10Btn.className = 'action-btn';
-                b10Btn.style.cssText = 'font-size:0.7rem;padding:1px 5px;border-radius:4px;border:none;cursor:pointer;margin-left:2px;';
+            // --- NÚT SỚM 10P (per-chip, không cần selection mode) ---
+            const roleRaw2 = localStorage.getItem('currentRole') || 'staff';
+            let roles2 = [];
+            try { const p = JSON.parse(roleRaw2); roles2 = Array.isArray(p) ? p : [roleRaw2]; }
+            catch(e) { roles2 = [roleRaw2]; }
+            const canSeeBonus10 = roles2.some(r => ['teaching_assistant','admin','senior_assistant'].includes(r));
+            const isAdminRole2 = roles2.some(r => ['admin','senior_assistant'].includes(r));
 
-                if (chip.bonus10Status === 'approved' || (chip.sessionData && chip.sessionData.bonus10)) {
-                    b10Btn.innerHTML = '⭐ +10p';
+            if (canSeeBonus10 && chip.sessionId &&
+                chip.class !== 'chip-blue' &&
+                chip.class !== 'chip-gray' &&
+                chip.class !== 'chip-future') {
+
+                const b10Btn = document.createElement('button');
+                b10Btn.style.cssText = 'font-size:0.68rem;padding:1px 5px;border-radius:4px;border:none;cursor:pointer;margin-left:2px;vertical-align:middle;';
+
+                const b10Status = chip.bonus10Status;
+                const hasBonus = chip.sessionData && chip.sessionData.bonus10;
+
+                if (b10Status === 'approved' || hasBonus) {
+                    b10Btn.innerHTML = '⭐+10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
                     b10Btn.disabled = true;
                     b10Btn.title = 'Đã được thưởng 10p';
-                } else if (chip.bonus10Status === 'pending') {
-                    b10Btn.innerHTML = '⭐ Chờ duyệt';
-                    b10Btn.style.background = '#FEF3C7';
-                    b10Btn.style.color = '#D97706';
-                    b10Btn.title = 'Yêu cầu đang chờ admin duyệt';
-                    if (isAdminRoleLoop) {
+                } else if (b10Status === 'pending') {
+                    if (isAdminRole2) {
                         b10Btn.innerHTML = '⭐ Duyệt';
                         b10Btn.style.background = '#FEF3C7';
                         b10Btn.style.color = '#D97706';
-                        b10Btn.disabled = false;
+                        b10Btn.title = 'Duyệt thưởng 10p cho ca này';
                         b10Btn.onclick = (e) => {
                             e.stopPropagation();
                             approveBonus10(chip.bonus10Id, chip.sessionId, dateStr, staffId);
                         };
                     } else {
+                        b10Btn.innerHTML = '⭐ Chờ duyệt';
+                        b10Btn.style.background = '#FEF3C7';
+                        b10Btn.style.color = '#D97706';
                         b10Btn.disabled = true;
+                        b10Btn.title = 'Đang chờ admin duyệt';
                     }
-                } else if (chip.bonus10Status === 'rejected' || !chip.bonus10Status) {
+                } else {
+                    // Chưa có hoặc bị reject → cho submit
                     b10Btn.innerHTML = '⭐ Sớm 10p';
-                    b10Btn.style.background = chip.bonus10Status === 'rejected' ? '#FEE2E2' : '#F3F4F6';
-                    b10Btn.style.color = chip.bonus10Status === 'rejected' ? '#DC2626' : '#6B7280';
-                    b10Btn.title = chip.bonus10Status === 'rejected' ? 'Bị từ chối — bấm để gửi lại' : 'Yêu cầu thưởng 10p vào sớm';
+                    b10Btn.style.background = b10Status === 'rejected' ? '#FEE2E2' : '#F3F4F6';
+                    b10Btn.style.color = b10Status === 'rejected' ? '#DC2626' : '#6B7280';
+                    b10Btn.title = b10Status === 'rejected' ? 'Bị từ chối — bấm để gửi lại' : 'Yêu cầu thưởng 10p vào sớm';
                     b10Btn.onclick = (e) => {
                         e.stopPropagation();
                         submitBonus10Request(chip.sessionId, dateStr, staffId);
                     };
                 }
+
                 div.appendChild(b10Btn);
             }
 
