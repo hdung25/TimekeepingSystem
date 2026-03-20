@@ -404,3 +404,6 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - Tương tự trong `report.js`, sửa hiển thị các nút Duyệt Sớm 10p cho quyền `teaching_assistant` thành dùng mảng roles đúng chuẩn `parseRoles()`.
 - Bổ sung hàm tiện ích `_cleanupBonus10ForStaff` vào `report.js` cho việc migrate / chuẩn hóa dữ liệu cũ.
 - Kiểm tra CSS grid header bảng (`bao-cao.html`) đã đồng bộ `gap` theo như thiết kế.
+
+### 20/03/2026 — Fix: Ẩn nút Sớm 10p trên chip-waiting
+- Thay đổi điều kiện render nút Sớm 10p trong `report.js` để ẩn nút trên các ca chưa chọn chức vụ (`chip-waiting`), tránh việc nhân sự click nộp đơn khi ca chưa được tính lương.

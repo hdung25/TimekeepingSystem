@@ -1075,7 +1075,8 @@ async function renderMonthReport(date, forceServer = false) {
             if (canSeeBonus10 && chip.sessionId &&
                 chip.class !== 'chip-blue' &&
                 chip.class !== 'chip-gray' &&
-                chip.class !== 'chip-future') {
+                chip.class !== 'chip-future' &&
+                chip.class !== 'chip-waiting') {
 
                 const b10Btn = document.createElement('button');
                 b10Btn.style.cssText = 'font-size:0.68rem;padding:1px 5px;border-radius:4px;border:none;cursor:pointer;margin-left:2px;vertical-align:middle;';
