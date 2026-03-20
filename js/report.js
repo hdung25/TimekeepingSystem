@@ -419,23 +419,29 @@ async function renderMonthReport(date, forceServer = false) {
     const viewerRole = localStorage.getItem('currentRole') || 'staff';
     const viewerRoles = typeof parseRoles === 'function' ? parseRoles(viewerRole) : [viewerRole];
     const isAdminViewer = viewerRoles.some(r => r === 'admin' || r === 'senior_assistant');
-    const staffRole = currentUserContext ? currentUserContext.role : '';
+    const staffRoles = currentUserContext
+        ? (Array.isArray(currentUserContext.roles) && currentUserContext.roles.length > 0
+            ? currentUserContext.roles
+            : [currentUserContext.role || ''])
+        : [];
+    const isTeachingAssistant = staffRoles.includes('teaching_assistant');
+
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
     const approveSelectedBtn = document.getElementById('btn-approve-selected-bonus10');
     const selectModeBtn = document.getElementById('btn-select-bonus10-mode');
 
     if (approveAllBtn) {
-        if (isAdminViewer && staffRole === 'teaching_assistant') {
+        if (isAdminViewer && isTeachingAssistant) {
             approveAllBtn.style.display = 'inline-flex';
         } else {
             approveAllBtn.style.display = 'none';
         }
     }
     if (selectModeBtn) {
-        selectModeBtn.style.display = (isAdminViewer && staffRole === 'teaching_assistant') ? 'inline-flex' : 'none';
+        selectModeBtn.style.display = (isAdminViewer && isTeachingAssistant) ? 'inline-flex' : 'none';
     }
     if (approveSelectedBtn) {
-        approveSelectedBtn.style.display = (isAdminViewer && staffRole === 'teaching_assistant' && window.isBonus10SelectMode) ? 'inline-flex' : 'none';
+        approveSelectedBtn.style.display = (isAdminViewer && isTeachingAssistant && window.isBonus10SelectMode) ? 'inline-flex' : 'none';
     }
 
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
@@ -2314,3 +2320,17 @@ async function approveSelectedBonus10() {
         UIService.toast('Lỗi: ' + e.message, 'error');
     }
 }
+
+// TEMP CLEANUP — chạy 1 lần rồi xóa
+window._cleanupBonus10ForStaff = async function(staffId) {
+    if (!staffId) { console.error('Cần staffId'); return; }
+    try {
+        const snap = await db.collection('bonus10_requests')
+            .where('staffId', '==', staffId).get();
+        if (snap.empty) { console.log('Không có data nào'); return; }
+        const batch = db.batch();
+        snap.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        console.log(`Đã xóa ${snap.size} records của staffId: ${staffId}`);
+    } catch(e) { console.error('Lỗi:', e); }
+};

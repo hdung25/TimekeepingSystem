@@ -398,3 +398,9 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 19/03/2026 — Redesign Dashboard "Cần Xử Lý"
 - Xóa hiển thị cảnh báo nhân viên vào ca chưa nhận lớp trong Dashboard "Cần Xử Lý" (hàm `loadUnregisteredAlerts`).
 - Thêm hiển thị các yêu cầu chờ duyệt: Sớm 10p + Tăng ca với badge màu sắc phân biệt và action link.
+
+### 20/03/2026 — Hotfix: isEditor Multi-role & report button logic
+- Sửa lại `isEditor` trong `receptionist-schedule.js` để parse đúng `currentRole` mảng JSON thay vì string tĩnh.
+- Tương tự trong `report.js`, sửa hiển thị các nút Duyệt Sớm 10p cho quyền `teaching_assistant` thành dùng mảng roles đúng chuẩn `parseRoles()`.
+- Bổ sung hàm tiện ích `_cleanupBonus10ForStaff` vào `report.js` cho việc migrate / chuẩn hóa dữ liệu cũ.
+- Kiểm tra CSS grid header bảng (`bao-cao.html`) đã đồng bộ `gap` theo như thiết kế.

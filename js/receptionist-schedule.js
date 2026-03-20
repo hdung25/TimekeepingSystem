@@ -53,8 +53,11 @@ window.toggleStaffFixedShift = function(event, shift, dayKey, staffId) {
 };
 
 const isEditor = (() => {
-    const role = localStorage.getItem('currentRole') || 'staff';
-    return role === 'admin' || role === 'assistant' || role === 'receptionist_assistant' || role === 'senior_assistant';
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    let roles = [];
+    try { const p = JSON.parse(roleRaw); roles = Array.isArray(p) ? p : [roleRaw]; }
+    catch(e) { roles = [roleRaw]; }
+    return roles.some(r => ['admin', 'assistant', 'receptionist_assistant', 'senior_assistant'].includes(r));
 })();
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
