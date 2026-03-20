@@ -407,3 +407,6 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 
 ### 20/03/2026 — Fix: Ẩn nút Sớm 10p trên chip-waiting
 - Thay đổi điều kiện render nút Sớm 10p trong `report.js` để ẩn nút trên các ca chưa chọn chức vụ (`chip-waiting`), tránh việc nhân sự click nộp đơn khi ca chưa được tính lương.
+
+### 20/03/2026 — Hotfix: Overtime approve buttons multi-role
+- Cập nhật logic render nút duyệt Tăng Ca trong `report.js` (`renderMonthReport`) để sử dụng `isAdminRole` (hỗ trợ JSON multi-role array) thay vì phép so sánh chuỗi giản đơn. Lỗi này từng khiến admin không hiện nút duyệt tăng ca.

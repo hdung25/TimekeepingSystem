@@ -404,7 +404,12 @@ async function renderMonthReport(date, forceServer = false) {
     }
 
     // Resolve Context (Who are we viewing?)
-    const role = localStorage.getItem('currentRole');
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    let roles = [];
+    try { const p = JSON.parse(roleRaw); roles = Array.isArray(p) ? p : [roleRaw]; }
+    catch(e) { roles = [roleRaw]; }
+    const role = roles[0] || 'staff'; // primary role cho compat
+    const isAdminRole = roles.some(r => r === 'admin' || r === 'senior_assistant');
     let staffId = getTargetStaffId();
 
     // 0. Fetch User Context for Name Matching
@@ -825,7 +830,7 @@ async function renderMonthReport(date, forceServer = false) {
         controlsDiv.appendChild(noteBtn);
 
         // --- ADMIN ONLY: Manual Add Button ---
-        if (role === 'admin' || role === 'senior_assistant') {
+        if (isAdminRole) {
             const addBtn = document.createElement('button');
             addBtn.innerHTML = '➕';
             addBtn.className = 'action-btn';
@@ -1189,7 +1194,7 @@ async function renderMonthReport(date, forceServer = false) {
                     } else if (chip.isClickable) {
                         if (chip.sessionId) {
                             openRoleSelectModal(dateStr, chip.sessionData);
-                        } else if (role === 'admin' || role === 'senior_assistant') {
+                        } else if (isAdminRole) {
                             // Creating new session from Registration, pass shift metadata so admin can delete this shift
                             openManualModal(
                                 dateStr, 
@@ -1210,7 +1215,7 @@ async function renderMonthReport(date, forceServer = false) {
             }
 
             // Add Edit Icon for Admin if there is an underlying session
-            if ((role === 'admin' || role === 'senior_assistant') && chip.sessionId) {
+            if (isAdminRole && chip.sessionId) {
                 const editBtn = document.createElement('span');
                 editBtn.innerHTML = '✏️';
                 editBtn.style.cursor = 'pointer';
@@ -1324,7 +1329,7 @@ async function renderMonthReport(date, forceServer = false) {
     window.lastTotalMinutes = totalMinutes;
     // window.currentMonthSalary set by calculateSalary()
 
-    if (role === 'admin' || role === 'senior_assistant') {
+    if (isAdminRole) {
         loadSalarySettings();
     }
 }
