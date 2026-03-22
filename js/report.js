@@ -1253,7 +1253,7 @@ async function renderMonthReport(date, forceServer = false) {
                     confirmBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;';
                     confirmBtn.onclick = async (e) => {
                         e.stopPropagation();
-                        if (!confirm('Xác nhận giờ tăng ca này?')) return;
+                        if (!await UIService.confirm('Xác nhận giờ tăng ca này?')) return;
                         const adminName = localStorage.getItem('currentUserName') || 'Admin';
                         await DBService.approveOvertimeRequest(chip.overtimeId, adminName);
                         _cachedStaffId = null;
@@ -1267,7 +1267,7 @@ async function renderMonthReport(date, forceServer = false) {
                     rejectBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:2px;';
                     rejectBtn.onclick = async (e) => {
                         e.stopPropagation();
-                        if (!confirm('Từ chối yêu cầu tăng ca này?')) return;
+                        if (!await UIService.confirm('Từ chối yêu cầu tăng ca này?')) return;
                         const adminName = localStorage.getItem('currentUserName') || 'Admin';
                         await DBService.rejectOvertimeRequest(chip.overtimeId, adminName);
                         _cachedStaffId = null;
