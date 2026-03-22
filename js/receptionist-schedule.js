@@ -209,6 +209,17 @@ async function loadAndRender() {
     if (data) {
         // This week has saved data — use it directly
         weekData = data;
+        
+        // Cập nhật lại shiftConfig toàn cục tạm thời cho tuần này
+        if (weekData._shiftConfig) {
+            SHIFTS.forEach(shift => {
+                if (weekData._shiftConfig[shift]) {
+                    shiftConfig[shift].start = weekData._shiftConfig[shift].start;
+                    shiftConfig[shift].end = weekData._shiftConfig[shift].end;
+                }
+            });
+            renderShiftConfigToUI(); // Cập nhật lại UI hiển thị label giờ ca
+        }
     } else {
         // No data for this week — try to inherit from previous weeks (up to 4)
         let found = false;
