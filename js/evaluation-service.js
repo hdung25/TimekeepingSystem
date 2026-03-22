@@ -555,16 +555,36 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 }
             }
 
+            // === OVERTIME INTEGRATION (Unmatched sessions) ===
+            const sessionKeyU = String(s.id);
+            const otDataU = overtimeMap[sessionKeyU];
+            let otMinutesU = 0;
+            let otPendingU = false;
+            let otIdU = null;
+            if (otDataU) {
+                otIdU = otDataU.id;
+                if (otDataU.status === 'approved') {
+                    otMinutesU = otDataU.minutes || 0;
+                    label += ` ⏱️+${otDataU.duration}`;
+                } else if (otDataU.status === 'pending') {
+                    otPendingU = true;
+                    label += ` ⏱️?`;
+                }
+            }
+
             chips.push({
                 text: label,
                 class: cssClass,
-                paidMinutes: Math.max(0, Math.round(duration)),
+                paidMinutes: Math.max(0, Math.round(duration + otMinutesU)),
                 tooltip: tooltip,
                 sessionId: s.id,
                 sessionData: s,
                 isClickable: isClickable,
                 isWarning: true,
                 isAdminCreated: isAdminCreated,
+                overtimeId: otIdU,
+                overtimePending: otPendingU,
+                overtimeMinutes: otMinutesU,
                 bonus10Status: typeof b10DataU !== 'undefined' ? (b10DataU ? b10DataU.status : null) : null,
                 bonus10Id: typeof b10DataU !== 'undefined' && b10DataU ? b10DataU.id : null
             });

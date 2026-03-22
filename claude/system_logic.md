@@ -411,6 +411,11 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 20/03/2026 — Hotfix: Overtime approve buttons multi-role
 - Cập nhật logic render nút duyệt Tăng Ca trong `report.js` (`renderMonthReport`) để sử dụng `isAdminRole` (hỗ trợ JSON multi-role array) thay vì phép so sánh chuỗi giản đơn. Lỗi này từng khiến admin không hiện nút duyệt tăng ca.
 
+### 23/03/2026 — Fix: Overtime support cho Unmatched/Admin-created Sessions
+- **Vấn đề:** Các ca "Ca Ngoài Lịch" hoặc "Ca Thêm" (phần tử render màu cam/xanh) bị mất tích hợp làm ngoài giờ. Khi admin duyệt báo cáo OT, chip không hiển thị thời gian OT được cộng thêm như Ca Tiếp Tân hay Ca Giáo Viên thông thường.
+- **Fix:** Update logic trong `evaluation-service.js` (phần 4. Handle Unmatched Sessions). Tích hợp logic quét ID phiên (`sessionKeyU`) với map OT của nhân viên trong ngày. Cộng giờ (`otMinutesU`) vào thuộc tính trả về `paidMinutes` của UI chip.
+- **Kết quả:** Đồng bộ hoá tính năng OT lên 100% các loại hình ca làm việc trong hệ thống kể cả ca thủ công.
+
 ### 23/03/2026 — Fix: Từ chối tăng ca tại Dashboard & Chống duplicate
 - **Vấn đề 1:** Dashboard chỉ có nút "Xem & Duyệt", admin muốn từ chối thì phải sang trang báo cáo tốn thời gian.
 - **Vấn đề 2:** Có hiện tượng duplicate overtime request khi user nhấn nút nộp nhiều lần liên tục hoặc mạng lag.
