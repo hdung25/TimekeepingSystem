@@ -411,6 +411,11 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 20/03/2026 — Hotfix: Overtime approve buttons multi-role
 - Cập nhật logic render nút duyệt Tăng Ca trong `report.js` (`renderMonthReport`) để sử dụng `isAdminRole` (hỗ trợ JSON multi-role array) thay vì phép so sánh chuỗi giản đơn. Lỗi này từng khiến admin không hiện nút duyệt tăng ca.
 
+### 23/03/2026 — Fix: Auto-refresh Dashboard alerts khi quay lại tab
+- **Vấn đề:** Khi admin duyệt yêu cầu từ trang báo cáo và quay lại dashboard bằng cách chuyển tab (vẫn giữ nguyên trang dashboard đang mở), các "Cảnh báo cần xử lý" không tự reload ngay mà phải chờ setInterval 30s.
+- **Fix:** Thêm event listener lắng nghe sự kiện `visibilitychange` của document trong `main.js`. Khi tab trở lại trạng thái `'visible'` và đang ở trang admin (có element id `unregistered-alerts-body`), sẽ ngay lập tức fetch lại data.
+- **Kết quả:** Đồng bộ trải nghiệm khi duyệt nhiều tab cùng lúc, danh sách "Cần xử lý" luôn là thông tin real-time mỗi khi admin chuyển xem dashboard.
+
 ### 23/03/2026 — Fix: Load shiftConfig từ weekData doc để sửa cột giờ (Lần 2)
 - **Vấn đề:** 1. Các fix trước chỉ sửa cho nhân viên bên trong `report.js` và `main.js`, nhưng cột label giờ CA (bên trái) khi xem trang `lich-tiep-tan.html` ở các tuần cũ bị dính thành config global ở thời điểm hiện tại.
 - **Fix:** Update `loadAndRender()` của `receptionist-schedule.js` để áp dụng snapshot `_shiftConfig` (từ tuần document cũ) trực tiếp vào biến toàn cục `shiftConfig` và render lên UI khi xem tuần trong quá khứ.

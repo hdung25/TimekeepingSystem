@@ -186,6 +186,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // We are inside the app, render sidebar
         renderSidebar();
         loadDashboardStats(); // Fetch real data
+        
+        // Refresh alerts khi user quay lại tab/window này
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (document.getElementById('unregistered-alerts-body')) {
+                    loadUnregisteredAlerts();
+                }
+            }
+        });
 
         // ===== STAFF NOTIFICATION BELL =====
         const roleRaw = localStorage.getItem('currentRole') || 'staff';
