@@ -616,6 +616,16 @@ async function saveFullWeek() {
         }
     });
 
+    // 3c. Snapshot shiftConfig vào weekData doc để tuần này luôn dùng đúng giờ ca
+    readShiftConfigFromUI(); // Đảm bảo shiftConfig đã đọc từ UI
+    weekData._shiftConfig = {};
+    SHIFTS.forEach(shift => {
+        weekData._shiftConfig[shift] = {
+            start: shiftConfig[shift].start,
+            end: shiftConfig[shift].end
+        };
+    });
+
     // 4. Save the new global config from the UI
     await saveShiftConfigToFirestore();
 

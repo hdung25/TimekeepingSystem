@@ -411,6 +411,13 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 20/03/2026 — Hotfix: Overtime approve buttons multi-role
 - Cập nhật logic render nút duyệt Tăng Ca trong `report.js` (`renderMonthReport`) để sử dụng `isAdminRole` (hỗ trợ JSON multi-role array) thay vì phép so sánh chuỗi giản đơn. Lỗi này từng khiến admin không hiện nút duyệt tăng ca.
 
+### 23/03/2026 — Fix: Snapshot shiftConfig vào weekData doc
+- **Vấn đề:** Các tuần cũ không có field `customStart` cho nhân sự, nên khi render lấy branch global config fallback, dẫn đến sai lệch giờ ca trong giao diện report bảng công nếu system config đổi. Các fix trước chỉ locked được `customStart` từ ngày sửa về sau, không cứu được các records cũ.
+- **Fix:** Update logic fallback:
+  - Khi lưu lịch tuần: `saveFullWeek()` thêm field `_shiftConfig` snapshot thẳng giờ ca (start/end) lúc đó của 3 ca.
+  - Khi render bảng công `report.js` & `main.js` (auto-checkout): ưu tiên fallback về `_shiftConfig` snapshot của tuần đó trước khi lấy global config.
+- **Kết quả:** Code bảo đảm logic lịch sử lưu giờ ca tuần đó chính xác hoàn toàn.
+
 ### 23/03/2026 — Fix: Snapshot shift times khi lưu lịch tiếp tân
 - **Vấn đề:** `saveShiftConfigToFirestore()` ghi đè global config `settings/receptionistShifts_cs*` → các tuần cũ render chip sai giờ khi config thay đổi.
 - **Fix:** Trong `saveFullWeek()` (`receptionist-schedule.js`), thêm bước 3b: snapshot `shiftConfig[shift].start/end` vào `customStart/customEnd` của tất cả nhân viên trong các ngày từ hôm nay trở đi — trước khi gọi `saveShiftConfigToFirestore()`.

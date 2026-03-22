@@ -661,8 +661,10 @@ async function renderMonthReport(date, forceServer = false) {
 
                         // Use per-branch shift config, with custom times override
                         const branchConfig = shiftConfigMap[result.branch] || {};
-                        const defaultStart = branchConfig[shiftKey]?.start || '07:00';
-                        const defaultEnd = branchConfig[shiftKey]?.end || '11:30';
+                        // Ưu tiên shiftConfig snapshot từ weekData doc, fallback về branch global config
+                        const weekShiftConfig = result.data?._shiftConfig?.[shiftKey];
+                        const defaultStart = staffEntry.customStart || weekShiftConfig?.start || branchConfig[shiftKey]?.start || '07:00';
+                        const defaultEnd = staffEntry.customEnd || weekShiftConfig?.end || branchConfig[shiftKey]?.end || '11:30';
 
                         // Add entry (allow same shift from different branches as separate entries)
                         receptionistShiftsMap[dateStr].push({

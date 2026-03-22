@@ -306,8 +306,9 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
                 if (!staffEntry) return;
 
                 // Calculate shift start/end times
-                const startTimeStr = staffEntry.customStart || branchShiftConfig[shiftKey]?.start || '07:00';
-                const endTimeStr = staffEntry.customEnd || branchShiftConfig[shiftKey]?.end || '11:30';
+                const weekShiftCfg = weekData?._shiftConfig?.[shiftKey];
+                const startTimeStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
+                const endTimeStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
                 const shiftStart = new Date(`${dateKey}T${startTimeStr}`);
                 const shiftEnd = new Date(`${dateKey}T${endTimeStr}`);
 
