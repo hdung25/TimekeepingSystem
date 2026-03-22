@@ -596,6 +596,26 @@ async function saveFullWeek() {
         }
     });
 
+    // 3b. Lock shift times cho các ngày từ hôm nay trở đi (future days)
+    // Snapshot giờ ca hiện tại vào customStart/customEnd để tránh bị ảnh hưởng khi global config thay đổi sau này
+    DAY_KEYS.forEach((dayKey, idx) => {
+        const dayDate = new Date(currentWeekStart);
+        dayDate.setDate(dayDate.getDate() + idx);
+        const dayStr = getLocalDateStr(dayDate);
+
+        if (dayStr >= todayStr) {
+            SHIFTS.forEach(shift => {
+                const staffList = weekData[shift]?.[dayKey] || [];
+                weekData[shift][dayKey] = staffList.map(s => ({
+                    ...s,
+                    // Snapshot giờ ca từ UI — ưu tiên customStart đã set, fallback về shiftConfig hiện tại
+                    customStart: s.customStart || shiftConfig[shift].start,
+                    customEnd: s.customEnd || shiftConfig[shift].end
+                }));
+            });
+        }
+    });
+
     // 4. Save the new global config from the UI
     await saveShiftConfigToFirestore();
 
