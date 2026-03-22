@@ -130,10 +130,16 @@ async function loadUnregisteredAlerts() {
                         <strong>${ot.staffName || 'N/A'}</strong>
                         <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${ot.dateKey} — +${ot.duration}</span>
                     </div>
-                    <a href="bao-cao.html?staffId=${ot.staffId}" class="btn"
-                        style="background:#F59E0B;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
-                        Xem &amp; Duyệt
-                    </a>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button class="btn" onclick="rejectOvertimeFromDashboard('${ot.id}', this)"
+                            style="background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;padding:0.4rem 0.75rem;font-size:0.85rem;">
+                            ❌ Từ Chối
+                        </button>
+                        <a href="bao-cao.html?staffId=${ot.staffId}" class="btn"
+                            style="background:#F59E0B;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
+                            Xem &amp; Duyệt
+                        </a>
+                    </div>
                 </div>
             `;
         });
@@ -161,6 +167,19 @@ window.resolveAlertBtn = async function (alertId, btn) {
     } catch (e) {
         alert("Lỗi: " + e.message);
         if (btn) btn.disabled = false;
+    }
+};
+
+window.rejectOvertimeFromDashboard = async function(requestId, btn) {
+    if (btn) btn.disabled = true;
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+    try {
+        await DBService.rejectOvertimeRequest(requestId, adminName);
+        loadUnregisteredAlerts(); // Refresh list
+        if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối yêu cầu tăng ca.', 'info');
+    } catch(e) {
+        if (btn) btn.disabled = false;
+        if (typeof UIService !== 'undefined') UIService.toast('Lỗi: ' + e.message, 'error');
     }
 };
 

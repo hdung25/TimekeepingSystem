@@ -1345,6 +1345,19 @@ const DBService = {
     // duration: "HH:MM" string, sessionId: the attendance session this OT belongs to
     createOvertimeRequest: async (staffId, staffName, dateKey, sessionId, duration) => {
         try {
+            // Check duplicate: cùng staffId + dateKey + sessionId + status pending
+            const existing = await db.collection('overtime_requests')
+                .where('staffId', '==', staffId)
+                .where('dateKey', '==', dateKey)
+                .where('sessionId', '==', String(sessionId))
+                .where('status', '==', 'pending')
+                .limit(1)
+                .get();
+
+            if (!existing.empty) {
+                throw new Error('Bạn đã gửi yêu cầu tăng ca cho ca này rồi!');
+            }
+
             // Convert HH:MM to minutes
             const [h, m] = duration.split(':').map(Number);
             const minutes = (h || 0) * 60 + (m || 0);

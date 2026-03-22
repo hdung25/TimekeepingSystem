@@ -411,6 +411,14 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 ### 20/03/2026 — Hotfix: Overtime approve buttons multi-role
 - Cập nhật logic render nút duyệt Tăng Ca trong `report.js` (`renderMonthReport`) để sử dụng `isAdminRole` (hỗ trợ JSON multi-role array) thay vì phép so sánh chuỗi giản đơn. Lỗi này từng khiến admin không hiện nút duyệt tăng ca.
 
+### 23/03/2026 — Fix: Từ chối tăng ca tại Dashboard & Chống duplicate
+- **Vấn đề 1:** Dashboard chỉ có nút "Xem & Duyệt", admin muốn từ chối thì phải sang trang báo cáo tốn thời gian.
+- **Vấn đề 2:** Có hiện tượng duplicate overtime request khi user nhấn nút nộp nhiều lần liên tục hoặc mạng lag.
+- **Fix:**
+  - `main.js`: Thêm nút "❌ Từ Chối" bên cạnh nút "Xem & Duyệt" ở khu vực hiển thị các cảnh báo tăng ca trên Dashboard. Viết hàm `rejectOvertimeFromDashboard()`.
+  - `db-service.js`: Thêm check duplicate vào `createOvertimeRequest`, kiểm tra trùng lặp dựa trên combo (`staffId`, `dateKey`, `sessionId`, `status: pending`).
+- **Kết quả:** Xử lý nhanh gọn yêu cầu ngay trang tổng quan và chặn spam/duplicate triệt để ở level DB Client.
+
 ### 23/03/2026 — Fix: Auto-refresh Dashboard alerts khi quay lại tab
 - **Vấn đề:** Khi admin duyệt yêu cầu từ trang báo cáo và quay lại dashboard bằng cách chuyển tab (vẫn giữ nguyên trang dashboard đang mở), các "Cảnh báo cần xử lý" không tự reload ngay mà phải chờ setInterval 30s.
 - **Fix:** Thêm event listener lắng nghe sự kiện `visibilitychange` của document trong `main.js`. Khi tab trở lại trạng thái `'visible'` và đang ở trang admin (có element id `unregistered-alerts-body`), sẽ ngay lập tức fetch lại data.
