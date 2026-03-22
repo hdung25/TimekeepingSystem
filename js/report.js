@@ -48,6 +48,13 @@ async function initReport() {
             if (select) {
                 select.value = paramStaffId;
                 _cachedStaffId = null;
+
+                // Hiện tên nhân viên trên ô search input
+                const selectedOption = select.options[select.selectedIndex];
+                const searchInput = document.getElementById('staff-search-input');
+                if (searchInput && selectedOption && selectedOption.value) {
+                    searchInput.value = selectedOption.text || '';
+                }
             }
         }
 
