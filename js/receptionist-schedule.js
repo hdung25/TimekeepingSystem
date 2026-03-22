@@ -210,15 +210,37 @@ async function loadAndRender() {
         // This week has saved data — use it directly
         weekData = data;
         
-        // Cập nhật lại shiftConfig toàn cục tạm thời cho tuần này
         if (weekData._shiftConfig) {
+            // Tuần này có snapshot giờ ca → dùng đúng giờ của tuần đó
             SHIFTS.forEach(shift => {
                 if (weekData._shiftConfig[shift]) {
                     shiftConfig[shift].start = weekData._shiftConfig[shift].start;
                     shiftConfig[shift].end = weekData._shiftConfig[shift].end;
                 }
             });
-            renderShiftConfigToUI(); // Cập nhật lại UI hiển thị label giờ ca
+            renderShiftConfigToUI();
+        } else {
+            // Tuần cũ chưa có snapshot → KHÔNG dùng global (có thể bị sai)
+            // Thay vào đó: tính ngược từ customStart của nhân viên đầu tiên có data
+            SHIFTS.forEach(shift => {
+                // Tìm customStart nhỏ nhất trong tất cả nhân viên ca này
+                let earliestStart = null;
+                let latestEnd = null;
+                DAY_KEYS.forEach(day => {
+                    (weekData[shift]?.[day] || []).forEach(s => {
+                        if (s.customStart) {
+                            if (!earliestStart || s.customStart < earliestStart) earliestStart = s.customStart;
+                            if (!latestEnd || s.customEnd > latestEnd) latestEnd = s.customEnd;
+                        }
+                    });
+                });
+                if (earliestStart) {
+                    shiftConfig[shift].start = earliestStart;
+                    shiftConfig[shift].end = latestEnd || shiftConfig[shift].end;
+                }
+                // Nếu không có customStart nào → giữ nguyên shiftConfig hiện tại (không override)
+            });
+            renderShiftConfigToUI();
         }
     } else {
         // No data for this week — try to inherit from previous weeks (up to 4)
