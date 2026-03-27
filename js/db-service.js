@@ -1295,6 +1295,10 @@ const DBService = {
 
     // Get all daily notes for a staff member
     async getDailyNotes(staffId) {
+        if (!staffId || staffId.trim() === '') {
+            console.warn('[DailyNotes] staffId is empty, skipping.');
+            return {};
+        }
         try {
             const doc = await db.collection('daily_notes').doc(staffId).get();
             return doc.exists ? doc.data() : {};
@@ -1319,6 +1323,10 @@ const DBService = {
 
     // Get salary settings for a staff member
     async getSalarySettings(staffId) {
+        if (!staffId || staffId.trim() === '') {
+            console.warn('[SalarySettings] staffId is empty, skipping.');
+            return {};
+        }
         try {
             const doc = await db.collection('salary_settings').doc(staffId).get();
             return doc.exists ? doc.data() : {};
@@ -1449,6 +1457,10 @@ const DBService = {
 
     // 10. Fixed Shifts (Receptionist)
     getFixedShifts: async (monthStr, userId) => {
+        if (!userId || userId.trim() === '') {
+            console.warn('[FixedShifts] userId is empty, skipping.');
+            return [];
+        }
         try {
             const docId = `${monthStr}_${userId}`;
             const doc = await db.collection('fixed_shifts').doc(docId).get();
@@ -1478,6 +1490,10 @@ const DBService = {
     // ================= CANCELLED SHIFTS (ADMIN) =================
 
     getCancelledShifts: async (monthStr, staffId) => {
+        if (!staffId || staffId.trim() === '') {
+            console.warn('[CancelledShifts] staffId is empty, skipping.');
+            return [];
+        }
         try {
             const docId = `${monthStr}_${staffId}`;
             const doc = await db.collection('cancelled_shifts').doc(docId).get();
@@ -1540,6 +1556,10 @@ createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
 },
 
 getBonus10RequestsForStaff: async (staffId, monthStr) => {
+    if (!staffId || staffId.trim() === '') {
+        console.warn('[Bonus10] staffId is empty, skipping.');
+        return [];
+    }
     try {
         const snap = await db.collection('bonus10_requests')
             .where('staffId', '==', staffId)
