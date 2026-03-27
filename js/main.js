@@ -277,10 +277,17 @@ async function globalCheckAutoCheckout() {
         if (!openSession) return; // No open session → nothing to auto-close
 
         // 2. Determine when the user's current shift/class ends
-        const currentRole = localStorage.getItem('currentRole');
+        const roleRaw = localStorage.getItem('currentRole') || 'staff';
+        let rolesAC = [];
+        try { const p = JSON.parse(roleRaw); rolesAC = Array.isArray(p) ? p : [roleRaw]; }
+        catch(e) { rolesAC = [roleRaw]; }
         const checkInTime = new Date(openSession.checkIn || openSession.start);
 
-        if (currentRole === 'receptionist') {
+        const isReceptionistRole = rolesAC.some(r =>
+            ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(r)
+        );
+
+        if (isReceptionistRole) {
             // === RECEPTIONIST: find shift end based on schedule ===
             await autoCheckoutReceptionist(currentUserId, checkInTime, now, dateKey);
         } else {
@@ -298,7 +305,6 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
         const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
         const BRANCHES = ['cs1', 'cs2', 'cs3'];
 
-        // Calculate Monday of this week
         const getMonday = (d) => {
             const date = new Date(d);
             const day = date.getDay();
@@ -310,13 +316,12 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
 
         const monday = getMonday(now);
         const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
-
         const dayOfWeek = now.getDay();
         const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
         const dayKey = DAY_KEYS_MAP[dayIdx];
 
-        // Find the shift that matches the check-in time (nearest shift end AFTER check-in)
-        let matchedShiftEnd = null;
+        // Tìm TẤT CẢ shifts của nhân viên hôm nay
+        let allShifts = []; // [{ shiftStart, shiftEnd }]
 
         for (const branch of BRANCHES) {
             const compositeKey = `${branch}__${mondayKey}`;
@@ -325,55 +330,63 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
 
             const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
 
-            SHIFT_KEYS.forEach(shiftKey => {
+            for (const shiftKey of SHIFT_KEYS) {
                 const shiftData = weekData[shiftKey];
-                if (!shiftData || !shiftData[dayKey]) return;
+                if (!shiftData || !shiftData[dayKey]) continue;
 
-                const staffList = shiftData[dayKey];
-                const staffEntry = staffList.find(s => s.id === userId);
-                if (!staffEntry) return;
+                const staffEntry = shiftData[dayKey].find(s => s.id === userId);
+                if (!staffEntry) continue;
 
-                // Calculate shift start/end times
-                const weekShiftCfg = weekData?._shiftConfig?.[shiftKey];
-                const startTimeStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
-                const endTimeStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
-                const shiftStart = new Date(`${dateKey}T${startTimeStr}`);
-                const shiftEnd = new Date(`${dateKey}T${endTimeStr}`);
+                // Dùng _shiftConfig từ weekData nếu có
+                const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
+                const startStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
+                const endStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
 
-                // Match: check-in time is within ±60 min of shift start
-                const diffMs = Math.abs(checkInTime - shiftStart);
-                if (diffMs < 60 * 60 * 1000) {
-                    // This is the shift the user checked in for
-                    if (!matchedShiftEnd) {
-                        // Lần đầu match
-                        matchedShiftEnd = shiftEnd;
-                    } else {
-                        const matchedEndStr = `${String(matchedShiftEnd.getHours()).padStart(2,'0')}:${String(matchedShiftEnd.getMinutes()).padStart(2,'0')}`;
-                        const shiftStartStr = `${String(shiftStart.getHours()).padStart(2,'0')}:${String(shiftStart.getMinutes()).padStart(2,'0')}`;
-                        if (shiftStartStr === matchedEndStr) {
-                            // Ca tiếp giáp → extend thay vì replace
-                            matchedShiftEnd = shiftEnd;
-                        } else if (shiftEnd < matchedShiftEnd) {
-                            matchedShiftEnd = shiftEnd;
-                        }
-                    }
-                }
-            });
+                const shiftStart = new Date(`${dateKey}T${startStr}`);
+                const shiftEnd = new Date(`${dateKey}T${endStr}`);
+
+                allShifts.push({ shiftStart, shiftEnd, startStr, endStr });
+            }
         }
 
-        if (matchedShiftEnd && now >= matchedShiftEnd) {
-            console.log(`[GlobalAutoCheckout] Receptionist shift ended at ${matchedShiftEnd.toLocaleTimeString()}. Auto checking out...`);
+        if (allShifts.length === 0) return;
+
+        // Merge các ca tiếp giáp (end === start)
+        allShifts.sort((a, b) => a.shiftStart - b.shiftStart);
+        const mergedShifts = [{ ...allShifts[0] }];
+        for (let i = 1; i < allShifts.length; i++) {
+            const prev = mergedShifts[mergedShifts.length - 1];
+            const curr = allShifts[i];
+            if (prev.endStr === curr.startStr) {
+                // Tiếp giáp → merge
+                prev.shiftEnd = curr.shiftEnd;
+                prev.endStr = curr.endStr;
+            } else {
+                mergedShifts.push({ ...curr });
+            }
+        }
+
+        // Tìm shift khớp với checkInTime (±60p của shift start)
+        const matchedShift = mergedShifts.find(s => {
+            const diffMs = Math.abs(checkInTime - s.shiftStart);
+            return diffMs < 60 * 60 * 1000;
+        });
+
+        if (!matchedShift) return;
+
+        // Checkout đúng giờ kết thúc ca
+        if (now >= matchedShift.shiftEnd) {
+            console.log(`[GlobalAutoCheckout] Receptionist shift ended at ${matchedShift.shiftEnd.toLocaleTimeString()}. Auto checking out...`);
             await DBService.checkOutPersonal(userId);
             if (typeof UIService !== 'undefined' && UIService.toast) {
-                UIService.toast("Đã tự động Ra Ca (hết giờ ca tiếp tân)", "success");
+                UIService.toast('Đã tự động Ra Ca (hết giờ ca tiếp tân)', 'success');
             }
-            // Refresh timekeeping UI if on that page
             if (typeof renderGlobalCheckIn === 'function') {
                 await renderGlobalCheckIn();
             }
         }
     } catch (e) {
-        console.warn("[GlobalAutoCheckout] Receptionist error:", e);
+        console.warn('[GlobalAutoCheckout] Receptionist error:', e);
     }
 }
 
