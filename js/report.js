@@ -1769,7 +1769,31 @@ function initFlatpickr() {
     }
 }
 
-function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
+async function populateRoleDropdown(staffId, selectElementId, currentRoleId = null) {
+    const select = document.getElementById(selectElementId);
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Chưa chọn Role --</option>';
+
+    try {
+        const users = await DBService.getUsers();
+        const user = users.find(u => u.id === staffId);
+        if (user && user.salary_config && user.salary_config.roles) {
+            user.salary_config.roles.forEach(role => {
+                const opt = document.createElement('option');
+                opt.value = role.id;
+                opt.textContent = role.name;
+                opt.dataset.rate = role.rate;
+                if (currentRoleId && currentRoleId === role.id) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+    } catch(e) {
+        console.warn('Cannot load roles:', e);
+    }
+}
+
+async function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
@@ -1810,24 +1834,8 @@ function openManualModal(dateKey, preFill = null, classCompositeKey = '', classS
         document.getElementById('edit-check-out').value = endIso;
     }
 
-        // --- POPULATE ROLE DROPDOWN ---
-    const editRoleEl = document.getElementById('edit-role');
-    if (editRoleEl) {
-        editRoleEl.innerHTML = '<option value="">-- Chưa chọn (Tính theo mặc định) --</option>';
-        if (window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
-            window.currentUserContext.salary_config.roles.forEach(role => {
-                const opt = document.createElement('option');
-                opt.value = role.id;
-                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}₫/h)`;
-                // Pre-select if we have existing sessionData with a role
-                if (typeof sessionData !== 'undefined' && sessionData && sessionData.role === role.id) {
-                    opt.selected = true;
-                }
-                editRoleEl.appendChild(opt);
-            });
-        }
-    }
-    // ------------------------------
+    const staffId = getTargetStaffId();
+    await populateRoleDropdown(staffId, 'edit-role');
 
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
@@ -1844,7 +1852,7 @@ function openManualModal(dateKey, preFill = null, classCompositeKey = '', classS
     }
 }
 
-function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
+async function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
@@ -1888,24 +1896,8 @@ function openEditModal(dateKey, sessionId, sessionData, classStart, classComposi
         document.getElementById('edit-check-out').value = outIso;
     }
 
-        // --- POPULATE ROLE DROPDOWN ---
-    const editRoleEl = document.getElementById('edit-role');
-    if (editRoleEl) {
-        editRoleEl.innerHTML = '<option value="">-- Chưa chọn (Tính theo mặc định) --</option>';
-        if (window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
-            window.currentUserContext.salary_config.roles.forEach(role => {
-                const opt = document.createElement('option');
-                opt.value = role.id;
-                opt.textContent = `${role.name} (${role.rate.toLocaleString('vi-VN')}₫/h)`;
-                // Pre-select if we have existing sessionData with a role
-                if (typeof sessionData !== 'undefined' && sessionData && sessionData.role === role.id) {
-                    opt.selected = true;
-                }
-                editRoleEl.appendChild(opt);
-            });
-        }
-    }
-    // ------------------------------
+    const staffId = getTargetStaffId();
+    await populateRoleDropdown(staffId, 'edit-role', sessionData ? sessionData.role : null);
 
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
@@ -1941,27 +1933,24 @@ async function saveEditedTime() {
 
     const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
     
-    // Admin explicit role
-    const editRoleEl = document.getElementById('edit-role');
-    const roleId = editRoleEl ? editRoleEl.value : '';
-    let roleName = '';
-    let roleRate = 0;
-    
-    if (roleId && window.currentUserContext && window.currentUserContext.salary_config && window.currentUserContext.salary_config.roles) {
-        const matchingRole = window.currentUserContext.salary_config.roles.find(r => r.id === roleId);
-        if (matchingRole) {
-            roleName = matchingRole.name;
-            roleRate = matchingRole.rate;
-        }
-    }
+    const roleSelect = document.getElementById('edit-role');
+    const selectedRoleId = roleSelect?.value || null;
+    const selectedRoleName = roleSelect?.options[roleSelect.selectedIndex]?.text || null;
+    const selectedRoleRate = roleSelect?.options[roleSelect.selectedIndex]?.dataset?.rate || null;
 
     const newData = {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
-        ...(linkedClassStart ? { linkedClassStart } : {}), // Preserve class link after edit
-        ...(roleId ? { role: roleId, roleName, roleRate } : {})
+        ...(linkedClassStart ? { linkedClassStart } : {}) // Preserve class link after edit
     };
+
+    // Thêm vào sessionData khi update:
+    if (selectedRoleId) {
+        newData.role = selectedRoleId;
+        newData.roleName = selectedRoleName;
+        newData.roleRate = Number(selectedRoleRate);
+    }
 
     try {
         if (sessionIdRaw === 'NEW') {

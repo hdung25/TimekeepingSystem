@@ -450,3 +450,9 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - **Vấn đề:** `saveShiftConfigToFirestore()` ghi đè global config `settings/receptionistShifts_cs*` → các tuần cũ render chip sai giờ khi config thay đổi.
 - **Fix:** Trong `saveFullWeek()` (`receptionist-schedule.js`), thêm bước 3b: snapshot `shiftConfig[shift].start/end` vào `customStart/customEnd` của tất cả nhân viên trong các ngày từ hôm nay trở đi — trước khi gọi `saveShiftConfigToFirestore()`.
 - **Kết quả:** Tuần quá khứ đã có `customStart` locked từ lần lưu → không bị ảnh hưởng. Tuần hiện tại/tương lai snapshot giờ mới từ UI → giờ mới chỉ apply từ lần lưu này trở đi.
+
+### 27/03/2026 — Fix chấm công tiếp tân
+- Auto-checkout: fix multi-role check, 2 ca ngắt quãng độc lập, merge ca tiếp giáp
+- Chip tương lai: hiện (ST) thay vì (V) cho ca chưa tới
+- Debug log cho match session receptionist
+- Popup admin thêm ca: thêm dropdown chọn Role

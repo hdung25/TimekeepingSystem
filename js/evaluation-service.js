@@ -274,8 +274,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
     receptionistShifts = mergeAdjacentShifts(receptionistShifts);
     receptionistShifts.forEach(rs => {
-        const schedStart = new Date(`${dateStr}T${rs.start}`);
-        const schedEnd = new Date(`${dateStr}T${rs.end}`);
+        const schedStart = new Date(`${dateStr}T${rs.start}:00`);
+        const schedEnd = new Date(`${dateStr}T${rs.end}:00`);
         const schedDuration = (schedEnd - schedStart) / 60000;
         const now = new Date();
 
@@ -315,7 +315,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (usedSessionIds.has(s.id)) return false;
             const checkIn = new Date(s.checkIn || s.start);
             const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
-            return checkIn >= earlyLimit && checkIn <= schedEnd;
+            const isMatch = checkIn >= earlyLimit && checkIn <= schedEnd;
+            if (!isMatch) {
+                console.log(`[MatchDebug] Session ${s.id} checkIn=${checkIn.toISOString()} NOT matched. earlyLimit=${earlyLimit.toISOString()} schedEnd=${schedEnd.toISOString()}`);
+            }
+            return isMatch;
         });
 
         if (matchedSession) {
