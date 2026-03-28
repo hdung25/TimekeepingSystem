@@ -80,7 +80,8 @@ async function initReport() {
 
         const bonusBtn = document.getElementById('btn-manual-bonus');
         if (bonusBtn) {
-            bonusBtn.style.display = 'inline-block';
+            const canRequestBonus10 = roles.some(r => r === 'teaching_assistant');
+            bonusBtn.style.display = canRequestBonus10 ? 'inline-block' : 'none';
         }
     }
 
@@ -1083,7 +1084,11 @@ async function renderMonthReport(date, forceServer = false) {
             let roles2 = [];
             try { const p = JSON.parse(roleRaw2); roles2 = Array.isArray(p) ? p : [roleRaw2]; }
             catch(e) { roles2 = [roleRaw2]; }
-            const canSeeBonus10 = roles2.some(r => ['teaching_assistant','admin','senior_assistant'].includes(r));
+            
+            // Fix: Đảm bảo CHỈ admin, senior_assistant, teaching_assistant được xem nút thưởng 10p
+            // KHÔNG cho phép receptionist, receptionist_assistant, staff hoặc chip của tiếp tân
+            const allowedRoles = ['teaching_assistant', 'admin', 'senior_assistant'];
+            const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist;
             const isAdminRole2 = roles2.some(r => ['admin','senior_assistant'].includes(r));
 
             if (canSeeBonus10 && chip.sessionId &&

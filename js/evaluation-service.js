@@ -273,6 +273,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // receptionistShifts = [{ shift: 'morning', label: 'SÁNG', start: '07:00', end: '11:30' }, ...]
 
     receptionistShifts = mergeAdjacentShifts(receptionistShifts);
+
+    // Yêu cầu: process ca Cố Định trước, rồi mới process ca thường
+    receptionistShifts.sort((a, b) => {
+        const aFixed = a.isFixedShift ? 1 : 0;
+        const bFixed = b.isFixedShift ? 1 : 0;
+        if (bFixed !== aFixed) return bFixed - aFixed;
+        // Cùng loại thì sort theo giờ bắt đầu
+        return a.start.localeCompare(b.start);
+    });
+
     receptionistShifts.forEach(rs => {
         if (!rs.start || !rs.end || typeof rs.start !== 'string' || typeof rs.end !== 'string') return;
 
@@ -320,15 +330,21 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
 
         // Find matching attendance session
-        // Match if check-in is within: 60 min before shift start → shift end
-        // This ensures late check-ins during the shift are recognized as "Trễ" not "Vắng"
         const matchedSession = attendanceSessions.find(s => {
             if (usedSessionIds.has(s.id)) return false;
             const checkIn = new Date(s.checkIn || s.start);
-            const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
-            const isMatch = checkIn >= earlyLimit && checkIn <= schedEnd;
-
-            return isMatch;
+            
+            if (rs.isFixedShift) {
+                // Ca Cố Định: Sử dụng logic bao trùm khung giờ
+                // Nếu chưa có checkOut, ca CĐ không thể match (tránh match nhầm ca đang diễn ra)
+                if (!s.checkOut) return false;
+                const checkOut = new Date(s.checkOut);
+                return checkIn <= schedEnd && checkOut >= schedStart;
+            } else {
+                // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 60 phút) đến schedEnd
+                const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
+                return checkIn >= earlyLimit && checkIn <= schedEnd;
+            }
         });
 
         if (matchedSession) {
