@@ -122,6 +122,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const effectiveEnd = actualEnd > schedEnd ? actualEnd : schedEnd;
                     const effectiveDuration = (effectiveEnd - schedStart) / 60000;
 
+                    // Cập nhật label: hiển thị giờ ra thực tế nếu admin đã chỉnh vượt lịch
+                    if (actualEnd > schedEnd) {
+                        const aeH = String(actualEnd.getHours()).padStart(2, '0');
+                        const aeM = String(actualEnd.getMinutes()).padStart(2, '0');
+                        label = `${cls.start}–${aeH}:${aeM}${branchShort}`;
+                    }
+
                     let isLate = false;
                     if (diffMs < 0) { // Late
                         const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
@@ -384,6 +391,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Admin override: nếu checkOut thực tế vượt qua giờ kết thúc ca, dùng actualEnd
                 const effectiveEndR = actualEnd > schedEnd ? actualEnd : schedEnd;
                 const effectiveDurationR = (effectiveEndR - schedStart) / 60000;
+
+                // Cập nhật label: hiển thị giờ ra thực tế nếu admin đã chỉnh vượt lịch
+                if (actualEnd > schedEnd) {
+                    const aeHR = String(actualEnd.getHours()).padStart(2, '0');
+                    const aeMR = String(actualEnd.getMinutes()).padStart(2, '0');
+                    label = `${labelShort} ${rs.start}–${aeHR}:${aeMR}${branchShortR}`;
+                }
 
                 if (diffMs < 0) {
                     // Late
