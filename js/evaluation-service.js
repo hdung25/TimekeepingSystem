@@ -242,9 +242,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             } else {
                 // --- CASE B: NO ATTENDANCE ---
-                const classDateTime = new Date(`${dateStr}T${cls.start}`);
-                if (classDateTime > now) {
-                    // User requested to hide future classes (Sắp tới)
+                // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
+                const todayStrClass = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
+                const nowTimeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                const isFutureDateClass = dateStr > todayStrClass;
+                const isTodayFutureTimeClass = (dateStr === todayStrClass) && (cls.start > nowTimeStr);
+
+                if (isFutureDateClass || isTodayFutureTimeClass) {
+                    // Buổi học chưa diễn ra — ẩn chip, không đánh vắng
                     // Do nothing
                 } else {
                     chips.push({
@@ -482,9 +487,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         } else {
             // === NO ATTENDANCE FOR THIS SHIFT ===
-            const shiftDateTime = new Date(`${dateStr}T${rs.start}`);
-            if (shiftDateTime > now) {
-                // Future shift → show as "Sắp tới" so receptionist can see upcoming schedule
+            // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
+            const todayStrShift = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
+            const nowTimeStrShift = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+            const isFutureDateShift = dateStr > todayStrShift;
+            const isTodayFutureTimeShift = (dateStr === todayStrShift) && (rs.start > nowTimeStrShift);
+
+            if (isFutureDateShift || isTodayFutureTimeShift) {
+                // Ca chưa diễn ra → hiện (ST) để tiếp tân thấy lịch sắp tới
                 chips.push({
                     text: label + ' (ST)',
                     class: 'chip-future',
@@ -492,7 +502,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
                     sessionId: null,
                     schedData: { start: rs.start, end: rs.end },
-                    isClickable: false, // User requested future shifts not to be clickable for checkin, though admin could delete them if needed
+                    isClickable: false,
                     isReceptionist: true,
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,

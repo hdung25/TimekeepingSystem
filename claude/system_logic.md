@@ -456,3 +456,9 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - Chip tương lai: hiện (ST) thay vì (V) cho ca chưa tới
 - Debug log cho match session receptionist
 - Popup admin thêm ca: thêm dropdown chọn Role
+
+### 02/04/2026 — Fix: Đánh vắng sai cho buổi học/ca tiếp tân chưa diễn ra
+- **Vấn đề:** Hệ thống hiển thị chip **(V) — Vắng** cho các buổi học và ca tiếp tân cố định (CĐ) xảy ra trong **tương lai** (ví dụ: T7 04/04 lúc 7:00 bị đánh vắng ngay từ T5 02/04).
+- **Root cause:** `evaluation-service.js` dùng `new Date(\`${dateStr}T${cls.start}\`)` để so sánh với `now`. Cách tạo Date từ chuỗi ISO không có timezone specifier phụ thuộc vào trình duyệt — có thể bị parse theo UTC thay vì giờ địa phương (+07:00), dẫn đến `classDateTime < now` sai khi ca/lớp thực tế vẫn còn trong tương lai.
+- **Fix:** Thay toàn bộ logic so sánh timestamp bằng **so sánh chuỗi ngày** (`dateStr > todayStr`) kết hợp so sánh giờ thủ công (`HH:MM`) — đảm bảo không phụ thuộc timezone. Áp dụng cho cả 2 nhánh: CASE B giáo viên (dòng ~244) và CASE B tiếp tân (dòng ~485).
+- **File sửa:** `js/evaluation-service.js`
