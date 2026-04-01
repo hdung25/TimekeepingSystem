@@ -462,3 +462,9 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - **Root cause:** `evaluation-service.js` dùng `new Date(\`${dateStr}T${cls.start}\`)` để so sánh với `now`. Cách tạo Date từ chuỗi ISO không có timezone specifier phụ thuộc vào trình duyệt — có thể bị parse theo UTC thay vì giờ địa phương (+07:00), dẫn đến `classDateTime < now` sai khi ca/lớp thực tế vẫn còn trong tương lai.
 - **Fix:** Thay toàn bộ logic so sánh timestamp bằng **so sánh chuỗi ngày** (`dateStr > todayStr`) kết hợp so sánh giờ thủ công (`HH:MM`) — đảm bảo không phụ thuộc timezone. Áp dụng cho cả 2 nhánh: CASE B giáo viên (dòng ~244) và CASE B tiếp tân (dòng ~485).
 - **File sửa:** `js/evaluation-service.js`
+
+### 02/04/2026 — Fix: Admin chỉnh giờ ra vượt ca không được tính lương đúng
+- **Vấn đề:** Khi nhân viên bị auto-checkout sớm (ví dụ 17:00) nhưng thực tế làm đến 18:30, admin chỉnh checkOut lên 18:30 nhưng hệ thống vẫn chỉ tính giờ đến 18:00 (giờ kết thúc ca theo lịch) — 30 phút cuối bị mất.
+- **Root cause:** `evaluation-service.js` luôn tính `paidMinutes` dựa vào `schedEnd` (giờ kết thúc ca theo lịch), không dùng `actualEnd` (checkOut thực tế). Không có trường hợp ngoại lệ cho admin.
+- **Fix:** Thêm `effectiveEnd = max(actualEnd, schedEnd)` — nếu admin chỉnh checkOut vượt qua lịch thì dùng giờ thực tế. Áp dụng cho cả 3 case (đúng giờ, vào sớm, vào trễ) của cả GV lẫn tiếp tân. Tooltip hiển thị thêm `| Ra muộn Xp (admin đã chỉnh)` để minh bạch.
+- **File sửa:** `js/evaluation-service.js`
