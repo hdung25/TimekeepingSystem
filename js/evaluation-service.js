@@ -388,8 +388,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const diffMs = schedStart - actualStart;
                 const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-                // Admin override: nếu checkOut thực tế vượt qua giờ kết thúc ca, dùng actualEnd
-                const effectiveEndR = actualEnd > schedEnd ? actualEnd : schedEnd;
+                // Giờ tính luôn theo lịch, không tính thêm nếu ra muộn hơn lịch
+                const effectiveEndR = schedEnd;
                 const effectiveDurationR = (effectiveEndR - schedStart) / 60000;
 
                 // Cập nhật label: hiển thị giờ ra thực tế nếu admin đã chỉnh vượt lịch
