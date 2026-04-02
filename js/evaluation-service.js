@@ -25,6 +25,11 @@ const EVALUATION_CRITERIA = [
 // ================= DAILY CHIPS CALCULATION =================
 // Logic to Merge Schedule & Attendance → Returns chip array for a single day
 
+function timeStrToMin(t) {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+}
+
 function mergeAdjacentShifts(shifts) {
     if (!shifts || shifts.length === 0) return shifts;
 
@@ -40,7 +45,21 @@ function mergeAdjacentShifts(shifts) {
             merged[merged.length - 1] = {
                 ...prev,
                 end: curr.end,
-                _mergedWith: curr
+                _mergedWith: curr,
+                mergedSegments: [
+                    ...(prev.mergedSegments || [{
+                        start: prev.start,
+                        end: prev.end,
+                        schedMinutes: timeStrToMin(prev.end) - timeStrToMin(prev.start),
+                        isFixedShift: prev.isFixedShift
+                    }]),
+                    {
+                        start: curr.start,
+                        end: curr.end,
+                        schedMinutes: timeStrToMin(curr.end) - timeStrToMin(curr.start),
+                        isFixedShift: curr.isFixedShift
+                    }
+                ]
             };
         } else {
             merged.push({ ...curr });
@@ -517,6 +536,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 overtimePending: otPendingR,
                 overtimeMinutes: otMinutesR,
                 isFixedShift: rs.isFixedShift,
+                mergedSegments: rs.mergedSegments || null,
                 bonus10Status: b10StatusR,
                 bonus10Id: b10DataR ? b10DataR.id : null
             });

@@ -1465,18 +1465,29 @@ function calculateSalary() {
 
                 // Calculate Money
                 let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
-                
+
                 let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
-                if (window.currentUserContext && window.currentUserContext.salary_config) {
-                     const cfg = window.currentUserContext.salary_config;
-                     if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
-                         rate = Number(cfg.receptionist_fixed_rate);
-                     } else if (isTiepTan && cfg.receptionist_normal_rate) {
-                         rate = Number(cfg.receptionist_normal_rate);
-                     }
+                if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
+                    const cfg = window.currentUserContext.salary_config;
+                    let chipSalary = 0;
+                    if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                        chip.mergedSegments.forEach(seg => {
+                            const segMinutes = seg.schedMinutes || 0;
+                            const segRate = seg.isFixedShift
+                                ? Number(cfg.receptionist_fixed_rate || 0)
+                                : Number(cfg.receptionist_normal_rate || 0);
+                            chipSalary += (segMinutes / 60) * segRate;
+                        });
+                    } else {
+                        const segRate = chip.isFixedShift
+                            ? Number(cfg.receptionist_fixed_rate || 0)
+                            : Number(cfg.receptionist_normal_rate || 0);
+                        chipSalary += (minutes / 60) * segRate;
+                    }
+                    filteredSalary += chipSalary;
+                } else {
+                    filteredSalary += (minutes / 60) * rate;
                 }
-                
-                filteredSalary += (minutes / 60) * rate;
             });
         }
     } else {
@@ -1519,18 +1530,29 @@ function calculateSalary() {
 
                 // Calculate Money
                 let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
-                
-                let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
-                if (window.currentUserContext && window.currentUserContext.salary_config) {
-                     const cfg = window.currentUserContext.salary_config;
-                     if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
-                         rate = Number(cfg.receptionist_fixed_rate);
-                     } else if (isTiepTan && cfg.receptionist_normal_rate) {
-                         rate = Number(cfg.receptionist_normal_rate);
-                     }
-                }
 
-                filteredSalary += (minutes / 60) * rate;
+                let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+                if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
+                    const cfg = window.currentUserContext.salary_config;
+                    let chipSalary = 0;
+                    if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                        chip.mergedSegments.forEach(seg => {
+                            const segMinutes = seg.schedMinutes || 0;
+                            const segRate = seg.isFixedShift
+                                ? Number(cfg.receptionist_fixed_rate || 0)
+                                : Number(cfg.receptionist_normal_rate || 0);
+                            chipSalary += (segMinutes / 60) * segRate;
+                        });
+                    } else {
+                        const segRate = chip.isFixedShift
+                            ? Number(cfg.receptionist_fixed_rate || 0)
+                            : Number(cfg.receptionist_normal_rate || 0);
+                        chipSalary += (minutes / 60) * segRate;
+                    }
+                    filteredSalary += chipSalary;
+                } else {
+                    filteredSalary += (minutes / 60) * rate;
+                }
             }
         });
     }
