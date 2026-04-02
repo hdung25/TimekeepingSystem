@@ -485,6 +485,7 @@ const DBService = {
 
                             recentActivity.push({
                                 user: data.name || 'N/A',
+                                userId: data.userId || '',
                                 time: checkInTime,
                                 type: 'in',
                                 status: status
@@ -493,8 +494,15 @@ const DBService = {
                     });
                 });
 
-                // Sort by time desc
+                // Sort by time desc, then dedup by userId keeping latest entry per employee
                 recentActivity.sort((a, b) => new Date(b.time) - new Date(a.time));
+                const seenUsers = new Set();
+                recentActivity = recentActivity.filter(a => {
+                    const key = a.userId || a.user;
+                    if (seenUsers.has(key)) return false;
+                    seenUsers.add(key);
+                    return true;
+                });
                 recentActivity = recentActivity.slice(0, 5);
             }
 
@@ -1003,6 +1011,7 @@ const DBService = {
 
                             recentActivity.push({
                                 user: data.name || 'N/A',
+                                userId: data.userId || '',
                                 time: checkInTime,
                                 type: 'in',
                                 status: status
@@ -1011,8 +1020,15 @@ const DBService = {
                     });
                 });
 
-                // Sort & Slice
+                // Sort & Slice — dedup by userId keeping latest entry per employee
                 recentActivity.sort((a, b) => new Date(b.time) - new Date(a.time));
+                const seenUsers2 = new Set();
+                recentActivity = recentActivity.filter(a => {
+                    const key = a.userId || a.user;
+                    if (seenUsers2.has(key)) return false;
+                    seenUsers2.add(key);
+                    return true;
+                });
                 recentActivity = recentActivity.slice(0, 5);
             }
 
