@@ -342,8 +342,12 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
                 const startStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
                 const endStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
 
-                const shiftStart = new Date(`${dateKey}T${startStr}`);
-                const shiftEnd = new Date(`${dateKey}T${endStr}`);
+                // FIX: dùng local time, tránh UTC parse gây lệch 7h
+                const [_acy, _acm, _acd] = dateKey.split('-').map(Number);
+                const [_ssh, _ssm] = startStr.split(':').map(Number);
+                const [_seh, _sem] = endStr.split(':').map(Number);
+                const shiftStart = new Date(_acy, _acm - 1, _acd, _ssh, _ssm, 0, 0);
+                const shiftEnd = new Date(_acy, _acm - 1, _acd, _seh, _sem, 0, 0);
 
                 allShifts.push({ shiftStart, shiftEnd, startStr, endStr });
             }
@@ -409,8 +413,12 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
                     const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId);
                     if (!isRegistered) return;
 
-                    const classStart = new Date(`${dateKey}T${cls.start}`);
-                    const classEnd = new Date(`${dateKey}T${cls.end}`);
+                    // FIX: dùng local time, tránh UTC parse gây lệch 7h
+                    const [_tcy, _tcm, _tcd] = dateKey.split('-').map(Number);
+                    const [_csh, _csm] = cls.start.split(':').map(Number);
+                    const [_ceh, _cem] = cls.end.split(':').map(Number);
+                    const classStart = new Date(_tcy, _tcm - 1, _tcd, _csh, _csm, 0, 0);
+                    const classEnd = new Date(_tcy, _tcm - 1, _tcd, _ceh, _cem, 0, 0);
 
                     // Match: check-in is within ±60 min of class start
                     const diffMs = Math.abs(checkInTime - classStart);
