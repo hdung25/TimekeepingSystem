@@ -376,13 +376,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
 
         // Find matching attendance session
-        console.log(`[DEBUG shift] date=${dateStr} sched=${rs.start}-${rs.end} fixed=${rs.isFixedShift} sessions=${attendanceSessions.length}`);
-        attendanceSessions.forEach((s, i) => {
-            const ci = s.checkIn || s.start;
-            const co = s.checkOut || 'NULL';
-            const used = usedSessionIds.has(s.id);
-            console.log(`  session[${i}] id=${s.id} checkIn=${ci} checkOut=${co} used=${used}`);
-        });
         const matchedSession = attendanceSessions.find(s => {
             if (usedSessionIds.has(s.id)) return false;
             const checkIn = new Date(s.checkIn || s.start);
@@ -391,16 +384,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Ca Cố Định: Sử dụng logic bao trùm khung giờ
                 if (s.checkOut) {
                     const checkOut = new Date(s.checkOut);
-                    const result = checkIn <= schedEnd && checkOut >= schedStart;
-                    console.log(`  [match CĐ] id=${s.id} checkIn=${checkIn.toLocaleTimeString()} <= schedEnd=${schedEnd.toLocaleTimeString()}? ${checkIn <= schedEnd} | checkOut=${checkOut.toLocaleTimeString()} >= schedStart=${schedStart.toLocaleTimeString()}? ${checkOut >= schedStart} → ${result}`);
-                    return result;
+                    return checkIn <= schedEnd && checkOut >= schedStart;
                 } else {
                     // Session đang mở (chưa checkout): match nếu checkIn trong khung ±60p
                     // Tránh bỏ sót khi nhân viên quên bấm ra ca
                     const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
-                    const result = checkIn >= earlyLimit && checkIn <= schedEnd;
-                    console.log(`  [match CĐ no-CO] id=${s.id} checkIn=${checkIn.toLocaleTimeString()} in [${earlyLimit.toLocaleTimeString()}, ${schedEnd.toLocaleTimeString()}]? → ${result}`);
-                    return result;
+                    return checkIn >= earlyLimit && checkIn <= schedEnd;
                 }
             } else {
                 // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 60 phút) đến schedEnd
@@ -409,7 +398,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
         });
 
-        console.log(`[DEBUG match result] date=${dateStr} shift=${rs.start}-${rs.end} → matched=${matchedSession ? matchedSession.id : 'NONE'}`);
         if (matchedSession) {
             usedSessionIds.add(matchedSession.id);
 
@@ -432,12 +420,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const effectiveEndR = schedEnd;
                 const effectiveDurationR = (effectiveEndR - schedStart) / 60000;
 
-                // Cập nhật label: hiển thị giờ ra thực tế nếu admin đã chỉnh vượt lịch
-                if (actualEnd > schedEnd) {
-                    const aeHR = String(actualEnd.getHours()).padStart(2, '0');
-                    const aeMR = String(actualEnd.getMinutes()).padStart(2, '0');
-                    label = `${labelShort} ${rs.start}–${aeHR}:${aeMR}${branchShortR}`;
-                }
+                // Label luôn hiển thị giờ theo lịch (không đổi khi ra muộn)
+                // Thông tin ra muộn sẽ hiện trong tooltip bên dưới
 
                 if (diffMs < 0) {
                     // Late
