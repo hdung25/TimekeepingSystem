@@ -372,6 +372,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
 
         // Find matching attendance session
+        console.log('[DEBUG receptionist shift]', {
+            date: dateStr,
+            schedStart: schedStart.toISOString(),
+            schedEnd: schedEnd.toISOString(),
+            isFixedShift: rs.isFixedShift,
+            totalSessions: attendanceSessions.length,
+            sessions: attendanceSessions.map(s => ({
+                id: s.id,
+                checkIn: s.checkIn,
+                checkOut: s.checkOut,
+                usedAlready: usedSessionIds.has(s.id)
+            }))
+        });
         const matchedSession = attendanceSessions.find(s => {
             if (usedSessionIds.has(s.id)) return false;
             const checkIn = new Date(s.checkIn || s.start);
