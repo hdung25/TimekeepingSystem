@@ -378,10 +378,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             
             if (rs.isFixedShift) {
                 // Ca Cố Định: Sử dụng logic bao trùm khung giờ
-                // Nếu chưa có checkOut, ca CĐ không thể match (tránh match nhầm ca đang diễn ra)
-                if (!s.checkOut) return false;
-                const checkOut = new Date(s.checkOut);
-                return checkIn <= schedEnd && checkOut >= schedStart;
+                if (s.checkOut) {
+                    const checkOut = new Date(s.checkOut);
+                    return checkIn <= schedEnd && checkOut >= schedStart;
+                } else {
+                    // Session đang mở (chưa checkout): match nếu checkIn trong khung ±60p
+                    // Tránh bỏ sót khi nhân viên quên bấm ra ca
+                    const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
+                    return checkIn >= earlyLimit && checkIn <= schedEnd;
+                }
             } else {
                 // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 60 phút) đến schedEnd
                 const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
