@@ -92,7 +92,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // 2. Check for Attendance Match
             // Priority 1: Exact match by linkedClassStart (set when admin edits a session)
             // Priority 2: Proximity match within 60 min of class start
-            const schedStart = new Date(`${dateStr}T${cls.start}`);
+            // FIX: dùng local time thay vì ISO string (tránh UTC parse gây lệch 7h)
+            const [_sy, _sm, _sd] = dateStr.split('-').map(Number);
+            const [_sH, _sM] = cls.start.split(':').map(Number);
+            const schedStart = new Date(_sy, _sm - 1, _sd, _sH, _sM, 0, 0);
 
             let matchedSession = attendanceSessions.find(s => {
                 if (usedSessionIds.has(s.id)) return false;
@@ -120,7 +123,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let label = `${cls.start}–${cls.end}${branchShort}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
 
-            const schedEnd = new Date(`${dateStr}T${cls.end}`);
+            const [_eH, _eM] = cls.end.split(':').map(Number);
+            const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
             const schedDuration = (schedEnd - schedStart) / 60000;
             const now = new Date();
 
@@ -332,10 +336,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const endParts = rs.end.split(':');
         if (startParts.length < 2 || endParts.length < 2) return;
 
-        const schedStart = new Date(dateStr + 'T00:00:00');
-        schedStart.setHours(parseInt(startParts[0], 10), parseInt(startParts[1], 10), 0, 0);
-        const schedEnd = new Date(dateStr + 'T00:00:00');
-        schedEnd.setHours(parseInt(endParts[0], 10), parseInt(endParts[1], 10), 0, 0);
+        // FIX: tách năm/tháng/ngày từ dateStr để tạo local Date, tránh UTC parse
+        const [_ry, _rm, _rd] = dateStr.split('-').map(Number);
+        const schedStart = new Date(_ry, _rm - 1, _rd, parseInt(startParts[0], 10), parseInt(startParts[1], 10), 0, 0);
+        const schedEnd = new Date(_ry, _rm - 1, _rd, parseInt(endParts[0], 10), parseInt(endParts[1], 10), 0, 0);
 
         if (isNaN(schedStart.getTime()) || isNaN(schedEnd.getTime())) return;
 
