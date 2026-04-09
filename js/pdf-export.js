@@ -4,6 +4,13 @@
 //   - EVALUATION_CRITERIA, calculateSalary(), removeVietnameseTones(), currentDate
 //   - window.currentMonthChips, window.currentMonthSalary
 
+function togglePdfTieptanInputs() {
+    const filterType = document.getElementById('salary-role-filter')?.value;
+    const box = document.getElementById('pdf-tieptan-inputs');
+    if (box) box.style.display = (filterType === 'tiep-tan') ? 'block' : 'none';
+}
+window.togglePdfTieptanInputs = togglePdfTieptanInputs;
+
 function exportSalaryPDF() {
     // 1. Get Data
     const staffSelect = document.getElementById('staff-select');
@@ -116,117 +123,223 @@ function exportSalaryPDF() {
 
     // 2. Build HTML
     const printWindow = window.open('', '_blank');
+    const msgVal = document.getElementById('pdf-message')?.value?.trim() || '';
+    const messageRow = msgVal
+        ? `<div class="footer-note"><strong>Nhắn gửi:</strong> ${msgVal}</div>`
+        : '';
+
+    const sharedStyles = `
+        body { font-family: 'Times New Roman', serif; padding: 20px; }
+        .header { text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
+        .sub-header { margin-bottom: 10px; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid black; padding: 8px; vertical-align: middle; }
+        .red-text { color: red; font-weight: bold; }
+        .bold { font-weight: bold; }
+        .right { text-align: right; }
+        .center { text-align: center; }
+        .no-border-top { border-top: none; }
+        .footer-note { font-style: italic; margin-top: 10px; font-size: 0.9em; }
+        .warning { color: red; font-weight: bold; margin-top: 10px; }
+    `;
+
+    const sharedHeader = `
+        <div class="header">TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ</div>
+        <div class="sub-header">
+            MÃ NHÂN VIÊN: ${staffId.substring(0, 6).toUpperCase()}
+            &nbsp;&nbsp;&nbsp;&nbsp;
+            HỌ VÀ TÊN: ${staffName.toUpperCase()}
+        </div>
+    `;
+
+    const sharedFooter = `
+        <div class="footer-note">
+            Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)
+        </div>
+        ${messageRow}
+        <div class="warning">
+            *LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!
+        </div>
+    `;
+
+    let tableHTML = '';
+
+    if (filterType === 'tiep-tan') {
+        const phiTuVan = parseFloat(document.getElementById('pdf-phi-tu-van')?.value) || 0;
+        const doanhThuTong = parseFloat(document.getElementById('pdf-doanh-thu-tong')?.value) || 0;
+        const doanhThuCs2 = parseFloat(document.getElementById('pdf-doanh-thu-cs2')?.value) || 0;
+        const doanhThuCs3 = parseFloat(document.getElementById('pdf-doanh-thu-cs3')?.value) || 0;
+
+        const totalExtras = phiTuVan + doanhThuTong + doanhThuCs2 + doanhThuCs3;
+        const totalI = baseSalary + totalExtras + totalBonus;
+        const finalNetTT = totalI - advance;
+
+        // Tiêu chí I = CHUYÊN CẦN (index 0), II = TRÁCH NHIỆM (index 4)
+        const criteriaI = evalItems[0];
+        const criteriaV = evalItems[4];
+
+        tableHTML = `
+        <table>
+            <tr>
+                <td class="bold red-text" style="width:70%">TỔNG LƯƠNG (1)</td>
+                <td class="bold red-text right">${fmt(totalI)}</td>
+            </tr>
+            <tr>
+                <td class="bold">
+                    TỔNG SỐ GIỜ: ${Math.floor(filteredMinutes/60)} giờ ${Math.floor(filteredMinutes%60)} phút
+                    <br><br>LƯƠNG CƠ BẢN:
+                </td>
+                <td class="bold right" style="vertical-align:top">${fmt(baseSalary)}</td>
+            </tr>
+            <tr>
+                <td class="bold">PHÍ TƯ VẤN:</td>
+                <td class="right">${phiTuVan !== 0 ? fmt(phiTuVan) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">CHẤM BÀI/ DẠY VỀ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH: &nbsp; giờ</td>
+                <td></td>
+            </tr>
+            <tr><td class="bold">TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
+            <tr><td class="bold">LƯƠNG HIỆU SUẤT:</td><td></td></tr>
+            <tr>
+                <td class="bold">THU NHẬP TĂNG THÊM DOANH THU TỔNG:</td>
+                <td class="right">${doanhThuTong !== 0 ? fmt(doanhThuTong) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">THU NHẬP TĂNG THÊM DOANH THU CS2:</td>
+                <td class="right">${doanhThuCs2 !== 0 ? fmt(doanhThuCs2) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">THU NHẬP TĂNG THÊM DOANH THU CS3:</td>
+                <td class="right">${doanhThuCs3 !== 0 ? fmt(doanhThuCs3) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">PHÁT SINH (I) + (II)</td>
+                <td class="right">${fmt(totalBonus)}</td>
+            </tr>
+            <tr>
+                <td>
+                    <table style="width:100%;border:none;">
+                        <tr>
+                            <td style="border:none;width:25%;font-weight:bold;vertical-align:top;">TIÊU CHÍ XÉT</td>
+                            <td style="border:none;">
+                                <div style="margin-bottom:8px;">
+                                    <strong>(I) CHUYÊN CẦN</strong><br>
+                                    Vắng phép: &nbsp;&nbsp;&nbsp;&nbsp; Vắng đột xuất:<br>
+                                    Vắng không phép: &nbsp;&nbsp; Trễ: &nbsp;&nbsp; giờ<br>
+                                    ${criteriaI?.note ? `<em>${criteriaI.note}</em>` : ''}
+                                </div>
+                                <div>
+                                    <strong>(II) TRÁCH NHIỆM:</strong>
+                                    ${criteriaV?.note ? `<em>${criteriaV.note}</em>` : ''}
+                                </div>
+                            </td>
+                            <td style="border:none;text-align:right;vertical-align:top;width:20%;">
+                                ${criteriaI?.amount ? fmt(criteriaI.amount) : ''}<br><br>
+                                ${criteriaV?.amount ? fmt(criteriaV.amount) : ''}
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+                <td></td>
+            </tr>
+            <tr>
+                <td class="bold red-text">TẠM ỨNG (2)</td>
+                <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                <td class="bold red-text right">${fmt(finalNetTT)}</td>
+            </tr>
+        </table>`;
+
+    } else {
+        // FORM GIÁO VIÊN — giữ nguyên table hiện tại
+        tableHTML = `
+        <div style="margin-bottom: 15px;">
+            Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
+        </div>
+        <table>
+            <!-- TOTAL SALARY ROW -->
+            <tr>
+                <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
+                <td class="bold red-text right">${fmt(initialTotal)}</td>
+            </tr>
+
+            <!-- HOURS & RATE -->
+            <tr>
+                <td class="bold">
+                    TỔNG SỐ GIỜ CƠ BẢN: ${Math.floor(normalMinutes / 60)} giờ ${Math.floor(normalMinutes % 60)} phút
+                    <br><br>
+                    LƯƠNG CƠ BẢN:
+                </td>
+                <td class="bold right" style="vertical-align: top;">${fmt(normalSalary)}</td>
+            </tr>
+            ${(fixedMinutes > 0 || window.fixedWorkedCount > 0 || window.fixedAbsentCount > 0) ? `
+            <tr>
+                <td class="bold" style="color: #6366F1;">
+                    TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
+                    <br>
+                    [Ca Cố Định] Đi làm: ${window.fixedWorkedCount || 0} | OFF: ${window.fixedAbsentCount || 0}
+                    <br><br>
+                    LƯƠNG CA CỐ ĐỊNH:
+                </td>
+                <td class="bold right" style="vertical-align: top; color: #6366F1;">${fmt(fixedSalary)}</td>
+            </tr>
+            ` : ''}
+
+            <!-- PLACEHOLDERS FOR SPECIFIC TYPES -->
+            <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
+            <tr><td>TỔNG SỐ GIỜ MẦM NON: giờ</td><td></td></tr>
+            <tr><td>TỔNG SỐ GIỜ GTNL/TOEIC/IELTS: giờ</td><td></td></tr>
+            <tr><td>TỔNG SỐ GIỜ LIÊN KẾT: giờ</td><td></td></tr>
+            <tr><td>TỔNG SỐ GIỜ KÈM 1:1 TẠI NHÀ: giờ</td><td></td></tr>
+            <tr><td>TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
+
+            <!-- TOTAL BONUS ROW -->
+            <tr>
+                <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
+                <td class="bold right">${fmt(totalBonus)}</td>
+            </tr>
+
+            <!-- EVALUATION ITEMS Rows -->
+            ${evalItems.map(item => `
+                <tr>
+                    <td>
+                        <div style="display:flex;">
+                            <div style="width: 40%; font-weight:bold;">(${item.label}) ${item.title}</div>
+                            <div style="width: 60%;">${item.note}</div>
+                        </div>
+                    </td>
+                    <td class="right">${item.amount !== 0 ? fmt(item.amount) : ''}</td>
+                </tr>
+            `).join('')}
+
+            <!-- ADVANCE -->
+            <tr>
+                <td class="bold red-text">TẠM ỨNG (2)</td>
+                <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
+            </tr>
+
+            <!-- NET PAY -->
+            <tr>
+                <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                <td class="bold red-text right">${fmt(finalNet)}</td>
+            </tr>
+        </table>`;
+    }
+
     printWindow.document.write(`
         <html>
         <head>
             <title>Bang_Luong_${staffName}_${month}_${year}</title>
-            <style>
-                body { font-family: 'Times New Roman', serif; padding: 20px; }
-                .header { text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
-                .sub-header { margin-bottom: 10px; font-weight: bold; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-                th, td { border: 1px solid black; padding: 8px; vertical-align: middle; }
-                .red-text { color: red; font-weight: bold; }
-                .bold { font-weight: bold; }
-                .right { text-align: right; }
-                .center { text-align: center; }
-                .no-border-top { border-top: none; }
-                .footer-note { font-style: italic; margin-top: 10px; font-size: 0.9em; }
-                .warning { color: red; font-weight: bold; margin-top: 10px; }
-            </style>
+            <style>${sharedStyles}</style>
         </head>
         <body>
-            <div class="header">
-                TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ
-            </div>
-            
-            <div class="sub-header">
-                MÃ NHÂN VIÊN: ${staffId.substring(0, 6).toUpperCase()} &nbsp;&nbsp;&nbsp;&nbsp; HỌ VÀ TÊN: ${staffName.toUpperCase()}
-                <br>LOẠI CÔNG VIỆC: ${filterType === 'all' ? 'Tất cả' : (filterType === 'tiep-tan' ? 'Tiếp tân' : 'Giáo viên/Trợ giảng')}
-            </div>
-            <div style="margin-bottom: 15px;">
-                Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
-            </div>
-
-            <table>
-                <!-- TOTAL SALARY ROW -->
-                <tr>
-                    <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
-                    <td class="bold red-text right">${fmt(initialTotal)}</td>
-                </tr>
-
-                <!-- HOURS & RATE -->
-                <tr>
-                    <td class="bold">
-                        TỔNG SỐ GIỜ CƠ BẢN: ${Math.floor(normalMinutes / 60)} giờ ${Math.floor(normalMinutes % 60)} phút
-                        <br><br>
-                        LƯƠNG CƠ BẢN:
-                    </td>
-                    <td class="bold right" style="vertical-align: top;">${fmt(normalSalary)}</td>
-                </tr>
-                ${(fixedMinutes > 0 || window.fixedWorkedCount > 0 || window.fixedAbsentCount > 0) ? `
-                <tr>
-                    <td class="bold" style="color: #6366F1;">
-                        TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
-                        <br>
-                        [Ca Cố Định] Đi làm: ${window.fixedWorkedCount || 0} | OFF: ${window.fixedAbsentCount || 0}
-                        <br><br>
-                        LƯƠNG CA CỐ ĐỊNH:
-                    </td>
-                    <td class="bold right" style="vertical-align: top; color: #6366F1;">${fmt(fixedSalary)}</td>
-                </tr>
-                ` : ''}
-
-                <!-- PLACEHOLDERS FOR SPECIFIC TYPES -->
-                <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ MẦM NON: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ GTNL/TOEIC/IELTS: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ LIÊN KẾT: giờ</td><td></td></tr>
-                <tr><td>TỔNG SỐ GIỜ KÈM 1:1 TẠI NHÀ: giờ</td><td></td></tr>
-                <tr><td>TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
-
-                <!-- TOTAL BONUS ROW -->
-                <tr>
-                    <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
-                    <td class="bold right">${fmt(totalBonus)}</td>
-                </tr>
-
-                <!-- EVALUATION ITEMS Rows -->
-                ${evalItems.map(item => `
-                    <tr>
-                        <td>
-                            <div style="display:flex;">
-                                <div style="width: 40%; font-weight:bold;">(${item.label}) ${item.title}</div>
-                                <div style="width: 60%;">${item.note}</div>
-                            </div>
-                        </td>
-                        <td class="right">${item.amount !== 0 ? fmt(item.amount) : ''}</td>
-                    </tr>
-                `).join('')}
-
-                <!-- ADVANCE -->
-                <tr>
-                    <td class="bold red-text">TẠM ỨNG (2)</td>
-                    <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
-                </tr>
-
-                <!-- NET PAY -->
-                <tr>
-                    <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
-                    <td class="bold red-text right">${fmt(finalNet)}</td>
-                </tr>
-            </table>
-
-            <div class="footer-note">
-                Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)
-            </div>
-            <div class="warning">
-                *LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!
-            </div>
-
-            <script>
-                window.print();
-            </script>
+            ${sharedHeader}
+            ${tableHTML}
+            ${sharedFooter}
+            <script>window.print();<\/script>
         </body>
         </html>
     `);

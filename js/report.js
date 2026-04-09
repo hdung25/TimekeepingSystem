@@ -242,6 +242,29 @@ function selectStaffFromDropdown(user) {
     // 3. Close dropdown
     closeStaffDropdown();
 
+    // Auto-detect salary-role-filter theo role nhân viên được chọn
+    const filterEl = document.getElementById('salary-role-filter');
+    if (filterEl) {
+        const staffRoles = (user.roles && user.roles.length > 0)
+            ? user.roles
+            : [user.role || ''];
+        const hasReceptionist = staffRoles.some(r =>
+            r === 'receptionist' || r === 'receptionist_assistant'
+        );
+        const hasTeaching = staffRoles.some(r =>
+            r === 'teaching_assistant' || r === 'assistant' ||
+            r === 'staff'
+        );
+        if (hasReceptionist && !hasTeaching) {
+            filterEl.value = 'tiep-tan';
+        } else if (hasTeaching && !hasReceptionist) {
+            filterEl.value = 'giao-vien';
+        } else {
+            filterEl.value = 'all'; // đa role → để admin chọn tay
+        }
+        if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
+    }
+
     // 4. Load report
     _cachedStaffId = null;
     renderMonthReport(currentDate);
