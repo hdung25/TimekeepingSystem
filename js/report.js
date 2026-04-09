@@ -87,7 +87,7 @@ async function initReport() {
 
     // Role specific buttons
     const markFixedBtn = document.getElementById('btn-mark-fixed');
-    if (markFixedBtn && ['admin', 'senior_assistant', 'receptionist_assistant'].includes(role)) {
+    if (markFixedBtn && ['admin', 'senior_assistant', 'receptionist_assistant', 'assistant'].includes(role)) {
         markFixedBtn.style.display = 'inline-block';
     }
 
@@ -1462,7 +1462,7 @@ function calculateSalary() {
     let fixedWorkedCount = 0;
     let fixedAbsentCount = 0;
     allChips.forEach(chip => {
-        let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+        let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (isTiepTan && chip.isFixedShift) {
             if (chip.sessionId) {
                 fixedWorkedCount++;
@@ -1492,7 +1492,7 @@ function calculateSalary() {
                 // Calculate Money
                 let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
 
-                let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+                let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
                 if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                     const cfg = window.currentUserContext.salary_config;
                     let chipSalary = 0;
@@ -1532,7 +1532,8 @@ function calculateSalary() {
                 const normalizedApps = removeVietnameseTones(roleName);
 
                 // Exclude Reception keys
-                if (chipRole === 'tiep-tan' || normalizedApps.includes('tiep') || normalizedApps.includes('le') || normalizedApps.includes('reception')) {
+                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chipRole);
+                if (isReceptionID || normalizedApps.includes('tiep') || normalizedApps.includes('le') || normalizedApps.includes('reception')) {
                     include = false;
                 }
                 // Include Teaching keys
@@ -1545,7 +1546,8 @@ function calculateSalary() {
                 const roleName = (chip.sessionData && chip.sessionData.roleName) ? chip.sessionData.roleName.toLowerCase() : '';
                 const normalizedApps = removeVietnameseTones(roleName);
 
-                if (chipRole === 'tiep-tan' || normalizedApps.includes('tiep') || normalizedApps.includes('le') || normalizedApps.includes('reception')) {
+                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chipRole);
+                if (isReceptionID || normalizedApps.includes('tiep') || normalizedApps.includes('le') || normalizedApps.includes('reception')) {
                     include = true;
                 }
             }
@@ -1616,7 +1618,29 @@ function calculateSalary() {
 
     // 4. Calculate Total Money
     let totalBonus = 0;
-    document.querySelectorAll('.eval-amount').forEach(input => {
+    const evalAmounts = document.querySelectorAll('.eval-amount');
+    const evalNotes = document.querySelectorAll('.eval-note');
+
+    // --- AUTO-CALCULATE ATTENDANCE BONUS (Criteria I) ---
+    const cfg = window.currentUserContext?.salary_config || {};
+    const attRate = Number(cfg.attendance_rate || 0);
+    if (attRate > 0 && evalAmounts.length > 0) {
+        const attInp = evalAmounts[0];
+        const calculatedBonus = Math.round((filteredMinutes / 60) * attRate);
+        
+        // Update input value
+        attInp.value = calculatedBonus;
+        
+        // Also update note if empty or contains previous auto-calculation
+        const attNote = evalNotes[0];
+        const autoNotePrefix = "Thưởng chuyên cần:";
+        if (attNote && (!attNote.value || attNote.value.startsWith(autoNotePrefix))) {
+            attNote.value = `${autoNotePrefix} ${attRate.toLocaleString()}đ/h x ${(filteredMinutes/60).toFixed(1)}h`;
+            // Update button color/title if possible (though it's usually handled by renderEvaluationTable)
+        }
+    }
+
+    evalAmounts.forEach(input => {
         totalBonus += parseFloat(input.value) || 0;
     });
 

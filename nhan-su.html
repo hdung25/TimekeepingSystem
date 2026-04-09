@@ -272,7 +272,23 @@
                         <label style="flex: 1; margin: 0; font-weight: 500;">Lương Ca Cố Định / Giờ:</label>
                         <input type="number" id="receptionist-fixed-rate" class="form-input" placeholder="VD: 25000" style="flex: 1;">
                     </div>
+                    <div style="display: flex; align-items: center; gap: 1rem; border-top: 1px dashed #ccc; padding-top: 0.5rem; margin-top: 0.5rem;">
+                        <label style="flex: 1; margin: 0; font-weight: 600; color: #059669;">Thưởng Chuyên Cần / Giờ:</label>
+                        <input type="number" id="attendance-rate" class="form-input" placeholder="VD: 2000" style="flex: 1; border-color: #059669;">
+                    </div>
                 </div>
+            </div>
+
+            <!-- General Bonus Config (for Teachers too) -->
+            <div id="general-bonus-section" style="background: #F0FDF4; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; border: 1px solid #D1FAE5;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem; color: #059669;">Thưởng Tự Động (Áp dụng chung):</label>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <label style="flex: 1; margin: 0; font-weight: 500;">Thưởng Chuyên Cần / Giờ:</label>
+                    <input type="number" id="general-attendance-rate" class="form-input" placeholder="VD: 2000" style="flex: 1;">
+                </div>
+                <small style="color: #6B7280; font-size: 0.75rem; display: block; margin-top: 0.25rem;">
+                    * Tự động nhân với tổng giờ làm để tính tiêu chí chuyên cần.
+                </small>
             </div>
 
             <div style="display: flex; gap: 1rem; justify-content: flex-end;">

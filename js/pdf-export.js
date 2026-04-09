@@ -69,17 +69,23 @@ function exportSalaryPDF() {
         if (filterType === 'all') {
             include = true;
         } else if (filterType === 'giao-vien') {
+            const roleId = chip.sessionData.role || '';
             const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
             const name = removeVietnameseTones(nameRaw);
-            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+            const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+            
+            if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                 include = false;
             } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
                 include = true;
             }
         } else if (filterType === 'tiep-tan') {
+            const roleId = chip.sessionData.role || '';
             const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
             const name = removeVietnameseTones(nameRaw);
-            if (name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+            const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+
+            if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                 include = true;
             }
         }
@@ -88,7 +94,7 @@ function exportSalaryPDF() {
             const minutes = chip.paidMinutes || 0;
             let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
             
-            let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+            let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
             let isFixed = false;
             
             if (window.currentUserContext && window.currentUserContext.salary_config) {
@@ -146,7 +152,7 @@ function exportSalaryPDF() {
     const sharedHeader = `
         <div class="header">TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ</div>
         <div class="sub-header">
-            MÃ NHÂN VIÊN: ${staffId.substring(0, 6).toUpperCase()}
+            MÃ NHÂN VIÊN: ${(window.currentUserContext?.username || staffId).toUpperCase()}
             &nbsp;&nbsp;&nbsp;&nbsp;
             HỌ VÀ TÊN: ${staffName.toUpperCase()}
         </div>

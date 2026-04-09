@@ -342,9 +342,14 @@ async function configureSalary(userId) {
         
         document.getElementById('receptionist-normal-rate').value = settings.receptionist_normal_rate || '';
         document.getElementById('receptionist-fixed-rate').value = settings.receptionist_fixed_rate || '';
+        document.getElementById('attendance-rate').value = settings.attendance_rate || '';
     } else {
         if (rolesSection) rolesSection.style.display = 'block';
         if (recSection) recSection.style.display = 'none';
+        
+        // Populate general attendance rate if not receptionist
+        const generalAttRate = document.getElementById('general-attendance-rate');
+        if (generalAttRate) generalAttRate.value = settings.attendance_rate || '';
         
         // Fallback: If no roles but has legacy "rate", create a default Service Role
         if (currentSalaryRoles.length === 0 && settings.rate) {
@@ -451,10 +456,14 @@ async function saveSalaryConfig() {
         if (isReceptionistType) {
             const normalRate = document.getElementById('receptionist-normal-rate').value;
             const fixedRate = document.getElementById('receptionist-fixed-rate').value;
+            const attRate = document.getElementById('attendance-rate').value;
             user.salary_config.receptionist_normal_rate = normalRate ? Number(normalRate) : 0;
             user.salary_config.receptionist_fixed_rate = fixedRate ? Number(fixedRate) : 0;
+            user.salary_config.attendance_rate = attRate ? Number(attRate) : 0;
         } else {
             user.salary_config.roles = currentSalaryRoles;
+            const generalAttRate = document.getElementById('general-attendance-rate').value;
+            user.salary_config.attendance_rate = generalAttRate ? Number(generalAttRate) : 0;
         }
 
         await DBService.saveUser(user);
