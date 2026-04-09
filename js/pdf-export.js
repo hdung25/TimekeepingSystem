@@ -163,15 +163,11 @@ function exportSalaryPDF() {
         </div>
     `;
 
-    const sharedFooter = `
-        <div class="footer-note">
-            Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)
-        </div>
-        ${messageRow}
-        <div class="warning">
-            *LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!
-        </div>
-    `;
+    const footerNote = `<div class="footer-note">Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)</div>`;
+    
+    const sharedFooter = filterType === 'tiep-tan'
+        ? `${footerNote}${messageRow}`
+        : `${footerNote}${messageRow}<div class="warning">*LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!</div>`;
 
     let tableHTML = '';
 
