@@ -613,7 +613,10 @@ async function renderMonthReport(date, forceServer = false) {
 
     // C. Receptionist Schedule Data (only for receptionist role staff)
     const receptionistShiftsMap = {}; // "YYYY-MM-DD" -> [{ shift, label, start, end }]
-    const isReceptionistStaff = currentUserContext && ['receptionist', 'receptionist_assistant', 'senior_assistant', 'admin'].includes(currentUserContext.role);
+    const _userRoles = parseRoles(currentUserContext?.roles || currentUserContext?.role);
+    const isReceptionistStaff = currentUserContext && _userRoles.some(r =>
+        ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
+    );
 
     if (isReceptionistStaff) {
         try {
