@@ -64,7 +64,8 @@ function exportSalaryPDF() {
 
     // Recalculate filtered minutes matching calculateSalary logic
     chips.forEach(chip => {
-        if (!chip.sessionData) return;
+        const isReceptionistChip = chip.isReceptionist === true;
+        if (!chip.sessionData && !isReceptionistChip) return;
         let include = false;
         if (filterType === 'all') {
             include = true;
@@ -80,13 +81,17 @@ function exportSalaryPDF() {
                 include = true;
             }
         } else if (filterType === 'tiep-tan') {
-            const roleId = chip.sessionData.role || '';
-            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
-            const name = removeVietnameseTones(nameRaw);
-            const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
-
-            if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+            if (isReceptionistChip) {
                 include = true;
+            } else {
+                const roleId = chip.sessionData?.role || '';
+                const nameRaw = (chip.sessionData?.roleName || '').toLowerCase();
+                const name = removeVietnameseTones(nameRaw);
+                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+
+                if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+                    include = true;
+                }
             }
         }
 
