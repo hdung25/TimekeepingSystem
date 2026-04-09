@@ -175,4 +175,6 @@ if (role === 'admin') { ... }
 
 ---
 
-*File này được tạo ngày 18/03/2026. Cập nhật khi quy trình thay đổi.*
+*File này được tạo ngày 18/03/2026. Reviewed & còn đúng ngày 09/04/2026.*
+
+> **Lưu ý:** Số role hệ thống là **7**: `admin` | `senior_assistant` | `assistant` | `teaching_assistant` | `staff` | `receptionist` | `receptionist_assistant`. Mục 6 Roles trên cần check đủ 7 roles khi liên quan.

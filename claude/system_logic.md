@@ -468,3 +468,26 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - **Root cause:** `evaluation-service.js` luôn tính `paidMinutes` dựa vào `schedEnd` (giờ kết thúc ca theo lịch), không dùng `actualEnd` (checkOut thực tế). Không có trường hợp ngoại lệ cho admin.
 - **Fix:** Thêm `effectiveEnd = max(actualEnd, schedEnd)` — nếu admin chỉnh checkOut vượt qua lịch thì dùng giờ thực tế. Áp dụng cho cả 3 case (đúng giờ, vào sớm, vào trễ) của cả GV lẫn tiếp tân. Tooltip hiển thị thêm `| Ra muộn Xp (admin đã chỉnh)` để minh bạch.
 - **File sửa:** `js/evaluation-service.js`
+
+### 09/04/2026 — Fix chuỗi: timezone, chip tiếp tân, dedup, merge ca cố định
+*(Các commit từ `84438b5` → `ad6f9f2` — ghi gộp vì đều là hotfix cùng luồng)*
+- **fix(evaluation):** Dùng local time khi build `schedStart`/`schedEnd` — tránh UTC timezone bug
+- **fix(main):** `autoCheckoutReceptionist` và `autoCheckoutTeacher` dùng local time thay vì `new Date()` UTC
+- **fix(evaluation):** Match ca tiếp tân cố định khi `checkOut` là `null` (nhân viên quên ra ca)
+- **fix(db-service):** Thêm cooldown 60s để chặn spam check-in
+- **fix(evaluation+report):** Tính lương ca merged/cố định đúng theo rate từng user (không dùng rate chung)
+- **fix(evaluation):** Clamp ca tiếp tân đúng cửa sổ lịch (không tính giờ thừa ngoài ca)
+- **fix(db-service):** Dedup recent activity theo `userId+date`
+- **fix(evaluation):** Chip label tiếp tân hiển thị giờ theo lịch (không phải giờ checkout thực tế) + xóa debug logs
+- **Files sửa:** `js/evaluation-service.js`, `js/main.js`, `js/db-service.js`
+
+### 09/04/2026 — Feat: PDF theo vai trò (Tiếp Tân / Giáo Viên) + Nhắn gửi
+- **Tính năng mới:**
+  1. **Auto-detect `salary-role-filter`:** Khi admin chọn nhân viên từ dropdown, hệ thống tự đọc `user.roles[]` và set filter: chỉ tiếp tân → `tiep-tan`, chỉ giáo viên → `giao-vien`, đa role → `all` (admin chọn tay).
+  2. **Form PDF riêng cho tiếp tân:** Khi filter = `tiep-tan`, xuất PDF theo layout tiếp tân với các dòng: Phí tư vấn, DT Tổng/CS2/CS3, Phát sinh (I+II), Tiêu chí Chuyên Cần + Trách Nhiệm, TỔNG LƯƠNG = baseSalary + extras + bonus.
+  3. **Form PDF giáo viên:** Giữ nguyên layout cũ khi filter ≠ `tiep-tan`.
+  4. **Shared header/footer:** Tách `sharedStyles`, `sharedHeader`, `sharedFooter` để tái sử dụng cả 2 form.
+  5. **Nhắn gửi:** Input `#pdf-message` — nếu có text → hiển thị dòng "Nhắn gửi: ..." trong footer PDF.
+  6. **Box nhập liệu tiếp tân:** `#pdf-tieptan-inputs` ẩn mặc định, chỉ hiện khi filter = `tiep-tan`. Gồm: Phí tư vấn, DT Tổng, DT CS2, DT CS3.
+  7. **`togglePdfTieptanInputs()`:** Hàm global sync hiển thị box — được gọi từ `onchange` của `salary-role-filter` và từ `selectStaffFromDropdown`.
+- **Files sửa:** `js/pdf-export.js` (rewrite), `js/report.js` (thêm auto-detect vào `selectStaffFromDropdown`), `bao-cao.html` (thêm HTML inputs + sửa onchange)
