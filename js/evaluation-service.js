@@ -591,7 +591,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     });
 
     // 4. Handle Unmatched Sessions
-    // 4. Handle Unmatched Sessions
     attendanceSessions.forEach(s => {
         if (!usedSessionIds.has(s.id)) {
             const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
@@ -600,31 +599,101 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let cssClass = 'chip-orange';
             let isClickable = false;
 
-            const start = new Date(s.checkIn || s.start);
-            const startStr = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            const sessionStart = new Date(s.checkIn || s.start);
+            const startStr = sessionStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
             let tooltip = isAdminCreated
                 ? `Admin đã thêm ca này thủ công (Vào: ${startStr})`
                 : `Chấm công không khớp lịch (Vào ca: ${startStr})`;
 
-            if (s.checkOut) {
-                const end = new Date(s.checkOut);
-                const endStr = end.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                duration = (end - start) / 60000;
+            // FIX: Tìm ca/lớp gần nhất trong lịch để tính giờ sớm/trễ đúng
+            // (session không khớp lịch vẫn có thể gần một ca — hiển thị theo giờ lịch)
+            let nearestSchedStart = null, nearestSchedEnd = null, nearestDiff = Infinity;
+            if (!isAdminCreated) {
+                const [_uy, _um, _ud] = dateStr.split('-').map(Number);
+                // Kiểm tra lớp học
+                sections.forEach(sec => {
+                    (schedule[sec] || []).forEach(cls => {
+                        const [_cH, _cM] = cls.start.split(':').map(Number);
+                        const csStart = new Date(_uy, _um - 1, _ud, _cH, _cM, 0, 0);
+                        const diff = Math.abs(sessionStart - csStart);
+                        if (diff < nearestDiff) {
+                            nearestDiff = diff;
+                            nearestSchedStart = csStart;
+                            const [_eH, _eM] = cls.end.split(':').map(Number);
+                            nearestSchedEnd = new Date(_uy, _um - 1, _ud, _eH, _eM, 0, 0);
+                        }
+                    });
+                });
+                // Kiểm tra ca tiếp tân
+                receptionistShifts.forEach(rs => {
+                    if (!rs.start || !rs.end) return;
+                    const [_rH, _rM] = rs.start.split(':').map(Number);
+                    const rsStart = new Date(_uy, _um - 1, _ud, _rH, _rM, 0, 0);
+                    const diff = Math.abs(sessionStart - rsStart);
+                    if (diff < nearestDiff) {
+                        nearestDiff = diff;
+                        nearestSchedStart = rsStart;
+                        const [_reH, _reM] = rs.end.split(':').map(Number);
+                        nearestSchedEnd = new Date(_uy, _um - 1, _ud, _reH, _reM, 0, 0);
+                    }
+                });
+            }
+            // Dùng lịch gần nhất nếu trong vòng 90 phút
+            const USE_SCHED = !isAdminCreated && nearestSchedStart && nearestDiff < 90 * 60 * 1000;
 
-                // Role Logic for unmatched sessions
-                if (s.role) {
-                    cssClass = 'chip-green';
-                    label = `${startStr}–${endStr} (${s.roleName})`;
-                    tooltip += ` - Vai trò: ${s.roleName}`;
+            let b10DataU, b10StatusU;
+
+            if (s.checkOut) {
+                const sessionEnd = new Date(s.checkOut);
+                const endStr = sessionEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+                if (USE_SCHED) {
+                    // Tính sớm/trễ theo giờ lịch
+                    const diffToSched = sessionStart - nearestSchedStart; // + = trễ, - = sớm
+                    const schedStartStr = nearestSchedStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    const effectiveEnd = sessionEnd > nearestSchedEnd ? sessionEnd : nearestSchedEnd;
+                    const lateMin = diffToSched >= 60000 ? Math.round(diffToSched / 60000) : 0;
+                    const lateSuffix = lateMin > 0 ? ` (T${lateMin}p)` : '';
+
+                    if (lateMin > 0) {
+                        // Trễ: tính từ lúc vào thực tế đến cuối ca lịch
+                        duration = Math.max(0, (nearestSchedEnd - sessionStart) / 60000);
+                        cssClass = 'chip-orange';
+                        tooltip = `Vào trễ ${lateMin}p so với lịch (${schedStartStr})`;
+                    } else {
+                        // Sớm hoặc đúng giờ: tính từ giờ bắt đầu lịch
+                        duration = (effectiveEnd - nearestSchedStart) / 60000;
+                        cssClass = s.role ? 'chip-green' : 'chip-waiting';
+                        tooltip = diffToSched < 0
+                            ? `Vào sớm ${Math.round(-diffToSched / 60000)}p (lịch ${schedStartStr})`
+                            : `Đúng giờ (${schedStartStr})`;
+                    }
+
+                    if (s.role) {
+                        cssClass = lateMin > 0 ? 'chip-orange' : 'chip-green';
+                        label = `${schedStartStr}–${endStr}${lateSuffix} (${s.roleName})`;
+                        tooltip += ` - Vai trò: ${s.roleName}`;
+                    } else {
+                        label = `${schedStartStr}–${endStr}${lateSuffix} (Role?)`;
+                        tooltip += ' - Bấm để chọn vai trò tính lương';
+                    }
                 } else {
-                    cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
-                    label = `${startStr}–${endStr} (Role?)`;
-                    tooltip += ' - Bấm để chọn vai trò tính lương';
+                    // Không có ca gần: hiển thị thời gian thực tế (logic cũ)
+                    duration = (sessionEnd - sessionStart) / 60000;
+                    if (s.role) {
+                        cssClass = 'chip-green';
+                        label = `${startStr}–${endStr} (${s.roleName})`;
+                        tooltip += ` - Vai trò: ${s.roleName}`;
+                    } else {
+                        cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
+                        label = `${startStr}–${endStr} (Role?)`;
+                        tooltip += ' - Bấm để chọn vai trò tính lương';
+                    }
                 }
 
                 // BONUS 10P cho unmatched session
-                const b10DataU = bonus10Map[String(s.id)];
-                const b10StatusU = b10DataU ? b10DataU.status : null;
+                b10DataU = bonus10Map[String(s.id)];
+                b10StatusU = b10DataU ? b10DataU.status : null;
                 if (b10StatusU === 'approved' || s.bonus10) {
                     duration += 10;
                     label += ` ⭐+10p`;
@@ -637,7 +706,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
                 isClickable = true;
             } else {
-                // Check if this is a past day — if so, treat as "Quên ra" instead of "Đang dạy"
+                // Không có check-out
                 const todayStrU = typeof getLocalDateKey === 'function' ? getLocalDateKey(new Date()) : new Date().toISOString().split('T')[0];
                 const isPastDayU = dateStr < todayStrU;
 
@@ -685,8 +754,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 overtimeId: otIdU,
                 overtimePending: otPendingU,
                 overtimeMinutes: otMinutesU,
-                bonus10Status: typeof b10DataU !== 'undefined' ? (b10DataU ? b10DataU.status : null) : null,
-                bonus10Id: typeof b10DataU !== 'undefined' && b10DataU ? b10DataU.id : null
+                bonus10Status: b10DataU ? b10DataU.status : null,
+                bonus10Id: b10DataU ? b10DataU.id : null
             });
         }
     });

@@ -120,7 +120,12 @@ window.checkAutoCheckout = async function checkAutoCheckout() {
         if (!schedule) return;
 
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
-        let latestEndTime = null;
+
+        // FIX: Với người có 2 ca/ngày, tìm ca KHỚP với session đang mở (gần checkIn nhất)
+        // thay vì lấy giờ kết thúc muộn nhất — tránh ca 1 không auto-checkout vì chờ ca 2
+        const openCheckIn = new Date(openSession.checkIn || openSession.start);
+        let matchedClassEnd = null;
+        let minDiff = Infinity;
 
         sections.forEach(sec => {
             if (schedule[sec]) {
@@ -128,23 +133,24 @@ window.checkAutoCheckout = async function checkAutoCheckout() {
                     const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
                     if (!isRegistered) return;
 
-                    const classEnd = new Date(`${dateKey}T${cls.end}`);
-                    // Find the latest class end time among registered classes
-                    if (!latestEndTime || classEnd > latestEndTime) {
-                        latestEndTime = classEnd;
+                    const classStart = new Date(`${dateKey}T${cls.start}`);
+                    const diff = Math.abs(openCheckIn.getTime() - classStart.getTime());
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        matchedClassEnd = new Date(`${dateKey}T${cls.end}`);
                     }
                 });
             }
         });
 
-        if (!latestEndTime) {
+        if (!matchedClassEnd) {
             console.log("[AutoCheckout] No registered classes found for user → skipping auto-checkout");
             return; // No registered classes → don't auto-checkout
         }
 
-        // 3. If current time >= latest registered class end time → auto checkout
-        if (now >= latestEndTime) {
-            console.log(`[AutoCheckout] Class ended at ${latestEndTime.toLocaleTimeString()}. Auto checking out...`);
+        // 3. If current time >= matched class end time → auto checkout
+        if (now >= matchedClassEnd) {
+            console.log(`[AutoCheckout] Matched class ended at ${matchedClassEnd.toLocaleTimeString()}. Auto checking out...`);
 
             await DBService.checkOutPersonal(currentUserId);
 

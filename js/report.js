@@ -1111,10 +1111,17 @@ async function renderMonthReport(date, forceServer = false) {
             try { const p = JSON.parse(roleRaw2); roles2 = Array.isArray(p) ? p : [roleRaw2]; }
             catch(e) { roles2 = [roleRaw2]; }
             
-            // Fix: Đảm bảo CHỈ admin, senior_assistant, teaching_assistant được xem nút thưởng 10p
-            // KHÔNG cho phép receptionist, receptionist_assistant, staff hoặc chip của tiếp tân
+            // Fix: CHỈ hiện nút thưởng 10p khi nhân viên ĐƯỢC XEM là Trợ giảng/GV TA
+            // Admin xem nhân viên không phải TA → không hiện
+            const _targetCtx = window.currentUserContext;
+            const _targetRoles = _targetCtx
+                ? (Array.isArray(_targetCtx.roles) && _targetCtx.roles.length > 0
+                    ? _targetCtx.roles
+                    : [_targetCtx.role || ''])
+                : [];
+            const isTargetTA = _targetRoles.includes('teaching_assistant');
             const allowedRoles = ['teaching_assistant', 'admin', 'senior_assistant'];
-            const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist;
+            const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist && isTargetTA;
             const isAdminRole2 = roles2.some(r => ['admin','senior_assistant'].includes(r));
 
             if (canSeeBonus10 && chip.sessionId &&
