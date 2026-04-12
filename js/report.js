@@ -613,8 +613,9 @@ async function renderMonthReport(date, forceServer = false) {
 
     // C. Receptionist Schedule Data (only for receptionist role staff)
     const receptionistShiftsMap = {}; // "YYYY-MM-DD" -> [{ shift, label, start, end }]
-    const _userRoles = parseRoles(currentUserContext?.roles || currentUserContext?.role);
-    const isReceptionistStaff = currentUserContext && _userRoles.some(r =>
+    // FIX: staffRoles đã xử lý đúng cả roles[] lẫn role string — dùng lại thay vì parseRoles()
+    // (parseRoles() không handle array từ Firestore, gây isReceptionistStaff = false sai)
+    const isReceptionistStaff = currentUserContext && staffRoles.some(r =>
         ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
     );
 
