@@ -25,6 +25,19 @@ const EVALUATION_CRITERIA = [
 // ================= DAILY CHIPS CALCULATION =================
 // Logic to Merge Schedule & Attendance → Returns chip array for a single day
 
+// Helper: parse checkIn/checkOut bất kể lưu dạng ISO string hay Firestore Timestamp object
+// (data cũ có thể lưu dạng {seconds, nanoseconds} hoặc đối tượng có .toDate())
+function safeDate(val) {
+    if (!val) return null;
+    if (val instanceof Date) return val;
+    if (typeof val === 'object' && typeof val.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && typeof val.seconds === 'number') {
+        return new Date(val.seconds * 1000 + (val.nanoseconds || 0) / 1000000);
+    }
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+}
+
 function timeStrToMin(t) {
     const [h, m] = t.split(':').map(Number);
     return h * 60 + m;
@@ -106,7 +119,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 matchedSession = attendanceSessions.find(s => {
                     if (usedSessionIds.has(s.id)) return false;
                     if (s.linkedClassStart) return false; // Already linked to another class
-                    const checkIn = new Date(s.checkIn || s.start);
+                    const checkIn = safeDate(s.checkIn || s.start);
+                    if (!checkIn) return false;
                     const diffMs = Math.abs(checkIn - schedStart);
                     return diffMs < 60 * 60 * 1000;
                 });
@@ -134,8 +148,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
                     // FULL CHECK-IN/OUT
-                    const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
-                    const actualEnd = new Date(matchedSession.checkOut);
+                    const actualStart = safeDate(matchedSession.checkIn || matchedSession.start);
+                    const actualEnd = safeDate(matchedSession.checkOut);
 
                     const diffMs = schedStart - actualStart; // >0 = vào sớm, <0 = trễ
 
@@ -221,8 +235,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isClickable = true;
                 } else {
                     // No Check Out
-                    const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
-                    const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    const actualStartNoCO = safeDate(matchedSession.checkIn || matchedSession.start);
+                    const actualStartStrNoCO = actualStartNoCO ? actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
                     const classEndTime = new Date(`${dateStr}T${cls.end}`);
 
                     // Check if this is a past day (session date < today)
@@ -378,22 +392,23 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         // Find matching attendance session
         const matchedSession = attendanceSessions.find(s => {
             if (usedSessionIds.has(s.id)) return false;
-            const checkIn = new Date(s.checkIn || s.start);
-            
+            const checkIn = safeDate(s.checkIn || s.start);
+            if (!checkIn) return false;
+
             if (rs.isFixedShift) {
                 // Ca Cố Định: Sử dụng logic bao trùm khung giờ
                 if (s.checkOut) {
-                    const checkOut = new Date(s.checkOut);
+                    const checkOut = safeDate(s.checkOut);
+                    if (!checkOut) return false;
                     return checkIn <= schedEnd && checkOut >= schedStart;
                 } else {
-                    // Session đang mở (chưa checkout): match nếu checkIn trong khung ±60p
-                    // Tránh bỏ sót khi nhân viên quên bấm ra ca
-                    const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
+                    // Session đang mở (chưa checkout): match nếu checkIn trong khung ±90p
+                    const earlyLimit = new Date(schedStart.getTime() - 90 * 60 * 1000);
                     return checkIn >= earlyLimit && checkIn <= schedEnd;
                 }
             } else {
-                // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 60 phút) đến schedEnd
-                const earlyLimit = new Date(schedStart.getTime() - 60 * 60 * 1000);
+                // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 90 phút) đến schedEnd
+                const earlyLimit = new Date(schedStart.getTime() - 90 * 60 * 1000);
                 return checkIn >= earlyLimit && checkIn <= schedEnd;
             }
         });
@@ -411,10 +426,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (matchedSession.checkOut) {
                 // === HAS CHECK-OUT ===
-                const actualStart = new Date(matchedSession.checkIn || matchedSession.start);
-                const actualEnd = new Date(matchedSession.checkOut);
-                const diffMs = schedStart - actualStart;
-                const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                const actualStart = safeDate(matchedSession.checkIn || matchedSession.start);
+                const actualEnd = safeDate(matchedSession.checkOut);
+                const diffMs = actualStart ? (schedStart - actualStart) : 0;
+                const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 // Giờ tính luôn theo lịch, không tính thêm nếu ra muộn hơn lịch
                 const effectiveEndR = schedEnd;
@@ -487,8 +502,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             } else {
                 // === NO CHECK-OUT (Quên ra ca) ===
-                const actualStartNoCO = new Date(matchedSession.checkIn || matchedSession.start);
-                const actualStartStrNoCO = actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                const actualStartNoCO = safeDate(matchedSession.checkIn || matchedSession.start);
+                const actualStartStrNoCO = actualStartNoCO ? actualStartNoCO.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 // Check if this is a past day
                 const todayStrR = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
@@ -599,11 +614,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let cssClass = 'chip-orange';
             let isClickable = false;
 
-            const sessionStart = new Date(s.checkIn || s.start);
-            const startStr = sessionStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            const sessionStart = safeDate(s.checkIn || s.start);
+            const startStr = sessionStart ? sessionStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
             let tooltip = isAdminCreated
                 ? `Admin đã thêm ca này thủ công (Vào: ${startStr})`
                 : `Chấm công không khớp lịch (Vào ca: ${startStr})`;
+            if (!sessionStart) { // Dữ liệu lỗi — bỏ qua session này
+                console.warn('[evaluation-service] Skipping session with invalid checkIn:', s.id);
+                return;
+            }
 
             // FIX: Tìm ca/lớp gần nhất trong lịch để tính giờ sớm/trễ đúng
             // (session không khớp lịch vẫn có thể gần một ca — hiển thị theo giờ lịch)
@@ -644,8 +663,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let b10DataU, b10StatusU;
 
             if (s.checkOut) {
-                const sessionEnd = new Date(s.checkOut);
-                const endStr = sessionEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                const sessionEnd = safeDate(s.checkOut);
+                const endStr = sessionEnd ? sessionEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 if (USE_SCHED) {
                     // Tính sớm/trễ theo giờ lịch
@@ -711,7 +730,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isPastDayU = dateStr < todayStrU;
 
                 if (isPastDayU) {
-                    const checkInTime = new Date(s.checkIn || s.start);
+                    const checkInTime = safeDate(s.checkIn || s.start) || new Date();
                     const endOfDay = new Date(`${dateStr}T23:59:00`);
                     duration = Math.min((endOfDay - checkInTime) / 60000, 120);
                     label = `${startStr}–??? (QR)`;
