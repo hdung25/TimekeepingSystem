@@ -672,13 +672,25 @@ button {
 }
 
 .chip-scheduled {
-    background-color: #E0F2FE;
-    /* Sky 100 - Light blue */
-    color: #0369A1;
-    /* Sky 700 - Dark blue */
-    border: 2px dashed #3B82F6;
-    /* Blue 500 - Medium blue dashed border */
-    font-weight: 500;
+    background-color: #EDE9FE;
+    /* Purple/Violet 100 */
+    color: #5B21B6;
+    /* Purple/Violet 800 */
+    border: 3px solid #8B5CF6;
+    /* Purple 500 */
+    opacity: 0.85;
+    font-style: italic;
+}
+
+.chip-future {
+    background-color: #EDE9FE;
+    /* Purple/Violet 100 - Sắp tới */
+    color: #5B21B6;
+    /* Purple/Violet 800 */
+    border-left: 3px solid #8B5CF6;
+    /* Purple 500 */
+    opacity: 0.85;
+    font-style: italic;
 }
 
 @keyframes pulse {

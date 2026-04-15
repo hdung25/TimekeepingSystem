@@ -304,12 +304,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isTodayFutureTimeClass = (dateStr === todayStrClass) && (cls.start > nowTimeStr);
 
                 if (isFutureDateClass || isTodayFutureTimeClass) {
-                    // --- NEW: Show chip-scheduled if user registered but no check-in yet ---
+                    // --- NEW: Show chip-future if user registered but no check-in yet ---
                     // Kiểm tra nếu GV đã nhận lớp (registeredTeachers có user) nhưng chưa check-in
-                    // → Tạo chip-scheduled để hiển thị "Đã nhận lớp, chờ chấm công"
+                    // → Tạo chip-future để hiển thị "Đã nhận lớp, chờ chấm công" = Sắp tới
                     chips.push({
                         text: label + ' ⏳',
-                        class: 'chip-scheduled',
+                        class: 'chip-future',
                         paidMinutes: 0,
                         tooltip: `Đã nhận lớp - chờ chấm công | Lớp ${cls.lop || '?'}${branchTag}`,
                         sessionId: null,
