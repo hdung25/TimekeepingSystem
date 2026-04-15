@@ -1,4 +1,4 @@
-// evaluation-service.js — Pure Data & Calculation Logic
+// evaluation-service.js — Pure Data & Calculation Logic — v2026.04.15c
 // Tách từ report.js — Chứa logic tính toán lương, đánh giá, và xử lý dữ liệu thuần túy.
 // Không chứa bất kỳ DOM manipulation nào.
 //
