@@ -671,6 +671,16 @@ button {
     animation: pulse 2s infinite;
 }
 
+.chip-scheduled {
+    background-color: #E0F2FE;
+    /* Sky 100 - Light blue */
+    color: #0369A1;
+    /* Sky 700 - Dark blue */
+    border: 2px dashed #3B82F6;
+    /* Blue 500 - Medium blue dashed border */
+    font-weight: 500;
+}
+
 @keyframes pulse {
     0% {
         opacity: 1;

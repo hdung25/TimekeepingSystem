@@ -105,6 +105,14 @@
 
                     <h2
                         style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                        Trạng Thái Lớp Hôm Nay</h2>
+                    <!-- Chips Container -->
+                    <div id="chips-container" style="margin-bottom: 2rem;">
+                        <!-- Populated by JS - Shows chip status for today's classes -->
+                    </div>
+
+                    <h2
+                        style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
                         Danh Sách Lớp Dạy</h2>
                     <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">Vui lòng bấm
                         <strong>"Nhận Lớp"</strong> nếu hôm nay bạn có dạy lớp này.
@@ -136,6 +144,7 @@
     </script>
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
+    <script src="js/evaluation-service.js"></script>
     <script src="js/timekeeping.js"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
 </body>

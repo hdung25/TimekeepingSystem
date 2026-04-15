@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initTimekeeping() {
     renderGlobalCheckIn();
+    renderTodayChips();  // NEW: Show chip status for today's classes
     renderTodayClasses();
 
     // Auto-checkout: check every 60 seconds if registered class has ended
@@ -450,4 +451,103 @@ window.registerClass = async function (compositeKey, section, index, btn, endTim
         UIService.toast("Lỗi: " + e, "error");
         if (btn) btn.disabled = false;
     }
+}
+
+// === NEW: Render Chips Status for Today's Classes ===
+function renderTodayChips() {
+    const container = document.getElementById('chips-container');
+    if (!container) return;
+
+    const today = new Date();
+    const dateKey = getLocalDateKey(today);
+    const currentUserId = localStorage.getItem('currentUserId');
+    const currentUserContext = {
+        userId: currentUserId,
+        role: localStorage.getItem('currentRole') || 'staff',
+        userName: localStorage.getItem('currentUserName') || 'Unknown'
+    };
+
+    const BRANCHES = ['cs1', 'cs2', 'cs3'];
+    const branchPromises = BRANCHES.map(branch => {
+        const compositeKey = `${branch}__${dateKey}`;
+        return Promise.all([
+            DBService.getSchedule(compositeKey),
+            DBService.getPersonalAttendance(dateKey, currentUserId)
+        ]).then(([schedule, attendance]) => ({
+            schedule: schedule || {},
+            attendance: attendance || {},
+            branch,
+            compositeKey
+        }));
+    });
+
+    Promise.all(branchPromises).then(results => {
+        try {
+            // Merge all schedule data
+            const mergedSchedule = {};
+            const attendanceSessions = [];
+            const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+
+            results.forEach(({ schedule, attendance, branch }) => {
+                sections.forEach(sec => {
+                    if (schedule[sec]) {
+                        if (!mergedSchedule[sec]) mergedSchedule[sec] = [];
+                        mergedSchedule[sec] = mergedSchedule[sec].concat(
+                            schedule[sec].map(c => ({ ...c, _branch: branch }))
+                        );
+                    }
+                });
+                // Collect attendance sessions from all branches
+                if (attendance.sessions) {
+                    attendanceSessions.push(...attendance.sessions);
+                }
+            });
+
+            // Calculate chips for today
+            const chips = calculateDailyChips(
+                mergedSchedule,
+                attendanceSessions,
+                currentUserId,
+                dateKey,
+                currentUserContext
+            );
+
+            if (chips.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: var(--text-muted); padding: 1.5rem; background: #f9fafb; border-radius: 8px;">
+                        <p style="font-size: 0.9rem;">Không có lớp nào hôm nay</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = '';
+            chips.forEach(chip => {
+                const chipEl = document.createElement('div');
+                chipEl.className = `schedule-chip ${chip.class}`;
+                chipEl.style.cssText = `
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 0.75rem;
+                    padding: 0.75rem 1rem;
+                    border-radius: 8px;
+                `;
+                chipEl.innerHTML = `<span>${chip.text}</span>`;
+                
+                // Show tooltip on hover
+                if (chip.tooltip) {
+                    chipEl.title = chip.tooltip;
+                }
+                
+                container.appendChild(chipEl);
+            });
+        } catch (e) {
+            console.error('Error rendering chips:', e);
+            container.innerHTML = `<div style="color: var(--text-muted);">Lỗi tải dữ liệu</div>`;
+        }
+    }).catch(e => {
+        console.error('Error loading schedule data:', e);
+        container.innerHTML = `<div style="color: var(--text-muted);">Lỗi tải dữ liệu</div>`;
+    });
 }

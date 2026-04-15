@@ -304,8 +304,25 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isTodayFutureTimeClass = (dateStr === todayStrClass) && (cls.start > nowTimeStr);
 
                 if (isFutureDateClass || isTodayFutureTimeClass) {
-                    // Buổi học chưa diễn ra — ẩn chip, không đánh vắng
-                    // Do nothing
+                    // --- NEW: Show chip-scheduled if user registered but no check-in yet ---
+                    // Kiểm tra nếu GV đã nhận lớp (registeredTeachers có user) nhưng chưa check-in
+                    // → Tạo chip-scheduled để hiển thị "Đã nhận lớp, chờ chấm công"
+                    chips.push({
+                        text: label + ' ⏳',
+                        class: 'chip-scheduled',
+                        paidMinutes: 0,
+                        tooltip: `Đã nhận lớp - chờ chấm công | Lớp ${cls.lop || '?'}${branchTag}`,
+                        sessionId: null,
+                        schedData: { start: cls.start, end: cls.end, lop: cls.lop, phong: cls.phong },
+                        isClickable: false,
+                        isTeaching: true,
+                        classStart: cls.start,
+                        classEnd: cls.end,
+                        classCompositeKey: cls._compositeKey || null,
+                        classSectionKey: secKey,
+                        classIndex: idx,
+                        isScheduledOnly: true
+                    });
                 } else {
                     chips.push({
                         text: label + ' (V)',
