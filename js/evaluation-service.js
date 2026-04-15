@@ -109,18 +109,24 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (_mergeInfo[_ka] && _mergeInfo[_ka].skip) continue;
             let _chainEnd = _a.end;
             let _chainSameBranch = true;
+            const _chainBranches = [_a.branch]; // lưu thứ tự các branch trong chuỗi
             let _mj = _mi + 1;
             while (_mj < _allReg.length) {
                 const _b = _allReg[_mj];
                 if (_b.start === _chainEnd) {
                     if (_b.branch !== _a.branch) _chainSameBranch = false;
+                    _chainBranches.push(_b.branch);
                     _mergeInfo[`${_b.secKey}_${_b.idx}`] = { skip: true };
                     _chainEnd = _b.end;
                     _mj++;
                 } else break;
             }
             if (_chainEnd !== _a.end) {
-                _mergeInfo[_ka] = { mergedEnd: _chainEnd, crossBranch: !_chainSameBranch };
+                _mergeInfo[_ka] = {
+                    mergedEnd: _chainEnd,
+                    crossBranch: !_chainSameBranch,
+                    chainBranches: _chainBranches // ví dụ: ['cs1', 'cs3']
+                };
             }
         }
     }
@@ -180,11 +186,21 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const branchShort = cls._branch ? ` ${cls._branch.toUpperCase()}` : '';
             const _effectiveEndStr = _mergedEnd || cls.end;
             const _isCrossBranch = (_mergeInfo[_mk] && _mergeInfo[_mk].crossBranch) || false;
-            // Nếu merge khác cơ sở → bỏ branchShort khỏi label để tránh nhầm lẫn
-            const _labelBranchSuffix = _isCrossBranch ? '' : branchShort;
+            const _chainBranches = (_mergeInfo[_mk] && _mergeInfo[_mk].chainBranches) || null;
+            // Cross-branch: hiện "CS1/CS3" theo thứ tự ca (ca trước/ca sau)
+            // Same-branch merge hoặc không merge: hiện branch bình thường
+            let _labelBranchSuffix;
+            if (_isCrossBranch && _chainBranches) {
+                const _uniqueBranches = _chainBranches
+                    .map(b => b.toUpperCase())
+                    .filter((b, i, arr) => arr.indexOf(b) === i); // deduplicate giữ thứ tự
+                _labelBranchSuffix = ` ${_uniqueBranches.join('/')}`;
+            } else {
+                _labelBranchSuffix = branchShort;
+            }
             let label = `${cls.start}–${_effectiveEndStr}${_labelBranchSuffix}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
-            if (_mergedEnd) tooltip += _isCrossBranch ? ` (2 ca gộp – khác cơ sở)` : ` (2 ca gộp)`;
+            if (_mergedEnd) tooltip += _isCrossBranch ? ` (2 ca gộp – ${(_chainBranches || []).map(b => b.toUpperCase()).join('/')})` : ` (2 ca gộp)`;
 
             const [_eH, _eM] = _effectiveEndStr.split(':').map(Number);
             const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
