@@ -87,9 +87,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const chips = [];
     const usedSessionIds = new Set();
 
-    // PRE-PROCESS: xây dựng mergeInfo cho các ca liên tiếp (end ca A = start ca B, cùng branch)
-    // mergeInfo["secKey_idx"] = { mergedEnd: string } → ca đầu chuỗi dùng giờ kết thúc mở rộng
-    // mergeInfo["secKey_idx"] = { skip: true }         → ca tiếp theo bị bỏ qua (đã được merge vào ca trước)
+    // PRE-PROCESS: xây dựng mergeInfo cho các ca liên tiếp (end ca A = start ca B)
+    // Không check cùng branch → hỗ trợ merge ca khác cơ sở
+    // mergeInfo["secKey_idx"] = { mergedEnd: string, crossBranch: bool } → ca đầu chuỗi
+    // mergeInfo["secKey_idx"] = { skip: true }                           → ca tiếp theo, bỏ qua
     const _mergeInfo = {};
     {
         const _allReg = [];
@@ -107,17 +108,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const _ka = `${_a.secKey}_${_a.idx}`;
             if (_mergeInfo[_ka] && _mergeInfo[_ka].skip) continue;
             let _chainEnd = _a.end;
+            let _chainSameBranch = true;
             let _mj = _mi + 1;
             while (_mj < _allReg.length) {
                 const _b = _allReg[_mj];
-                if (_b.start === _chainEnd && _b.branch === _a.branch) {
+                if (_b.start === _chainEnd) {
+                    if (_b.branch !== _a.branch) _chainSameBranch = false;
                     _mergeInfo[`${_b.secKey}_${_b.idx}`] = { skip: true };
                     _chainEnd = _b.end;
                     _mj++;
                 } else break;
             }
             if (_chainEnd !== _a.end) {
-                _mergeInfo[_ka] = { mergedEnd: _chainEnd };
+                _mergeInfo[_ka] = { mergedEnd: _chainEnd, crossBranch: !_chainSameBranch };
             }
         }
     }
@@ -176,9 +179,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const branchTag = cls._branch ? ` [${cls._branch.toUpperCase()}]` : '';
             const branchShort = cls._branch ? ` ${cls._branch.toUpperCase()}` : '';
             const _effectiveEndStr = _mergedEnd || cls.end;
-            let label = `${cls.start}–${_effectiveEndStr}${branchShort}`;
+            const _isCrossBranch = (_mergeInfo[_mk] && _mergeInfo[_mk].crossBranch) || false;
+            // Nếu merge khác cơ sở → bỏ branchShort khỏi label để tránh nhầm lẫn
+            const _labelBranchSuffix = _isCrossBranch ? '' : branchShort;
+            let label = `${cls.start}–${_effectiveEndStr}${_labelBranchSuffix}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
-            if (_mergedEnd) tooltip += ` (2 ca gộp)`;
+            if (_mergedEnd) tooltip += _isCrossBranch ? ` (2 ca gộp – khác cơ sở)` : ` (2 ca gộp)`;
 
             const [_eH, _eM] = _effectiveEndStr.split(':').map(Number);
             const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
