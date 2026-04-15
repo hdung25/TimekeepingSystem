@@ -87,6 +87,41 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const chips = [];
     const usedSessionIds = new Set();
 
+    // PRE-PROCESS: xây dựng mergeInfo cho các ca liên tiếp (end ca A = start ca B, cùng branch)
+    // mergeInfo["secKey_idx"] = { mergedEnd: string } → ca đầu chuỗi dùng giờ kết thúc mở rộng
+    // mergeInfo["secKey_idx"] = { skip: true }         → ca tiếp theo bị bỏ qua (đã được merge vào ca trước)
+    const _mergeInfo = {};
+    {
+        const _allReg = [];
+        sections.forEach(sk => {
+            (schedule[sk] || []).forEach((c, i) => {
+                if (!(c.registeredTeachers || []).some(t => t.id === staffId)) return;
+                const ck = c._compositeKey || null;
+                if (ck && cancelledShifts.includes(`${ck}_${sk}_${i}`)) return;
+                _allReg.push({ start: c.start, end: c.end, branch: c._branch || '', secKey: sk, idx: i });
+            });
+        });
+        _allReg.sort((a, b) => a.start.localeCompare(b.start));
+        for (let _mi = 0; _mi < _allReg.length; _mi++) {
+            const _a = _allReg[_mi];
+            const _ka = `${_a.secKey}_${_a.idx}`;
+            if (_mergeInfo[_ka] && _mergeInfo[_ka].skip) continue;
+            let _chainEnd = _a.end;
+            let _mj = _mi + 1;
+            while (_mj < _allReg.length) {
+                const _b = _allReg[_mj];
+                if (_b.start === _chainEnd && _b.branch === _a.branch) {
+                    _mergeInfo[`${_b.secKey}_${_b.idx}`] = { skip: true };
+                    _chainEnd = _b.end;
+                    _mj++;
+                } else break;
+            }
+            if (_chainEnd !== _a.end) {
+                _mergeInfo[_ka] = { mergedEnd: _chainEnd };
+            }
+        }
+    }
+
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
         classes.forEach((cls, idx) => {
@@ -101,6 +136,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (classCompositeKey && cancelledShifts.includes(`${classCompositeKey}_${secKey}_${idx}`)) {
                 return; // Skip this explicitly cancelled shift
             }
+
+            // --- MERGE: bỏ qua ca không phải đầu chuỗi (đã được gộp vào ca trước) ---
+            const _mk = `${secKey}_${idx}`;
+            if (_mergeInfo[_mk] && _mergeInfo[_mk].skip) return;
+            // Giờ kết thúc hiệu dụng: dùng mergedEnd nếu ca này là đầu chuỗi
+            const _mergedEnd = (_mergeInfo[_mk] && _mergeInfo[_mk].mergedEnd) || null;
 
             // 2. Check for Attendance Match
             // Priority 1: Exact match by linkedClassStart (set when admin edits a session)
@@ -134,10 +175,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // Branch tag — abbreviated (no brackets)
             const branchTag = cls._branch ? ` [${cls._branch.toUpperCase()}]` : '';
             const branchShort = cls._branch ? ` ${cls._branch.toUpperCase()}` : '';
-            let label = `${cls.start}–${cls.end}${branchShort}`;
+            const _effectiveEndStr = _mergedEnd || cls.end;
+            let label = `${cls.start}–${_effectiveEndStr}${branchShort}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
+            if (_mergedEnd) tooltip += ` (2 ca gộp)`;
 
-            const [_eH, _eM] = cls.end.split(':').map(Number);
+            const [_eH, _eM] = _effectiveEndStr.split(':').map(Number);
             const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
             const schedDuration = (schedEnd - schedStart) / 60000;
             const now = new Date();

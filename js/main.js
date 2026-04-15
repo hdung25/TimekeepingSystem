@@ -398,41 +398,63 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
     try {
         const BRANCHES = ['cs1', 'cs2', 'cs3'];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        const [_tcy, _tcm, _tcd] = dateKey.split('-').map(Number);
 
-        // Find the class that matches the check-in time
-        let matchedClassEnd = null;
-
+        // Thu thập TẤT CẢ lớp user đã nhận hôm nay (mọi branch)
+        const allClasses = [];
         for (const branch of BRANCHES) {
             const compositeKey = `${branch}__${dateKey}`;
             const schedule = await DBService.getSchedule(compositeKey);
             if (!schedule) continue;
-
             sections.forEach(sec => {
                 if (!schedule[sec]) return;
                 schedule[sec].forEach(cls => {
-                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId);
-                    if (!isRegistered) return;
-
-                    // FIX: dùng local time, tránh UTC parse gây lệch 7h
-                    const [_tcy, _tcm, _tcd] = dateKey.split('-').map(Number);
-                    const [_csh, _csm] = cls.start.split(':').map(Number);
-                    const [_ceh, _cem] = cls.end.split(':').map(Number);
-                    const classStart = new Date(_tcy, _tcm - 1, _tcd, _csh, _csm, 0, 0);
-                    const classEnd = new Date(_tcy, _tcm - 1, _tcd, _ceh, _cem, 0, 0);
-
-                    // Match: check-in is within ±60 min of class start
-                    const diffMs = Math.abs(checkInTime - classStart);
-                    if (diffMs < 60 * 60 * 1000) {
-                        if (!matchedClassEnd || classEnd < matchedClassEnd) {
-                            matchedClassEnd = classEnd;
-                        }
-                    }
+                    if (!(cls.registeredTeachers || []).some(t => t.id === userId)) return;
+                    allClasses.push({ start: cls.start, end: cls.end, branch });
                 });
             });
         }
 
-        if (matchedClassEnd && now >= matchedClassEnd) {
-            console.log(`[GlobalAutoCheckout] Class ended at ${matchedClassEnd.toLocaleTimeString()}. Auto checking out...`);
+        if (allClasses.length === 0) return;
+        allClasses.sort((a, b) => a.start.localeCompare(b.start));
+
+        // Tìm lớp khớp checkInTime (±60 phút tính từ giờ bắt đầu)
+        let matchedClassEnd = null;
+        let matchedClassEndStr = null;
+        for (const cls of allClasses) {
+            const [_csh, _csm] = cls.start.split(':').map(Number);
+            const classStart = new Date(_tcy, _tcm - 1, _tcd, _csh, _csm, 0, 0);
+            if (Math.abs(checkInTime - classStart) < 60 * 60 * 1000) {
+                const [_ceh, _cem] = cls.end.split(':').map(Number);
+                matchedClassEnd = new Date(_tcy, _tcm - 1, _tcd, _ceh, _cem, 0, 0);
+                matchedClassEndStr = cls.end;
+                break; // lấy lớp sớm nhất khớp
+            }
+        }
+
+        if (!matchedClassEnd) return;
+
+        // Mở rộng matchedClassEnd nếu có ca liên tiếp (end ca trước = start ca sau)
+        // → không auto-checkout giữa chừng khi 2 ca nối tiếp nhau
+        let extended = true;
+        while (extended) {
+            extended = false;
+            for (const cls of allClasses) {
+                if (cls.start === matchedClassEndStr) {
+                    const [_ceh, _cem] = cls.end.split(':').map(Number);
+                    const newEnd = new Date(_tcy, _tcm - 1, _tcd, _ceh, _cem, 0, 0);
+                    if (newEnd > matchedClassEnd) {
+                        matchedClassEnd = newEnd;
+                        matchedClassEndStr = cls.end;
+                        extended = true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (now >= matchedClassEnd) {
+            console.log(`[GlobalAutoCheckout] Class(es) ended at ${matchedClassEnd.toLocaleTimeString()}. Auto checking out...`);
             await DBService.checkOutPersonal(userId);
             if (typeof UIService !== 'undefined' && UIService.toast) {
                 UIService.toast("Đã tự động Ra Ca (hết giờ lớp)", "success");

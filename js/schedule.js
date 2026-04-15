@@ -175,6 +175,14 @@ async function renderTable() {
     const currentRole = localStorage.getItem('currentRole');
     const currentRoles = typeof parseRoles === 'function' ? parseRoles(currentRole) : (currentRole ? [currentRole] : []);
     const isAdmin = currentRoles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r)); // Assistant behaves like Admin in Schedule
+    // isTeacherOrStaff: true nếu user có bất kỳ role nào liên quan đến dạy/nhân viên
+    // (dù họ cũng có role admin) → đảm bảo họ thấy nút "Nhận Lớp"
+    const _teacherKeywords = ['gv', 'teacher', 'trợ giảng', 'gv ta', 'nhân viên'];
+    const isTeacherOrStaff = currentRoles.some(r => {
+        const rl = r.toLowerCase();
+        return _teacherKeywords.some(kw => rl.includes(kw)) ||
+               ['staff', 'teaching_assistant', 'receptionist', 'receptionist_assistant'].includes(r);
+    });
 
     let html = '';
 
@@ -194,7 +202,7 @@ async function renderTable() {
 
         rows.forEach((row, idx) => {
             const rowId = `${dateKey}-${section.key}-${idx}`;
-            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId]);
+            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff);
         });
 
         if (isAdmin) {
@@ -211,13 +219,14 @@ async function renderTable() {
     tbody.innerHTML = html;
 }
 
-function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData) {
+function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false) {
     const inputClass = isAdmin ? 'table-input' : 'table-input read-only-input';
     const readonlyAttr = isAdmin ? '' : 'readonly';
 
     // Action Button Logic for Staff
+    // Hiện nút "Nhận Lớp" nếu: không phải admin, HOẶC user có role teacher/staff kèm theo
     let actionCell = '';
-    if (!isAdmin) {
+    if (!isAdmin || isTeacherOrStaff) {
         const currentUserId = localStorage.getItem('currentUserId');
         const registeredTeachers = data.registeredTeachers || [];
         const isRegistered = registeredTeachers.some(t => t.id === currentUserId);
