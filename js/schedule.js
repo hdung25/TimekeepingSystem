@@ -52,8 +52,10 @@ function initSchedule() {
     renderTable();
 
     // 4. Check for Admin/Assistant Role to show Save Button
-    const role = localStorage.getItem('currentRole');
-    if (role === 'admin' || role === 'assistant' || role === 'senior_assistant') {
+    const roleRaw = localStorage.getItem('currentRole');
+    const roles = typeof parseRoles === 'function' ? parseRoles(roleRaw) : (roleRaw ? [roleRaw] : []);
+    const isEditor = roles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r));
+    if (isEditor) {
         const adminActions = document.getElementById('admin-actions');
         if (adminActions) adminActions.style.display = 'block';
     }
@@ -170,8 +172,9 @@ async function renderTable() {
     const timesheetData = JSON.parse(localStorage.getItem('timesheet_data')) || {};
 
     // Determine Role
-    const currentRole = localStorage.getItem('currentRole') || 'staff';
-    const isAdmin = currentRole === 'admin' || currentRole === 'assistant' || currentRole === 'senior_assistant'; // Assistant behaves like Admin in Schedule
+    const currentRole = localStorage.getItem('currentRole');
+    const currentRoles = typeof parseRoles === 'function' ? parseRoles(currentRole) : (currentRole ? [currentRole] : []);
+    const isAdmin = currentRoles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r)); // Assistant behaves like Admin in Schedule
 
     let html = '';
 
