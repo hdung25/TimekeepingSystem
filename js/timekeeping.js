@@ -447,6 +447,7 @@ window.registerClass = async function (compositeKey, section, index, btn, endTim
 
         UIService.toast("Cập nhật thành công!", "success");
         renderTodayClasses();
+        localStorage.setItem('schedule_registration_updated', Date.now().toString());
     } catch (e) {
         UIService.toast("Lỗi: " + e, "error");
         if (btn) btn.disabled = false;

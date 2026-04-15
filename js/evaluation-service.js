@@ -144,6 +144,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (matchedSession) {
                 let isClickable = false;
+                const b10DataT = bonus10Map[String(matchedSession.id)];
+                const b10StatusT = b10DataT ? b10DataT.status : null;
 
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
@@ -211,8 +213,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     }
 
                     // BONUS 10P (từ request được duyệt)
-                    const b10DataT = bonus10Map[String(matchedSession.id)];
-                    const b10StatusT = b10DataT ? b10DataT.status : null;
                     if (b10StatusT === 'approved' || matchedSession.bonus10) {
                         minutes += 10;
                         label += ` ⭐+10p`;
@@ -308,7 +308,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // Kiểm tra nếu GV đã nhận lớp (registeredTeachers có user) nhưng chưa check-in
                     // → Tạo chip-future để hiển thị "Đã nhận lớp, chờ chấm công" = Sắp tới
                     chips.push({
-                        text: label + ' ⏳',
+                        text: label,
                         class: 'chip-future',
                         paidMinutes: 0,
                         tooltip: `Đã nhận lớp - chờ chấm công | Lớp ${cls.lop || '?'}${branchTag}`,

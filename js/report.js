@@ -96,6 +96,15 @@ async function initReport() {
 
     // 3. Render
     renderMonthReport(currentDate);
+
+    // Cross-tab update: refresh report if another tab changes class registration
+    window.addEventListener('storage', (event) => {
+        if (event.key === 'schedule_registration_updated' && event.storageArea === localStorage) {
+            if (typeof renderMonthReport === 'function') {
+                renderMonthReport(currentDate, true);
+            }
+        }
+    });
 }
 
 async function populateStaffSelect() {
@@ -2129,6 +2138,7 @@ async function deleteSessionFromModal() {
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore
         renderMonthReport(currentDate, true); // true = bypass Firestore cache
+        localStorage.setItem('schedule_registration_updated', Date.now().toString());
     } catch (e) {
         alert("Lỗi xóa: " + e.message);
     }

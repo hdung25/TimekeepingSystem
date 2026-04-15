@@ -342,6 +342,7 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
     try {
         await DBService.registerClass(compositeKey, caType, { index }, { id: currentUserId, name: userFullName });
         await renderTable();
+        localStorage.setItem('schedule_registration_updated', Date.now().toString());
     } catch (e) {
         alert("Lỗi: " + e.message);
     }
