@@ -788,7 +788,8 @@ async function renderMonthReport(date, forceServer = false) {
         const todaySchedule = scheduleMap[todayKey] || {};
         ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(sec => {
             (todaySchedule[sec] || []).forEach(cls => {
-                const isRegistered = (cls.registeredTeachers || []).some(t => t.id === staffId);
+                const isRegistered = (cls.gvId && cls.gvId === staffId) ||
+                    (cls.registeredTeachers || []).some(t => t.id === staffId);
                 if (!isRegistered) return;
                 const classStart = new Date(`${todayKey}T${cls.start}`);
                 const classEnd = new Date(`${todayKey}T${cls.end}`);
@@ -1474,6 +1475,30 @@ function calculateSalary() {
     let filteredMinutes = 0;
     let filteredSalary = 0; // Accumulate salary based on role rates
     const allChips = window.currentMonthChips || [];
+
+    // Breakdown: teaching vs receptionist (for Item 7 — Tách giờ Trợ giảng)
+    let teachingMinutes = 0;
+    let receptionistMinutes = 0;
+    allChips.forEach(chip => {
+        const mins = chip.paidMinutes || 0;
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData?.role));
+        if (isTT) receptionistMinutes += mins;
+        else if (chip.isTeaching || (chip.sessionData && chip.sessionData.role)) teachingMinutes += mins;
+    });
+    const taBreakdown = document.getElementById('ta-hours-breakdown');
+    if (taBreakdown) {
+        if (teachingMinutes > 0 && receptionistMinutes > 0) {
+            taBreakdown.style.display = 'block';
+            const th = Math.floor(teachingMinutes / 60), tm = Math.floor(teachingMinutes % 60);
+            const rh = Math.floor(receptionistMinutes / 60), rm = Math.floor(receptionistMinutes % 60);
+            const td = document.getElementById('ta-teaching-hours');
+            const rd = document.getElementById('ta-receptionist-hours');
+            if (td) td.innerText = `Dạy: ${th}h ${tm}p`;
+            if (rd) rd.innerText = `TT: ${rh}h ${rm}p`;
+        } else {
+            taBreakdown.style.display = 'none';
+        }
+    }
 
     // --- NEW: Calculate Fixed Shift stats globally ---
     let fixedWorkedCount = 0;

@@ -96,7 +96,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const _allReg = [];
         sections.forEach(sk => {
             (schedule[sk] || []).forEach((c, i) => {
-                if (!(c.registeredTeachers || []).some(t => t.id === staffId)) return;
+                const _isReg = (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId);
+                if (!_isReg) return;
                 const ck = c._compositeKey || null;
                 if (ck && cancelledShifts.includes(`${ck}_${sk}_${i}`)) return;
                 _allReg.push({ start: c.start, end: c.end, branch: c._branch || '', secKey: sk, idx: i });
@@ -134,11 +135,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
         classes.forEach((cls, idx) => {
-            // 1. Check if User Registered via "Nhận Lớp" button
-            const registeredTeachers = cls.registeredTeachers || [];
-            const isRegistered = registeredTeachers.some(t => t.id === staffId);
+            // 1. Check if user is assigned: via admin-set gvId OR legacy "Nhận Lớp" registeredTeachers
+            const isRegistered = (cls.gvId && cls.gvId === staffId) ||
+                (cls.registeredTeachers || []).some(t => t.id === staffId);
 
-            if (!isRegistered) return; // Skip if not registered for this class
+            if (!isRegistered) return; // Skip if not assigned to this class
 
             // --- NEW: Check Cancelled Shifts ---
             const classCompositeKey = cls._compositeKey || null;

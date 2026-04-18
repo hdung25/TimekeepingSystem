@@ -131,7 +131,8 @@ window.checkAutoCheckout = async function checkAutoCheckout() {
         sections.forEach(sec => {
             if (schedule[sec]) {
                 schedule[sec].forEach(cls => {
-                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
+                    const isRegistered = (cls.gvId && cls.gvId === currentUserId) ||
+                        (cls.registeredTeachers || []).some(t => t.id === currentUserId);
                     if (!isRegistered) return;
 
                     const classStart = new Date(`${dateKey}T${cls.start}`);
@@ -326,7 +327,8 @@ function renderTodayClasses() {
             sections.forEach(sec => {
                 if (todaySchedule[sec]) {
                     todaySchedule[sec].forEach((cls, idx) => {
-                        const isRegistered = (cls.registeredTeachers || []).some(t => t.id === currentUserId);
+                        const isRegistered = (cls.gvId && cls.gvId === currentUserId) ||
+                            (cls.registeredTeachers || []).some(t => t.id === currentUserId);
                         if (!isRegistered) return;
                         classes.push({
                             ...cls,

@@ -58,6 +58,8 @@ function initSchedule() {
     if (isEditor) {
         const adminActions = document.getElementById('admin-actions');
         if (adminActions) adminActions.style.display = 'block';
+        // Load teacher list for GV dropdown autocomplete
+        loadTeacherListForSchedule();
     }
 
     // 5. Event Listeners
@@ -162,14 +164,18 @@ async function renderTable() {
     document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)} — ${branchLabel}`;
 
     // Loading State
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
 
     // Load Data from Cloud (branch-prefixed)
     const dayData = await DBService.getSchedule(compositeKey) || {};
-    // Note: Timesheet data for confirmation logic will be handled later or can be fetched here
-    // For now we will assume local timesheet or fetch it. To avoid breaking, let's keep timesheet local or mock it until fully migrated.
-    // Ideally we fetch timesheets too.
     const timesheetData = JSON.parse(localStorage.getItem('timesheet_data')) || {};
+
+    // Fetch attendance for GV absent highlight (past/today only)
+    let presentUserIds = new Set();
+    const todayRealKey = getLocalDateKey(new Date());
+    if (dateKey <= todayRealKey) {
+        try { presentUserIds = await DBService.getDayAttendance(dateKey); } catch(e) {}
+    }
 
     // Determine Role
     const currentRole = localStorage.getItem('currentRole');
@@ -186,29 +192,28 @@ async function renderTable() {
 
     let html = '';
 
+    // Column counts: admin=9 (SS,Start,End,Lop,Phong,GV,SoHS,Note,Del), non-admin=8
+    const totalCols = isAdmin ? 9 : 8;
+
     SECTIONS.forEach(section => {
         const rows = dayData[section.key] || [];
 
         // Section Header
-        html += `
-            <tr>
-                <td colspan="${isAdmin ? 8 : 7}" class="section-header">${section.label}</td>
-            </tr>
-        `;
+        html += `<tr><td colspan="${totalCols}" class="section-header">${section.label}</td></tr>`;
 
         if (rows.length === 0 && !isAdmin) {
-            html += `<tr><td colspan="7" style="text-align:center; color: var(--text-muted); font-size: 0.875rem; padding: 0.5rem;">không có lớp</td></tr>`;
+            html += `<tr><td colspan="${totalCols}" style="text-align:center; color: var(--text-muted); font-size: 0.875rem; padding: 0.5rem;">không có lớp</td></tr>`;
         }
 
         rows.forEach((row, idx) => {
             const rowId = `${dateKey}-${section.key}-${idx}`;
-            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff);
+            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff, presentUserIds, dateKey, todayRealKey);
         });
 
         if (isAdmin) {
             html += `
                 <tr>
-                    <td colspan="8" style="padding: 0.5rem;">
+                    <td colspan="${totalCols}" style="padding: 0.5rem;">
                         <button class="add-row-btn" onclick="addNewRow('${compositeKey}', '${section.key}', '${section.defaultStart}', '${section.defaultEnd}')">+ Thêm lớp (${section.label})</button>
                     </td>
                 </tr>
@@ -219,37 +224,56 @@ async function renderTable() {
     tbody.innerHTML = html;
 }
 
-function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false) {
+function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, presentUserIds = new Set(), dateKey = '', todayRealKey = '') {
     const inputClass = isAdmin ? 'table-input' : 'table-input read-only-input';
     const readonlyAttr = isAdmin ? '' : 'readonly';
 
-    // Action Button Logic for Staff
-    // Hiện nút "Nhận Lớp" nếu: không phải admin, HOẶC user có role teacher/staff kèm theo
-    let actionCell = '';
-    if (!isAdmin || isTeacherOrStaff) {
-        const currentUserId = localStorage.getItem('currentUserId');
-        const registeredTeachers = data.registeredTeachers || [];
-        const isRegistered = registeredTeachers.some(t => t.id === currentUserId);
+    // === GV ABSENT HIGHLIGHT ===
+    // A GV is "absent" if: assigned (gvId set), date is past/today, and NOT in attendance
+    const gvId = data.gvId || '';
+    const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
+    const gvIsAbsent = isPastOrToday && gvId && !presentUserIds.has(gvId);
+    const gvDisplayStyle = gvIsAbsent
+        ? 'color:#EF4444;text-decoration:line-through;font-weight:600;'
+        : '';
+    const gvAbsentBadge = gvIsAbsent
+        ? '<div style="font-size:0.65rem;color:#EF4444;margin-top:2px;">⚠ Vắng</div>'
+        : '';
 
-        if (isRegistered) {
-            actionCell = `
-                <td style="text-align: center;">
-                    <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background-color: var(--secondary-color);" onclick="registerClass('${compositeKey}', '${caType}', ${index}, '${data.end}')">
-                        Đã Nhận (Hủy)
-                    </button>
-                    ${registeredTeachers.length > 1 ? `<div style="font-size: 0.65rem; color: var(--text-muted);">+${registeredTeachers.length - 1} người khác</div>` : ''}
-                </td>`;
-        } else {
-            actionCell = `
-                <td style="text-align: center;">
-                    <button class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="registerClass('${compositeKey}', '${caType}', ${index}, '${data.end}')">
-                        Nhận Lớp
-                    </button>
-                     ${registeredTeachers.length > 0 ? `<div style="font-size: 0.65rem; color: var(--text-muted);">${registeredTeachers.length} người đã nhận</div>` : ''}
-                </td>`;
-        }
+    // === GV FIELD ===
+    let gvCell = '';
+    if (isAdmin) {
+        // Admin: editable text input with datalist autocomplete
+        const gvVal = (data.gv || '').replace(/"/g, '&quot;');
+        gvCell = `<td>
+            <input type="text" class="table-input" value="${gvVal}" placeholder="Giáo viên"
+                list="gv-teacher-list"
+                onchange="updateGVRow('${compositeKey}', '${caType}', ${index}, this.value)">
+        </td>`;
     } else {
-        // Admin View - Action is Delete
+        // Non-admin: read-only display with absent highlight
+        gvCell = `<td style="font-size:0.875rem;">
+            <span style="${gvDisplayStyle}">${data.gv || ''}</span>
+            ${gvAbsentBadge}
+        </td>`;
+    }
+
+    // === SỐ HS FIELD ===
+    let soHSCell = '';
+    if (isAdmin) {
+        soHSCell = `<td><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
+            style="width:60px;text-align:center;"
+            onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', parseInt(this.value)||0)"></td>`;
+    } else {
+        const hs = data.soHS || '';
+        const hsStyle = hs > 10 ? 'color:var(--primary-color);font-weight:700;' : 'color:var(--text-muted);';
+        soHSCell = `<td style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${hs || '—'}</span></td>`;
+    }
+
+    // === ACTION CELL ===
+    let actionCell = '';
+    if (isAdmin) {
+        // Admin: Delete button
         actionCell = `
             <td style="text-align: center;">
                 <button class="btn-icon" style="color: #EF4444;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})">
@@ -259,6 +283,9 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
                     </svg>
                 </button>
             </td>`;
+    } else {
+        // Non-admin: no action needed (GV auto-assigned by admin)
+        actionCell = '<td></td>';
     }
 
     return `
@@ -268,7 +295,8 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             <td><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>
             <td><input type="text" class="${inputClass}" value="${data.lop || ''}" placeholder="Tên lớp" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'lop', this.value)"></td>
             <td><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
-            <td><input type="text" class="${inputClass}" value="${data.gv || ''}" placeholder="Giáo viên" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'gv', this.value)"></td>
+            ${gvCell}
+            ${soHSCell}
             <td><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
             ${actionCell}
         </tr>
@@ -287,6 +315,8 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
         lop: '',
         phong: '',
         gv: '',
+        gvId: '',
+        soHS: 0,
         note: ''
     });
 
@@ -354,6 +384,127 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
         localStorage.setItem('schedule_registration_updated', Date.now().toString());
     } catch (e) {
         alert("Lỗi: " + e.message);
+    }
+};
+
+// ================= GV DROPDOWN =================
+
+async function loadTeacherListForSchedule() {
+    try {
+        const users = await DBService.getUsers();
+        window._teacherList = users || [];
+        // Inject/update datalist in DOM
+        let dl = document.getElementById('gv-teacher-list');
+        if (!dl) {
+            dl = document.createElement('datalist');
+            dl.id = 'gv-teacher-list';
+            document.body.appendChild(dl);
+        }
+        dl.innerHTML = users.map(u => {
+            const name = (u.name || u.username || '').replace(/"/g, '&quot;');
+            return `<option value="${name}" data-id="${u.id}">`;
+        }).join('');
+    } catch (e) {
+        console.warn('Could not load teacher list:', e);
+    }
+}
+
+window.updateGVRow = async function (compositeKey, caType, index, gvName) {
+    const teachers = window._teacherList || [];
+    const match = teachers.find(t => (t.name || t.username || '') === gvName);
+    const gvId = match ? match.id : '';
+    const dayData = await DBService.getSchedule(compositeKey);
+    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+    dayData[caType][index].gv = gvName;
+    dayData[caType][index].gvId = gvId;
+    await DBService.saveSchedule(compositeKey, dayData);
+};
+
+// ================= COPY SCHEDULE =================
+
+window.openCopyWeekModal = function () {
+    const existing = document.getElementById('copy-week-modal');
+    if (existing) existing.remove();
+
+    // Calculate target week options (next 8 weeks)
+    const options = [];
+    for (let w = 1; w <= 8; w++) {
+        const target = new Date(currentWeekStart);
+        target.setDate(target.getDate() + w * 7);
+        const end = new Date(target);
+        end.setDate(end.getDate() + 6);
+        const label = `${formatDateShort(target)} – ${formatDateShort(end)}`;
+        const val = getLocalDateKey(target);
+        options.push(`<option value="${val}">${label}</option>`);
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'copy-week-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:16px;padding:2rem;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <h3 style="font-size:1.125rem;font-weight:700;margin-bottom:1.25rem;">Sao Chép Lịch Tuần Hiện Tại</h3>
+            <p style="color:var(--text-muted);font-size:0.875rem;margin-bottom:1rem;">
+                Chọn tuần đích để sao chép toàn bộ lịch cơ sở <strong>${currentBranch.toUpperCase()}</strong>
+                của tuần đang xem sang.
+            </p>
+            <select id="copy-target-week" class="form-input" style="width:100%;margin-bottom:1.25rem;">
+                ${options.join('')}
+            </select>
+            <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="document.getElementById('copy-week-modal').remove()">Hủy</button>
+                <button class="btn btn-primary" onclick="executeCopyWeek()">Sao Chép</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+};
+
+window.executeCopyWeek = async function () {
+    const targetMondayKey = document.getElementById('copy-target-week').value;
+    if (!targetMondayKey) return;
+
+    const btn = document.querySelector('#copy-week-modal .btn-primary');
+    if (btn) { btn.disabled = true; btn.innerText = 'Đang sao chép...'; }
+
+    try {
+        let copied = 0;
+        for (let i = 0; i < 7; i++) {
+            // Source day
+            const srcDate = new Date(currentWeekStart);
+            srcDate.setDate(srcDate.getDate() + i);
+            const srcKey = getLocalDateKey(srcDate);
+            const srcComposite = `${currentBranch}__${srcKey}`;
+
+            // Target day
+            const [ty, tm, td] = targetMondayKey.split('-').map(Number);
+            const tgtDate = new Date(ty, tm - 1, td + i);
+            const tgtKey = getLocalDateKey(tgtDate);
+            const tgtComposite = `${currentBranch}__${tgtKey}`;
+
+            const srcData = await DBService.getSchedule(srcComposite);
+            if (srcData && Object.keys(srcData).length > 0) {
+                // Strip registeredTeachers to avoid copying old registrations
+                const cleanData = {};
+                const sections = ['morning1','morning2','afternoon1','afternoon2','evening1','evening2'];
+                sections.forEach(sec => {
+                    if (srcData[sec]) {
+                        cleanData[sec] = srcData[sec].map(row => {
+                            const { registeredTeachers, ...rest } = row;
+                            return rest;
+                        });
+                    }
+                });
+                await DBService.saveSchedule(tgtComposite, cleanData);
+                copied++;
+            }
+        }
+        document.getElementById('copy-week-modal').remove();
+        alert(`Đã sao chép lịch ${copied}/7 ngày sang tuần đã chọn!`);
+    } catch (e) {
+        alert('Lỗi sao chép: ' + e.message);
+        const btn2 = document.querySelector('#copy-week-modal .btn-primary');
+        if (btn2) { btn2.disabled = false; btn2.innerText = 'Sao Chép'; }
     }
 };
 

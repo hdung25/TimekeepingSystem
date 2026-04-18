@@ -599,6 +599,24 @@ const DBService = {
         }
     },
 
+    // 9b. Get all user IDs who have attendance on a given day (for GV absent highlight)
+    getDayAttendance: async (dateKey) => {
+        try {
+            const snap = await db.collection('attendance_logs').where('date', '==', dateKey).get();
+            const present = new Set();
+            snap.forEach(doc => {
+                const d = doc.data();
+                if (d.userId && d.sessions && d.sessions.some(s => s.checkIn || s.start)) {
+                    present.add(d.userId);
+                }
+            });
+            return present;
+        } catch (e) {
+            console.warn('getDayAttendance error:', e);
+            return new Set();
+        }
+    },
+
     // 9. System Settings
     getSystemSettings: async () => {
         try {
@@ -627,8 +645,9 @@ const DBService = {
             if (settingsDoc.exists) {
                 const settings = settingsDoc.data();
                 const allowedIP = settings.allowedIP;
+                const enableIPCheck = settings.enableIPCheck === true;
 
-                if (allowedIP && allowedIP.trim() !== '') {
+                if (enableIPCheck && allowedIP && allowedIP.trim() !== '') {
                     // Fetch client IP
                     const response = await fetch('https://api.ipify.org?format=json');
                     const data = await response.json();
