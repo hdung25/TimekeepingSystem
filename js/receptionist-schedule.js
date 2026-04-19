@@ -78,7 +78,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         const allUsers = await DBService.getUsers();
         allLoadedUsers = allUsers; // Store globally
-        receptionistStaff = allUsers.filter(u => ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(u.role));
+        receptionistStaff = allUsers.filter(u => {
+            const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : (u.role ? [u.role] : []);
+            return roles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(r));
+        });
     } catch (e) {
         console.error('Failed to load staff', e);
         receptionistStaff = [];
