@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Môn Học - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .subject-table { width: 100%; border-collapse: collapse; }
+        .subject-table th, .subject-table td { padding: 0.875rem 1rem; border-bottom: 1px solid var(--border-color); text-align: left; }
+        .subject-table th { background: #F9FAFB; font-weight: 600; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
+        .subject-table tr:hover td { background: #F9FAFB; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+        .add-form { background: #F9FAFB; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.5rem; }
+        .color-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 6px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+    </style>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+</head>
+<body>
+<div class="admin-container">
+    <aside class="sidebar">
+        <div class="logo-area">
+            <img src="images/TUDUYTRE.jpg" alt="Logo" style="height:40px;margin-right:0.5rem;border-radius:4px;">
+            <span style="font-size:0.9rem;font-weight:700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+        </div>
+        <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main class="main-content">
+        <header style="margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h1 style="font-size:1.5rem;font-weight:700;">Quản Lý Môn Học</h1>
+                <p style="color:var(--text-muted);font-size:0.9rem;">Danh sách môn dùng để xếp lịch và tính lương giáo viên</p>
+            </div>
+        </header>
+
+        <!-- Add Form -->
+        <div class="add-form" id="add-form-area">
+            <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem;" id="form-title">Thêm Môn Học Mới</h3>
+            <input type="hidden" id="edit-subject-id">
+            <div style="display:grid;grid-template-columns:2fr 1fr 80px;gap:0.75rem;align-items:end;">
+                <div>
+                    <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Tên Môn *</label>
+                    <input type="text" id="input-subject-name" class="form-input" placeholder="VD: Toán lớp 1, Tiếng Anh TN...">
+                </div>
+                <div>
+                    <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Màu nhận diện</label>
+                    <input type="color" id="input-subject-color" class="form-input" value="#059669" style="height:40px;padding:2px 6px;cursor:pointer;">
+                </div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn btn-primary" onclick="saveSubjectForm()" style="white-space:nowrap;">Lưu</button>
+                    <button class="btn btn-secondary" onclick="resetSubjectForm()" id="btn-cancel-edit" style="display:none;">Hủy</button>
+                </div>
+            </div>
+            <div style="margin-top:0.75rem;">
+                <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Ghi chú (tùy chọn)</label>
+                <input type="text" id="input-subject-note" class="form-input" placeholder="VD: Dành cho GV có chứng chỉ...">
+            </div>
+        </div>
+
+        <!-- Subject Table -->
+        <div class="glass-panel" style="padding:0;overflow:hidden;">
+            <div id="subjects-loading" style="padding:2rem;text-align:center;color:var(--text-muted);">Đang tải...</div>
+            <table class="subject-table" id="subjects-table" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Môn Học</th>
+                        <th>Ghi Chú</th>
+                        <th style="width:120px;text-align:center;">Thao Tác</th>
+                    </tr>
+                </thead>
+                <tbody id="subjects-tbody"></tbody>
+            </table>
+            <div id="subjects-empty" style="display:none;padding:2.5rem;text-align:center;color:var(--text-muted);">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">📚</div>
+                <p>Chưa có môn học nào. Hãy thêm môn học đầu tiên!</p>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="js/ui-service.js"></script>
+<script src="js/main.js"></script>
+<script>
+let _subjects = [];
+
+async function loadSubjects() {
+    try {
+        _subjects = await DBService.getSubjects();
+        renderSubjectsTable();
+    } catch(e) {
+        document.getElementById('subjects-loading').innerText = 'Lỗi tải dữ liệu: ' + e.message;
+    }
+}
+
+function renderSubjectsTable() {
+    const loading = document.getElementById('subjects-loading');
+    const table = document.getElementById('subjects-table');
+    const empty = document.getElementById('subjects-empty');
+    const tbody = document.getElementById('subjects-tbody');
+
+    loading.style.display = 'none';
+    if (_subjects.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    empty.style.display = 'none';
+    table.style.display = 'table';
+
+    tbody.innerHTML = _subjects.map(s => `
+        <tr>
+            <td>
+                <span class="color-dot" style="background:${s.color || '#059669'}"></span>
+                <strong>${s.name}</strong>
+            </td>
+            <td style="color:var(--text-muted);font-size:0.875rem;">${s.note || '—'}</td>
+            <td style="text-align:center;">
+                <button onclick="editSubject('${s.id}')" style="background:none;border:none;cursor:pointer;padding:4px 8px;color:var(--primary-color);font-size:0.85rem;font-weight:600;">✏️ Sửa</button>
+                <button onclick="deleteSubject('${s.id}','${s.name.replace(/'/g,"\\'")}')
+                " style="background:none;border:none;cursor:pointer;padding:4px 8px;color:#EF4444;font-size:0.85rem;font-weight:600;">🗑️ Xóa</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function saveSubjectForm() {
+    const name = document.getElementById('input-subject-name').value.trim();
+    if (!name) { alert('Vui lòng nhập tên môn học!'); return; }
+
+    const data = {
+        name,
+        color: document.getElementById('input-subject-color').value,
+        note: document.getElementById('input-subject-note').value.trim()
+    };
+    const existingId = document.getElementById('edit-subject-id').value;
+    if (existingId) data.id = existingId;
+
+    try {
+        await DBService.saveSubject(data);
+        UIService.toast(existingId ? 'Đã cập nhật môn học!' : 'Đã thêm môn học!', 'success');
+        resetSubjectForm();
+        await loadSubjects();
+        // Invalidate cache so schedule.js re-fetches
+        window._subjectList = null;
+    } catch(e) { alert('Lỗi: ' + e.message); }
+}
+
+function editSubject(id) {
+    const s = _subjects.find(x => x.id === id);
+    if (!s) return;
+    document.getElementById('edit-subject-id').value = s.id;
+    document.getElementById('input-subject-name').value = s.name;
+    document.getElementById('input-subject-color').value = s.color || '#059669';
+    document.getElementById('input-subject-note').value = s.note || '';
+    document.getElementById('form-title').innerText = 'Chỉnh Sửa Môn Học';
+    document.getElementById('btn-cancel-edit').style.display = 'inline-block';
+    document.getElementById('input-subject-name').focus();
+    window.scrollTo(0, 0);
+}
+
+async function deleteSubject(id, name) {
+    if (!confirm(`Xóa môn "${name}"? Hành động này không thể hoàn tác.`)) return;
+    try {
+        await DBService.deleteSubject(id);
+        UIService.toast('Đã xóa môn học!', 'success');
+        await loadSubjects();
+        window._subjectList = null;
+    } catch(e) { alert('Lỗi: ' + e.message); }
+}
+
+function resetSubjectForm() {
+    document.getElementById('edit-subject-id').value = '';
+    document.getElementById('input-subject-name').value = '';
+    document.getElementById('input-subject-color').value = '#059669';
+    document.getElementById('input-subject-note').value = '';
+    document.getElementById('form-title').innerText = 'Thêm Môn Học Mới';
+    document.getElementById('btn-cancel-edit').style.display = 'none';
+}
+
+document.addEventListener('DOMContentLoaded', loadSubjects);
+</script>
+<script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+</body>
+</html>

@@ -58,8 +58,9 @@ function initSchedule() {
     if (isEditor) {
         const adminActions = document.getElementById('admin-actions');
         if (adminActions) adminActions.style.display = 'block';
-        // Load teacher list for GV dropdown autocomplete
+        // Load teacher list & subject list for dropdowns
         loadTeacherListForSchedule();
+        loadSubjectListForSchedule();
     }
 
     // 5. Event Listeners
@@ -192,8 +193,8 @@ async function renderTable() {
 
     let html = '';
 
-    // Column counts: admin=9 (SS,Start,End,Lop,Phong,GV,SoHS,Note,Del), non-admin=8
-    const totalCols = isAdmin ? 9 : 8;
+    // Column counts: admin=10 (SS,Start,End,Lop,Phong,GV,GVTT,SoHS,Note,Del), non-admin=9
+    const totalCols = isAdmin ? 10 : 9;
 
     SECTIONS.forEach(section => {
         const rows = dayData[section.key] || [];
@@ -288,14 +289,52 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
         actionCell = '<td></td>';
     }
 
+    // === CỘT LỚP (Môn học datalist) ===
+    const lopVal = (data.lop || '').replace(/"/g, '&quot;');
+    let lopCell = '';
+    if (isAdmin) {
+        lopCell = `<td><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
+            list="subject-list"
+            onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)"></td>`;
+    } else {
+        const subjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
+        const dotHtml = subjectColor ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${subjectColor};margin-right:4px;"></span>` : '';
+        lopCell = `<td style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
+    }
+
+    // === CỘT GV THAY THẾ ===
+    const gvTTId = data.gvThayTheId || '';
+    const gvTTName = (data.gvThayThe || '').replace(/"/g, '&quot;');
+    let gvTTCell = '';
+    if (isAdmin) {
+        const clearBtn = gvTTName
+            ? `<button onclick="clearGVThayThe('${compositeKey}','${caType}',${index})" title="Xóa GV thay thế"
+                style="background:none;border:none;cursor:pointer;color:#EF4444;font-size:0.8rem;padding:0 2px;vertical-align:middle;">✕</button>`
+            : '';
+        gvTTCell = `<td>
+            <input type="text" class="table-input" value="${gvTTName}" placeholder="GV thay thế"
+                list="gv-teacher-list"
+                onchange="updateGVThayTheRow('${compositeKey}', '${caType}', ${index}, this.value)"
+                style="${gvTTName ? 'color:#D97706;font-weight:600;' : ''}">
+            ${clearBtn}
+        </td>`;
+    } else {
+        if (gvTTName) {
+            gvTTCell = `<td style="font-size:0.875rem;color:#D97706;font-weight:600;">↔ ${gvTTName}</td>`;
+        } else {
+            gvTTCell = `<td style="color:var(--text-muted);font-size:0.75rem;text-align:center;">—</td>`;
+        }
+    }
+
     return `
         <tr>
             <td style="text-align: center;">${index + 1}</td>
             <td><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'start', this.value)"></td>
             <td><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>
-            <td><input type="text" class="${inputClass}" value="${data.lop || ''}" placeholder="Tên lớp" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'lop', this.value)"></td>
+            ${lopCell}
             <td><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
             ${gvCell}
+            ${gvTTCell}
             ${soHSCell}
             <td><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
             ${actionCell}
@@ -313,9 +352,12 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
         start: defaultStart,
         end: defaultEnd,
         lop: '',
+        lopId: '',
         phong: '',
         gv: '',
         gvId: '',
+        gvThayThe: '',
+        gvThayTheId: '',
         soHS: 0,
         note: ''
     });
@@ -389,6 +431,25 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
 
 // ================= GV DROPDOWN =================
 
+async function loadSubjectListForSchedule() {
+    try {
+        const subjects = await DBService.getSubjects();
+        window._subjectList = subjects || [];
+        let dl = document.getElementById('subject-list');
+        if (!dl) {
+            dl = document.createElement('datalist');
+            dl.id = 'subject-list';
+            document.body.appendChild(dl);
+        }
+        dl.innerHTML = subjects.map(s => {
+            const name = s.name.replace(/"/g, '&quot;');
+            return `<option value="${name}" data-id="${s.id}">`;
+        }).join('');
+    } catch (e) {
+        console.warn('Could not load subject list:', e);
+    }
+}
+
 async function loadTeacherListForSchedule() {
     try {
         const users = await DBService.getUsers();
@@ -408,6 +469,38 @@ async function loadTeacherListForSchedule() {
         console.warn('Could not load teacher list:', e);
     }
 }
+
+window.updateSubjectRow = async function (compositeKey, caType, index, subjectName) {
+    const subjects = window._subjectList || [];
+    const match = subjects.find(s => s.name === subjectName);
+    const lopId = match ? match.id : '';
+    const dayData = await DBService.getSchedule(compositeKey);
+    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+    dayData[caType][index].lop = subjectName;
+    dayData[caType][index].lopId = lopId;
+    await DBService.saveSchedule(compositeKey, dayData);
+};
+
+window.updateGVThayTheRow = async function (compositeKey, caType, index, gvName) {
+    const teachers = window._teacherList || [];
+    const match = teachers.find(t => (t.name || t.username || '') === gvName);
+    const gvId = match ? match.id : '';
+    const dayData = await DBService.getSchedule(compositeKey);
+    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+    dayData[caType][index].gvThayThe = gvName;
+    dayData[caType][index].gvThayTheId = gvId;
+    await DBService.saveSchedule(compositeKey, dayData);
+    renderTable(); // Refresh to update GV gốc highlight
+};
+
+window.clearGVThayThe = async function (compositeKey, caType, index) {
+    const dayData = await DBService.getSchedule(compositeKey);
+    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+    dayData[caType][index].gvThayThe = '';
+    dayData[caType][index].gvThayTheId = '';
+    await DBService.saveSchedule(compositeKey, dayData);
+    renderTable();
+};
 
 window.updateGVRow = async function (compositeKey, caType, index, gvName) {
     const teachers = window._teacherList || [];

@@ -332,7 +332,21 @@ async function configureSalary(userId) {
     const settings = user.salary_config || {};
     currentSalaryRoles = settings.roles || [];
 
-    const isReceptionistType = ['receptionist', 'receptionist_assistant'].includes(user.role);
+    const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
+    const isReceptionistType = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r)) &&
+        !userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+
+    // Load subjects into the select dropdown
+    if (!isReceptionistType) {
+        try {
+            const subjects = await DBService.getSubjects();
+            const sel = document.getElementById('new-subject-select');
+            if (sel) {
+                sel.innerHTML = '<option value="">-- Chọn Môn --</option>' +
+                    subjects.map(s => `<option value="${s.id}" data-name="${s.name.replace(/"/g,'&quot;')}">${s.name}</option>`).join('');
+            }
+        } catch(e) { console.warn('Could not load subjects for salary modal', e); }
+    }
     const rolesSection = document.getElementById('roles-config-section');
     const recSection = document.getElementById('receptionist-config-section');
 
@@ -409,26 +423,32 @@ function renderSalaryRoles() {
 }
 
 function addNewRole() {
-    const nameInput = document.getElementById('new-role-name');
+    const subjectSelect = document.getElementById('new-subject-select');
     const rateInput = document.getElementById('new-role-rate');
 
-    const name = nameInput.value.trim();
     const rate = Number(rateInput.value);
+    if (!subjectSelect || !subjectSelect.value || !rate) {
+        alert("Vui lòng chọn môn học và nhập mức lương!");
+        return;
+    }
 
-    if (!name || !rate) {
-        alert("Vui lòng nhập tên vai trò và mức lương!");
+    const selectedOption = subjectSelect.options[subjectSelect.selectedIndex];
+    const subjectId = subjectSelect.value;
+    const subjectName = selectedOption.dataset.name || selectedOption.text;
+
+    if (currentSalaryRoles.find(r => r.id === subjectId)) {
+        alert("Môn học này đã được thêm rồi!");
         return;
     }
 
     currentSalaryRoles.push({
-        id: 'role_' + Date.now(),
-        name: name,
+        id: subjectId,
+        name: subjectName,
         rate: rate,
-        isDefault: currentSalaryRoles.length === 0 // First role is default
+        isDefault: currentSalaryRoles.length === 0
     });
 
-    // Reset inputs
-    nameInput.value = '';
+    subjectSelect.value = '';
     rateInput.value = '';
 
     renderSalaryRoles();
@@ -452,7 +472,9 @@ async function saveSalaryConfig() {
         // Merge changes
         if (!user.salary_config) user.salary_config = {};
         
-        const isReceptionistType = ['receptionist', 'receptionist_assistant'].includes(user.role);
+        const _saveRoles = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
+        const isReceptionistType = _saveRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r)) &&
+            !_saveRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         if (isReceptionistType) {
             const normalRate = document.getElementById('receptionist-normal-rate').value;
             const fixedRate = document.getElementById('receptionist-fixed-rate').value;

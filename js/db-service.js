@@ -599,6 +599,36 @@ const DBService = {
         }
     },
 
+    // 9a. Subjects (Môn học) CRUD
+    getSubjects: async () => {
+        try {
+            const snap = await db.collection('subjects').orderBy('name').get();
+            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {
+            console.warn('getSubjects error:', e);
+            return [];
+        }
+    },
+
+    saveSubject: async (data) => {
+        try {
+            if (data.id) {
+                const { id, ...rest } = data;
+                await db.collection('subjects').doc(id).set(rest, { merge: true });
+                return data.id;
+            } else {
+                const ref = await db.collection('subjects').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                return ref.id;
+            }
+        } catch (e) { console.error('saveSubject error:', e); throw e; }
+    },
+
+    deleteSubject: async (id) => {
+        try {
+            await db.collection('subjects').doc(id).delete();
+        } catch (e) { console.error('deleteSubject error:', e); throw e; }
+    },
+
     // 9b. Get all user IDs who have attendance on a given day (for GV absent highlight)
     getDayAttendance: async (dateKey) => {
         try {

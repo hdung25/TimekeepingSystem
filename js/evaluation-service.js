@@ -96,7 +96,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const _allReg = [];
         sections.forEach(sk => {
             (schedule[sk] || []).forEach((c, i) => {
-                const _isReg = (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId);
+                // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
+                const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
+                const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+                const _isReg = _isSubstitute ||
+                    (!_isOriginalVDX && (
+                        (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId)
+                    ));
                 if (!_isReg) return;
                 const ck = c._compositeKey || null;
                 if (ck && cancelledShifts.includes(`${ck}_${sk}_${i}`)) return;
@@ -135,8 +141,28 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
         classes.forEach((cls, idx) => {
-            // 1. Check if user is assigned: via admin-set gvId OR legacy "Nhận Lớp" registeredTeachers
-            const isRegistered = (cls.gvId && cls.gvId === staffId) ||
+            // 1. Kiểm tra GV thay thế
+            const isSubstitute = cls.gvThayTheId && cls.gvThayTheId === staffId;
+            const isOriginalVDX = cls.gvThayTheId && cls.gvId === staffId;
+
+            // GV gốc bị thay → tạo chip VĐX riêng (không tính giờ/lương) rồi return
+            if (isOriginalVDX) {
+                const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
+                const branchLabel = cls._branch ? cls._branch.toUpperCase() : '';
+                chips.push({
+                    text: `VĐX: ${lopLabel} ${cls.start}–${cls.end}${branchLabel ? ' (' + branchLabel + ')' : ''}`,
+                    class: 'chip-red',
+                    paidMinutes: 0,
+                    isWarning: false,
+                    isVDX: true,
+                    tooltip: `Vắng đột xuất — GV thay thế: ${cls.gvThayThe || '?'}`
+                });
+                return;
+            }
+
+            // 2. Check if user is assigned: substitute, admin-set gvId, or legacy registeredTeachers
+            const isRegistered = isSubstitute ||
+                (cls.gvId && cls.gvId === staffId) ||
                 (cls.registeredTeachers || []).some(t => t.id === staffId);
 
             if (!isRegistered) return; // Skip if not assigned to this class
@@ -266,11 +292,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         label += ` (${matchedSession.roleName})`;
                         tooltip += ` - Vai trò: ${matchedSession.roleName}`;
 
-                        // Fallback: If roleRate is missing (legacy data), try to find in user config
-                        if (!matchedSession.roleRate && currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
-                            const foundRole = currentUserContext.salary_config.roles.find(r => r.id === matchedSession.role);
-                            if (foundRole) {
-                                matchedSession.roleRate = foundRole.rate;
+                        // Subject-based rate (by lopId) takes priority; fallback to legacy role match
+                        if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                            const _cfgRoles = currentUserContext.salary_config.roles;
+                            const _subjectMatch = cls.lopId ? _cfgRoles.find(r => r.id === cls.lopId) : null;
+                            if (_subjectMatch) {
+                                matchedSession.roleRate = _subjectMatch.rate;
+                            } else if (!matchedSession.roleRate) {
+                                const foundRole = _cfgRoles.find(r => r.id === matchedSession.role);
+                                if (foundRole) matchedSession.roleRate = foundRole.rate;
                             }
                         }
                     } else {
@@ -551,10 +581,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     label += ` (${matchedSession.roleName})`;
                     tooltip += ` - Vai trò: ${matchedSession.roleName}`;
 
-                    if (!matchedSession.roleRate && currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
-                        const foundRole = currentUserContext.salary_config.roles.find(r => r.id === matchedSession.role);
-                        if (foundRole) {
-                            matchedSession.roleRate = foundRole.rate;
+                    if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                        const _cfgRolesR = currentUserContext.salary_config.roles;
+                        const _subjectMatchR = cls.lopId ? _cfgRolesR.find(r => r.id === cls.lopId) : null;
+                        if (_subjectMatchR) {
+                            matchedSession.roleRate = _subjectMatchR.rate;
+                        } else if (!matchedSession.roleRate) {
+                            const foundRole = _cfgRolesR.find(r => r.id === matchedSession.role);
+                            if (foundRole) matchedSession.roleRate = foundRole.rate;
                         }
                     }
                 } else {

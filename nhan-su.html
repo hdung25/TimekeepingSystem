@@ -239,23 +239,22 @@
             <!-- List of Roles -->
             <div id="roles-config-section">
                 <div style="margin-bottom: 1.5rem;">
-                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Danh sách Role (Vai
-                        trò):</label>
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Môn Học & Mức Lương:</label>
                     <div id="role-list"
                         style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden;">
-                        <!-- Roles will be injected here -->
-                        <div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có vai trò nào</div>
+                        <div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có môn nào</div>
                     </div>
                 </div>
 
-                <!-- Add New Role Form -->
+                <!-- Add New Subject Rate Form -->
                 <div style="background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
-                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Thêm Vai Trò Mới:</label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" id="new-role-name" class="form-input" placeholder="Tên Role (VD: GV Tiếng Anh)"
-                            style="flex: 2;">
-                        <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ" style="flex: 1;">
-                        <button type="button" class="btn btn-primary" onclick="addNewRole()">➕ Thêm</button>
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Thêm Môn Học:</label>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <select id="new-subject-select" class="form-input" style="flex: 2; min-width: 160px;">
+                            <option value="">-- Chọn Môn --</option>
+                        </select>
+                        <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ (VND)" style="flex: 1; min-width: 120px;">
+                        <button type="button" class="btn btn-primary" onclick="addNewRole()" style="white-space:nowrap;">➕ Thêm</button>
                     </div>
                 </div>
             </div>
