@@ -9,13 +9,228 @@
     <meta name="theme-color" content="#059669">
     <link rel="stylesheet" href="css/style.css">
     <style>
+        .page-layout {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .page-layout { grid-template-columns: 1fr; }
+        }
+
+        /* Form Card */
+        .form-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+            position: sticky;
+            top: 1rem;
+        }
+        .form-card-header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #047857 100%);
+            padding: 1.25rem 1.5rem;
+        }
+        .form-card-header h2 {
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 0;
+        }
+        .form-card-header p {
+            color: rgba(255,255,255,0.75);
+            font-size: 0.8rem;
+            margin: 0.2rem 0 0;
+        }
+        .form-card-body {
+            padding: 1.5rem;
+        }
+        .field-label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 0.4rem;
+        }
+        .field-label span {
+            color: #EF4444;
+            margin-left: 2px;
+        }
+        .form-card-body .form-input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .color-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        .color-picker-wrap {
+            position: relative;
+        }
+        .color-picker-wrap input[type="color"] {
+            width: 48px;
+            height: 48px;
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            padding: 3px;
+            background: white;
+        }
+        .color-preview-pill {
+            height: 36px;
+            padding: 0 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            transition: background 0.2s;
+            flex: 1;
+        }
+        .form-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1.25rem;
+        }
+        .form-actions .btn {
+            flex: 1;
+        }
+
+        /* Subject List Card */
+        .list-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+        }
+        .list-card-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .list-card-header h2 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-color);
+            margin: 0;
+        }
+        .subject-count-badge {
+            background: #ECFDF5;
+            color: var(--primary-color);
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 20px;
+        }
+
+        /* Subject Table */
         .subject-table { width: 100%; border-collapse: collapse; }
-        .subject-table th, .subject-table td { padding: 0.875rem 1rem; border-bottom: 1px solid var(--border-color); text-align: left; }
-        .subject-table th { background: #F9FAFB; font-weight: 600; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
-        .subject-table tr:hover td { background: #F9FAFB; }
-        .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
-        .add-form { background: #F9FAFB; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.5rem; }
-        .color-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 6px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+        .subject-table th {
+            background: #F9FAFB;
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+        .subject-table td {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #F3F4F6;
+            vertical-align: middle;
+        }
+        .subject-table tr:last-child td { border-bottom: none; }
+        .subject-table tr:hover td { background: #FAFAFA; }
+
+        .subject-color-bar {
+            display: inline-block;
+            width: 5px;
+            height: 36px;
+            border-radius: 3px;
+            margin-right: 0.75rem;
+            flex-shrink: 0;
+        }
+        .subject-name-cell {
+            display: flex;
+            align-items: center;
+        }
+        .subject-name {
+            font-weight: 600;
+            color: var(--text-color);
+            font-size: 0.95rem;
+        }
+        .subject-note {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .action-group {
+            display: flex;
+            gap: 0.35rem;
+            justify-content: flex-end;
+        }
+        .btn-table-action {
+            padding: 0.35rem 0.75rem;
+            border-radius: var(--radius-md);
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+        .btn-edit {
+            background: #EFF6FF;
+            color: #3B82F6;
+        }
+        .btn-edit:hover { background: #DBEAFE; }
+        .btn-delete {
+            background: #FEF2F2;
+            color: #EF4444;
+        }
+        .btn-delete:hover { background: #FEE2E2; }
+
+        /* Empty state */
+        .empty-state {
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+        .empty-state-icon {
+            width: 64px;
+            height: 64px;
+            background: #F3F4F6;
+            border-radius: 50%;
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .empty-state-icon svg {
+            width: 28px;
+            height: 28px;
+            color: #9CA3AF;
+            stroke: #9CA3AF;
+        }
+        .empty-state h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-color);
+            margin: 0 0 0.35rem;
+        }
+        .empty-state p {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
     </style>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
@@ -34,53 +249,89 @@
     </aside>
 
     <main class="main-content">
-        <header style="margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <h1 style="font-size:1.5rem;font-weight:700;">Quản Lý Môn Học</h1>
-                <p style="color:var(--text-muted);font-size:0.9rem;">Danh sách môn dùng để xếp lịch và tính lương giáo viên</p>
-            </div>
+        <header style="margin-bottom:1.5rem;">
+            <h1 style="font-size:1.5rem;font-weight:700;">Quản Lý Môn Học</h1>
+            <p style="color:var(--text-muted);font-size:0.9rem;margin-top:0.25rem;">Danh sách môn dùng để xếp lịch và tính lương giáo viên</p>
         </header>
 
-        <!-- Add Form -->
-        <div class="add-form" id="add-form-area">
-            <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem;" id="form-title">Thêm Môn Học Mới</h3>
-            <input type="hidden" id="edit-subject-id">
-            <div style="display:grid;grid-template-columns:2fr 1fr 80px;gap:0.75rem;align-items:end;">
-                <div>
-                    <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Tên Môn *</label>
-                    <input type="text" id="input-subject-name" class="form-input" placeholder="VD: Toán lớp 1, Tiếng Anh TN...">
+        <div class="page-layout">
+            <!-- Left: Form -->
+            <div class="form-card">
+                <div class="form-card-header">
+                    <h2 id="form-title">Thêm Môn Học Mới</h2>
+                    <p>Điền thông tin bên dưới rồi nhấn Lưu</p>
                 </div>
-                <div>
-                    <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Màu nhận diện</label>
-                    <input type="color" id="input-subject-color" class="form-input" value="#059669" style="height:40px;padding:2px 6px;cursor:pointer;">
-                </div>
-                <div style="display:flex;gap:0.5rem;">
-                    <button class="btn btn-primary" onclick="saveSubjectForm()" style="white-space:nowrap;">Lưu</button>
-                    <button class="btn btn-secondary" onclick="resetSubjectForm()" id="btn-cancel-edit" style="display:none;">Hủy</button>
-                </div>
-            </div>
-            <div style="margin-top:0.75rem;">
-                <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Ghi chú (tùy chọn)</label>
-                <input type="text" id="input-subject-note" class="form-input" placeholder="VD: Dành cho GV có chứng chỉ...">
-            </div>
-        </div>
+                <div class="form-card-body">
+                    <input type="hidden" id="edit-subject-id">
 
-        <!-- Subject Table -->
-        <div class="glass-panel" style="padding:0;overflow:hidden;">
-            <div id="subjects-loading" style="padding:2rem;text-align:center;color:var(--text-muted);">Đang tải...</div>
-            <table class="subject-table" id="subjects-table" style="display:none;">
-                <thead>
-                    <tr>
-                        <th>Môn Học</th>
-                        <th>Ghi Chú</th>
-                        <th style="width:120px;text-align:center;">Thao Tác</th>
-                    </tr>
-                </thead>
-                <tbody id="subjects-tbody"></tbody>
-            </table>
-            <div id="subjects-empty" style="display:none;padding:2.5rem;text-align:center;color:var(--text-muted);">
-                <div style="font-size:2rem;margin-bottom:0.5rem;">📚</div>
-                <p>Chưa có môn học nào. Hãy thêm môn học đầu tiên!</p>
+                    <div style="margin-bottom:1rem;">
+                        <label class="field-label" for="input-subject-name">Tên Môn Học <span>*</span></label>
+                        <input type="text" id="input-subject-name" class="form-input"
+                            placeholder="VD: Toán lớp 1, Tiếng Anh TN..."
+                            oninput="previewColorPill()">
+                    </div>
+
+                    <div>
+                        <label class="field-label">Màu nhận diện</label>
+                        <div class="color-row">
+                            <div class="color-picker-wrap">
+                                <input type="color" id="input-subject-color" value="#059669"
+                                    oninput="previewColorPill()">
+                            </div>
+                            <div class="color-preview-pill" id="color-preview-pill"
+                                style="background:#059669;color:#fff;">
+                                Xem trước
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:1rem;">
+                        <label class="field-label" for="input-subject-note">Ghi chú <span style="color:var(--text-muted);font-weight:400;">(tùy chọn)</span></label>
+                        <input type="text" id="input-subject-note" class="form-input"
+                            placeholder="VD: Dành cho GV có chứng chỉ...">
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" id="btn-cancel-edit"
+                            onclick="resetSubjectForm()" style="display:none;">Hủy</button>
+                        <button class="btn btn-primary" onclick="saveSubjectForm()">Lưu Môn Học</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: List -->
+            <div class="list-card">
+                <div class="list-card-header">
+                    <h2>Danh Sách Môn Học</h2>
+                    <span class="subject-count-badge" id="subject-count">0 môn</span>
+                </div>
+
+                <div id="subjects-loading" style="padding:2rem;text-align:center;color:var(--text-muted);">
+                    Đang tải...
+                </div>
+
+                <table class="subject-table" id="subjects-table" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th>Môn Học</th>
+                            <th>Ghi Chú</th>
+                            <th style="text-align:right;width:140px;">Thao Tác</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subjects-tbody"></tbody>
+                </table>
+
+                <div id="subjects-empty" style="display:none;">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                            </svg>
+                        </div>
+                        <h3>Chưa có môn học nào</h3>
+                        <p>Hãy thêm môn học đầu tiên từ form bên trái</p>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -90,6 +341,18 @@
 <script src="js/main.js"></script>
 <script>
 let _subjects = [];
+
+function previewColorPill() {
+    const color = document.getElementById('input-subject-color').value;
+    const name = document.getElementById('input-subject-name').value.trim();
+    const pill = document.getElementById('color-preview-pill');
+    if (!pill) return;
+    pill.style.background = color;
+    // Auto contrast text
+    const r = parseInt(color.substr(1,2),16), g = parseInt(color.substr(3,2),16), b = parseInt(color.substr(5,2),16);
+    pill.style.color = (r*0.299 + g*0.587 + b*0.114) > 150 ? '#1F2937' : '#fff';
+    pill.textContent = name || 'Xem trước';
+}
 
 async function loadSubjects() {
     try {
@@ -105,8 +368,11 @@ function renderSubjectsTable() {
     const table = document.getElementById('subjects-table');
     const empty = document.getElementById('subjects-empty');
     const tbody = document.getElementById('subjects-tbody');
+    const badge = document.getElementById('subject-count');
 
     loading.style.display = 'none';
+    if (badge) badge.textContent = _subjects.length + ' môn';
+
     if (_subjects.length === 0) {
         table.style.display = 'none';
         empty.style.display = 'block';
@@ -115,26 +381,35 @@ function renderSubjectsTable() {
     empty.style.display = 'none';
     table.style.display = 'table';
 
-    tbody.innerHTML = _subjects.map(s => `
+    tbody.innerHTML = _subjects.map(s => {
+        const color = s.color || '#059669';
+        return `
         <tr>
             <td>
-                <span class="color-dot" style="background:${s.color || '#059669'}"></span>
-                <strong>${s.name}</strong>
+                <div class="subject-name-cell">
+                    <div class="subject-color-bar" style="background:${color};"></div>
+                    <div>
+                        <div class="subject-name">${s.name}</div>
+                    </div>
+                </div>
             </td>
-            <td style="color:var(--text-muted);font-size:0.875rem;">${s.note || '—'}</td>
-            <td style="text-align:center;">
-                <button onclick="editSubject('${s.id}')" style="background:none;border:none;cursor:pointer;padding:4px 8px;color:var(--primary-color);font-size:0.85rem;font-weight:600;">✏️ Sửa</button>
-                <button onclick="deleteSubject('${s.id}','${s.name.replace(/'/g,"\\'")}')
-                " style="background:none;border:none;cursor:pointer;padding:4px 8px;color:#EF4444;font-size:0.85rem;font-weight:600;">🗑️ Xóa</button>
+            <td><span style="color:var(--text-muted);font-size:0.85rem;">${s.note || '—'}</span></td>
+            <td>
+                <div class="action-group">
+                    <button class="btn-table-action btn-edit" onclick="editSubject('${s.id}')">Sửa</button>
+                    <button class="btn-table-action btn-delete" onclick="deleteSubject('${s.id}','${s.name.replace(/'/g,"\\'")}')">Xóa</button>
+                </div>
             </td>
-        </tr>
-    `).join('');
+        </tr>`;
+    }).join('');
 }
 
 async function saveSubjectForm() {
     const name = document.getElementById('input-subject-name').value.trim();
-    if (!name) { alert('Vui lòng nhập tên môn học!'); return; }
-
+    if (!name) {
+        UIService.toast('Vui lòng nhập tên môn học!', 'error');
+        return;
+    }
     const data = {
         name,
         color: document.getElementById('input-subject-color').value,
@@ -148,9 +423,8 @@ async function saveSubjectForm() {
         UIService.toast(existingId ? 'Đã cập nhật môn học!' : 'Đã thêm môn học!', 'success');
         resetSubjectForm();
         await loadSubjects();
-        // Invalidate cache so schedule.js re-fetches
         window._subjectList = null;
-    } catch(e) { alert('Lỗi: ' + e.message); }
+    } catch(e) { UIService.toast('Lỗi: ' + e.message, 'error'); }
 }
 
 function editSubject(id) {
@@ -162,18 +436,18 @@ function editSubject(id) {
     document.getElementById('input-subject-note').value = s.note || '';
     document.getElementById('form-title').innerText = 'Chỉnh Sửa Môn Học';
     document.getElementById('btn-cancel-edit').style.display = 'inline-block';
-    document.getElementById('input-subject-name').focus();
-    window.scrollTo(0, 0);
+    previewColorPill();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function deleteSubject(id, name) {
-    if (!confirm(`Xóa môn "${name}"? Hành động này không thể hoàn tác.`)) return;
+    if (!await UIService.confirm(`Xóa môn "${name}"? Hành động này không thể hoàn tác.`)) return;
     try {
         await DBService.deleteSubject(id);
         UIService.toast('Đã xóa môn học!', 'success');
         await loadSubjects();
         window._subjectList = null;
-    } catch(e) { alert('Lỗi: ' + e.message); }
+    } catch(e) { UIService.toast('Lỗi: ' + e.message, 'error'); }
 }
 
 function resetSubjectForm() {
@@ -183,9 +457,13 @@ function resetSubjectForm() {
     document.getElementById('input-subject-note').value = '';
     document.getElementById('form-title').innerText = 'Thêm Môn Học Mới';
     document.getElementById('btn-cancel-edit').style.display = 'none';
+    previewColorPill();
 }
 
-document.addEventListener('DOMContentLoaded', loadSubjects);
+document.addEventListener('DOMContentLoaded', () => {
+    loadSubjects();
+    previewColorPill();
+});
 </script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
 </body>
