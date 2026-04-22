@@ -263,10 +263,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-                    // Admin override: chỉ dùng actualEnd khi vượt lịch >30p (admin chỉnh thủ công)
-                    // Lệch nhỏ (<30p) do auto-checkout chạy trễ → dùng schedEnd bình thường
+                    // Admin override: chỉ dùng actualEnd khi admin chỉnh thủ công (>30p, không phải stale close)
                     const _overMs = actualEnd - schedEnd;
-                    const _isSignificantOverrun = _overMs > 30 * 60 * 1000;
+                    const _isStaleClose = matchedSession.autoClosedReason === 'stale_session';
+                    const _isSignificantOverrun = !_isStaleClose && _overMs > 30 * 60 * 1000;
                     const effectiveEnd = _isSignificantOverrun ? actualEnd : schedEnd;
                     const effectiveDuration = (effectiveEnd - schedStart) / 60000;
 
