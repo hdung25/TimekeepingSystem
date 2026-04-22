@@ -144,6 +144,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         }
     }
 
+    // Dedup set cho loop chính: tránh cùng (branch+start+end) sinh 2 chip
+    const _mainSeenSlots = new Set();
+
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
         classes.forEach((cls, idx) => {
@@ -172,6 +175,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 (cls.registeredTeachers || []).some(t => t.id === staffId);
 
             if (!isRegistered) return; // Skip if not assigned to this class
+
+            // Dedup: bỏ qua nếu đã có entry cùng (branch+start+end) → tránh chip V giả
+            const _mainSlotKey = `${cls._branch || ''}_${cls.start}_${cls.end}`;
+            if (_mainSeenSlots.has(_mainSlotKey)) return;
+            _mainSeenSlots.add(_mainSlotKey);
 
             // --- NEW: Check Cancelled Shifts ---
             const classCompositeKey = cls._compositeKey || null;
