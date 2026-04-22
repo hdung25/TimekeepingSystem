@@ -146,6 +146,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
     // Dedup set cho loop chính: tránh cùng (branch+start+end) sinh 2 chip
     const _mainSeenSlots = new Set();
+    // Track time slots đã có session khớp: tránh chip Vắng khi cùng giờ đã match ở branch khác
+    const _matchedTimeSlots = new Set();
 
     sections.forEach(secKey => {
         const classes = schedule[secKey] || [];
@@ -217,7 +219,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 });
             }
 
-            if (matchedSession) usedSessionIds.add(matchedSession.id);
+            if (matchedSession) {
+                usedSessionIds.add(matchedSession.id);
+                _matchedTimeSlots.add(`${cls.start}_${cls.end}`);
+            }
 
             // 3. Determine Status
             let minutes = 0;
@@ -447,6 +452,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         isScheduledOnly: true
                     });
                 } else {
+                    // Nếu đã có session khớp ở branch khác cùng giờ → bỏ qua, không sinh chip Vắng
+                    if (_matchedTimeSlots.has(`${cls.start}_${cls.end}`)) return;
                     chips.push({
                         text: label + ' (V)',
                         class: 'chip-gray',
