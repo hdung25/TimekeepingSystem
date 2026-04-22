@@ -833,7 +833,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     } else {
                         // Sớm hoặc đúng giờ: tính từ giờ bắt đầu lịch
                         duration = (effectiveEnd - nearestSchedStart) / 60000;
-                        cssClass = s.role ? 'chip-green' : 'chip-waiting';
+                        cssClass = 'chip-green'; // Đã checkin+checkout → luôn green dù chưa chọn role
                         tooltip = diffToSched < 0
                             ? `Vào sớm ${Math.round(-diffToSched / 60000)}p (lịch ${schedStartStr})`
                             : `Đúng giờ (${schedStartStr})`;
