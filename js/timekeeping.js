@@ -375,7 +375,9 @@ function createClassCard(cls, compositeKey) {
 
     const currentUserId = localStorage.getItem('currentUserId');
     const registeredTeachers = cls.registeredTeachers || [];
-    const isRegistered = registeredTeachers.some(t => t.id === currentUserId);
+    const isRegistered = (cls.gvId && cls.gvId === currentUserId) ||
+        (cls.gvThayTheId && cls.gvThayTheId === currentUserId) ||
+        registeredTeachers.some(t => t.id === currentUserId);
 
     // Branch badge
     const branchLabel = cls._branch ? cls._branch.toUpperCase() : 'CS1';

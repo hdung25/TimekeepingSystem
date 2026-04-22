@@ -287,6 +287,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ` | Ra muộn ${overMins}p (admin đã chỉnh)`;
                     }
 
+                    // Auto-resolve subject rate from lopId when session has no manual role
+                    let _autoResolved = false;
+                    if (!matchedSession.role && currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                        const _cfgAuto = currentUserContext.salary_config.roles;
+                        const _autoMatch = cls.lopId ? _cfgAuto.find(r => r.id === cls.lopId) : null;
+                        if (_autoMatch) {
+                            matchedSession.roleRate = _autoMatch.rate;
+                            label += ` (${_autoMatch.name || cls.lop || 'Môn học'})`;
+                            tooltip += ` - Môn: ${_autoMatch.name || cls.lop}`;
+                            _autoResolved = true;
+                        }
+                    }
+
                     // Role Logic
                     if (matchedSession.role) {
                         label += ` (${matchedSession.roleName})`;
@@ -303,8 +316,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                                 if (foundRole) matchedSession.roleRate = foundRole.rate;
                             }
                         }
-                    } else {
-                        label += ` (Role?)`;
+                    } else if (!_autoResolved) {
+                        // Show subject name if available, else prompt role selection
+                        const _subjectLabel = cls.lop || null;
+                        label += _subjectLabel ? ` (${_subjectLabel} — Role?)` : ` (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
 
@@ -318,10 +333,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                     }
 
-                    // FIX 1: Late → always orange, regardless of role
+                    // Late → orange; auto-resolved or has role → green; else waiting
                     if (isLate) {
                         cssClass = 'chip-orange';
-                    } else if (matchedSession.role) {
+                    } else if (matchedSession.role || _autoResolved) {
                         cssClass = 'chip-green';
                     } else {
                         cssClass = 'chip-waiting';

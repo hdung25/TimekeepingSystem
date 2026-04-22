@@ -409,7 +409,10 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             sections.forEach(sec => {
                 if (!schedule[sec]) return;
                 schedule[sec].forEach(cls => {
-                    if (!(cls.registeredTeachers || []).some(t => t.id === userId)) return;
+                    const isAssigned = (cls.gvId && cls.gvId === userId) ||
+                        (cls.gvThayTheId && cls.gvThayTheId === userId) ||
+                        (cls.registeredTeachers || []).some(t => t.id === userId);
+                    if (!isAssigned) return;
                     allClasses.push({ start: cls.start, end: cls.end, branch });
                 });
             });
