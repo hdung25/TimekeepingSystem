@@ -94,6 +94,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const _mergeInfo = {};
     {
         const _allReg = [];
+        // Dedup: tránh cùng ca (start+end+branch) bị đếm 2 lần khi admin set cả gvId lẫn registeredTeachers
+        const _seenSlots = new Set();
         sections.forEach(sk => {
             (schedule[sk] || []).forEach((c, i) => {
                 // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
@@ -106,6 +108,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (!_isReg) return;
                 const ck = c._compositeKey || null;
                 if (ck && cancelledShifts.includes(`${ck}_${sk}_${i}`)) return;
+                // Bỏ qua nếu đã có entry cùng (branch + start + end) → tránh chip V giả do duplicate class entry
+                const _slotKey = `${c._branch || ''}_${c.start}_${c.end}`;
+                if (_seenSlots.has(_slotKey)) return;
+                _seenSlots.add(_slotKey);
                 _allReg.push({ start: c.start, end: c.end, branch: c._branch || '', secKey: sk, idx: i });
             });
         });
@@ -333,14 +339,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                     }
 
-                    // Late → orange; auto-resolved or has role → green; else waiting
-                    if (isLate) {
-                        cssClass = 'chip-orange';
-                    } else if (matchedSession.role || _autoResolved) {
-                        cssClass = 'chip-green';
-                    } else {
-                        cssClass = 'chip-waiting';
-                    }
+                    // Session hoàn chỉnh (có cả checkIn + checkOut) → luôn green/orange
+                    // chip-waiting chỉ dùng khi chưa checkout (xem else branch bên dưới)
+                    cssClass = isLate ? 'chip-orange' : 'chip-green';
 
                     tooltip += ' - Đã chấm công đầy đủ';
                     isClickable = true;
