@@ -572,24 +572,8 @@ async function renderMonthReport(date, forceServer = false) {
         }
     });
 
-    // === AUTO-CLOSE STALE SESSIONS ===
-    // If any past-day session has no checkOut, auto-close it in Firestore (fire-and-forget)
+    // === AUTO-CLOSE STALE SESSIONS — chạy SAU khi có scheduleMap (xem bên dưới) ===
     const todayKey = getLocalDateKey(new Date());
-    Object.entries(attendanceMap).forEach(([dateKey, sessions]) => {
-        if (dateKey >= todayKey) return; // Skip today and future
-        sessions.forEach(s => {
-            if (!s.checkOut && s.id) {
-                // Fire-and-forget: close stale session in background
-                DBService.autoCloseStaleSession(staffId, dateKey, s.id).then(closed => {
-                    if (closed) {
-                        // Update local data so display is correct even before next fetch
-                        s.checkOut = new Date(`${dateKey}T23:59:00`).toISOString();
-                        s.autoClosedReason = 'stale_session';
-                    }
-                });
-            }
-        });
-    });
 
 
     // B. Schedule Data (For the whole month)
@@ -619,6 +603,47 @@ async function renderMonthReport(date, forceServer = false) {
             scheduleMap[item.date][sec] = scheduleMap[item.date][sec].concat(taggedRows);
         });
     });
+
+    // === AUTO-CLOSE STALE SESSIONS (chạy sau khi có scheduleMap) ===
+    {
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        Object.entries(attendanceMap).forEach(([dateKey, sessions]) => {
+            if (dateKey >= todayKey) return;
+            const sched = scheduleMap[dateKey] || {};
+            const [_sy, _sm, _sd] = dateKey.split('-').map(Number);
+            sessions.forEach(s => {
+                if (!s.checkOut && s.id) {
+                    // Tìm giờ kết thúc lịch cho session này
+                    let correctEndISO = null;
+                    const checkIn = s.checkIn ? new Date(s.checkIn) : null;
+                    if (checkIn) {
+                        outer: for (const sec of sections) {
+                            for (const cls of (sched[sec] || [])) {
+                                const isAssigned = (cls.gvId && cls.gvId === staffId) ||
+                                    (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
+                                    (cls.registeredTeachers || []).some(t => t.id === staffId);
+                                if (!isAssigned) continue;
+                                const [_h, _m] = cls.start.split(':').map(Number);
+                                const clsStart = new Date(_sy, _sm - 1, _sd, _h, _m, 0, 0);
+                                if (Math.abs(checkIn - clsStart) < 60 * 60 * 1000) {
+                                    correctEndISO = new Date(`${dateKey}T${cls.end}:00`).toISOString();
+                                    break outer;
+                                }
+                            }
+                        }
+                    }
+                    const fallbackISO = new Date(`${dateKey}T23:59:00`).toISOString();
+                    const closeISO = correctEndISO || fallbackISO;
+                    DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO).then(closed => {
+                        if (closed) {
+                            s.checkOut = closeISO;
+                            s.autoClosedReason = 'stale_session';
+                        }
+                    });
+                }
+            });
+        });
+    }
 
     // C. Receptionist Schedule Data (only for receptionist role staff)
     const receptionistShiftsMap = {}; // "YYYY-MM-DD" -> [{ shift, label, start, end }]

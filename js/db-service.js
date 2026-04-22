@@ -1252,7 +1252,7 @@ const DBService = {
 
     // ================= AUTO-CLOSE STALE SESSIONS =================
     // Close open sessions from past days that were never checked out
-    autoCloseStaleSession: async (userId, dateKey, sessionId) => {
+    autoCloseStaleSession: async (userId, dateKey, sessionId, correctEndISO = null) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
@@ -1268,8 +1268,8 @@ const DBService = {
                 const idx = data.sessions.findIndex(s => String(s.id) === String(sessionId) && !s.checkOut);
                 if (idx === -1) return false; // Already closed or not found
 
-                // Close it at 23:59 of the session's date
-                const endOfDayISO = new Date(`${dateKey}T23:59:00`).toISOString();
+                // Dùng giờ kết thúc lịch nếu được truyền vào, fallback 23:59
+                const endOfDayISO = correctEndISO || new Date(`${dateKey}T23:59:00`).toISOString();
                 data.sessions[idx].checkOut = endOfDayISO;
                 data.sessions[idx].autoClosedReason = 'stale_session'; // Marker
 
