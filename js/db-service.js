@@ -766,8 +766,8 @@ const DBService = {
         });
     },
 
-    checkOutPersonal: async (userId) => {
-        const now = new Date();
+    checkOutPersonal: async (userId, checkOutTime = null) => {
+        const now = checkOutTime instanceof Date ? checkOutTime : new Date();
         const dateKey = getLocalDateKeyFromDate(now);
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);

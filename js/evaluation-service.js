@@ -263,12 +263,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-                    // Admin override: nếu checkOut thực tế vượt qua giờ kết thúc ca, dùng actualEnd
-                    const effectiveEnd = actualEnd > schedEnd ? actualEnd : schedEnd;
+                    // Admin override: chỉ dùng actualEnd khi vượt lịch >30p (admin chỉnh thủ công)
+                    // Lệch nhỏ (<30p) do auto-checkout chạy trễ → dùng schedEnd bình thường
+                    const _overMs = actualEnd - schedEnd;
+                    const _isSignificantOverrun = _overMs > 30 * 60 * 1000;
+                    const effectiveEnd = _isSignificantOverrun ? actualEnd : schedEnd;
                     const effectiveDuration = (effectiveEnd - schedStart) / 60000;
 
-                    // Cập nhật label: hiển thị giờ ra thực tế nếu admin đã chỉnh vượt lịch
-                    if (actualEnd > schedEnd) {
+                    // Cập nhật label: chỉ hiển thị giờ ra thực tế nếu admin chỉnh vượt lịch >30p
+                    if (_isSignificantOverrun) {
                         const aeH = String(actualEnd.getHours()).padStart(2, '0');
                         const aeM = String(actualEnd.getMinutes()).padStart(2, '0');
                         label = `${cls.start}–${aeH}:${aeM}${branchShort}`;
@@ -295,9 +298,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         minutes = effectiveDuration;
                     }
 
-                    // Hiển thị thông tin nếu admin đã chỉnh giờ ra vượt ca
-                    if (actualEnd > schedEnd) {
-                        const overMins = Math.round((actualEnd - schedEnd) / 60000);
+                    // Hiển thị thông tin nếu admin đã chỉnh giờ ra vượt ca >30p
+                    if (_isSignificantOverrun) {
+                        const overMins = Math.round(_overMs / 60000);
                         tooltip += ` | Ra muộn ${overMins}p (admin đã chỉnh)`;
                     }
 

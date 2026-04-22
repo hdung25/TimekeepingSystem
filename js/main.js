@@ -458,7 +458,7 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
 
         if (now >= matchedClassEnd) {
             console.log(`[GlobalAutoCheckout] Class(es) ended at ${matchedClassEnd.toLocaleTimeString()}. Auto checking out...`);
-            await DBService.checkOutPersonal(userId);
+            await DBService.checkOutPersonal(userId, matchedClassEnd);
             if (typeof UIService !== 'undefined' && UIService.toast) {
                 UIService.toast("Đã tự động Ra Ca (hết giờ lớp)", "success");
             }
