@@ -922,11 +922,24 @@ async function renderMonthReport(date, forceServer = false) {
 
         const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts, bonus10Map);
 
+        const displayFilterEl = document.getElementById('display-role-filter');
+        const displayFilter = displayFilterEl ? displayFilterEl.value : 'all';
+
+        let filteredChips = chips;
+        if (displayFilter !== 'all') {
+            filteredChips = chips.filter(chip => {
+                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData?.role));
+                if (displayFilter === 'tt') return isTT;
+                if (displayFilter === 'gv') return !isTT;
+                return true;
+            });
+        }
+
         const currentRole = localStorage.getItem('currentRole') || 'staff';
         const canRequestBonus10 = ['teaching_assistant', 'admin', 'senior_assistant'].includes(currentRole);
         const isAdminRoleLoop = ['admin', 'senior_assistant'].includes(currentRole);
 
-        chips.forEach(chip => {
+        filteredChips.forEach(chip => {
             const div = document.createElement('div');
             div.className = `schedule-chip ${chip.class}`;
             div.style.display = 'flex';
@@ -1375,7 +1388,7 @@ async function renderMonthReport(date, forceServer = false) {
         });
 
         // --- Daily Total Footer ---
-        const dailyTotalMinutes = chips.reduce((acc, chip) => acc + (chip.paidMinutes || 0), 0);
+        const dailyTotalMinutes = filteredChips.reduce((acc, chip) => acc + (chip.paidMinutes || 0), 0);
         if (dailyTotalMinutes > 0) {
             const h = Math.floor(dailyTotalMinutes / 60);
             const m = Math.floor(dailyTotalMinutes % 60);
@@ -1904,9 +1917,10 @@ function initFlatpickr() {
             enableTime: true,
             dateFormat: "Y-m-d\\TH:i",
             altInput: true,
-            altFormat: "d/m/Y h:i K",
+            altFormat: "d/m/Y H:i",  // Changed to 24-hour format (H instead of h)
             locale: "vn",
-            time_24hr: false
+            time_24hr: true,          // Use 24-hour format
+            minuteIncrement: 1        // Ensure 1-minute increment (no rounding to 5 or 10)
         };
         if (!fpCheckIn) fpCheckIn = flatpickr("#edit-check-in", config);
         if (!fpCheckOut) fpCheckOut = flatpickr("#edit-check-out", config);
@@ -2069,8 +2083,37 @@ async function saveEditedTime() {
         return;
     }
 
-    const checkInDate = new Date(checkIn);
-    const checkOutDate = checkOut ? new Date(checkOut) : null;
+    // Helper function to parse datetime-local format (YYYY-MM-DDTHH:mm) properly
+    // This ensures minutes are preserved exactly (e.g., 9:20 stays 9:20, not rounded to 9:10)
+    const parseLocalDateTime = (localDateTimeStr) => {
+        if (!localDateTimeStr) return null;
+        
+        // Format: "2026-04-17T09:20" -> Parse manually to preserve exact minutes
+        const [datePart, timePart] = localDateTimeStr.split('T');
+        if (!datePart || !timePart) {
+            return new Date(localDateTimeStr); // Fallback to standard parsing
+        }
+        
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hour, minute] = timePart.split(':').map(Number);
+        
+        // Create date using local time (not UTC)
+        const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+        return date;
+    };
+
+    const checkInDate = parseLocalDateTime(checkIn);
+    const checkOutDate = checkOut ? parseLocalDateTime(checkOut) : null;
+
+    if (!checkInDate || isNaN(checkInDate.getTime())) {
+        alert("Định dạng giờ vào không hợp lệ!");
+        return;
+    }
+
+    if (checkOutDate && isNaN(checkOutDate.getTime())) {
+        alert("Định dạng giờ ra không hợp lệ!");
+        return;
+    }
 
     const checkInStr = checkInDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
