@@ -127,6 +127,12 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isAdmin();
     }
 
+    // 14. Subjects (Môn Học) — Admin manages, all staff can read
+    match /subjects/{subjectId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;
