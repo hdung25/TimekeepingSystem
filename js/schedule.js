@@ -225,39 +225,55 @@ async function renderTable() {
     tbody.innerHTML = html;
 }
 
+// Helper: get array of {id,name} from row data (backward compat)
+function getGVList(row, fieldType) {
+    const listField = fieldType + 'List';
+    if (row[listField] && Array.isArray(row[listField]) && row[listField].length > 0) return row[listField];
+    const name = fieldType === 'gv' ? (row.gv || '') : (row.gvThayThe || '');
+    const id   = fieldType === 'gv' ? (row.gvId || '') : (row.gvThayTheId || '');
+    return name ? [{ id, name }] : [];
+}
+
+// Render compact multi-teacher cell
+function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday) {
+    const isGV = fieldType === 'gv';
+    const accentColor = isGV ? 'inherit' : '#D97706';
+    const gvList = getGVList(row, fieldType);
+    const absentStyle = 'color:#EF4444;text-decoration:line-through;font-weight:600;';
+
+    let nameHtml = '';
+    if (gvList.length === 0) {
+        nameHtml = isAdmin
+            ? `<span style="color:#9CA3AF;font-size:0.78rem;">+ Thêm GV</span>`
+            : `<span style="color:#9CA3AF;">—</span>`;
+    } else {
+        const absent = isPastOrToday ? gvList.filter(g => g.id && !presentUserIds.has(g.id)) : [];
+        const f = gvList[0];
+        const fStyle = absent.some(a => a.id === f.id) ? absentStyle : '';
+        nameHtml = `<span style="${fStyle}color:${accentColor};">${f.name}</span>`;
+        if (gvList.length > 1) nameHtml += ` <span style="background:#E5E7EB;color:#374151;border-radius:10px;padding:1px 5px;font-size:0.68rem;font-weight:700;">+${gvList.length - 1}</span>`;
+        if (absent.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#EF4444;">⚠ ${absent.length} vắng</div>`;
+    }
+
+    const safeList = encodeURIComponent(JSON.stringify(gvList));
+    const clickFn = isAdmin
+        ? `openGVPicker('${compositeKey}','${caType}',${index},'${fieldType}',this)`
+        : `showGVPopup(this,'${safeList}')`;
+
+    return `<td><div class="gv-multi-btn" onclick="${clickFn}">
+        <div class="gv-name-display">${nameHtml}</div>
+        ${isAdmin ? '<span class="gv-edit-icon">✏</span>' : ''}
+    </div></td>`;
+}
+
 function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, presentUserIds = new Set(), dateKey = '', todayRealKey = '') {
     const inputClass = isAdmin ? 'table-input' : 'table-input read-only-input';
     const readonlyAttr = isAdmin ? '' : 'readonly';
 
-    // === GV ABSENT HIGHLIGHT ===
-    // A GV is "absent" if: assigned (gvId set), date is past/today, and NOT in attendance
-    const gvId = data.gvId || '';
+    // === GV FIELD (multi-teacher) ===
     const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
-    const gvIsAbsent = isPastOrToday && gvId && !presentUserIds.has(gvId);
-    const gvDisplayStyle = gvIsAbsent
-        ? 'color:#EF4444;text-decoration:line-through;font-weight:600;'
-        : '';
-    const gvAbsentBadge = gvIsAbsent
-        ? '<div style="font-size:0.65rem;color:#EF4444;margin-top:2px;">⚠ Vắng</div>'
-        : '';
+    const gvCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday);
 
-    // === GV FIELD ===
-    let gvCell = '';
-    if (isAdmin) {
-        // Admin: editable text input with datalist autocomplete
-        const gvVal = (data.gv || '').replace(/"/g, '&quot;');
-        gvCell = `<td>
-            <input type="text" class="table-input" value="${gvVal}" placeholder="Giáo viên"
-                list="gv-teacher-list"
-                onchange="updateGVRow('${compositeKey}', '${caType}', ${index}, this.value)">
-        </td>`;
-    } else {
-        // Non-admin: read-only display with absent highlight
-        gvCell = `<td style="font-size:0.875rem;">
-            <span style="${gvDisplayStyle}">${data.gv || ''}</span>
-            ${gvAbsentBadge}
-        </td>`;
-    }
 
     // === SỐ HS FIELD ===
     let soHSCell = '';
@@ -302,29 +318,8 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
         lopCell = `<td style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
     }
 
-    // === CỘT GV THAY THẾ ===
-    const gvTTId = data.gvThayTheId || '';
-    const gvTTName = (data.gvThayThe || '').replace(/"/g, '&quot;');
-    let gvTTCell = '';
-    if (isAdmin) {
-        const clearBtn = gvTTName
-            ? `<button onclick="clearGVThayThe('${compositeKey}','${caType}',${index})" title="Xóa GV thay thế"
-                style="background:none;border:none;cursor:pointer;color:#EF4444;font-size:0.8rem;padding:0 2px;vertical-align:middle;">✕</button>`
-            : '';
-        gvTTCell = `<td>
-            <input type="text" class="table-input" value="${gvTTName}" placeholder="GV thay thế"
-                list="gv-teacher-list"
-                onchange="updateGVThayTheRow('${compositeKey}', '${caType}', ${index}, this.value)"
-                style="${gvTTName ? 'color:#D97706;font-weight:600;' : ''}">
-            ${clearBtn}
-        </td>`;
-    } else {
-        if (gvTTName) {
-            gvTTCell = `<td style="font-size:0.875rem;color:#D97706;font-weight:600;">↔ ${gvTTName}</td>`;
-        } else {
-            gvTTCell = `<td style="color:var(--text-muted);font-size:0.75rem;text-align:center;">—</td>`;
-        }
-    }
+    // === CỘT GV THAY THẾ (multi-teacher) ===
+    const gvTTCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday);
 
     return `
         <tr>
@@ -349,17 +344,11 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
     if (!dayData[caType]) dayData[caType] = [];
 
     dayData[caType].push({
-        start: defaultStart,
-        end: defaultEnd,
-        lop: '',
-        lopId: '',
-        phong: '',
-        gv: '',
-        gvId: '',
-        gvThayThe: '',
-        gvThayTheId: '',
-        soHS: 0,
-        note: ''
+        start: defaultStart, end: defaultEnd,
+        lop: '', lopId: '', phong: '',
+        gv: '', gvId: '', gvList: [],
+        gvThayThe: '', gvThayTheId: '', gvThayTheList: [],
+        soHS: 0, note: ''
     });
 
     await DBService.saveSchedule(compositeKey, dayData);
@@ -481,36 +470,97 @@ window.updateSubjectRow = async function (compositeKey, caType, index, subjectNa
     await DBService.saveSchedule(compositeKey, dayData);
 };
 
-window.updateGVThayTheRow = async function (compositeKey, caType, index, gvName) {
-    const teachers = window._teacherList || [];
-    const match = teachers.find(t => (t.name || t.username || '') === gvName);
-    const gvId = match ? match.id : '';
-    const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-    dayData[caType][index].gvThayThe = gvName;
-    dayData[caType][index].gvThayTheId = gvId;
-    await DBService.saveSchedule(compositeKey, dayData);
-    renderTable(); // Refresh to update GV gốc highlight
+// ================= MULTI-TEACHER PICKER =================
+
+window.openGVPicker = function (compositeKey, caType, index, fieldType) {
+    const existing = document.getElementById('gv-picker-overlay');
+    if (existing) existing.remove();
+
+    DBService.getSchedule(compositeKey).then(dayData => {
+        if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+        const row = dayData[caType][index];
+        const currentList = getGVList(row, fieldType);
+        const currentIds = new Set(currentList.map(g => g.id || g.name));
+        const teachers = window._teacherList || [];
+        const isGVTT = fieldType === 'gvThayThe';
+        const title = isGVTT ? 'GV Thay Thế' : 'GV Chính';
+        const accent = isGVTT ? '#D97706' : '#059669';
+
+        const rows = teachers.map(t => {
+            const name = (t.name || t.username || '').replace(/"/g, '&quot;');
+            const chk = currentIds.has(t.id) ? 'checked' : '';
+            return `<label class="gv-picker-item${chk ? ' selected' : ''}">
+                <input type="checkbox" value="${t.id}" data-name="${name}" ${chk}
+                    onchange="this.closest('label').classList.toggle('selected',this.checked)">
+                <span>${name}</span></label>`;
+        }).join('');
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gv-picker-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+        overlay.innerHTML = `
+<div style="background:white;border-radius:16px;max-width:400px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+  <div style="background:linear-gradient(135deg,${accent},#047857);padding:1.1rem 1.4rem;display:flex;justify-content:space-between;align-items:center;">
+    <h3 style="color:white;margin:0;font-size:1rem;font-weight:700;">✏️ Chọn ${title}</h3>
+    <button onclick="document.getElementById('gv-picker-overlay').remove()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:1.1rem;">✕</button>
+  </div>
+  <div style="padding:0.75rem;border-bottom:1px solid #E5E7EB;">
+    <input type="text" placeholder="🔍 Tìm giáo viên..." oninput="filterGVPicker(this.value)"
+      style="width:100%;box-sizing:border-box;padding:0.55rem 0.75rem;border:1.5px solid #E5E7EB;border-radius:8px;font-size:0.9rem;outline:none;">
+  </div>
+  <div id="gv-picker-list" style="padding:0.5rem 0.75rem;overflow-y:auto;flex:1;max-height:300px;display:flex;flex-direction:column;gap:2px;">${rows}</div>
+  <div style="padding:0.9rem;border-top:1px solid #E5E7EB;display:flex;gap:0.6rem;">
+    <button onclick="document.getElementById('gv-picker-overlay').remove()" style="flex:1;padding:0.6rem;background:#F3F4F6;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Hủy</button>
+    <button onclick="saveGVPickerResult('${compositeKey}','${caType}',${index},'${fieldType}')" style="flex:2;padding:0.6rem;background:linear-gradient(135deg,${accent},#047857);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;">✓ Lưu</button>
+  </div>
+</div>`;
+        document.body.appendChild(overlay);
+    });
 };
 
-window.clearGVThayThe = async function (compositeKey, caType, index) {
+window.filterGVPicker = function (q) {
+    document.querySelectorAll('#gv-picker-list .gv-picker-item').forEach(el => {
+        el.style.display = el.querySelector('span').textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+    });
+};
+
+window.saveGVPickerResult = async function (compositeKey, caType, index, fieldType) {
+    const checked = document.querySelectorAll('#gv-picker-list input[type=checkbox]:checked');
+    const newList = Array.from(checked).map(cb => ({ id: cb.value, name: cb.dataset.name }));
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-    dayData[caType][index].gvThayThe = '';
-    dayData[caType][index].gvThayTheId = '';
+    const listField = fieldType + 'List';
+    dayData[caType][index][listField] = newList;
+    // Backward compat: keep first as single field
+    if (fieldType === 'gv') {
+        dayData[caType][index].gv = newList[0]?.name || '';
+        dayData[caType][index].gvId = newList[0]?.id || '';
+    } else {
+        dayData[caType][index].gvThayThe = newList[0]?.name || '';
+        dayData[caType][index].gvThayTheId = newList[0]?.id || '';
+    }
     await DBService.saveSchedule(compositeKey, dayData);
+    document.getElementById('gv-picker-overlay').remove();
     renderTable();
 };
 
-window.updateGVRow = async function (compositeKey, caType, index, gvName) {
-    const teachers = window._teacherList || [];
-    const match = teachers.find(t => (t.name || t.username || '') === gvName);
-    const gvId = match ? match.id : '';
-    const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-    dayData[caType][index].gv = gvName;
-    dayData[caType][index].gvId = gvId;
-    await DBService.saveSchedule(compositeKey, dayData);
+window.showGVPopup = function (triggerEl, encodedList) {
+    const existing = document.getElementById('gv-popup');
+    if (existing) { existing.remove(); return; }
+    let gvList;
+    try { gvList = JSON.parse(decodeURIComponent(encodedList)); } catch { return; }
+    if (!gvList || gvList.length === 0) return;
+    const popup = document.createElement('div');
+    popup.id = 'gv-popup';
+    popup.style.cssText = 'position:fixed;background:white;border:1px solid #E5E7EB;border-radius:10px;padding:0.5rem 0.75rem;box-shadow:0 8px 24px rgba(0,0,0,0.15);z-index:9998;min-width:140px;';
+    popup.innerHTML = gvList.map(g => `<div style="padding:0.3rem 0;font-size:0.85rem;border-bottom:1px solid #F3F4F6;">${g.name}</div>`).join('');
+    const rect = triggerEl.getBoundingClientRect();
+    const top = Math.min(rect.bottom + 4, window.innerHeight - 160);
+    popup.style.top = top + 'px';
+    popup.style.left = Math.max(4, rect.left - 30) + 'px';
+    document.body.appendChild(popup);
+    setTimeout(() => document.addEventListener('click', function h() { popup.remove(); document.removeEventListener('click', h); }, { once: true }), 50);
 };
 
 // ================= COPY SCHEDULE =================
