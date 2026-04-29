@@ -936,8 +936,13 @@ async function renderMonthReport(date, forceServer = false) {
         }
 
         const currentRole = localStorage.getItem('currentRole') || 'staff';
+        const currentRoleRaw2 = localStorage.getItem('currentRole') || 'staff';
+        let currentRolesArr = [];
+        try { const _cp = JSON.parse(currentRoleRaw2); currentRolesArr = Array.isArray(_cp) ? _cp : [currentRoleRaw2]; } catch(e) { currentRolesArr = [currentRoleRaw2]; }
         const canRequestBonus10 = ['teaching_assistant', 'admin', 'senior_assistant'].includes(currentRole);
         const isAdminRoleLoop = ['admin', 'senior_assistant'].includes(currentRole);
+        // Có quyền xác nhận vắng cho tiếp tân
+        const canConfirmAbsent = currentRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'receptionist_assistant'].includes(r));
 
         filteredChips.forEach(chip => {
             const div = document.createElement('div');
@@ -1152,6 +1157,37 @@ async function renderMonthReport(date, forceServer = false) {
                     document.getElementById('warning-modal-close-btn').onclick = () => overlay.remove();
                 };
                 div.appendChild(warningIcon);
+
+                // === NÚT XÁC NHẬN VẮNG (chỉ cho tiếp tân, chip-gray, admin/receptionist_assistant) ===
+                if (chip.isReceptionist && chip.class === 'chip-gray' && !chip.sessionId && canConfirmAbsent) {
+                    const confirmAbsentBtn = document.createElement('button');
+                    confirmAbsentBtn.title = 'Xác nhận chị/anh này vắng ca (không phải đi trễ)';
+                    confirmAbsentBtn.style.cssText = 'font-size:0.68rem;padding:2px 5px;border-radius:4px;border:1px solid #D97706;cursor:pointer;margin-left:3px;background:#FEF3C7;color:#92400E;font-weight:600;vertical-align:middle;white-space:nowrap;';
+                    confirmAbsentBtn.innerHTML = '☑ Xác nhận Vắng';
+                    confirmAbsentBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        const ck = chip.classCompositeKey;
+                        const sk = chip.classSectionKey;
+                        const dk = chip.classIndex; // dayKey for receptionist
+                        if (!ck || !sk || !dk) {
+                            UIService && UIService.toast('Không tìm thấy thông tin ca để xác nhận.', 'error');
+                            return;
+                        }
+                        const ok = await UIService.confirm(`Xác nhận nhân viên VẮNG ca ${chip.text.replace(' (V)', '')}?\nHành động này sẽ bỏ cảnh báo đi trễ.`);
+                        if (!ok) return;
+                        try {
+                            const shiftKey = `${ck}_${sk}_${dk}`;
+                            await DBService.cancelShift(monthStr, staffId, shiftKey);
+                            cancelledShifts.push(shiftKey);
+                            UIService && UIService.toast('Đã xác nhận vắng ca. Chip sẽ biến mất.', 'success');
+                            _cachedStaffId = null;
+                            renderMonthReport(currentDate);
+                        } catch (err) {
+                            UIService && UIService.toast('Lỗi: ' + (err.message || err), 'error');
+                        }
+                    };
+                    div.appendChild(confirmAbsentBtn);
+                }
             }
 
             // --- NÚT SỚM 10P (per-chip, không cần selection mode) ---
@@ -1541,19 +1577,30 @@ function calculateSalary() {
     // --- NEW: Calculate Fixed Shift stats globally ---
     let fixedWorkedCount = 0;
     let fixedAbsentCount = 0;
+    let fixedWorkedMinutes = 0;  // Yêu cầu 2: tổng giờ ca cố định
+    let normalAbsentCount = 0;   // Yêu cầu 3: vắng thường
+    let fixedAbsentCount2 = 0;   // Yêu cầu 3: vắng cố định
     allChips.forEach(chip => {
         let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (isTiepTan && chip.isFixedShift) {
             if (chip.sessionId) {
                 fixedWorkedCount++;
+                fixedWorkedMinutes += (chip.paidMinutes || 0);
             } else if (chip.class !== 'chip-future') {
                 fixedAbsentCount++;
+                fixedAbsentCount2++;
             }
+        } else if (chip.class === 'chip-gray' && !chip.sessionId && chip.class !== 'chip-future') {
+            // Vắng thường (không phải ca cố định)
+            normalAbsentCount++;
         }
     });
 
     window.fixedWorkedCount = fixedWorkedCount;
     window.fixedAbsentCount = fixedAbsentCount;
+    window.fixedWorkedMinutes = fixedWorkedMinutes;
+    window.normalAbsentCount = normalAbsentCount;
+    window.fixedAbsentCount2 = fixedAbsentCount2;
 
     // Debug
     console.log("Calculating Salary. Filters:", roleFilter, "Chips:", allChips.length);
@@ -1676,20 +1723,38 @@ function calculateSalary() {
 
         hoursDisplay.innerText = `${label}${h}h ${m}p`;
         
-        // Render Fixed Shift stats
+        // Render Fixed Shift stats (Yêu cầu 2 & 3)
         let fixedStatsEl = document.getElementById('fixed-shift-stats');
         if (!fixedStatsEl) {
             fixedStatsEl = document.createElement('div');
             fixedStatsEl.id = 'fixed-shift-stats';
-            fixedStatsEl.style.fontSize = '0.85rem';
+            fixedStatsEl.style.fontSize = '0.82rem';
             fixedStatsEl.style.marginTop = '6px';
             fixedStatsEl.style.color = '#4F46E5';
             fixedStatsEl.style.fontWeight = '600';
             hoursDisplay.parentNode.appendChild(fixedStatsEl);
         }
-        
-        if (fixedWorkedCount > 0 || fixedAbsentCount > 0) {
-            fixedStatsEl.innerHTML = `[Ca Cố Định] Đi làm: <span style="color:#059669">${fixedWorkedCount}</span> | OFF: <span style="color:#DC2626">${fixedAbsentCount}</span>`;
+
+        // Yêu cầu 2: tính giờ ca cố định
+        const _fwH = Math.floor((window.fixedWorkedMinutes || 0) / 60);
+        const _fwM = Math.floor((window.fixedWorkedMinutes || 0) % 60);
+        const fixedHoursStr = (window.fixedWorkedMinutes || 0) > 0 ? ` (${_fwH}h${_fwM > 0 ? ' ' + _fwM + 'p' : ''})` : '';
+
+        // Yêu cầu 3: tách vắng thường vs vắng cố định
+        const _normalAbsent = window.normalAbsentCount || 0;
+        const _fixedAbsent = window.fixedAbsentCount2 || 0;
+        const _fixedWorked = fixedWorkedCount || 0;
+
+        let statsHtml = '';
+        if (_fixedWorked > 0 || _fixedAbsent > 0) {
+            statsHtml += `<div style="color:#4F46E5;margin-top:4px;">[CĐ] Đi: <span style="color:#059669;font-weight:700;">${_fixedWorked} ca${fixedHoursStr}</span> | Vắng CĐ: <span style="color:#DC2626;font-weight:700;">${_fixedAbsent} ca</span></div>`;
+        }
+        if (_normalAbsent > 0 || _fixedAbsent > 0) {
+            const totalAbsent = _normalAbsent + _fixedAbsent;
+            statsHtml += `<div style="color:#6B7280;margin-top:2px;">Vắng: <span style="color:#EF4444;font-weight:700;">${totalAbsent} ca tổng</span> (<span style="color:#9CA3AF;">Thường: ${_normalAbsent}</span> | <span style="color:#DC2626;">CĐ: ${_fixedAbsent}</span>)</div>`;
+        }
+        if (statsHtml) {
+            fixedStatsEl.innerHTML = statsHtml;
             fixedStatsEl.style.display = 'block';
         } else {
             fixedStatsEl.style.display = 'none';
