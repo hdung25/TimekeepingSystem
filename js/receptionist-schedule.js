@@ -351,52 +351,78 @@ function renderTable() {
         tr.appendChild(shiftTd);
 
         // Day cells
-        DAY_KEYS.forEach(day => {
+        // Day cells
+        DAY_KEYS.forEach((day, dayIdx) => {
             const td = document.createElement('td');
             td.className = 'day-cell';
             const staffList = weekData[shift][day] || [];
             const note = weekData._notes?.[`${shift}_${day}`] || '';
 
-            let html = '';
-            staffList.forEach(s => {
-                const bg = s.color || '#E5E7EB';
-                const fg = getContrastColor(bg);
-                const globalUser = allLoadedUsers.find(u => u.id === s.id);
-                const shortName = globalUser?.shortName || s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
-                // Only show time if it differs from the column's standard start time
-                const isCustomTime = s.customStart && s.customStart !== shiftConfig[shift].start;
-                const customLabel = isCustomTime ? ` ${s.customStart}` : '';
-                
-                const isFixed = s.isFixedShift ? true : false;
-                const fixedLabel = isFixed ? ' ⭐' : '';
-                
-                const tooltipBase = isCustomTime ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
-                const tooltip = tooltipBase + (isFixed ? ' [Ca Cố Định]' : '');
-                
-                let borderStyle = '';
-                if (isFixed && !window.isFixedShiftMode) {
-                    borderStyle = 'border: 2px solid #8B5CF6; box-sizing: border-box;'; // Violet border for fixed
-                } else if (window.isFixedShiftMode) {
-                    borderStyle = 'cursor: pointer; box-sizing: border-box; ';
-                    if (isFixed) {
-                        borderStyle += 'border: 2px solid #EF4444; '; // Red border when selected in edit mode
-                    } else {
-                        borderStyle += 'border: 2px dashed #9CA3AF; '; // Dashed for selectable
-                    }
-                }
-                
-                const clickHandler = (isEditor && window.isFixedShiftMode) ? `onclick="toggleStaffFixedShift(event, '${shift}', '${day}', '${s.id}')"` : '';
+            // Calculate actual date for this day cell
+            const dayDate = new Date(currentWeekStart);
+            dayDate.setDate(dayDate.getDate() + dayIdx);
+            const dayDateStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
+            const monthStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
 
-                html += `<span class="staff-tag" style="background:${bg};color:${fg};${borderStyle}" title="${tooltip}" ${clickHandler}>${shortName}${customLabel}${fixedLabel}</span>`;
-            });
-            if (note) {
-                html += `<span class="staff-note">${note}</span>`;
-            }
+            // Composite key (branch__YYYY-MM-DD of Monday)
+            const mondayKey = getWeekCompositeKey(); // e.g. cs1__2026-04-27
+
             if (staffList.length === 0 && !note) {
-                html = `<span class="empty-cell">—</span>`;
-            }
+                td.innerHTML = `<span class="empty-cell">—</span>`;
+            } else {
+                staffList.forEach(s => {
+                    const bg = s.color || '#E5E7EB';
+                    const fg = getContrastColor(bg);
+                    const globalUser = allLoadedUsers.find(u => u.id === s.id);
+                    const shortName = globalUser?.shortName || s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
+                    const isCustomTime = s.customStart && s.customStart !== shiftConfig[shift].start;
+                    const customLabel = isCustomTime ? ` ${s.customStart}` : '';
 
-            td.innerHTML = html;
+                    const isFixed = s.isFixedShift ? true : false;
+                    const fixedLabel = isFixed ? ' ⭐' : '';
+
+                    const tooltipBase = isCustomTime ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
+                    const tooltip = tooltipBase + (isFixed ? ' [Ca Cố Định]' : '');
+
+                    let borderStyle = '';
+                    if (isFixed && !window.isFixedShiftMode) {
+                        borderStyle = 'border: 2px solid #8B5CF6; box-sizing: border-box;';
+                    } else if (window.isFixedShiftMode) {
+                        borderStyle = 'cursor: pointer; box-sizing: border-box; ';
+                        if (isFixed) {
+                            borderStyle += 'border: 2px solid #EF4444; ';
+                        } else {
+                            borderStyle += 'border: 2px dashed #9CA3AF; ';
+                        }
+                    }
+
+                    const tag = document.createElement('span');
+                    tag.className = 'staff-tag';
+                    tag.style.cssText = `background:${bg};color:${fg};${borderStyle}`;
+                    tag.title = tooltip;
+                    tag.textContent = `${shortName}${customLabel}${fixedLabel}`;
+
+                    if (isEditor && window.isFixedShiftMode) {
+                        tag.onclick = (e) => toggleStaffFixedShift(e, shift, day, s.id);
+                    } else if (isEditor && !window.isFixedShiftMode) {
+                        // Click chip to show absent confirm popup
+                        tag.style.cursor = 'pointer';
+                        tag.onclick = (e) => {
+                            e.stopPropagation(); // Don't open cell modal
+                            showAbsentConfirmPopup(e, s, shift, day, dayDateStr, monthStr, mondayKey, shortName);
+                        };
+                    }
+
+                    td.appendChild(tag);
+                });
+
+                if (note) {
+                    const noteEl = document.createElement('span');
+                    noteEl.className = 'staff-note';
+                    noteEl.textContent = note;
+                    td.appendChild(noteEl);
+                }
+            }
 
             if (isEditor) {
                 td.classList.add('editable');
@@ -412,6 +438,89 @@ function renderTable() {
 
         tbody.appendChild(tr);
     });
+}
+
+// ==================== ABSENT CONFIRMATION POPUP ====================
+
+function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, monthStr, mondayKey, shortName) {
+    // Remove any existing popup
+    document.querySelectorAll('.absent-confirm-popup').forEach(p => p.remove());
+
+    const shiftLabel = shiftConfig[shift]?.label || shift;
+    const [y, m, d] = dayDateStr.split('-');
+    const displayDate = `${d}/${m}`;
+
+    const popup = document.createElement('div');
+    popup.className = 'absent-confirm-popup';
+    popup.style.cssText = `
+        position: fixed;
+        z-index: 9999;
+        background: white;
+        border: 1px solid #E5E7EB;
+        border-radius: 12px;
+        padding: 14px 16px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+        min-width: 220px;
+        font-size: 0.88rem;
+        font-family: inherit;
+    `;
+
+    // Position near click
+    const x = Math.min(event.clientX, window.innerWidth - 250);
+    const y2 = Math.min(event.clientY + 8, window.innerHeight - 150);
+    popup.style.left = `${x}px`;
+    popup.style.top = `${y2}px`;
+
+    popup.innerHTML = `
+        <div style="font-weight:700;color:#1F2937;margin-bottom:8px;">❓ ${shortName} — ${shiftLabel} ${displayDate}</div>
+        <div style="color:#6B7280;margin-bottom:12px;font-size:0.82rem;">Chọn hành động:</div>
+        <button id="popup-btn-absent" style="width:100%;padding:7px 12px;background:#FEF3C7;color:#92400E;border:1px solid #D97706;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;margin-bottom:6px;">&#10003; Xác nhận Vắng</button>
+        <button id="popup-btn-edit" style="width:100%;padding:7px 12px;background:#EFF6FF;color:#1D4ED8;border:1px solid #93C5FD;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;margin-bottom:6px;">✏️ Chỉnh sửa ca</button>
+        <button id="popup-btn-cancel" style="width:100%;padding:5px 12px;background:#F9FAFB;color:#6B7280;border:1px solid #E5E7EB;border-radius:8px;cursor:pointer;font-size:0.82rem;">Hủy</button>
+    `;
+
+    document.body.appendChild(popup);
+
+    // Close on outside click
+    const closePopup = () => popup.remove();
+    setTimeout(() => document.addEventListener('click', closePopup, { once: true }), 0);
+
+    popup.querySelector('#popup-btn-cancel').onclick = (e) => { e.stopPropagation(); closePopup(); };
+
+    popup.querySelector('#popup-btn-edit').onclick = (e) => {
+        e.stopPropagation();
+        closePopup();
+        openCellModal(shift, dayKey);
+    };
+
+    popup.querySelector('#popup-btn-absent').onclick = async (e) => {
+        e.stopPropagation();
+        closePopup();
+
+        // Build shiftKey matching evaluation-service.js format:
+        // cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`)
+        // compositeKeyLocal = `${rs.branch}_${mondayKeyLocal}` e.g. "cs1_2026-04-27"
+        // mondayKey from getWeekCompositeKey() = "cs1__2026-04-27" (double underscore)
+        // But evaluation-service uses single underscore: branch_YYYY-MM-DD
+        // Let's extract: compositeKeyLocal = branch + "_" + mondayDateStr
+        const branchPart = currentBranch;
+        const mondayDate = currentWeekStart;
+        const mondayDateStr = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}-${String(mondayDate.getDate()).padStart(2, '0')}`;
+        const compositeKeyLocal = `${branchPart}_${mondayDateStr}`;
+        const shiftKey = `${compositeKeyLocal}_${shift}_${dayKey}`;
+
+        const ok = confirm(`Xác nhận ${shortName} VẮNG ca ${shiftLabel} ngày ${displayDate}?\n(Ca sẽ biến mất khỏi báo cáo tháng)`);
+        if (!ok) return;
+
+        try {
+            await DBService.cancelShift(monthStr, staffEntry.id, shiftKey);
+            if (typeof UIService !== 'undefined') {
+                UIService.toast(`Đã xác nhận ${shortName} vắng ca ${shiftLabel} ngày ${displayDate}`, 'success');
+            }
+        } catch (err) {
+            alert('Lỗi: ' + (err.message || err));
+        }
+    };
 }
 
 // ==================== CELL EDITOR MODAL ====================

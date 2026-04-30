@@ -831,7 +831,8 @@ async function renderMonthReport(date, forceServer = false) {
     // 2. CALCULATE & RENDER
     let totalMinutes = 0;
     // let totalSalary = 0; // Moved to calculateSalary()
-    window.currentMonthChips = []; // Store for filtering
+    window.currentMonthChips = []; // Store for filtering (paidMinutes > 0 only)
+    window.allMonthChips = [];    // Store ALL chips including absent (chip-gray) for stats
     grid.innerHTML = '';
 
     const firstDayIndex = new Date(year, month, 1).getDay(); // 0=Sun
@@ -1158,36 +1159,7 @@ async function renderMonthReport(date, forceServer = false) {
                 };
                 div.appendChild(warningIcon);
 
-                // === NÚT XÁC NHẬN VẮNG (chỉ cho tiếp tân, chip-gray, admin/receptionist_assistant) ===
-                if (chip.isReceptionist && chip.class === 'chip-gray' && !chip.sessionId && canConfirmAbsent) {
-                    const confirmAbsentBtn = document.createElement('button');
-                    confirmAbsentBtn.title = 'Xác nhận chị/anh này vắng ca (không phải đi trễ)';
-                    confirmAbsentBtn.style.cssText = 'font-size:0.68rem;padding:2px 5px;border-radius:4px;border:1px solid #D97706;cursor:pointer;margin-left:3px;background:#FEF3C7;color:#92400E;font-weight:600;vertical-align:middle;white-space:nowrap;';
-                    confirmAbsentBtn.innerHTML = '☑ Xác nhận Vắng';
-                    confirmAbsentBtn.onclick = async (e) => {
-                        e.stopPropagation();
-                        const ck = chip.classCompositeKey;
-                        const sk = chip.classSectionKey;
-                        const dk = chip.classIndex; // dayKey for receptionist
-                        if (!ck || !sk || !dk) {
-                            UIService && UIService.toast('Không tìm thấy thông tin ca để xác nhận.', 'error');
-                            return;
-                        }
-                        const ok = await UIService.confirm(`Xác nhận nhân viên VẮNG ca ${chip.text.replace(' (V)', '')}?\nHành động này sẽ bỏ cảnh báo đi trễ.`);
-                        if (!ok) return;
-                        try {
-                            const shiftKey = `${ck}_${sk}_${dk}`;
-                            await DBService.cancelShift(monthStr, staffId, shiftKey);
-                            cancelledShifts.push(shiftKey);
-                            UIService && UIService.toast('Đã xác nhận vắng ca. Chip sẽ biến mất.', 'success');
-                            _cachedStaffId = null;
-                            renderMonthReport(currentDate);
-                        } catch (err) {
-                            UIService && UIService.toast('Lỗi: ' + (err.message || err), 'error');
-                        }
-                    };
-                    div.appendChild(confirmAbsentBtn);
-                }
+                // (Nút Xác nhận Vắng đã chuyển sang trang Lịch Tiếp Tân — click vào chip tên nhân viên)
             }
 
             // --- NÚT SỚM 10P (per-chip, không cần selection mode) ---
@@ -1342,6 +1314,7 @@ async function renderMonthReport(date, forceServer = false) {
             }
 
             // Store for calculation
+            window.allMonthChips.push(chip); // Track ALL chips (including absent) for stats
             if (chip.paidMinutes > 0) {
                 window.currentMonthChips.push(chip);
             }
@@ -1574,25 +1547,39 @@ function calculateSalary() {
         }
     }
 
-    // --- NEW: Calculate Fixed Shift stats globally ---
+    // --- Calculate Fixed Shift & Absent stats from allMonthChips (includes chip-gray) ---
     let fixedWorkedCount = 0;
     let fixedAbsentCount = 0;
-    let fixedWorkedMinutes = 0;  // Yêu cầu 2: tổng giờ ca cố định
-    let normalAbsentCount = 0;   // Yêu cầu 3: vắng thường
-    let fixedAbsentCount2 = 0;   // Yêu cầu 3: vắng cố định
-    allChips.forEach(chip => {
-        let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
-        if (isTiepTan && chip.isFixedShift) {
-            if (chip.sessionId) {
+    let fixedWorkedMinutes = 0;  // Tổng giờ ca cố định
+    let fixedAbsentCount2 = 0;   // Vắng ca cố định
+    let normalWorkedCount = 0;   // Ca thường đã đi (tiếp tân, không phải fixed)
+    let normalAbsentCount = 0;   // Vắng ca thường
+
+    // Dùng allMonthChips để bao gồm cả chip-gray (vắng, paidMinutes=0)
+    const allChipsForStats = window.allMonthChips || allChips;
+    allChipsForStats.forEach(chip => {
+        if (chip.class === 'chip-future') return; // Bỏ ca tương lai
+        const isTiepTan = chip.isReceptionist || (chip.sessionData &&
+            ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (!isTiepTan) return; // Chỉ tính tiếp tân
+
+        if (chip.isFixedShift) {
+            if (chip.class !== 'chip-gray') {
+                // Đã đi (chip-green, chip-orange, chip-waiting, v.v.)
                 fixedWorkedCount++;
                 fixedWorkedMinutes += (chip.paidMinutes || 0);
-            } else if (chip.class !== 'chip-future') {
+            } else {
+                // Vắng ca cố định (chip-gray + isFixedShift)
                 fixedAbsentCount++;
                 fixedAbsentCount2++;
             }
-        } else if (chip.class === 'chip-gray' && !chip.sessionId && chip.class !== 'chip-future') {
-            // Vắng thường (không phải ca cố định)
-            normalAbsentCount++;
+        } else {
+            // Ca thường (không phải fixed)
+            if (chip.class !== 'chip-gray') {
+                normalWorkedCount++;
+            } else {
+                normalAbsentCount++;
+            }
         }
     });
 
@@ -1600,6 +1587,7 @@ function calculateSalary() {
     window.fixedAbsentCount = fixedAbsentCount;
     window.fixedWorkedMinutes = fixedWorkedMinutes;
     window.normalAbsentCount = normalAbsentCount;
+    window.normalWorkedCount = normalWorkedCount;
     window.fixedAbsentCount2 = fixedAbsentCount2;
 
     // Debug
@@ -1745,13 +1733,21 @@ function calculateSalary() {
         const _fixedAbsent = window.fixedAbsentCount2 || 0;
         const _fixedWorked = fixedWorkedCount || 0;
 
+        const _normalWorked = window.normalWorkedCount || 0;
+
         let statsHtml = '';
-        if (_fixedWorked > 0 || _fixedAbsent > 0) {
-            statsHtml += `<div style="color:#4F46E5;margin-top:4px;">[CĐ] Đi: <span style="color:#059669;font-weight:700;">${_fixedWorked} ca${fixedHoursStr}</span> | Vắng CĐ: <span style="color:#DC2626;font-weight:700;">${_fixedAbsent} ca</span></div>`;
+        // Hiện stats ca thường nếu có tiếp tân
+        if (_normalWorked > 0 || _normalAbsent > 0) {
+            statsHtml += `<div style="color:#059669;margin-top:4px;">[TT] Đi: <span style="font-weight:700;">${_normalWorked} ca</span> | Vắng: <span style="color:#EF4444;font-weight:700;">${_normalAbsent} ca</span></div>`;
         }
-        if (_normalAbsent > 0 || _fixedAbsent > 0) {
+        // Hiện stats ca cố định nếu có
+        if (_fixedWorked > 0 || _fixedAbsent > 0) {
+            statsHtml += `<div style="color:#4F46E5;margin-top:2px;">[CĐ] Đi: <span style="color:#4F46E5;font-weight:700;">${_fixedWorked} ca${fixedHoursStr}</span> | Vắng: <span style="color:#DC2626;font-weight:700;">${_fixedAbsent} ca</span></div>`;
+        }
+        // Tổng vắng (nếu có cả 2 loại)
+        if ((_normalAbsent > 0 || _fixedAbsent > 0) && (_fixedWorked > 0 || _normalWorked > 0)) {
             const totalAbsent = _normalAbsent + _fixedAbsent;
-            statsHtml += `<div style="color:#6B7280;margin-top:2px;">Vắng: <span style="color:#EF4444;font-weight:700;">${totalAbsent} ca tổng</span> (<span style="color:#9CA3AF;">Thường: ${_normalAbsent}</span> | <span style="color:#DC2626;">CĐ: ${_fixedAbsent}</span>)</div>`;
+            statsHtml += `<div style="color:#6B7280;margin-top:2px;font-size:0.78rem;">Tổng vắng: <span style="color:#EF4444;font-weight:700;">${totalAbsent} ca</span> (TT: ${_normalAbsent} | CĐ: ${_fixedAbsent})</div>`;
         }
         if (statsHtml) {
             fixedStatsEl.innerHTML = statsHtml;
