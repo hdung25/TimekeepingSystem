@@ -333,11 +333,18 @@ async function configureSalary(userId) {
     currentSalaryRoles = settings.roles || [];
 
     const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-    const isReceptionistType = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r)) &&
-        !userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+    const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    // Pure receptionist: chỉ có role tiếp tân, KHÔNG có role dạy học
+    const isPureReceptionist = hasReceptionistRole && !hasTeachingRole;
 
-    // Load subjects into the select dropdown
-    if (!isReceptionistType) {
+    const rolesSection = document.getElementById('roles-config-section');
+    const recSection = document.getElementById('receptionist-config-section');
+
+    // Hiển thị phần dạy học nếu có role dạy hoặc là đa vai trò
+    if (!isPureReceptionist) {
+        if (rolesSection) rolesSection.style.display = 'block';
+        // Load subjects into the select dropdown
         try {
             const subjects = await DBService.getSubjects();
             const sel = document.getElementById('new-subject-select');
@@ -346,25 +353,11 @@ async function configureSalary(userId) {
                     subjects.map(s => `<option value="${s.id}" data-name="${s.name.replace(/"/g,'&quot;')}">${s.name}</option>`).join('');
             }
         } catch(e) { console.warn('Could not load subjects for salary modal', e); }
-    }
-    const rolesSection = document.getElementById('roles-config-section');
-    const recSection = document.getElementById('receptionist-config-section');
 
-    if (isReceptionistType) {
-        if (rolesSection) rolesSection.style.display = 'none';
-        if (recSection) recSection.style.display = 'block';
-        
-        document.getElementById('receptionist-normal-rate').value = settings.receptionist_normal_rate || '';
-        document.getElementById('receptionist-fixed-rate').value = settings.receptionist_fixed_rate || '';
-        document.getElementById('attendance-rate').value = settings.attendance_rate || '';
-    } else {
-        if (rolesSection) rolesSection.style.display = 'block';
-        if (recSection) recSection.style.display = 'none';
-        
-        // Populate general attendance rate if not receptionist
+        // Populate general attendance rate
         const generalAttRate = document.getElementById('general-attendance-rate');
         if (generalAttRate) generalAttRate.value = settings.attendance_rate || '';
-        
+
         // Fallback: If no roles but has legacy "rate", create a default Service Role
         if (currentSalaryRoles.length === 0 && settings.rate) {
             currentSalaryRoles.push({
@@ -374,6 +367,18 @@ async function configureSalary(userId) {
                 isDefault: true
             });
         }
+    } else {
+        if (rolesSection) rolesSection.style.display = 'none';
+    }
+
+    // Hiển thị phần tiếp tân nếu có role tiếp tân (kể cả đa vai trò)
+    if (hasReceptionistRole) {
+        if (recSection) recSection.style.display = 'block';
+        document.getElementById('receptionist-normal-rate').value = settings.receptionist_normal_rate || '';
+        document.getElementById('receptionist-fixed-rate').value = settings.receptionist_fixed_rate || '';
+        document.getElementById('attendance-rate').value = settings.attendance_rate || '';
+    } else {
+        if (recSection) recSection.style.display = 'none';
     }
 
     renderSalaryRoles();
@@ -473,19 +478,28 @@ async function saveSalaryConfig() {
         if (!user.salary_config) user.salary_config = {};
         
         const _saveRoles = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-        const isReceptionistType = _saveRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r)) &&
-            !_saveRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-        if (isReceptionistType) {
+        const _hasReceptionistRole = _saveRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        const _hasTeachingRole = _saveRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        const _isPureReceptionist = _hasReceptionistRole && !_hasTeachingRole;
+
+        // Lưu cấu hình tiếp tân nếu có role tiếp tân
+        if (_hasReceptionistRole) {
             const normalRate = document.getElementById('receptionist-normal-rate').value;
             const fixedRate = document.getElementById('receptionist-fixed-rate').value;
             const attRate = document.getElementById('attendance-rate').value;
             user.salary_config.receptionist_normal_rate = normalRate ? Number(normalRate) : 0;
             user.salary_config.receptionist_fixed_rate = fixedRate ? Number(fixedRate) : 0;
             user.salary_config.attendance_rate = attRate ? Number(attRate) : 0;
-        } else {
+        }
+
+        // Lưu cấu hình dạy học nếu có role dạy học
+        if (!_isPureReceptionist) {
             user.salary_config.roles = currentSalaryRoles;
-            const generalAttRate = document.getElementById('general-attendance-rate').value;
-            user.salary_config.attendance_rate = generalAttRate ? Number(generalAttRate) : 0;
+            if (!_hasReceptionistRole) {
+                // Chỉ lấy attendance rate từ general nếu không phải tiếp tân
+                const generalAttRate = document.getElementById('general-attendance-rate').value;
+                user.salary_config.attendance_rate = generalAttRate ? Number(generalAttRate) : 0;
+            }
         }
 
         await DBService.saveUser(user);

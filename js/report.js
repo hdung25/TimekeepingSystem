@@ -1997,7 +1997,24 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
     try {
         const users = await DBService.getUsers();
         const user = users.find(u => u.id === staffId);
-        if (user && user.salary_config && user.salary_config.roles) {
+        if (!user) return;
+
+        const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
+        const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+
+        // Thêm option Tiếp Tân nếu có role tiếp tân
+        if (hasReceptionistRole) {
+            const opt = document.createElement('option');
+            opt.value = 'tiep-tan';
+            opt.textContent = '💼Tiếp Tân';
+            opt.dataset.rate = user.salary_config?.receptionist_normal_rate || 0;
+            if (currentRoleId === 'tiep-tan' || currentRoleId === 'receptionist') opt.selected = true;
+            select.appendChild(opt);
+        }
+
+        // Thêm các môn học nếu có role dạy học
+        if (user.salary_config && user.salary_config.roles && hasTeachingRole) {
             user.salary_config.roles.forEach(role => {
                 const opt = document.createElement('option');
                 opt.value = role.id;
@@ -2348,20 +2365,26 @@ async function openRoleSelectModal(dateKey, session) {
     const staffId = getTargetStaffId();
     console.log("[RoleSelect] Looking up staffId:", staffId);
 
-    // Fetch User Roles
-    let roles = [];
+    let user = null;
     try {
         const users = await DBService.getUsers();
-        const user = users.find(u => u.id === staffId);
-        console.log("[RoleSelect] User found:", user ? user.name : 'NOT FOUND', "salary_config:", user?.salary_config);
-        if (user && user.salary_config && user.salary_config.roles) {
-            roles = user.salary_config.roles;
-        }
+        user = users.find(u => u.id === staffId);
     } catch (e) {
         console.error("[RoleSelect] Error fetching users:", e);
     }
 
-    if (roles.length === 0) {
+    if (!user) {
+        alert(`Không tìm thấy nhân viên. [staffId: ${staffId}]`);
+        return;
+    }
+
+    const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
+    const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+    const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    const teachingRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles : [];
+
+    // Kiểm tra có ít nhất 1 option để chọn
+    if (!hasReceptionistRole && teachingRoles.length === 0) {
         alert(`Chưa có cấu hình Vai trò cho nhân viên này. [staffId: ${staffId}]`);
         return;
     }
@@ -2372,23 +2395,58 @@ async function openRoleSelectModal(dateKey, session) {
     const container = document.getElementById('role-options-container');
     container.innerHTML = '';
 
-    roles.forEach(role => {
+    // Thêm option Tiếp Tân
+    if (hasReceptionistRole) {
+        const cfg = user.salary_config || {};
+        const recRate = cfg.receptionist_normal_rate || 0;
+        const recRole = { id: 'tiep-tan', name: 'Tiếp Tân', rate: recRate, isReceptionist: true };
+
         const btn = document.createElement('div');
         btn.style.padding = '1rem';
-        btn.style.border = '1px solid var(--border-color)';
+        btn.style.border = '2px solid #DBEAFE';
         btn.style.borderRadius = 'var(--radius-md)';
         btn.style.cursor = 'pointer';
-        btn.style.background = '#F9FAFB';
+        btn.style.background = '#EFF6FF';
         btn.style.transition = '0.2s';
-        btn.innerHTML = `<strong>${role.name}</strong> <span style="float:right; color:green">${new Intl.NumberFormat('vi-VN').format(role.rate)}đ/h</span>`;
+        btn.innerHTML = `<span style="font-size:1.1rem;">&#128188;</span> <strong>Tiếp Tân</strong> <span style="float:right; color:#1E40AF">${new Intl.NumberFormat('vi-VN').format(recRate)}đ/h</span>`;
 
-        btn.onmouseover = () => { btn.style.background = '#D1FAE5'; btn.style.borderColor = 'var(--primary-color)'; };
-        btn.onmouseout = () => { btn.style.background = '#F9FAFB'; btn.style.borderColor = 'var(--border-color)'; };
-
-        btn.onclick = () => selectRoleForSession(role);
-
+        btn.onmouseover = () => { btn.style.background = '#DBEAFE'; btn.style.borderColor = '#3B82F6'; };
+        btn.onmouseout = () => { btn.style.background = '#EFF6FF'; btn.style.borderColor = '#DBEAFE'; };
+        btn.onclick = () => selectRoleForSession(recRole);
         container.appendChild(btn);
-    });
+    }
+
+    // Thêm các môn học (chỉ hiện nếu có role dạy)
+    if (hasTeachingRole) {
+        if (teachingRoles.length === 0 && !hasReceptionistRole) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.style.cssText = 'padding:0.75rem;color:var(--text-muted);text-align:center;font-size:0.9rem;';
+            emptyDiv.textContent = 'Chưa có môn học nào. Hãy cài đặt lương trong trang Nhân Sự.';
+            container.appendChild(emptyDiv);
+        } else {
+            if (hasReceptionistRole && teachingRoles.length > 0) {
+                const sep = document.createElement('div');
+                sep.style.cssText = 'font-size:0.78rem;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.5rem;margin-bottom:0.25rem;';
+                sep.textContent = 'Môn Học (Dạy):'
+                container.appendChild(sep);
+            }
+            teachingRoles.forEach(role => {
+                const btn = document.createElement('div');
+                btn.style.padding = '1rem';
+                btn.style.border = '1px solid var(--border-color)';
+                btn.style.borderRadius = 'var(--radius-md)';
+                btn.style.cursor = 'pointer';
+                btn.style.background = '#F9FAFB';
+                btn.style.transition = '0.2s';
+                btn.innerHTML = `<strong>${role.name}</strong> <span style="float:right; color:green">${new Intl.NumberFormat('vi-VN').format(role.rate)}đ/h</span>`;
+
+                btn.onmouseover = () => { btn.style.background = '#D1FAE5'; btn.style.borderColor = 'var(--primary-color)'; };
+                btn.onmouseout = () => { btn.style.background = '#F9FAFB'; btn.style.borderColor = 'var(--border-color)'; };
+                btn.onclick = () => selectRoleForSession(role);
+                container.appendChild(btn);
+            });
+        }
+    }
 
     document.getElementById('role-select-modal').style.display = 'flex';
 }
