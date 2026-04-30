@@ -42,28 +42,41 @@ async function renderStaffTable() {
     // In migration tool, we migrated salary_config INTO the user object.
     // So we should read from user.salary_config
 
+    const ROLE_LABELS = {
+        'admin': 'Quản Trị Viên',
+        'senior_assistant': 'Trợ Lý Cấp Cao',
+        'assistant': 'Trợ Lý',
+        'teaching_assistant': 'Trợ Giảng / GV TA',
+        'receptionist': 'Tiếp Tân',
+        'receptionist_assistant': 'Trợ Lí Tiếp Tân',
+        'staff': 'Nhân Viên'
+    };
+
     let html = '';
 
     users.forEach(user => {
-        // Admin users are now shown so they can configure their own salary roles
-
-        // Get salary info from user object or default
-        const settings = user.salary_config || { rate: 0, attendance: 0 };
+        // Lấy TẤT CẢ vai trò từ user.roles[] (đa vai trò)
+        const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0
+            ? user.roles
+            : (user.role ? [user.role] : ['staff']);
+        const roleLabelsStr = userRolesArr
+            .map(r => ROLE_LABELS[r] || r)
+            .join(' · ');
 
         html += `
             <tr>
                 <td>
                     <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">
-                        ${user.role === 'admin' ? 'Quản trị viên' : user.role === 'senior_assistant' ? 'Trợ Lý Cấp Cao' : user.role === 'assistant' ? 'Trợ Lý' : user.role === 'receptionist' ? 'Tiếp Tân' : user.role === 'receptionist_assistant' ? 'Trợ Lí Tiếp Tân' : 'Trợ Giảng'}
-                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">${roleLabelsStr}</div>
                 </td>
                 <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
                 <td>${user.password}</td>
                 <td style="text-align: right;">
-                    <button class="action-btn" onclick="configureSalary('${user.id}')" title="Cấu hình Lương & Role" style="color: #F59E0B; margin-right: 4px;">
+                    <button class="action-btn" onclick="configureSalary('${user.id}')" title="Cấu hình Lương & Role" style="color: #059669; margin-right: 4px;">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
                         </svg>
                     </button>
                     <button class="action-btn" onclick="editStaff('${user.id}')" title="Sửa thông tin cơ bản">

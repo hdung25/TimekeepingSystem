@@ -324,11 +324,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     // Role Logic
                     if (matchedSession.role) {
-                        label += ` (${matchedSession.roleName})`;
-                        tooltip += ` - Vai trò: ${matchedSession.roleName}`;
+                        const _displayRoleName = matchedSession.roleName || matchedSession.role;
+                        label += ` (${_displayRoleName})`;
+                        tooltip += ` - Vai trò: ${_displayRoleName}`;
 
-                        // Subject-based rate (by lopId) takes priority; fallback to legacy role match
-                        if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                        // Tiếp Tân role: lấy rate từ receptionist_normal_rate
+                        if (matchedSession.role === 'tiep-tan' || matchedSession.role === 'receptionist') {
+                            if (currentUserContext?.salary_config?.receptionist_normal_rate) {
+                                matchedSession.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
+                            }
+                        } else if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                            // Subject-based rate (by lopId) takes priority; fallback to legacy role match
                             const _cfgRoles = currentUserContext.salary_config.roles;
                             const _subjectMatch = cls.lopId ? _cfgRoles.find(r => r.id === cls.lopId) : null;
                             if (_subjectMatch) {
@@ -612,18 +618,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 // Role Logic for receptionist
                 if (matchedSession.role) {
-                    label += ` (${matchedSession.roleName})`;
-                    tooltip += ` - Vai trò: ${matchedSession.roleName}`;
+                    const _displayRoleNameR = matchedSession.roleName || matchedSession.role;
+                    label += ` (${_displayRoleNameR})`;
+                    tooltip += ` - Vai trò: ${_displayRoleNameR}`;
 
-                    if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
-                        const _cfgRolesR = currentUserContext.salary_config.roles;
-                        const _subjectMatchR = cls.lopId ? _cfgRolesR.find(r => r.id === cls.lopId) : null;
-                        if (_subjectMatchR) {
-                            matchedSession.roleRate = _subjectMatchR.rate;
-                        } else if (!matchedSession.roleRate) {
-                            const foundRole = _cfgRolesR.find(r => r.id === matchedSession.role);
-                            if (foundRole) matchedSession.roleRate = foundRole.rate;
+                    // Tiếp Tân role: lấy rate từ receptionist config
+                    if (matchedSession.role === 'tiep-tan' || matchedSession.role === 'receptionist') {
+                        if (currentUserContext?.salary_config?.receptionist_normal_rate) {
+                            matchedSession.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
                         }
+                    } else if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                        const _cfgRolesR = currentUserContext.salary_config.roles;
+                        const foundRoleR = _cfgRolesR.find(r => r.id === matchedSession.role);
+                        if (foundRoleR) matchedSession.roleRate = foundRoleR.rate;
                     }
                 } else {
                     label += ` (Role?)`;
@@ -840,9 +847,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     }
 
                     if (s.role) {
+                        const _dnU1 = s.roleName || s.role;
                         cssClass = lateMin > 0 ? 'chip-orange' : 'chip-green';
-                        label = `${schedStartStr}–${endStr}${lateSuffix} (${s.roleName})`;
-                        tooltip += ` - Vai trò: ${s.roleName}`;
+                        label = `${schedStartStr}–${endStr}${lateSuffix} (${_dnU1})`;
+                        tooltip += ` - Vai trò: ${_dnU1}`;
+                        // Rate cho tiếp tân
+                        if ((s.role === 'tiep-tan' || s.role === 'receptionist') && currentUserContext?.salary_config?.receptionist_normal_rate) {
+                            s.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
+                        }
                     } else {
                         label = `${schedStartStr}–${endStr}${lateSuffix} (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
@@ -851,9 +863,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // Không có ca gần: hiển thị thời gian thực tế (logic cũ)
                     duration = (sessionEnd - sessionStart) / 60000;
                     if (s.role) {
+                        const _dnU2 = s.roleName || s.role;
                         cssClass = 'chip-green';
-                        label = `${startStr}–${endStr} (${s.roleName})`;
-                        tooltip += ` - Vai trò: ${s.roleName}`;
+                        label = `${startStr}–${endStr} (${_dnU2})`;
+                        tooltip += ` - Vai trò: ${_dnU2}`;
+                        // Rate cho tiếp tân
+                        if ((s.role === 'tiep-tan' || s.role === 'receptionist') && currentUserContext?.salary_config?.receptionist_normal_rate) {
+                            s.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
+                        }
                     } else {
                         cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
                         label = `${startStr}–${endStr} (Role?)`;

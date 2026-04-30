@@ -2007,7 +2007,7 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         if (hasReceptionistRole) {
             const opt = document.createElement('option');
             opt.value = 'tiep-tan';
-            opt.textContent = '💼Tiếp Tân';
+            opt.textContent = 'Tiếp Tân';
             opt.dataset.rate = user.salary_config?.receptionist_normal_rate || 0;
             if (currentRoleId === 'tiep-tan' || currentRoleId === 'receptionist') opt.selected = true;
             select.appendChild(opt);
@@ -2408,7 +2408,7 @@ async function openRoleSelectModal(dateKey, session) {
         btn.style.cursor = 'pointer';
         btn.style.background = '#EFF6FF';
         btn.style.transition = '0.2s';
-        btn.innerHTML = `<span style="font-size:1.1rem;">&#128188;</span> <strong>Tiếp Tân</strong> <span style="float:right; color:#1E40AF">${new Intl.NumberFormat('vi-VN').format(recRate)}đ/h</span>`;
+        btn.innerHTML = `<strong>💼 Tiếp Tân</strong> <span style="float:right; color:#1E40AF">${new Intl.NumberFormat('vi-VN').format(recRate)}đ/h</span>`;
 
         btn.onmouseover = () => { btn.style.background = '#DBEAFE'; btn.style.borderColor = '#3B82F6'; };
         btn.onmouseout = () => { btn.style.background = '#EFF6FF'; btn.style.borderColor = '#DBEAFE'; };
