@@ -206,6 +206,11 @@ async function loadAndRender() {
     const key = getWeekCompositeKey();
     const data = await DBService.getReceptionistSchedule(key);
 
+    // Load cancelled shifts for the month
+    const mondayDate = new Date(currentWeekStart);
+    const monthStr = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}`;
+    window.allCancelledShiftsMap = await DBService.getAllCancelledShifts(monthStr);
+
     isInheritedTemplate = false;
     let inheritedFromDate = null;
 
@@ -396,10 +401,21 @@ function renderTable() {
                         }
                     }
 
+                    // Check if cancelled
+                    const branchPart = currentBranch;
+                    const mondayDateStr = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}-${String(currentWeekStart.getDate()).padStart(2, '0')}`;
+                    const compositeKeyLocal = `${branchPart}_${mondayDateStr}`;
+                    const shiftKey = `${compositeKeyLocal}_${shift}_${day}`;
+                    const staffCancelledShifts = window.allCancelledShiftsMap ? window.allCancelledShiftsMap[s.id] || [] : [];
+                    const isCancelled = staffCancelledShifts.includes(shiftKey);
+
+                    let textDecoration = isCancelled ? 'text-decoration: line-through; opacity: 0.6;' : '';
+                    const tooltipText = tooltip + (isCancelled ? ' [Đã Báo Vắng]' : '');
+
                     const tag = document.createElement('span');
                     tag.className = 'staff-tag';
-                    tag.style.cssText = `background:${bg};color:${fg};${borderStyle}`;
-                    tag.title = tooltip;
+                    tag.style.cssText = `background:${bg};color:${fg};${borderStyle}${textDecoration}`;
+                    tag.title = tooltipText;
                     tag.textContent = `${shortName}${customLabel}${fixedLabel}`;
 
                     if (isEditor && window.isFixedShiftMode) {
@@ -514,6 +530,13 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
 
         try {
             await DBService.cancelShift(monthStr, staffEntry.id, shiftKey);
+            
+            // Update local state and re-render to show strikethrough
+            if (!window.allCancelledShiftsMap) window.allCancelledShiftsMap = {};
+            if (!window.allCancelledShiftsMap[staffEntry.id]) window.allCancelledShiftsMap[staffEntry.id] = [];
+            window.allCancelledShiftsMap[staffEntry.id].push(shiftKey);
+            renderTable();
+
             if (typeof UIService !== 'undefined') {
                 UIService.toast(`Đã xác nhận ${shortName} vắng ca ${shiftLabel} ngày ${displayDate}`, 'success');
             }
@@ -597,6 +620,8 @@ function saveCellData() {
 
     const checkboxes = document.querySelectorAll('#staff-checkbox-list input[type="checkbox"]:checked');
     const selectedStaff = [];
+    const existingStaff = weekData[shift] && weekData[shift][dayKey] ? weekData[shift][dayKey] : [];
+
     checkboxes.forEach(cb => {
         const uid = cb.value;
         const entry = {
@@ -604,6 +629,13 @@ function saveCellData() {
             name: cb.getAttribute('data-name'),
             color: cb.getAttribute('data-color')
         };
+
+        // Preserve isFixedShift state
+        const existingEntry = existingStaff.find(s => s.id === uid);
+        if (existingEntry && existingEntry.isFixedShift) {
+            entry.isFixedShift = existingEntry.isFixedShift;
+        }
+
         // Check for custom start/end times
         const startInput = document.querySelector(`.custom-start[data-uid="${uid}"]`);
         const endInput = document.querySelector(`.custom-end[data-uid="${uid}"]`);

@@ -1581,6 +1581,23 @@ const DBService = {
         }
     },
 
+    getAllCancelledShifts: async (monthStr) => {
+        try {
+            const snapshot = await db.collection('cancelled_shifts').where('month', '==', monthStr).get();
+            const map = {};
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.userId && data.shifts) {
+                    map[data.userId] = data.shifts;
+                }
+            });
+            return map;
+        } catch (error) {
+            console.error("[CancelledShifts] Error getting all:", error);
+            return {};
+        }
+    },
+
     cancelShift: async (monthStr, staffId, shiftKey) => {
         try {
             const docId = `${monthStr}_${staffId}`;

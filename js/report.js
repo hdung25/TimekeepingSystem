@@ -922,6 +922,8 @@ async function renderMonthReport(date, forceServer = false) {
         const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
 
         const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts, bonus10Map);
+        // Inject dateStr so we can auto-save roles later
+        chips.forEach(c => c.dateStr = dateStr);
 
         const displayFilterEl = document.getElementById('display-role-filter');
         const displayFilter = displayFilterEl ? displayFilterEl.value : 'all';
@@ -1428,6 +1430,20 @@ async function renderMonthReport(date, forceServer = false) {
         const h = Math.floor(totalMinutes / 60);
         const m = Math.floor(totalMinutes % 60);
         totalHoursEl.innerText = `Tổng giờ làm: ${h} giờ ${m} phút`;
+    }
+
+    // Auto-save any auto-assigned roles
+    const autoAssigned = window.allMonthChips.filter(c => c.sessionData && c.sessionData._autoAssignedRole);
+    if (autoAssigned.length > 0) {
+        autoAssigned.forEach(chip => {
+            const dateStr = chip.dateStr;
+            if (chip.sessionId && dateStr) {
+                const roleObj = { id: chip.sessionData.role, name: chip.sessionData.roleName, rate: chip.sessionData.roleRate };
+                // Call DBService.updateSessionRole silently
+                DBService.updateSessionRole(staffId, dateStr, chip.sessionId, roleObj).catch(e => console.warn('Auto-save role failed:', e));
+                chip.sessionData._autoAssignedRole = false; // prevent double save
+            }
+        });
     }
 
     // Update Salary (Admin)

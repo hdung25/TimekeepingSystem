@@ -315,9 +315,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         const _cfgAuto = currentUserContext.salary_config.roles;
                         const _autoMatch = cls.lopId ? _cfgAuto.find(r => r.id === cls.lopId) : null;
                         if (_autoMatch) {
+                            // Auto-assign role from schedule
+                            matchedSession.role = _autoMatch.id;
+                            matchedSession.roleName = _autoMatch.name || cls.lop || 'Môn học';
                             matchedSession.roleRate = _autoMatch.rate;
-                            label += ` (${_autoMatch.name || cls.lop || 'Môn học'})`;
-                            tooltip += ` - Môn: ${_autoMatch.name || cls.lop}`;
+                            matchedSession._autoAssignedRole = true; // Flag để auto-save sau
+                            _autoResolved = true;
+                        } else if (_cfgAuto.length === 1 && !currentUserContext.salary_config.receptionist_normal_rate) {
+                            // Chỉ có 1 vai trò duy nhất → tự động gán
+                            matchedSession.role = _cfgAuto[0].id;
+                            matchedSession.roleName = _cfgAuto[0].name;
+                            matchedSession.roleRate = _cfgAuto[0].rate;
+                            matchedSession._autoAssignedRole = true;
                             _autoResolved = true;
                         }
                     }
@@ -345,10 +354,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             }
                         }
                     } else if (!_autoResolved) {
-                        // Show subject name if available, else prompt role selection
+                        // Hiển thị tên lớp (nếu có) — vẫn cho phép click chọn nếu cần
                         const _subjectLabel = cls.lop || null;
-                        label += _subjectLabel ? ` (${_subjectLabel} — Role?)` : ` (Role?)`;
-                        tooltip += ' - Bấm để chọn vai trò tính lương';
+                        label += _subjectLabel ? ` (${_subjectLabel})` : '';
+                        tooltip += _subjectLabel ? ` - Lớp: ${_subjectLabel}` : ' - Bấm để chọn vai trò tính lương';
                     }
 
                     // BONUS 10P (từ request được duyệt)
@@ -585,11 +594,26 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 // Giờ tính luôn theo lịch, không tính thêm nếu ra muộn hơn lịch
-                const effectiveEndR = schedEnd;
-                const effectiveDurationR = (effectiveEndR - schedStart) / 60000;
+                // Hỗ trợ Admin Edit: Nếu giờ thực tế xa với lịch (>30p) và không phải auto-close, dùng giờ thực tế
+                const _overMsR = actualEnd - schedEnd;
+                const _earlyMsR = schedStart - actualStart;
+                const _isStaleCloseR = matchedSession.autoClosedReason === 'stale_session';
+                
+                const _isSignificantOverrunR = !_isStaleCloseR && _overMsR > 30 * 60 * 1000;
+                const _isSignificantEarlyR = !_isStaleCloseR && _earlyMsR > 30 * 60 * 1000;
 
-                // Label luôn hiển thị giờ theo lịch (không đổi khi ra muộn)
-                // Thông tin ra muộn sẽ hiện trong tooltip bên dưới
+                const effectiveStartR = _isSignificantEarlyR ? actualStart : schedStart;
+                const effectiveEndR = _isSignificantOverrunR ? actualEnd : schedEnd;
+                const effectiveDurationR = (effectiveEndR - effectiveStartR) / 60000;
+
+                // Cập nhật label: hiển thị giờ thực tế nếu admin đã chỉnh
+                if (_isSignificantEarlyR || _isSignificantOverrunR) {
+                     const asH = String(effectiveStartR.getHours()).padStart(2, '0');
+                     const asM = String(effectiveStartR.getMinutes()).padStart(2, '0');
+                     const aeH = String(effectiveEndR.getHours()).padStart(2, '0');
+                     const aeM = String(effectiveEndR.getMinutes()).padStart(2, '0');
+                     label = `${labelShort} ${asH}:${asM}–${aeH}:${aeM}${branchShortR}`;
+                }
 
                 if (diffMs < 0) {
                     // Late
@@ -605,7 +629,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else if (diffMs > 0) { // Early — không thưởng tự động
                     minutes = effectiveDurationR;
                     const earlyMins = Math.round(diffMs / 60000);
-                    tooltip += ` | Vào sớm ${earlyMins}p`;
+                    if (_isSignificantEarlyR) {
+                        tooltip += ` | Vào sớm ${earlyMins}p (admin đã chỉnh)`;
+                    } else {
+                        tooltip += ` | Vào sớm ${earlyMins}p`;
+                    }
                 } else {
                     minutes = effectiveDurationR;
                 }
@@ -613,28 +641,33 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Hiển thị nếu admin đã chỉnh giờ ra vượt ca
                 if (actualEnd > schedEnd) {
                     const overMins = Math.round((actualEnd - schedEnd) / 60000);
-                    tooltip += ` | Ra muộn ${overMins}p (admin đã chỉnh)`;
+                    if (_isSignificantOverrunR) {
+                        tooltip += ` | Ra muộn ${overMins}p (admin đã chỉnh)`;
+                    } else {
+                        tooltip += ` | Ra muộn ${overMins}p`;
+                    }
                 }
 
-                // Role Logic for receptionist
-                if (matchedSession.role) {
-                    const _displayRoleNameR = matchedSession.roleName || matchedSession.role;
-                    label += ` (${_displayRoleNameR})`;
-                    tooltip += ` - Vai trò: ${_displayRoleNameR}`;
+                // Role Logic for receptionist — AUTO-ASSIGN tiep-tan role
+                if (!matchedSession.role) {
+                    // Auto-assign: ca khớp lịch tiếp tân → tự động gán 'tiep-tan'
+                    matchedSession.role = 'tiep-tan';
+                    matchedSession.roleName = 'Tiếp Tân';
+                    matchedSession._autoAssignedRole = true; // Flag để auto-save sau
+                }
+                const _displayRoleNameR = matchedSession.roleName || matchedSession.role;
+                label += ` (${_displayRoleNameR})`;
+                tooltip += ` - Vai trò: ${_displayRoleNameR}`;
 
-                    // Tiếp Tân role: lấy rate từ receptionist config
-                    if (matchedSession.role === 'tiep-tan' || matchedSession.role === 'receptionist') {
-                        if (currentUserContext?.salary_config?.receptionist_normal_rate) {
-                            matchedSession.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
-                        }
-                    } else if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
-                        const _cfgRolesR = currentUserContext.salary_config.roles;
-                        const foundRoleR = _cfgRolesR.find(r => r.id === matchedSession.role);
-                        if (foundRoleR) matchedSession.roleRate = foundRoleR.rate;
+                // Tiếp Tân role: lấy rate từ receptionist config
+                if (matchedSession.role === 'tiep-tan' || matchedSession.role === 'receptionist') {
+                    if (currentUserContext?.salary_config?.receptionist_normal_rate) {
+                        matchedSession.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
                     }
-                } else {
-                    label += ` (Role?)`;
-                    tooltip += ' - Bấm để chọn vai trò tính lương';
+                } else if (currentUserContext && currentUserContext.salary_config && currentUserContext.salary_config.roles) {
+                    const _cfgRolesR = currentUserContext.salary_config.roles;
+                    const foundRoleR = _cfgRolesR.find(r => r.id === matchedSession.role);
+                    if (foundRoleR) matchedSession.roleRate = foundRoleR.rate;
                 }
 
                 // BONUS 10P (từ request được duyệt)
@@ -649,10 +682,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 if (isLate) {
                     cssClass = 'chip-orange';
-                } else if (matchedSession.role) {
-                    cssClass = 'chip-green';
                 } else {
-                    cssClass = 'chip-waiting';
+                    cssClass = 'chip-green';
                 }
 
                 tooltip += ' - Đã chấm công đầy đủ';
