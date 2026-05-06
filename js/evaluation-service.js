@@ -268,19 +268,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-                    // Admin override: chỉ dùng actualEnd khi admin chỉnh thủ công (>30p, không phải stale close)
-                    const _overMs = actualEnd - schedEnd;
-                    const _isStaleClose = matchedSession.autoClosedReason === 'stale_session';
-                    const _isSignificantOverrun = !_isStaleClose && _overMs > 30 * 60 * 1000;
-                    const effectiveEnd = _isSignificantOverrun ? actualEnd : schedEnd;
+                    // Luôn luôn lấy giờ kết thúc theo lịch (cap at schedEnd). Thêm giờ thì dùng chức năng Overtime.
+                    const effectiveEnd = schedEnd;
                     const effectiveDuration = (effectiveEnd - schedStart) / 60000;
-
-                    // Cập nhật label: chỉ hiển thị giờ ra thực tế nếu admin chỉnh vượt lịch >30p
-                    if (_isSignificantOverrun) {
-                        const aeH = String(actualEnd.getHours()).padStart(2, '0');
-                        const aeM = String(actualEnd.getMinutes()).padStart(2, '0');
-                        label = `${cls.start}–${aeH}:${aeM}${branchShort}`;
-                    }
 
                     let isLate = false;
                     if (diffMs < 0) { // Late
@@ -303,10 +293,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         minutes = effectiveDuration;
                     }
 
-                    // Hiển thị thông tin nếu admin đã chỉnh giờ ra vượt ca >30p
-                    if (_isSignificantOverrun) {
-                        const overMins = Math.round(_overMs / 60000);
-                        tooltip += ` | Ra muộn ${overMins}p (admin đã chỉnh)`;
+                    // Hiển thị thông tin nếu ra muộn (chỉ để tham khảo, không tính lương)
+                    if (actualEnd > schedEnd) {
+                        const overMins = Math.round((actualEnd - schedEnd) / 60000);
+                        tooltip += ` | Ra muộn ${overMins}p`;
                     }
 
                     // Auto-resolve subject rate from lopId when session has no manual role
@@ -593,27 +583,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const diffMs = actualStart ? (schedStart - actualStart) : 0;
                 const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
-                // Giờ tính luôn theo lịch, không tính thêm nếu ra muộn hơn lịch
-                // Hỗ trợ Admin Edit: Nếu giờ thực tế xa với lịch (>30p) và không phải auto-close, dùng giờ thực tế
-                const _overMsR = actualEnd - schedEnd;
-                const _earlyMsR = schedStart - actualStart;
-                const _isStaleCloseR = matchedSession.autoClosedReason === 'stale_session';
-                
-                const _isSignificantOverrunR = !_isStaleCloseR && _overMsR > 30 * 60 * 1000;
-                const _isSignificantEarlyR = !_isStaleCloseR && _earlyMsR > 30 * 60 * 1000;
-
-                const effectiveStartR = _isSignificantEarlyR ? actualStart : schedStart;
-                const effectiveEndR = _isSignificantOverrunR ? actualEnd : schedEnd;
+                // Luôn luôn lấy giờ theo lịch (cap at schedule). Thêm giờ thì dùng chức năng Overtime.
+                const effectiveStartR = schedStart;
+                const effectiveEndR = schedEnd;
                 const effectiveDurationR = (effectiveEndR - effectiveStartR) / 60000;
-
-                // Cập nhật label: hiển thị giờ thực tế nếu admin đã chỉnh
-                if (_isSignificantEarlyR || _isSignificantOverrunR) {
-                     const asH = String(effectiveStartR.getHours()).padStart(2, '0');
-                     const asM = String(effectiveStartR.getMinutes()).padStart(2, '0');
-                     const aeH = String(effectiveEndR.getHours()).padStart(2, '0');
-                     const aeM = String(effectiveEndR.getMinutes()).padStart(2, '0');
-                     label = `${labelShort} ${asH}:${asM}–${aeH}:${aeM}${branchShortR}`;
-                }
 
                 if (diffMs < 0) {
                     // Late
@@ -629,23 +602,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else if (diffMs > 0) { // Early — không thưởng tự động
                     minutes = effectiveDurationR;
                     const earlyMins = Math.round(diffMs / 60000);
-                    if (_isSignificantEarlyR) {
-                        tooltip += ` | Vào sớm ${earlyMins}p (admin đã chỉnh)`;
-                    } else {
-                        tooltip += ` | Vào sớm ${earlyMins}p`;
-                    }
+                    tooltip += ` | Vào sớm ${earlyMins}p`;
                 } else {
                     minutes = effectiveDurationR;
                 }
 
-                // Hiển thị nếu admin đã chỉnh giờ ra vượt ca
+                // Hiển thị nếu ra muộn vượt ca (chỉ tham khảo, không tính lương)
                 if (actualEnd > schedEnd) {
                     const overMins = Math.round((actualEnd - schedEnd) / 60000);
-                    if (_isSignificantOverrunR) {
-                        tooltip += ` | Ra muộn ${overMins}p (admin đã chỉnh)`;
-                    } else {
-                        tooltip += ` | Ra muộn ${overMins}p`;
-                    }
+                    tooltip += ` | Ra muộn ${overMins}p`;
                 }
 
                 // Role Logic for receptionist — AUTO-ASSIGN tiep-tan role
