@@ -529,7 +529,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const dayIdxLocal = dateObjLocal.getDay() === 0 ? 6 : dateObjLocal.getDay() - 1;
         const DAY_KEYS_LOCAL = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
         const dayKeyLocal = DAY_KEYS_LOCAL[dayIdxLocal];
-        
+
         const mondayLocal = new Date(dateObjLocal);
         mondayLocal.setDate(mondayLocal.getDate() - dayIdxLocal);
         const mondayKeyLocal = `${mondayLocal.getFullYear()}-${String(mondayLocal.getMonth() + 1).padStart(2, '0')}-${String(mondayLocal.getDate()).padStart(2, '0')}`;

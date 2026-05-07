@@ -27,7 +27,7 @@ async function initReport() {
     try {
         const parsed = JSON.parse(roleRaw);
         roles = Array.isArray(parsed) ? parsed : [roleRaw];
-    } catch(e) {
+    } catch (e) {
         roles = [roleRaw];
     }
     const role = roles[0] || 'staff'; // primary role (compat)
@@ -230,7 +230,7 @@ function filterStaffDropdown(query) {
         ? window._allStaffList.filter(u =>
             (u.name || '').toLowerCase().includes(q) ||
             (u.username || '').toLowerCase().includes(q)
-          )
+        )
         : window._allStaffList;
 
     renderStaffDropdownItems(filtered.filter(u => !(u.role === 'admin' && u.username === 'admin')));
@@ -285,7 +285,7 @@ function changeReportMonth(offset) {
 }
 
 window.isBonusSelectMode = false;
-window.toggleBonusSelectionMode = function(btn) {
+window.toggleBonusSelectionMode = function (btn) {
     window.isBonusSelectMode = !window.isBonusSelectMode;
     if (window.isBonusSelectMode) {
         btn.style.background = '#EF4444'; // Red to cancel
@@ -301,7 +301,7 @@ window.toggleBonusSelectionMode = function(btn) {
 
 window.isBonus10SelectMode = false;
 
-window.toggleBonus10SelectMode = function() {
+window.toggleBonus10SelectMode = function () {
     window.isBonus10SelectMode = !window.isBonus10SelectMode;
     const selectBtn = document.getElementById('btn-select-bonus10-mode');
     const approveBtn = document.getElementById('btn-approve-selected-bonus10');
@@ -331,10 +331,10 @@ window.toggleBonus10SelectMode = function() {
 
 window.isFixedShiftMode = false;
 window.selectedFixedShifts = new Set();
-window.toggleFixedShiftMode = function(btn) {
+window.toggleFixedShiftMode = function (btn) {
     window.isFixedShiftMode = !window.isFixedShiftMode;
     const saveBtn = document.getElementById('btn-save-fixed');
-    
+
     if (window.isFixedShiftMode) {
         btn.style.background = '#EF4444'; // Red to cancel
         btn.innerText = 'Hủy Chọn CĐ';
@@ -350,26 +350,26 @@ window.toggleFixedShiftMode = function(btn) {
     renderMonthReport(currentDate);
 };
 
-window.saveFixedShiftsToServer = async function() {
+window.saveFixedShiftsToServer = async function () {
     if (!window.isFixedShiftMode) return;
     const staffId = document.getElementById('staff-select') ? document.getElementById('staff-select').value : null;
     if (!staffId || staffId === 'all') {
-         if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn nhân viên trước.', 'error');
-         return;
+        if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn nhân viên trước.', 'error');
+        return;
     }
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
     const monthStr = `${year}-${month}`;
-    
+
     try {
         const shiftsArr = Array.from(window.selectedFixedShifts);
         await DBService.saveFixedShifts(monthStr, staffId, shiftsArr);
         if (typeof UIService !== 'undefined') UIService.toast('Đã lưu các Ca Cố Định thành công!', 'success');
-        
+
         // Turn off mode
         const btn = document.getElementById('btn-mark-fixed');
         if (btn) toggleFixedShiftMode(btn);
-        
+
     } catch (e) {
         console.error("Error saving fixed shifts:", e);
         if (typeof UIService !== 'undefined') UIService.toast('Lỗi khi lưu.', 'error');
@@ -447,7 +447,7 @@ async function renderMonthReport(date, forceServer = false) {
     const roleRaw = localStorage.getItem('currentRole') || 'staff';
     let roles = [];
     try { const p = JSON.parse(roleRaw); roles = Array.isArray(p) ? p : [roleRaw]; }
-    catch(e) { roles = [roleRaw]; }
+    catch (e) { roles = [roleRaw]; }
     const role = roles[0] || 'staff'; // primary role cho compat
     const isAdminRole = roles.some(r => r === 'admin' || r === 'senior_assistant');
     let staffId = getTargetStaffId();
@@ -507,7 +507,7 @@ async function renderMonthReport(date, forceServer = false) {
 
     // 1. Fetch DATA (Attendance + Schedule)
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-    
+
     // Fetch Fixed Shifts for the month
     window.savedFixedShiftsMonth = [];
     try {
@@ -516,7 +516,7 @@ async function renderMonthReport(date, forceServer = false) {
         if (window.isFixedShiftMode && window.selectedFixedShifts.size === 0 && window.savedFixedShiftsMonth.length > 0) {
             window.savedFixedShiftsMonth.forEach(id => window.selectedFixedShifts.add(id));
         }
-    } catch(e) { console.error("Could not fetch fixed shifts:", e); }
+    } catch (e) { console.error("Could not fetch fixed shifts:", e); }
 
     // Fetch Cancelled Shifts (Admin specifically excluded)
     let cancelledShifts = [];
@@ -941,7 +941,7 @@ async function renderMonthReport(date, forceServer = false) {
         const currentRole = localStorage.getItem('currentRole') || 'staff';
         const currentRoleRaw2 = localStorage.getItem('currentRole') || 'staff';
         let currentRolesArr = [];
-        try { const _cp = JSON.parse(currentRoleRaw2); currentRolesArr = Array.isArray(_cp) ? _cp : [currentRoleRaw2]; } catch(e) { currentRolesArr = [currentRoleRaw2]; }
+        try { const _cp = JSON.parse(currentRoleRaw2); currentRolesArr = Array.isArray(_cp) ? _cp : [currentRoleRaw2]; } catch (e) { currentRolesArr = [currentRoleRaw2]; }
         const canRequestBonus10 = ['teaching_assistant', 'admin', 'senior_assistant'].includes(currentRole);
         const isAdminRoleLoop = ['admin', 'senior_assistant'].includes(currentRole);
         // Có quyền xác nhận vắng cho tiếp tân
@@ -1168,8 +1168,8 @@ async function renderMonthReport(date, forceServer = false) {
             const roleRaw2 = localStorage.getItem('currentRole') || 'staff';
             let roles2 = [];
             try { const p = JSON.parse(roleRaw2); roles2 = Array.isArray(p) ? p : [roleRaw2]; }
-            catch(e) { roles2 = [roleRaw2]; }
-            
+            catch (e) { roles2 = [roleRaw2]; }
+
             // Fix: CHỈ hiện nút thưởng 10p khi nhân viên ĐƯỢC XEM là Trợ giảng/GV TA
             // Admin xem nhân viên không phải TA → không hiện
             const _targetCtx = window.currentUserContext;
@@ -1181,7 +1181,7 @@ async function renderMonthReport(date, forceServer = false) {
             const isTargetTA = _targetRoles.includes('teaching_assistant');
             const allowedRoles = ['teaching_assistant', 'admin', 'senior_assistant'];
             const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist && isTargetTA;
-            const isAdminRole2 = roles2.some(r => ['admin','senior_assistant'].includes(r));
+            const isAdminRole2 = roles2.some(r => ['admin', 'senior_assistant'].includes(r));
 
             if (canSeeBonus10 && chip.sessionId &&
                 chip.class !== 'chip-blue' &&
@@ -1253,8 +1253,8 @@ async function renderMonthReport(date, forceServer = false) {
             const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
             chip.isFixedShift = isFixed;
             if (isFixed && !window.isFixedShiftMode) {
-               div.innerHTML = `<span>${chip.text} <b>(CĐ)</b></span>`;
-               div.style.border = '2px solid #8B5CF6'; 
+                div.innerHTML = `<span>${chip.text} <b>(CĐ)</b></span>`;
+                div.style.border = '2px solid #8B5CF6';
             }
 
             // --- Role Selection / Bonus/Fixed Click Handler ---
@@ -1269,7 +1269,7 @@ async function renderMonthReport(date, forceServer = false) {
                     div.style.border = isSelected ? '3px solid #6366F1' : '2px dashed #6366F1';
                     if (isSelected) div.style.background = '#E0E7FF'; // Highlight selected
                 }
-                
+
                 div.onclick = async (e) => {
                     e.stopPropagation();
                     if (window.isBonusSelectMode) {
@@ -1303,7 +1303,7 @@ async function renderMonthReport(date, forceServer = false) {
                         } else if (isAdminRole) {
                             // Creating new session from Registration, pass shift metadata so admin can delete this shift
                             openManualModal(
-                                dateStr, 
+                                dateStr,
                                 chip.schedData,
                                 chip.classCompositeKey,
                                 chip.classSectionKey,
@@ -1331,12 +1331,12 @@ async function renderMonthReport(date, forceServer = false) {
                 editBtn.onclick = (e) => {
                     e.stopPropagation();
                     openEditModal(
-                        dateStr, 
-                        chip.sessionId, 
-                        chip.sessionData, 
-                        chip.classStart, 
-                        chip.classCompositeKey, 
-                        chip.classSectionKey, 
+                        dateStr,
+                        chip.sessionId,
+                        chip.sessionData,
+                        chip.classStart,
+                        chip.classCompositeKey,
+                        chip.classSectionKey,
                         chip.classIndex,
                         chip.isReceptionist
                     );
@@ -1438,7 +1438,8 @@ async function renderMonthReport(date, forceServer = false) {
         autoAssigned.forEach(chip => {
             const dateStr = chip.dateStr;
             if (chip.sessionId && dateStr) {
-                const roleObj = { id: chip.sessionData.role, name: chip.sessionData.roleName, rate: chip.sessionData.roleRate };
+                const roleObj = { id: chip.sessionData.role, name: chip.sessionData.roleName };
+                if (chip.sessionData.roleRate !== undefined) roleObj.rate = chip.sessionData.roleRate;
                 // Call DBService.updateSessionRole silently
                 DBService.updateSessionRole(staffId, dateStr, chip.sessionId, roleObj).catch(e => console.warn('Auto-save role failed:', e));
                 chip.sessionData._autoAssignedRole = false; // prevent double save
@@ -1726,7 +1727,7 @@ function calculateSalary() {
         if (roleFilter === 'giao-vien') label = "Giờ Dạy: ";
 
         hoursDisplay.innerText = `${label}${h}h ${m}p`;
-        
+
         // Render Fixed Shift stats (Yêu cầu 2 & 3)
         let fixedStatsEl = document.getElementById('fixed-shift-stats');
         if (!fixedStatsEl) {
@@ -1784,15 +1785,15 @@ function calculateSalary() {
     if (attRate > 0 && evalAmounts.length > 0) {
         const attInp = evalAmounts[0];
         const calculatedBonus = Math.round((filteredMinutes / 60) * attRate);
-        
+
         // Update input value
         attInp.value = calculatedBonus;
-        
+
         // Also update note if empty or contains previous auto-calculation
         const attNote = evalNotes[0];
         const autoNotePrefix = "Thưởng chuyên cần:";
         if (attNote && (!attNote.value || attNote.value.startsWith(autoNotePrefix))) {
-            attNote.value = `${autoNotePrefix} ${attRate.toLocaleString()}đ/h x ${(filteredMinutes/60).toFixed(1)}h`;
+            attNote.value = `${autoNotePrefix} ${attRate.toLocaleString()}đ/h x ${(filteredMinutes / 60).toFixed(1)}h`;
             // Update button color/title if possible (though it's usually handled by renderEvaluationTable)
         }
     }
@@ -1952,7 +1953,7 @@ function getTargetStaffId() {
     try {
         const parsed = JSON.parse(roleRaw);
         roles = Array.isArray(parsed) ? parsed : [roleRaw];
-    } catch(e) {
+    } catch (e) {
         roles = [roleRaw];
     }
     const isAdmin = roles.some(r => r === 'admin' || r === 'senior_assistant');
@@ -2040,7 +2041,7 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
                 select.appendChild(opt);
             });
         }
-    } catch(e) {
+    } catch (e) {
         console.warn('Cannot load roles:', e);
     }
 }
@@ -2051,7 +2052,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
 
     // Reset class metadata fields just in case
-    if(document.getElementById('edit-class-composite-key')) {
+    if (document.getElementById('edit-class-composite-key')) {
         document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
         document.getElementById('edit-class-section-key').value = classSectionKey || '';
         document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
@@ -2068,7 +2069,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
 
     // Safely map 'YYYY-MM-DD' directly instead of parsing with `new Date()`
     // to strictly prevent Timezone shifts or Day/Month swapping 
-    const isoDate = dateKey; 
+    const isoDate = dateKey;
     const startIso = `${isoDate}T${startVal}`;
     const endIso = `${isoDate}T${endVal}`;
 
@@ -2092,7 +2093,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
-    
+
     // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
     const delSection = document.querySelector('#edit-time-modal .delete-section');
     if (delSection) {
@@ -2181,16 +2182,16 @@ async function saveEditedTime() {
     // This ensures minutes are preserved exactly (e.g., 9:20 stays 9:20, not rounded to 9:10)
     const parseLocalDateTime = (localDateTimeStr) => {
         if (!localDateTimeStr) return null;
-        
+
         // Format: "2026-04-17T09:20" -> Parse manually to preserve exact minutes
         const [datePart, timePart] = localDateTimeStr.split('T');
         if (!datePart || !timePart) {
             return new Date(localDateTimeStr); // Fallback to standard parsing
         }
-        
+
         const [year, month, day] = datePart.split('-').map(Number);
         const [hour, minute] = timePart.split(':').map(Number);
-        
+
         // Create date using local time (not UTC)
         const date = new Date(year, month - 1, day, hour, minute, 0, 0);
         return date;
@@ -2213,7 +2214,7 @@ async function saveEditedTime() {
     const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
 
     const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
-    
+
     const roleSelect = document.getElementById('edit-role');
     const selectedRoleId = roleSelect?.value || null;
     const selectedRoleName = roleSelect?.options[roleSelect.selectedIndex]?.text || null;
@@ -2270,7 +2271,7 @@ async function deleteSessionFromModal() {
     const dateKey = document.getElementById('edit-date-key').value;
     const sessionId = document.getElementById('edit-session-id').value;
     const parsedSessionId = isNaN(sessionId) ? sessionId : Number(sessionId);
-    
+
     // Class unregistration metadata
     const classCompositeKey = document.getElementById('edit-class-composite-key').value;
     const classSectionKey = document.getElementById('edit-class-section-key').value;
@@ -2279,23 +2280,23 @@ async function deleteSessionFromModal() {
 
     try {
         console.log("[DeleteSession] Starting deletion process...");
-        console.log("[DeleteSession] Values:", {staffId, dateKey, sessionId, classCompositeKey, classSectionKey, classIndexRaw, isReceptionistStr});
+        console.log("[DeleteSession] Values:", { staffId, dateKey, sessionId, classCompositeKey, classSectionKey, classIndexRaw, isReceptionistStr });
 
         // Only attempt to delete an attendance session if one actually exists
         if (sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null') {
             console.log("[DeleteSession] Deleting attendance session:", parsedSessionId);
             await DBService.deleteSession(staffId, dateKey, parsedSessionId);
         }
-        
+
         // Unregister from class if linked
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
             console.log("[DeleteSession] Unregistering from class...");
             const monthStr = dateKey.substring(0, 7);
             const cancelKey = `${classCompositeKey}_${classSectionKey}_${classIndexRaw}`;
-            
+
             // 1. Ghi log huỷ ca vào DBService (BƯỚC QUAN TRỌNG NHẤT)
             await DBService.cancelShift(monthStr, staffId, cancelKey);
-            
+
             if (isReceptionistStr === 'true') {
                 // Delete from receptionist schedule
                 await DBService.unassignReceptionist(classCompositeKey, classSectionKey, classIndexRaw, staffId);
@@ -2315,7 +2316,7 @@ async function deleteSessionFromModal() {
                 await DBService.registerClass(classCompositeKey, null, rowMeta, mockUser);
             }
         }
-        
+
         // Send notification to staff
         await DBService.createAdminNotification(
             staffId, staffName, 'delete_session', dateKey,
@@ -2643,13 +2644,13 @@ async function approveSelectedBonus10() {
         UIService.toast(`Đã duyệt ${checkboxes.length} ca!`, 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
-    } catch(e) {
+    } catch (e) {
         UIService.toast('Lỗi: ' + e.message, 'error');
     }
 }
 
 // TEMP CLEANUP — chạy 1 lần rồi xóa
-window._cleanupBonus10ForStaff = async function(staffId) {
+window._cleanupBonus10ForStaff = async function (staffId) {
     if (!staffId) { console.error('Cần staffId'); return; }
     try {
         const snap = await db.collection('bonus10_requests')
@@ -2659,5 +2660,5 @@ window._cleanupBonus10ForStaff = async function(staffId) {
         snap.docs.forEach(doc => batch.delete(doc.ref));
         await batch.commit();
         console.log(`Đã xóa ${snap.size} records của staffId: ${staffId}`);
-    } catch(e) { console.error('Lỗi:', e); }
+    } catch (e) { console.error('Lỗi:', e); }
 };

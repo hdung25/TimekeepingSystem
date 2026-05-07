@@ -100,7 +100,7 @@ const DBService = {
 
     generateUniqueShortNames: (users) => {
         if (!users || !Array.isArray(users)) return users;
-        
+
         // 1. Map users to parsing objects
         let parsingList = users.map(u => {
             const parts = u.name ? u.name.trim().split(/\s+/) : ['?'];
@@ -115,17 +115,17 @@ const DBService = {
 
         let hasConflicts = true;
         let maxIterations = 5; // Prevent infinite loops just in case
-        
+
         while (hasConflicts && maxIterations > 0) {
             hasConflicts = false;
-            
+
             // Group by current shortName
             const nameGroups = {};
             parsingList.forEach(item => {
                 if (!nameGroups[item.shortName]) nameGroups[item.shortName] = [];
                 nameGroups[item.shortName].push(item);
             });
-            
+
             // Resolve conflicts
             for (const [sName, group] of Object.entries(nameGroups)) {
                 if (group.length > 1) { // Conflict found!
@@ -933,14 +933,6 @@ const DBService = {
             if (newData.checkOut !== undefined) {
                 session.checkOut = newData.checkOut; // Can be null
             }
-            if (newData.linkedClassStart !== undefined) {
-                session.linkedClassStart = newData.linkedClassStart;
-            }
-            if (newData.role) {
-                session.role = newData.role;
-                session.roleName = newData.roleName;
-                session.roleRate = newData.roleRate;
-            }
 
             // Sync top level if this is the last session
             if (index === data.sessions.length - 1) {
@@ -997,7 +989,7 @@ const DBService = {
 
             data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
             t.set(ref, data);
-            
+
             return data.sessions[index].bonus10;
         });
     },
@@ -1329,16 +1321,16 @@ const DBService = {
                     console.log(`[UnassignReceptionist] Doc not found: ${compositeKey}`);
                     return false;
                 }
-                
+
                 const data = doc.data();
                 if (!data[shiftKey] || !data[shiftKey][dayKey]) {
                     console.log(`[UnassignReceptionist] Path not found: ${shiftKey}.${dayKey}`);
                     return false;
                 }
-                
+
                 const originalLength = data[shiftKey][dayKey].length;
                 data[shiftKey][dayKey] = data[shiftKey][dayKey].filter(s => s.id !== staffId);
-                
+
                 console.log(`[UnassignReceptionist] Filtered from ${originalLength} to ${data[shiftKey][dayKey].length}`);
 
                 if (data[shiftKey][dayKey].length < originalLength) {
@@ -1616,7 +1608,7 @@ const DBService = {
                 if (doc.exists) {
                     shifts = doc.data().shifts || [];
                 }
-                
+
                 if (!shifts.includes(shiftKey)) {
                     shifts.push(shiftKey);
                 }
@@ -1635,93 +1627,93 @@ const DBService = {
         }
     },
 
-// ================= BONUS 10P REQUESTS =================
+    // ================= BONUS 10P REQUESTS =================
 
-createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
-    try {
-        const docRef = await db.collection('bonus10_requests').add({
-            staffId,
-            staffName: staffName || 'N/A',
-            dateKey,
-            sessionId: String(sessionId),
-            status: 'pending',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            approvedBy: null,
-            approvedAt: null
-        });
-        console.log('[Bonus10] Request created:', docRef.id);
-        return docRef.id;
-    } catch (e) {
-        console.error('[Bonus10] Error creating:', e);
-        throw e;
-    }
-},
-
-getBonus10RequestsForStaff: async (staffId, monthStr) => {
-    if (!staffId || staffId.trim() === '') {
-        console.warn('[Bonus10] staffId is empty, skipping.');
-        return [];
-    }
-    try {
-        const snap = await db.collection('bonus10_requests')
-            .where('staffId', '==', staffId)
-            .limit(200)
-            .get();
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        return monthStr
-            ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
-            : list;
-    } catch (e) {
-        console.warn('[Bonus10] Error getting staff requests:', e);
-        return [];
-    }
-},
-
-getPendingBonus10Requests: async () => {
-    try {
-        const snap = await db.collection('bonus10_requests')
-            .where('status', '==', 'pending')
-            .limit(100)
-            .get();
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        list.sort((a, b) => (b.dateKey || '').localeCompare(a.dateKey || ''));
-        return list;
-    } catch (e) {
-        console.warn('[Bonus10] Error getting pending:', e);
-        return [];
-    }
-},
-
-approveBonus10Request: async (requestId, adminName, staffId, dateKey, sessionId) => {
-    try {
-        // 1. Update request status
-        await db.collection('bonus10_requests').doc(requestId).update({
-            status: 'approved',
-            approvedBy: adminName || 'Admin',
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        // 2. Set bonus10 = true on the actual session
-        if (staffId && dateKey && sessionId) {
-            await DBService.toggleSessionBonus10(staffId, dateKey, sessionId);
+    createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
+        try {
+            const docRef = await db.collection('bonus10_requests').add({
+                staffId,
+                staffName: staffName || 'N/A',
+                dateKey,
+                sessionId: String(sessionId),
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                approvedBy: null,
+                approvedAt: null
+            });
+            console.log('[Bonus10] Request created:', docRef.id);
+            return docRef.id;
+        } catch (e) {
+            console.error('[Bonus10] Error creating:', e);
+            throw e;
         }
-        console.log('[Bonus10] Approved:', requestId);
-    } catch (e) {
-        console.error('[Bonus10] Error approving:', e);
-        throw e;
-    }
-},
+    },
 
-rejectBonus10Request: async (requestId, adminName) => {
-    try {
-        await db.collection('bonus10_requests').doc(requestId).update({
-            status: 'rejected',
-            approvedBy: adminName || 'Admin',
-            approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        console.log('[Bonus10] Rejected:', requestId);
-    } catch (e) {
-        console.error('[Bonus10] Error rejecting:', e);
-        throw e;
+    getBonus10RequestsForStaff: async (staffId, monthStr) => {
+        if (!staffId || staffId.trim() === '') {
+            console.warn('[Bonus10] staffId is empty, skipping.');
+            return [];
+        }
+        try {
+            const snap = await db.collection('bonus10_requests')
+                .where('staffId', '==', staffId)
+                .limit(200)
+                .get();
+            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return monthStr
+                ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
+                : list;
+        } catch (e) {
+            console.warn('[Bonus10] Error getting staff requests:', e);
+            return [];
+        }
+    },
+
+    getPendingBonus10Requests: async () => {
+        try {
+            const snap = await db.collection('bonus10_requests')
+                .where('status', '==', 'pending')
+                .limit(100)
+                .get();
+            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            list.sort((a, b) => (b.dateKey || '').localeCompare(a.dateKey || ''));
+            return list;
+        } catch (e) {
+            console.warn('[Bonus10] Error getting pending:', e);
+            return [];
+        }
+    },
+
+    approveBonus10Request: async (requestId, adminName, staffId, dateKey, sessionId) => {
+        try {
+            // 1. Update request status
+            await db.collection('bonus10_requests').doc(requestId).update({
+                status: 'approved',
+                approvedBy: adminName || 'Admin',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            // 2. Set bonus10 = true on the actual session
+            if (staffId && dateKey && sessionId) {
+                await DBService.toggleSessionBonus10(staffId, dateKey, sessionId);
+            }
+            console.log('[Bonus10] Approved:', requestId);
+        } catch (e) {
+            console.error('[Bonus10] Error approving:', e);
+            throw e;
+        }
+    },
+
+    rejectBonus10Request: async (requestId, adminName) => {
+        try {
+            await db.collection('bonus10_requests').doc(requestId).update({
+                status: 'rejected',
+                approvedBy: adminName || 'Admin',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('[Bonus10] Rejected:', requestId);
+        } catch (e) {
+            console.error('[Bonus10] Error rejecting:', e);
+            throw e;
+        }
     }
-}
 };

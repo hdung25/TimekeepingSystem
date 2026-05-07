@@ -57,9 +57,11 @@
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, 0.5);
-            align-items: flex-start; /* Do not use center so long content won't be cut */
+            align-items: flex-start;
+            /* Do not use center so long content won't be cut */
             justify-content: center;
-            overflow-y: auto; /* Scroll on overlay */
+            overflow-y: auto;
+            /* Scroll on overlay */
             padding: 20px;
             z-index: 1000;
         }
@@ -181,7 +183,8 @@
 
                 <div class="form-group">
                     <label>Vai Trò Hệ Thống</label>
-                    <div id="staff-roles-checkboxes" style="display:flex;flex-direction:column;gap:0.5rem;padding:0.5rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);">
+                    <div id="staff-roles-checkboxes"
+                        style="display:flex;flex-direction:column;gap:0.5rem;padding:0.5rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);">
                         <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
                             <input type="checkbox" value="admin"> Quản Trị Viên
                         </label>
@@ -239,7 +242,8 @@
             <!-- List of Roles -->
             <div id="roles-config-section">
                 <div style="margin-bottom: 1.5rem;">
-                    <label style="font-weight: 700; display: block; margin-bottom: 0.5rem; color: #065F46;">📚 Môn Học & Mức Lương (Dạy):</label>
+                    <label style="font-weight: 700; display: block; margin-bottom: 0.5rem; color: #065F46;">📚 Môn Học &
+                        Mức Lương (Dạy):</label>
                     <div id="role-list"
                         style="border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden;">
                         <div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có môn nào</div>
@@ -247,43 +251,56 @@
                 </div>
 
                 <!-- Add New Subject Rate Form -->
-                <div style="background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
+                <div
+                    style="background: #F9FAFB; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem;">
                     <label style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Thêm Môn Học:</label>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                         <select id="new-subject-select" class="form-input" style="flex: 2; min-width: 160px;">
                             <option value="">-- Chọn Môn --</option>
                         </select>
-                        <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ (VND)" style="flex: 1; min-width: 120px;">
-                        <button type="button" class="btn btn-primary" onclick="addNewRole()" style="white-space:nowrap;">➕ Thêm</button>
+                        <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ (VND)"
+                            style="flex: 1; min-width: 120px;">
+                        <button type="button" class="btn btn-primary" onclick="addNewRole()"
+                            style="white-space:nowrap;">➕ Thêm</button>
                     </div>
                 </div>
             </div>
 
             <!-- Receptionist Fixed Salary Config -->
-            <div id="receptionist-config-section" style="display: none; background: #EFF6FF; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; border: 1px solid #BFDBFE;">
-                <label style="font-weight: 700; display: block; margin-bottom: 0.5rem; color: #1D4ED8;">💼 Cấu hình Lương Tiếp Tân:</label>
+            <div id="receptionist-config-section"
+                style="display: none; background: #EFF6FF; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; border: 1px solid #BFDBFE;">
+                <label style="font-weight: 700; display: block; margin-bottom: 0.5rem; color: #1D4ED8;">💼 Cấu hình
+                    Lương Tiếp Tân:</label>
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                     <div style="display: flex; align-items: center; gap: 1rem;">
                         <label style="flex: 1; margin: 0; font-weight: 500;">Lương Ca Bình Thường / Giờ:</label>
-                        <input type="number" id="receptionist-normal-rate" class="form-input" placeholder="VD: 20000" style="flex: 1;">
+                        <input type="number" id="receptionist-normal-rate" class="form-input" placeholder="VD: 20000"
+                            style="flex: 1;">
                     </div>
                     <div style="display: flex; align-items: center; gap: 1rem;">
                         <label style="flex: 1; margin: 0; font-weight: 500;">Lương Ca Cố Định / Giờ:</label>
-                        <input type="number" id="receptionist-fixed-rate" class="form-input" placeholder="VD: 25000" style="flex: 1;">
+                        <input type="number" id="receptionist-fixed-rate" class="form-input" placeholder="VD: 25000"
+                            style="flex: 1;">
                     </div>
-                    <div style="display: flex; align-items: center; gap: 1rem; border-top: 1px dashed #93C5FD; padding-top: 0.5rem; margin-top: 0.5rem;">
-                        <label style="flex: 1; margin: 0; font-weight: 600; color: #059669;">Thưởng Chuyên Cần / Giờ:</label>
-                        <input type="number" id="attendance-rate" class="form-input" placeholder="VD: 2000" style="flex: 1; border-color: #059669;">
+                    <div
+                        style="display: flex; align-items: center; gap: 1rem; border-top: 1px dashed #93C5FD; padding-top: 0.5rem; margin-top: 0.5rem;">
+                        <label style="flex: 1; margin: 0; font-weight: 600; color: #059669;">Thưởng Chuyên Cần /
+                            Giờ:</label>
+                        <input type="number" id="attendance-rate" class="form-input" placeholder="VD: 2000"
+                            style="flex: 1; border-color: #059669;">
                     </div>
                 </div>
             </div>
 
             <!-- General Bonus Config (for Teachers too) -->
-            <div id="general-bonus-section" style="background: #F0FDF4; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; border: 1px solid #D1FAE5;">
-                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem; color: #059669;">Thưởng Tự Động (Áp dụng chung):</label>
+            <div id="general-bonus-section"
+                style="background: #F0FDF4; padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; border: 1px solid #D1FAE5;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.5rem; color: #059669;">Thưởng Tự Động
+                    (Áp dụng chung):</label>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <label style="flex: 1; margin: 0; font-weight: 500;">Thưởng Chuyên Cần / Giờ:</label>
-                    <input type="number" id="general-attendance-rate" class="form-input" placeholder="VD: 2000" style="flex: 1;">
+                    <input type="number" id="general-attendance-rate" class="form-input" placeholder="VD: 2000"
+                        style="flex: 1;">
                 </div>
                 <small style="color: #6B7280; font-size: 0.75rem; display: block; margin-top: 0.25rem;">
                     * Tự động nhân với tổng giờ làm để tính tiêu chí chuyên cần.
