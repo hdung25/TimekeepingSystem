@@ -406,3 +406,75 @@ body {
         opacity: 0;
     }
 }
+
+/* ================== REFACTORED CLASSES ================== */
+.login-logo {
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.login-logo-img {
+    height: 70px;
+    margin-right: 0.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.login-subtitle {
+    color: var(--brand-green);
+    font-weight: 600;
+}
+
+.login-greeting {
+    margin-top: 5px;
+    font-size: 0.85rem;
+    color: var(--tet-gold);
+}
+
+.password-input {
+    padding-right: 2.75rem;
+}
+
+.toggle-password-btn {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #9CA3AF;
+    display: flex;
+    align-items: center;
+    padding: 0;
+    line-height: 1;
+}
+
+.login-error-msg {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
+    border-radius: 8px;
+    color: #DC2626;
+    font-size: 0.9rem;
+    text-align: center;
+    font-weight: 500;
+}
+
+.login-footer {
+    text-align: center;
+    margin-top: 1.5rem;
+    font-size: 0.875rem;
+    color: #6B7280;
+}
+
+.login-footer a {
+    transition: color 0.2s;
+    color: inherit;
+    text-decoration: none;
+}
+
+.login-footer a:hover {
+    color: var(--brand-green);
+}

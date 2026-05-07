@@ -57,14 +57,12 @@
 
         <div class="login-card">
             <div class="login-header">
-                <div class="logo-area flex-center" style="justify-content: center; margin-bottom: 1rem;">
-                    <img src="images/TUDUYTRE.jpg" alt="Logo"
-                        style="height: 70px; margin-right: 0.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div class="logo-area flex-center login-logo">
+                    <img src="images/TUDUYTRE.jpg" alt="Logo" class="login-logo-img">
                 </div>
                 <h1>Chào mừng trở lại!</h1>
-                <p style="color: var(--brand-green); font-weight: 600;">Hệ thống Chấm công & Tính lương Tự động</p>
-                <div style="margin-top: 5px; font-size: 0.85rem; color: var(--tet-gold);">✨ Chúc Mừng Năm Mới 2026 - Vạn
-                    Sự Như Ý ✨</div>
+                <p class="login-subtitle">Hệ thống Chấm công & Tính lương Tự động</p>
+                <div class="login-greeting">✨ Chúc Mừng Năm Mới 2026 - Vạn Sự Như Ý ✨</div>
 
             </div>
 
@@ -77,20 +75,23 @@
                 <div class="form-group">
                     <label for="password">Mật khẩu</label>
                     <div style="position:relative;">
-                        <input type="password" id="password" class="form-input" placeholder="••••••••" required style="padding-right:2.75rem;">
-                        <button type="button" id="toggle-password"
+                        <input type="password" id="password" class="form-input password-input" placeholder="••••••••" required>
+                        <button type="button" id="toggle-password" class="toggle-password-btn" aria-label="Hiển thị mật khẩu" title="Hiển thị mật khẩu"
                             onclick="(function(){
                                 var inp=document.getElementById('password');
                                 var btn=document.getElementById('toggle-password');
                                 if(inp.type==='password'){
                                     inp.type='text';
                                     btn.innerHTML='<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\'><path d=\'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94\'/><path d=\'M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19\'/><line x1=\'1\' y1=\'1\' x2=\'23\' y2=\'23\'/></svg>';
+                                    btn.setAttribute('aria-label', 'Ẩn mật khẩu');
+                                    btn.setAttribute('title', 'Ẩn mật khẩu');
                                 }else{
                                     inp.type='password';
                                     btn.innerHTML='<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'20\' height=\'20\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\'><path d=\'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z\'/><circle cx=\'12\' cy=\'12\' r=\'3\'/></svg>';
+                                    btn.setAttribute('aria-label', 'Hiển thị mật khẩu');
+                                    btn.setAttribute('title', 'Hiển thị mật khẩu');
                                 }
-                            })()"
-                            style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9CA3AF;display:flex;align-items:center;padding:0;line-height:1;">
+                            })()">
                             <svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>
                         </button>
                     </div>
@@ -100,12 +101,11 @@
                     Đăng Nhập
                 </button>
 
-                <div id="login-error"
-                    style="display: none; margin-top: 1rem; padding: 0.75rem; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px; color: #DC2626; font-size: 0.9rem; text-align: center; font-weight: 500;">
+                <div id="login-error" class="login-error-msg" style="display: none;">
                 </div>
 
-                <div class="text-center" style="margin-top: 1.5rem; font-size: 0.875rem; color: #6B7280;">
-                    <a href="#" style="transition: color 0.2s;">Quên mật khẩu? Liên hệ Admin</a>
+                <div class="login-footer">
+                    <a href="#">Quên mật khẩu? Liên hệ Admin</a>
                 </div>
             </form>
         </div>

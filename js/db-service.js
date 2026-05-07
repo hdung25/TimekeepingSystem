@@ -933,6 +933,14 @@ const DBService = {
             if (newData.checkOut !== undefined) {
                 session.checkOut = newData.checkOut; // Can be null
             }
+            if (newData.linkedClassStart !== undefined) {
+                session.linkedClassStart = newData.linkedClassStart;
+            }
+            if (newData.role) {
+                session.role = newData.role;
+                session.roleName = newData.roleName;
+                session.roleRate = newData.roleRate;
+            }
 
             // Sync top level if this is the last session
             if (index === data.sessions.length - 1) {
