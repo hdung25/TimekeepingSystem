@@ -267,30 +267,36 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const diffMs = schedStart - actualStart; // >0 = vào sớm, <0 = trễ
 
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    const actualEndStr = actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-                    // Luôn luôn lấy giờ kết thúc theo lịch (cap at schedEnd). Thêm giờ thì dùng chức năng Overtime.
-                    const effectiveEnd = schedEnd;
-                    const effectiveDuration = (effectiveEnd - schedStart) / 60000;
+                    if (matchedSession.isAdminEdited) {
+                        minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
+                        label += ` ${actualStartStr}–${actualEndStr} (Sửa tay)`;
+                    } else {
+                        // Luôn luôn lấy giờ kết thúc theo lịch (cap at schedEnd). Thêm giờ thì dùng chức năng Overtime.
+                        const effectiveEnd = schedEnd;
+                        const effectiveDuration = (effectiveEnd - schedStart) / 60000;
 
-                    let isLate = false;
-                    if (diffMs < 0) { // Late
-                        const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
-                        if (lateMinutesRaw === 0) {
-                            // Less than 1 minute late → treat as on-time
+                        let isLate = false;
+                        if (diffMs < 0) { // Late
+                            const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
+                            if (lateMinutesRaw === 0) {
+                                // Less than 1 minute late → treat as on-time
+                                minutes = effectiveDuration;
+                            } else {
+                                // Tính từ lúc vào thực tế đến effectiveEnd
+                                const remainingSched = (effectiveEnd - actualStart) / 60000;
+                                minutes = Math.max(0, Math.round(remainingSched));
+                                isLate = true;
+                            }
+                            label += ` (T${lateMinutesRaw}p)`;
+                        } else if (diffMs > 0) { // Early — không thưởng tự động
                             minutes = effectiveDuration;
-                        } else {
-                            // Tính từ lúc vào thực tế đến effectiveEnd
-                            const remainingSched = (effectiveEnd - actualStart) / 60000;
-                            minutes = Math.max(0, Math.round(remainingSched));
-                            isLate = true;
+                            const earlyMins = Math.round(diffMs / 60000);
+                            tooltip += ` | Vào sớm ${earlyMins}p`;
+                        } else { // Exact on-time
+                            minutes = effectiveDuration;
                         }
-                        label += ` (T${lateMinutesRaw}p)`;
-                    } else if (diffMs > 0) { // Early — không thưởng tự động
-                        minutes = effectiveDuration;
-                        const earlyMins = Math.round(diffMs / 60000);
-                        tooltip += ` | Vào sớm ${earlyMins}p`;
-                    } else { // Exact on-time
-                        minutes = effectiveDuration;
                     }
 
                     // Hiển thị thông tin nếu ra muộn (chỉ để tham khảo, không tính lương)
@@ -582,29 +588,42 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualEnd = safeDate(matchedSession.checkOut);
                 const diffMs = actualStart ? (schedStart - actualStart) : 0;
                 const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
+                const actualEndStr = actualEnd ? actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
-                // Luôn luôn lấy giờ theo lịch (cap at schedule). Thêm giờ thì dùng chức năng Overtime.
-                const effectiveStartR = schedStart;
-                const effectiveEndR = schedEnd;
-                const effectiveDurationR = (effectiveEndR - effectiveStartR) / 60000;
-
-                if (diffMs < 0) {
-                    // Late
-                    const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
-                    if (lateMinutesRaw === 0) {
-                        minutes = effectiveDurationR;
-                    } else {
-                        const remainingSched = (effectiveEndR - actualStart) / 60000;
-                        minutes = Math.max(0, Math.round(remainingSched));
-                        isLate = true;
-                    }
-                    label += ` (T${lateMinutesRaw}p)`;
-                } else if (diffMs > 0) { // Early — không thưởng tự động
-                    minutes = effectiveDurationR;
-                    const earlyMins = Math.round(diffMs / 60000);
-                    tooltip += ` | Vào sớm ${earlyMins}p`;
+                if (matchedSession.isAdminEdited) {
+                    minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
+                    label = `${labelShort} ${actualStartStr}–${actualEndStr}${branchShortR}`;
+                    tooltip += ` (Sửa tay)`;
                 } else {
-                    minutes = effectiveDurationR;
+                    // Luôn luôn lấy giờ theo lịch (cap at schedule). Thêm giờ thì dùng chức năng Overtime.
+                    const effectiveStartR = schedStart;
+                    const effectiveEndR = schedEnd;
+                    const effectiveDurationR = (effectiveEndR - effectiveStartR) / 60000;
+
+                    if (diffMs < 0) {
+                        // Late
+                        const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
+                        if (lateMinutesRaw === 0) {
+                            minutes = effectiveDurationR;
+                        } else {
+                            const remainingSched = (effectiveEndR - actualStart) / 60000;
+                            minutes = Math.max(0, Math.round(remainingSched));
+                            isLate = true;
+                        }
+                        label += ` (T${lateMinutesRaw}p)`;
+                    } else if (diffMs > 0) { // Early — không thưởng tự động
+                        minutes = effectiveDurationR;
+                        const earlyMins = Math.round(diffMs / 60000);
+                        tooltip += ` | Vào sớm ${earlyMins}p`;
+                    } else {
+                        minutes = effectiveDurationR;
+                    }
+
+                    // Hiển thị nếu ra muộn vượt ca (chỉ tham khảo, không tính lương)
+                    if (actualEnd > schedEnd) {
+                        const overMins = Math.round((actualEnd - schedEnd) / 60000);
+                        tooltip += ` | Ra muộn ${overMins}p`;
+                    }
                 }
 
                 // Hiển thị nếu ra muộn vượt ca (chỉ tham khảo, không tính lương)

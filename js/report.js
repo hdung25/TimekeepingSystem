@@ -764,13 +764,25 @@ async function renderMonthReport(date, forceServer = false) {
                 let mergedShifts = [];
                 let currentShift = { ...dailyShifts[0] };
 
+                const timeStrToMin = (t) => {
+                    if (!t) return 0;
+                    const parts = t.split(':');
+                    return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+                };
+
                 for (let i = 1; i < dailyShifts.length; i++) {
                     let nextShift = dailyShifts[i];
-                    // If shifts touch or overlap (e.g., 18:00 >= 18:00)
-                    if (currentShift.end >= nextShift.start) {
+                    
+                    const currentEndMin = timeStrToMin(currentShift.end);
+                    const nextStartMin = timeStrToMin(nextShift.start);
+                    
+                    // Merge if shifts touch, overlap, or have a gap of <= 60 minutes
+                    if (nextStartMin - currentEndMin <= 60) {
                         if (nextShift.end > currentShift.end) {
                             currentShift.end = nextShift.end;
                         }
+                        // Also carry over isFixedShift if any part of the merged shift is fixed
+                        currentShift.isFixedShift = currentShift.isFixedShift || nextShift.isFixedShift;
                         currentShift.label = `${currentShift.label} + ${nextShift.label}`;
                     } else {
                         mergedShifts.push(currentShift);
@@ -2224,6 +2236,7 @@ async function saveEditedTime() {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
+        isAdminEdited: true,
         ...(linkedClassStart ? { linkedClassStart } : {}) // Preserve class link after edit
     };
 
