@@ -586,7 +586,7 @@ async function renderMonthReport(date, forceServer = false) {
         BRANCHES.forEach(branch => {
             const compositeKey = `${branch}__${dateKey}`;
             schedulePromises.push(
-                DBService.getSchedule(compositeKey).then(data => ({ date: dateKey, data: data || {}, branch }))
+                DBService.getSchedule(compositeKey).then(data => ({ date: dateKey, data: data || {}, branch, compositeKey }))
             );
         });
     }
@@ -597,8 +597,8 @@ async function renderMonthReport(date, forceServer = false) {
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
         sections.forEach(sec => {
             const rows = item.data[sec] || [];
-            // Inject _branch into each class row for chip display
-            const taggedRows = rows.map(row => ({ ...row, _branch: item.branch }));
+            // Inject _branch and _compositeKey into each class row for chip display + delete
+            const taggedRows = rows.map(row => ({ ...row, _branch: item.branch, _compositeKey: item.compositeKey }));
             if (!scheduleMap[item.date][sec]) scheduleMap[item.date][sec] = [];
             scheduleMap[item.date][sec] = scheduleMap[item.date][sec].concat(taggedRows);
         });
