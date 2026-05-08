@@ -762,33 +762,61 @@ async function renderMonthReport(date, forceServer = false) {
                 // Sort by start time just in case
                 dailyShifts.sort((a, b) => a.start.localeCompare(b.start));
                 let mergedShifts = [];
-                let currentShift = { ...dailyShifts[0] };
 
-                const timeStrToMin = (t) => {
+                const timeStrToMin2 = (t) => {
                     if (!t) return 0;
                     const parts = t.split(':');
                     return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
                 };
 
+                // Khởi tạo segment đầu tiên
+                let currentShift = { ...dailyShifts[0] };
+                // Lưu segments để tính lương đúng từng đoạn CĐ/thường
+                let currentSegments = [{
+                    start: dailyShifts[0].start,
+                    end: dailyShifts[0].end,
+                    schedMinutes: timeStrToMin2(dailyShifts[0].end) - timeStrToMin2(dailyShifts[0].start),
+                    isFixedShift: dailyShifts[0].isFixedShift || false
+                }];
+
                 for (let i = 1; i < dailyShifts.length; i++) {
                     let nextShift = dailyShifts[i];
                     
-                    const currentEndMin = timeStrToMin(currentShift.end);
-                    const nextStartMin = timeStrToMin(nextShift.start);
+                    const currentEndMin = timeStrToMin2(currentShift.end);
+                    const nextStartMin = timeStrToMin2(nextShift.start);
                     
                     // Merge if shifts touch, overlap, or have a gap of <= 60 minutes
                     if (nextStartMin - currentEndMin <= 60) {
                         if (nextShift.end > currentShift.end) {
                             currentShift.end = nextShift.end;
                         }
-                        // Also carry over isFixedShift if any part of the merged shift is fixed
-                        currentShift.isFixedShift = currentShift.isFixedShift || nextShift.isFixedShift;
+                        // FIX Bug 1: Dùng OR chỉ cho label hiển thị, KHÔNG set isFixedShift cho toàn chip.
+                        // isFixedShift của chip = ca đầu tiên (để đếm stats đúng).
+                        // mergedSegments lưu từng đoạn riêng để tính lương đúng.
                         currentShift.label = `${currentShift.label} + ${nextShift.label}`;
+                        // Nếu có bất kỳ ca nào là CĐ thì chip tổng cũng đánh dấu CĐ (cho display)
+                        // nhưng mergedSegments sẽ phân biệt từng đoạn
+                        if (nextShift.isFixedShift) currentShift.isFixedShift = true;
+                        currentSegments.push({
+                            start: nextShift.start,
+                            end: nextShift.end,
+                            schedMinutes: timeStrToMin2(nextShift.end) - timeStrToMin2(nextShift.start),
+                            isFixedShift: nextShift.isFixedShift || false
+                        });
                     } else {
+                        // Gắn segments vào shift nếu có nhiều hơn 1
+                        if (currentSegments.length > 1) currentShift.mergedSegments = currentSegments;
                         mergedShifts.push(currentShift);
                         currentShift = { ...nextShift };
+                        currentSegments = [{
+                            start: nextShift.start,
+                            end: nextShift.end,
+                            schedMinutes: timeStrToMin2(nextShift.end) - timeStrToMin2(nextShift.start),
+                            isFixedShift: nextShift.isFixedShift || false
+                        }];
                     }
                 }
+                if (currentSegments.length > 1) currentShift.mergedSegments = currentSegments;
                 mergedShifts.push(currentShift);
                 receptionistShiftsMap[dateStr] = mergedShifts;
             }
@@ -859,7 +887,7 @@ async function renderMonthReport(date, forceServer = false) {
     }
 
     // Days
-    for (let d = 1; d <= daysInMonth; d++) {
+    for (let d = 1; d <= daysInMonth; d++) { try {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const cell = document.createElement('div');
         cell.className = 'calendar-cell';
@@ -1320,7 +1348,8 @@ async function renderMonthReport(date, forceServer = false) {
                                 chip.classCompositeKey,
                                 chip.classSectionKey,
                                 chip.classIndex,
-                                chip.isReceptionist || chip.isTeaching
+                                // FIX Bug 3: chỉ truyền isReceptionist để modal xóa dùng đúng method
+                                chip.isReceptionist ? true : false
                             );
                         }
                     }
@@ -1435,7 +1464,7 @@ async function renderMonthReport(date, forceServer = false) {
         }
 
         grid.appendChild(cell);
-    }
+    } catch (cellErr) { console.error('[Calendar] Error rendering day', d, cellErr); } }
 
     // Update Totals
     if (totalHoursEl) {
@@ -1591,6 +1620,29 @@ function calculateSalary() {
         const isTiepTan = chip.isReceptionist || (chip.sessionData &&
             ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (!isTiepTan) return; // Chỉ tính tiếp tân
+
+        // FIX Bug 1: Nếu chip có mergedSegments (ca thường gộp với ca CĐ),
+        // đếm đúng theo từng segment thay vì đánh đồng cả chip là CĐ.
+        if (chip.mergedSegments && chip.mergedSegments.length > 1) {
+            const isWorked = chip.class !== 'chip-gray';
+            let hasFixed = chip.mergedSegments.some(s => s.isFixedShift);
+            let hasNormal = chip.mergedSegments.some(s => !s.isFixedShift);
+            if (isWorked) {
+                if (hasFixed) {
+                    fixedWorkedCount++;
+                    // Tính giờ CĐ theo segment
+                    const fixedMins = chip.mergedSegments
+                        .filter(s => s.isFixedShift)
+                        .reduce((acc, s) => acc + (s.schedMinutes || 0), 0);
+                    fixedWorkedMinutes += fixedMins;
+                }
+                if (hasNormal) normalWorkedCount++;
+            } else {
+                if (hasFixed) { fixedAbsentCount++; fixedAbsentCount2++; }
+                if (hasNormal) normalAbsentCount++;
+            }
+            return;
+        }
 
         if (chip.isFixedShift) {
             if (chip.class !== 'chip-gray') {

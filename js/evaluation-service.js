@@ -39,7 +39,9 @@ function safeDate(val) {
 }
 
 function timeStrToMin(t) {
+    if (!t || typeof t !== 'string' || !t.includes(':')) return 0;
     const [h, m] = t.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return 0;
     return h * 60 + m;
 }
 
@@ -55,17 +57,20 @@ function mergeAdjacentShifts(shifts) {
 
         // Merge nếu: cùng branch VÀ end của prev === start của curr (tuyệt đối)
         if (prev.branch === curr.branch && prev.end === curr.start) {
+            // Nếu shift đã có mergedSegments từ pre-merge (report.js), giữ nguyên
+            const prevSegs = prev.mergedSegments || [{
+                start: prev.start,
+                end: prev.end,
+                schedMinutes: timeStrToMin(prev.end) - timeStrToMin(prev.start),
+                isFixedShift: prev.isFixedShift
+            }];
             merged[merged.length - 1] = {
                 ...prev,
                 end: curr.end,
+                isFixedShift: prev.isFixedShift || curr.isFixedShift,
                 _mergedWith: curr,
                 mergedSegments: [
-                    ...(prev.mergedSegments || [{
-                        start: prev.start,
-                        end: prev.end,
-                        schedMinutes: timeStrToMin(prev.end) - timeStrToMin(prev.start),
-                        isFixedShift: prev.isFixedShift
-                    }]),
+                    ...prevSegs,
                     {
                         start: curr.start,
                         end: curr.end,
