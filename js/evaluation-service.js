@@ -557,6 +557,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         // Find matching attendance session
         const matchedSession = attendanceSessions.find(s => {
             if (usedSessionIds.has(s.id)) return false;
+
+            // FIX bug Ánh: session do admin thêm tay từ chip Vắng đã link cứng vào ca này
+            // → match thẳng, bỏ qua kiểm tra khung giờ (vì admin có thể đã nhập giờ lệch).
+            if (s.linkedReceptionistShift && s.linkedReceptionistShift === rs.shift) {
+                return true;
+            }
+
             const checkIn = safeDate(s.checkIn || s.start);
             if (!checkIn) return false;
 

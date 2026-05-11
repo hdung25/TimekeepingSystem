@@ -2277,6 +2277,12 @@ async function saveEditedTime() {
 
     const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
 
+    // FIX bug Ánh: nếu modal mở từ chip Vắng tiếp tân (có classSectionKey + isReceptionist),
+    // link cứng session mới vào ca gốc đó. Tránh trường hợp session match nhầm khung giờ ca khác,
+    // khiến chip Vắng vẫn còn + chip "Ca Ngoài Lịch" mới xuất hiện riêng → double display.
+    const classSectionKey = document.getElementById('edit-class-section-key')?.value || '';
+    const classIsReceptionist = document.getElementById('edit-class-is-receptionist')?.value === 'true';
+
     const roleSelect = document.getElementById('edit-role');
     const selectedRoleId = roleSelect?.value || null;
     const selectedRoleName = roleSelect?.options[roleSelect.selectedIndex]?.text || null;
@@ -2287,7 +2293,8 @@ async function saveEditedTime() {
         start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
         isAdminEdited: true,
-        ...(linkedClassStart ? { linkedClassStart } : {}) // Preserve class link after edit
+        ...(linkedClassStart ? { linkedClassStart } : {}), // Preserve class link after edit
+        ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {})
     };
 
     // Thêm vào sessionData khi update:
