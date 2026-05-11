@@ -784,19 +784,17 @@ async function renderMonthReport(date, forceServer = false) {
                     
                     const currentEndMin = timeStrToMin2(currentShift.end);
                     const nextStartMin = timeStrToMin2(nextShift.start);
-                    
+
+                    // Chỉ merge khi 2 ca cùng loại (cùng CĐ hoặc cùng thường).
+                    // Ca CĐ kề ca thường → giữ riêng để stats/lương/hiển thị không lẫn lộn.
+                    const sameFixedType = (currentShift.isFixedShift || false) === (nextShift.isFixedShift || false);
+
                     // Merge if shifts touch, overlap, or have a gap of <= 60 minutes
-                    if (nextStartMin - currentEndMin <= 60) {
+                    if (sameFixedType && nextStartMin - currentEndMin <= 60) {
                         if (nextShift.end > currentShift.end) {
                             currentShift.end = nextShift.end;
                         }
-                        // FIX Bug 1: Dùng OR chỉ cho label hiển thị, KHÔNG set isFixedShift cho toàn chip.
-                        // isFixedShift của chip = ca đầu tiên (để đếm stats đúng).
-                        // mergedSegments lưu từng đoạn riêng để tính lương đúng.
                         currentShift.label = `${currentShift.label} + ${nextShift.label}`;
-                        // Nếu có bất kỳ ca nào là CĐ thì chip tổng cũng đánh dấu CĐ (cho display)
-                        // nhưng mergedSegments sẽ phân biệt từng đoạn
-                        if (nextShift.isFixedShift) currentShift.isFixedShift = true;
                         currentSegments.push({
                             start: nextShift.start,
                             end: nextShift.end,

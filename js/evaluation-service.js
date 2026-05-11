@@ -55,8 +55,10 @@ function mergeAdjacentShifts(shifts) {
         const prev = merged[merged.length - 1];
         const curr = sorted[i];
 
-        // Merge nếu: cùng branch VÀ end của prev === start của curr (tuyệt đối)
-        if (prev.branch === curr.branch && prev.end === curr.start) {
+        // Merge nếu: cùng branch VÀ cùng loại CĐ/thường VÀ end của prev === start của curr (tuyệt đối).
+        // Ca CĐ kề ca thường → giữ riêng để hiển thị/stats/lương không lẫn lộn.
+        const sameFixedType = (prev.isFixedShift || false) === (curr.isFixedShift || false);
+        if (sameFixedType && prev.branch === curr.branch && prev.end === curr.start) {
             // Nếu shift đã có mergedSegments từ pre-merge (report.js), giữ nguyên
             const prevSegs = prev.mergedSegments || [{
                 start: prev.start,
@@ -67,7 +69,7 @@ function mergeAdjacentShifts(shifts) {
             merged[merged.length - 1] = {
                 ...prev,
                 end: curr.end,
-                isFixedShift: prev.isFixedShift || curr.isFixedShift,
+                isFixedShift: prev.isFixedShift,
                 _mergedWith: curr,
                 mergedSegments: [
                     ...prevSegs,
