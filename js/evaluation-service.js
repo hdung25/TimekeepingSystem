@@ -279,6 +279,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     const actualEndStr = actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
+                    let isLate = false;
                     if (matchedSession.isAdminEdited) {
                         minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
                         label += ` ${actualStartStr}–${actualEndStr} (Sửa tay)`;
@@ -287,7 +288,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         const effectiveEnd = schedEnd;
                         const effectiveDuration = (effectiveEnd - schedStart) / 60000;
 
-                        let isLate = false;
                         if (diffMs < 0) { // Late
                             const lateMinutesRaw = Math.round(Math.abs(diffMs) / 60000);
                             if (lateMinutesRaw === 0) {
