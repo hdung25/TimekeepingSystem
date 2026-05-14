@@ -105,6 +105,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const _seenSlots = new Set();
         sections.forEach(sk => {
             (schedule[sk] || []).forEach((c, i) => {
+                if (!c.start || !c.end) return; // skip malformed rows missing start/end
                 // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
                 const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
                 const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
@@ -184,6 +185,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 (cls.registeredTeachers || []).some(t => t.id === staffId);
 
             if (!isRegistered) return; // Skip if not assigned to this class
+            if (!cls.start || !cls.end) return; // skip malformed rows missing start/end
 
             // Dedup: bỏ qua nếu đã có entry cùng (branch+start+end) → tránh chip V giả
             const _mainSlotKey = `${cls._branch || ''}_${cls.start}_${cls.end}`;
@@ -270,6 +272,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // FULL CHECK-IN/OUT
                     const actualStart = safeDate(matchedSession.checkIn || matchedSession.start);
                     const actualEnd = safeDate(matchedSession.checkOut);
+                    if (!actualStart || !actualEnd) return; // skip sessions with invalid timestamps
 
                     const diffMs = schedStart - actualStart; // >0 = vào sớm, <0 = trễ
 
@@ -819,6 +822,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Kiểm tra lớp học
                 sections.forEach(sec => {
                     (schedule[sec] || []).forEach(cls => {
+                        if (!cls.start || !cls.end) return; // skip malformed rows
                         const [_cH, _cM] = cls.start.split(':').map(Number);
                         const csStart = new Date(_uy, _um - 1, _ud, _cH, _cM, 0, 0);
                         const diff = Math.abs(sessionStart - csStart);
