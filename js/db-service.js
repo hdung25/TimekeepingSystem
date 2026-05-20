@@ -70,13 +70,18 @@ const DBService = {
             // Write the role to a special collection keyed by Auth UID.
             // This allows Firestore Rules to easily check: get(.../user_roles/$(request.auth.uid)).data.role
             try {
+                // Normalize roles array — fallback to single role if array missing
+                const rolesArr = Array.isArray(userData.roles) && userData.roles.length > 0
+                    ? userData.roles
+                    : [userData.role || 'staff'];
                 const roleRef = window.db.collection('user_roles').doc(authUser.uid);
                 await roleRef.set({
-                    role: userData.role || 'staff', // Default to staff
+                    role: userData.role || 'staff', // Backward compat (single role)
+                    roles: rolesArr,                // NEW: multi-role array for accurate RBAC
                     username: userData.username,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
-                console.log("Security: Role Synced to Auth ID.");
+                console.log("Security: Role Synced to Auth ID.", rolesArr);
             } catch (err) {
                 console.warn("Security: Could not sync role (might lack permission yet).", err);
             }
@@ -178,12 +183,16 @@ const DBService = {
                     const snap = await db.collection('user_roles').where('username', '==', user.username).get();
                     if (!snap.empty) {
                         const roleDoc = snap.docs[0];
+                        const rolesArr = Array.isArray(user.roles) && user.roles.length > 0
+                            ? user.roles
+                            : [user.role || 'staff'];
                         await roleDoc.ref.update({
                             role: user.role,
+                            roles: rolesArr, // NEW: keep array in sync so RBAC rules can see all roles
                             updatedByAdmin: true,
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
-                        console.log("[Security] Admin synced role to user_roles for", user.username);
+                        console.log("[Security] Admin synced role to user_roles for", user.username, rolesArr);
                     }
                 } catch (e) {
                     console.warn("[Security] Could not sync user_roles doc", e);

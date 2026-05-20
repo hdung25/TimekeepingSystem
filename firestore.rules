@@ -8,17 +8,37 @@ service cloud.firestore {
     }
 
     // --- RBAC HELPERS ---
-    function getUserRole() {
+    function userDocExists() {
+      return exists(/databases/$(database)/documents/user_roles/$(request.auth.uid));
+    }
+
+    function getUserDoc() {
       // Get the role doc corresponding to the Auth UID
-      return get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data.role;
+      return get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data;
+    }
+
+    // Returns the user's single `role` field, or '' if doc missing.
+    function singleRole() {
+      return userDocExists() ? getUserDoc().get('role', '') : '';
+    }
+
+    // Returns the user's `roles` array, or [] if doc missing / field missing.
+    function rolesArr() {
+      return userDocExists() ? getUserDoc().get('roles', []) : [];
+    }
+
+    // Check if user has a given role — look in BOTH the single `role` field
+    // (backward compat) AND the `roles` array (new multi-role support).
+    function hasRole(r) {
+      return singleRole() == r || rolesArr().hasAny([r]);
     }
 
     function isAdmin() {
-      return getUserRole() == 'admin' || getUserRole() == 'senior_assistant';
+      return hasRole('admin') || hasRole('senior_assistant');
     }
 
     function isAssistant() {
-      return getUserRole() == 'assistant' || getUserRole() == 'receptionist_assistant';
+      return hasRole('assistant') || hasRole('receptionist_assistant');
     }
 
     // --- COLLECTIONS ---
@@ -118,13 +138,13 @@ service cloud.firestore {
     // 12. Fixed Shifts (Receptionist — feature tương lai)
     match /fixed_shifts/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
     }
 
-    // 13. Cancelled Shifts (Admin hủy ca tiếp tân)
+    // 13. Cancelled Shifts (Admin/Trợ lí tiếp tân hủy ca tiếp tân)
     match /cancelled_shifts/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
     }
 
     // 14. Subjects (Môn Học) — Admin manages, all staff can read
