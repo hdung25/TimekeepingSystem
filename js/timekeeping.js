@@ -104,6 +104,7 @@ window.checkAutoCheckout = async function checkAutoCheckout() {
                     if (typeof renderGlobalCheckIn === 'function') {
                         await renderGlobalCheckIn();
                     }
+                    renderTodayChips();
                     return; // Done
                 }
 
@@ -165,6 +166,7 @@ window.checkAutoCheckout = async function checkAutoCheckout() {
             if (typeof renderGlobalCheckIn === 'function') {
                 await renderGlobalCheckIn();
             }
+            renderTodayChips();
         }
     } catch (e) {
         console.warn("[AutoCheckout] Error:", e);

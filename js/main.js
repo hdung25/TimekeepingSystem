@@ -1009,6 +1009,7 @@ window.globalCheckIn = async function (btn) {
     try {
         await DBService.checkInPersonal(currentUserId, userFullName);
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+        if (typeof renderTodayChips === 'function') renderTodayChips();
 
         // Check if user has registered for any class today → alert Admin if not
         await checkAndAlertUnregistered(currentUserId, userFullName);
@@ -1081,6 +1082,7 @@ window.globalCheckOut = async function (btn) {
         await DBService.checkOutPersonal(currentUserId);
         // alert("Check-out thành công!");
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+        if (typeof renderTodayChips === 'function') renderTodayChips();
     } catch (e) {
         alert("Lỗi: " + e.message);
         if (btn) {
