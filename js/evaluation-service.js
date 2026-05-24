@@ -394,9 +394,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = schedDuration;
-                        cssClass = 'chip-orange';
-                        label += ' (QR)';
-                        tooltip += ' - Quên Check-out (Tính đủ giờ)';
+                        cssClass = 'chip-green';
+                        tooltip += ' - Tự ra ca (Tính đủ giờ)';
                         isClickable = true;
                     } else {
                         minutes = 0;
@@ -701,9 +700,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 if (isPastDayR || now > schedEnd) {
                     minutes = schedDuration;
-                    cssClass = 'chip-orange';
-                    label += ' (QR)';
-                    tooltip += ' - Quên Ra Ca (Tính đủ giờ theo ca)';
+                    cssClass = 'chip-green';
+                    tooltip += ' - Tự ra ca (Tính đủ giờ theo ca)';
                     isClickable = true;
                 } else {
                     minutes = 0;
@@ -803,6 +801,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let duration = 0;
             let cssClass = 'chip-orange';
             let isClickable = false;
+            let isUnmatchedWarning = true;
 
             const sessionStart = safeDate(s.checkIn || s.start);
             const startStr = sessionStart ? sessionStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
@@ -934,10 +933,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const checkInTime = safeDate(s.checkIn || s.start) || new Date();
                     const endOfDay = new Date(`${dateStr}T23:59:00`);
                     duration = Math.min((endOfDay - checkInTime) / 60000, 120);
-                    label = `${startStr}–??? (QR)`;
-                    cssClass = 'chip-orange';
-                    tooltip += ' - Quên Ra Ca (ngày đã qua)';
+                    label = `${startStr}–???`;
+                    cssClass = 'chip-green';
+                    tooltip += ' - Tự ra ca (ngày đã qua)';
                     isClickable = true;
+                    isUnmatchedWarning = false;
                 } else {
                     label = `${startStr}–??? (Đang làm)`;
                     cssClass = 'chip-blue';
@@ -969,7 +969,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 sessionId: s.id,
                 sessionData: s,
                 isClickable: isClickable,
-                isWarning: true,
+                isWarning: isUnmatchedWarning,
                 isAdminCreated: isAdminCreated,
                 overtimeId: otIdU,
                 overtimePending: otPendingU,
