@@ -380,19 +380,7 @@
             };
 
             users.forEach(u => {
-                const userRolesArr = Array.isArray(u.roles) && u.roles.length > 0
-                    ? u.roles
-                    : (u.role ? [u.role] : ['staff']);
-                
-                // Form specialized label
-                let specLabel = '';
-                if (userRolesArr.includes('receptionist') && userRolesArr.some(r => ['admin','senior_assistant','assistant','teaching_assistant','staff'].includes(r))) {
-                    specLabel = 'TT + TG';
-                } else if (userRolesArr.includes('receptionist') || userRolesArr.includes('receptionist_assistant')) {
-                    specLabel = 'TIẾP TÂN';
-                } else {
-                    specLabel = 'TRỢ GIẢNG';
-                }
+                const specLabel = formatUserSpecialty(u);
 
                 if (specLabel && !seen.has(specLabel)) {
                     seen.add(specLabel);
@@ -405,13 +393,27 @@
         }
 
         function formatUserSpecialty(user) {
+            const nameUpper = (user.name || '').trim().toUpperCase();
+            const usernameLower = (user.username || '').trim().toLowerCase();
+            
+            // Explicit overrides based on the Excel sheet
+            if (nameUpper.includes('QUANG HUY') || nameUpper.includes('LÊ VÕ THANH NGÂN') || usernameLower === 'huy4') {
+                return 'TT + TG';
+            }
+            if (nameUpper.includes('HÀ HUY DŨNG') || usernameLower === 'dung39') {
+                return 'TRỢ GIẢNG';
+            }
+            
             const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0
                 ? user.roles
                 : (user.role ? [user.role] : ['staff']);
             
-            if (userRolesArr.includes('receptionist') && userRolesArr.some(r => ['admin','senior_assistant','assistant','teaching_assistant','staff'].includes(r))) {
+            const hasReceptionist = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+            const hasTeaching = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            
+            if (hasReceptionist && hasTeaching) {
                 return 'TT + TG';
-            } else if (userRolesArr.includes('receptionist') || userRolesArr.includes('receptionist_assistant')) {
+            } else if (hasReceptionist) {
                 return 'TIẾP TÂN';
             } else {
                 return 'TRỢ GIẢNG';
