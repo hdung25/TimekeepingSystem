@@ -329,14 +329,27 @@
             try {
                 // Fetch fresh list of users
                 const rawUsers = await DBService.getUsers();
-                // Filter out non-personnel or specific service accounts if needed, keeping active accounts
-                employeesList = rawUsers.filter(u => u.username && u.name);
+                // Filter out non-personnel, specific service accounts, and admin/admin1 accounts
+                employeesList = rawUsers.filter(u => {
+                    if (!u.username || !u.name) return false;
+                    const uname = u.username.toLowerCase();
+                    return uname !== 'admin' && uname !== 'admin1';
+                });
                 
-                // Sort employees sequentially by username (or fallback to index)
+                // Extract employee numerical codes from usernames
+                employeesList.forEach(u => {
+                    const match = u.username.match(/\d+$/);
+                    u.msnvStr = match ? match[0] : '';
+                    u.msnv = match ? parseInt(match[0], 10) : null;
+                });
+                
+                // Sort employees numerically by their extracted code. Place those without numbers at the end.
                 employeesList.sort((a, b) => {
-                    const codeA = parseInt(a.username, 10);
-                    const codeB = parseInt(b.username, 10);
-                    if (!isNaN(codeA) && !isNaN(codeB)) return codeA - codeB;
+                    if (a.msnv !== null && b.msnv !== null) {
+                        return a.msnv - b.msnv;
+                    }
+                    if (a.msnv !== null) return -1;
+                    if (b.msnv !== null) return 1;
                     return (a.username || '').localeCompare(b.username || '');
                 });
 
@@ -429,8 +442,8 @@
                 const userId = user.id;
                 const savedRecord = (loggedMeetings.records && loggedMeetings.records[userId]) ? loggedMeetings.records[userId] : {};
                 
-                // Mapped code / MS NV format
-                const msnvDisplay = user.username || (index + 1);
+                // Mapped code / MS NV format (display extracted number, or if none, index + 1)
+                const msnvDisplay = user.msnvStr || (index + 1);
 
                 // Split name parts to isolate first name (TÊN in red uppercase)
                 const nameParts = (user.name || '').trim().split(' ');
