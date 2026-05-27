@@ -145,6 +145,22 @@
             justify-content: flex-end;
             margin-bottom: 1rem;
         }
+
+        /* Modal Backdrop */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(2px);
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.2s ease forwards;
+        }
     </style>
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
@@ -423,7 +439,7 @@
             
             // Explicit overrides based on the Excel sheet
             if (nameUpper.includes('QUANG HUY') || nameUpper.includes('LÊ VÕ THANH NGÂN') || usernameLower === 'huy4') {
-                return 'TT + TG';
+                return 'TT / TG';
             }
             if (nameUpper.includes('HÀ HUY DŨNG') || usernameLower === 'dung39') {
                 return 'TRỢ GIẢNG';
@@ -437,7 +453,7 @@
             const hasTeaching = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
             
             if (hasReceptionist && hasTeaching) {
-                return 'TT + TG';
+                return 'TT / TG';
             } else if (hasReceptionist) {
                 return 'TIẾP TÂN';
             } else {
@@ -687,7 +703,7 @@
             const cbTrogiang = document.getElementById('spec-cb-trogiang');
             const cbTieptan = document.getElementById('spec-cb-tieptan');
             
-            if (currentLabel === 'TT + TG') {
+            if (currentLabel === 'TT / TG' || currentLabel === 'TT + TG') {
                 cbTrogiang.checked = true;
                 cbTieptan.checked = true;
             } else if (currentLabel === 'TIẾP TÂN') {
@@ -717,7 +733,7 @@
             
             let newLabel = 'TRỢ GIẢNG';
             if (cbTrogiang && cbTieptan) {
-                newLabel = 'TT + TG';
+                newLabel = 'TT / TG';
             } else if (cbTieptan) {
                 newLabel = 'TIẾP TÂN';
             } else {
@@ -736,6 +752,11 @@
             // Re-apply filters instantly
             applyFilters();
         }
+
+        // Expose to window scope for inline onclick handlers
+        window.openSpecialtyModal = openSpecialtyModal;
+        window.closeSpecialtyModal = closeSpecialtyModal;
+        window.confirmSpecialtySelection = confirmSpecialtySelection;
     </script>
 </body>
 
