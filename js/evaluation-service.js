@@ -149,7 +149,22 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const _slotKey = `${c._branch || ''}_${c.start}_${c.end}`;
                 if (_seenSlots.has(_slotKey)) return;
                 _seenSlots.add(_slotKey);
-                _allReg.push({ start: c.start, end: c.end, branch: c._branch || '', secKey: sk, idx: i });
+
+                // Compute scheduled duration
+                const [_sH, _sM] = c.start.split(':').map(Number);
+                const [_eH, _eM] = c.end.split(':').map(Number);
+                const schedMinutes = (_eH * 60 + _eM) - (_sH * 60 + _sM);
+
+                _allReg.push({ 
+                    start: c.start, 
+                    end: c.end, 
+                    branch: c._branch || '', 
+                    secKey: sk, 
+                    idx: i,
+                    lop: c.lop || '',
+                    lopId: c.lopId || '',
+                    schedMinutes: Math.max(0, schedMinutes)
+                });
             });
         });
         _allReg.sort((a, b) => a.start.localeCompare(b.start));
@@ -160,12 +175,32 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let _chainEnd = _a.end;
             let _chainSameBranch = true;
             const _chainBranches = [_a.branch]; // lưu thứ tự các branch trong chuỗi
+            
+            const _chainSegments = [{
+                start: _a.start,
+                end: _a.end,
+                branch: _a.branch,
+                lop: _a.lop,
+                lopId: _a.lopId,
+                schedMinutes: _a.schedMinutes
+            }];
+
             let _mj = _mi + 1;
             while (_mj < _allReg.length) {
                 const _b = _allReg[_mj];
                 if (_b.start === _chainEnd) {
                     if (_b.branch !== _a.branch) _chainSameBranch = false;
                     _chainBranches.push(_b.branch);
+                    
+                    _chainSegments.push({
+                        start: _b.start,
+                        end: _b.end,
+                        branch: _b.branch,
+                        lop: _b.lop,
+                        lopId: _b.lopId,
+                        schedMinutes: _b.schedMinutes
+                    });
+
                     _mergeInfo[`${_b.secKey}_${_b.idx}`] = { skip: true };
                     _chainEnd = _b.end;
                     _mj++;
@@ -175,7 +210,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 _mergeInfo[_ka] = {
                     mergedEnd: _chainEnd,
                     crossBranch: !_chainSameBranch,
-                    chainBranches: _chainBranches // ví dụ: ['cs1', 'cs3']
+                    chainBranches: _chainBranches, // ví dụ: ['cs1', 'cs3']
+                    chainSegments: _chainSegments
                 };
             }
         }
@@ -233,6 +269,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (_mergeInfo[_mk] && _mergeInfo[_mk].skip) return;
             // Giờ kết thúc hiệu dụng: dùng mergedEnd nếu ca này là đầu chuỗi
             const _mergedEnd = (_mergeInfo[_mk] && _mergeInfo[_mk].mergedEnd) || null;
+            const _chainSegments = (_mergeInfo[_mk] && _mergeInfo[_mk].chainSegments) || null;
 
             // 2. Check for Attendance Match
             // Priority 1: Exact match by linkedClassStart (set when admin edits a session)
@@ -367,9 +404,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                     }
 
+                    // Determine combined subject label for merged teaching shifts
+                    let mergedSubjectNames = '';
+                    if (_chainSegments && _chainSegments.length > 0) {
+                        const lops = _chainSegments.map(seg => seg.lop).filter(Boolean);
+                        mergedSubjectNames = [...new Set(lops)].join(' + ');
+                    }
+
                     // Role Logic
                     if (matchedSession.role) {
-                        const _displayRoleName = matchedSession.roleName || matchedSession.role;
+                        let _displayRoleName = matchedSession.roleName || matchedSession.role;
+                        if (mergedSubjectNames && !['tiep-tan', 'receptionist'].includes(matchedSession.role)) {
+                            _displayRoleName = mergedSubjectNames;
+                        }
                         label += ` (${_displayRoleName})`;
                         tooltip += ` - Vai trò: ${_displayRoleName}`;
 
@@ -391,7 +438,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                     } else if (!_autoResolved) {
                         // Hiển thị tên lớp (nếu có) — vẫn cho phép click chọn nếu cần
-                        const _subjectLabel = cls.lop || null;
+                        const _subjectLabel = mergedSubjectNames || cls.lop || null;
                         label += _subjectLabel ? ` (${_subjectLabel})` : '';
                         tooltip += _subjectLabel ? ` - Lớp: ${_subjectLabel}` : ' - Bấm để chọn vai trò tính lương';
                     }
@@ -471,7 +518,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     overtimePending: otPending,
                     overtimeMinutes: otMinutes,
                     bonus10Status: b10StatusT,
-                    bonus10Id: b10DataT ? b10DataT.id : null
+                    bonus10Id: b10DataT ? b10DataT.id : null,
+                    mergedSegments: (_mergeInfo[_mk] && _mergeInfo[_mk].chainSegments) || null
                 });
 
             } else {

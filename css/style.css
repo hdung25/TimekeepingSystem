@@ -465,13 +465,10 @@ button {
 
     /* Calendar Grid */
     #calendar-grid {
-        display: flex !important;
-        /* Switch from Grid to Flex/Scroll or keep Grid with min-width */
-        overflow-x: auto;
         padding-bottom: 1rem;
         /* Alternative: Keep Grid but force min-width */
         display: grid !important;
-        min-width: 600px;
+        min-width: 850px;
         /* Force minimum width to prevent squashing */
     }
 
@@ -481,8 +478,8 @@ button {
     }
 
     /* Day Names Header */
-    .calendar-days-header {
-        min-width: 600px;
+    .calendar-header {
+        min-width: 850px;
         /* Match grid width */
     }
 
@@ -810,11 +807,11 @@ button {
     }
 
     #calendar-grid {
-        min-width: 800px;
+        min-width: 850px;
     }
 
     .calendar-header {
-        min-width: 800px;
+        min-width: 850px;
     }
 
     /* Evaluation table scroll with touch momentum */
@@ -908,4 +905,28 @@ button {
 .list-search-input::placeholder {
     color: var(--text-muted);
     font-weight: 400;
+}
+
+/* ================== PREMIUM CALENDAR ENHANCEMENTS ================== */
+.calendar-header > div:not(:last-child) {
+    border-right: 1px solid var(--border-color);
+}
+.calendar-header > div {
+    padding: 0.25rem 0;
+}
+.calendar-grid > div:nth-child(7n) {
+    background-color: rgba(249, 115, 22, 0.03) !important; /* Soft secondary/orange tint for CN */
+    border-color: rgba(249, 115, 22, 0.15) !important;
+}
+.calendar-grid > div:nth-child(7n - 1) {
+    background-color: rgba(59, 130, 246, 0.02) !important; /* Soft blue tint for T7 */
+    border-color: rgba(59, 130, 246, 0.1) !important;
+}
+.calendar-cell {
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s !important;
+}
+.calendar-cell:hover:not(.disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+    border-color: var(--primary-color) !important;
 }

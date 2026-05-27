@@ -878,10 +878,24 @@ async function renderMonthReport(date, forceServer = false) {
 
     let startOffset = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
 
-    // Empty Slots
-    for (let i = 0; i < startOffset; i++) {
+    // Empty Slots (Muted previous month days)
+    const prevMonthDate = new Date(year, month, 0);
+    const prevMonthDays = prevMonthDate.getDate();
+    for (let i = startOffset - 1; i >= 0; i--) {
+        const dNum = prevMonthDays - i;
         const empty = document.createElement('div');
         empty.className = 'calendar-cell disabled';
+        empty.style.opacity = '0.35';
+        empty.style.background = '#F9FAFB';
+        empty.style.border = '1px solid var(--border-color)';
+        
+        const dateHeader = document.createElement('div');
+        dateHeader.style.display = 'flex';
+        dateHeader.style.justifyContent = 'space-between';
+        dateHeader.style.marginBottom = '0.5rem';
+        dateHeader.innerHTML = `<span style="font-weight: 500; color: #9CA3AF;">${dNum}</span>`;
+        
+        empty.appendChild(dateHeader);
         grid.appendChild(empty);
     }
 
@@ -1463,6 +1477,26 @@ async function renderMonthReport(date, forceServer = false) {
         grid.appendChild(cell);
     } catch (cellErr) { console.error('[Calendar] Error rendering day', d, cellErr); } }
 
+    // Trailing Slots (Muted next month days to complete the 7-column grid)
+    const totalCells = startOffset + daysInMonth;
+    const remaining = (7 - (totalCells % 7)) % 7;
+    for (let i = 1; i <= remaining; i++) {
+        const empty = document.createElement('div');
+        empty.className = 'calendar-cell disabled';
+        empty.style.opacity = '0.35';
+        empty.style.background = '#F9FAFB';
+        empty.style.border = '1px solid var(--border-color)';
+        
+        const dateHeader = document.createElement('div');
+        dateHeader.style.display = 'flex';
+        dateHeader.style.justifyContent = 'space-between';
+        dateHeader.style.marginBottom = '0.5rem';
+        dateHeader.innerHTML = `<span style="font-weight: 500; color: #9CA3AF;">${i}</span>`;
+        
+        empty.appendChild(dateHeader);
+        grid.appendChild(empty);
+    }
+
     // Update Totals
     if (totalHoursEl) {
         const h = Math.floor(totalMinutes / 60);
@@ -1737,28 +1771,58 @@ function calculateSalary() {
 
                 let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
                 
-                if (hasClassRate) {
-                    filteredSalary += (minutes / 60) * rate;
-                } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
-                    let chipSalary = 0;
-                    if (chip.mergedSegments && chip.mergedSegments.length > 0) {
-                        chip.mergedSegments.forEach(seg => {
-                            const segMinutes = seg.schedMinutes || 0;
-                            const segRate = seg.isFixedShift
+                if (chip.mergedSegments && chip.mergedSegments.length > 0 && !isTiepTan) {
+                    let remainingMinutes = minutes;
+                    const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                    
+                    chip.mergedSegments.forEach((seg, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round(minutes / chip.mergedSegments.length);
+                        } else {
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                segMins = remainingMinutes;
+                            } else {
+                                segMins = Math.round(minutes * ((seg.schedMinutes || 0) / totalSched));
+                                remainingMinutes -= segMins;
+                            }
+                        }
+                        
+                        const normalizeFn = window.normalizeChipFilterName || (x => x);
+                        const segName = normalizeFn(seg.lop);
+                        
+                        let segRate = 0;
+                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                            segRate = Number(classRates[segName]);
+                        } else {
+                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        }
+                        filteredSalary += (segMins / 60) * segRate;
+                    });
+                } else {
+                    if (hasClassRate) {
+                        filteredSalary += (minutes / 60) * rate;
+                    } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
+                        let chipSalary = 0;
+                        if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                            chip.mergedSegments.forEach(seg => {
+                                const segMinutes = seg.schedMinutes || 0;
+                                const segRate = seg.isFixedShift
+                                    ? Number(cfg.receptionist_fixed_rate || 0)
+                                    : Number(cfg.receptionist_normal_rate || 0);
+                                chipSalary += (segMinutes / 60) * segRate;
+                            });
+                        } else {
+                            const segRate = chip.isFixedShift
                                 ? Number(cfg.receptionist_fixed_rate || 0)
                                 : Number(cfg.receptionist_normal_rate || 0);
-                            chipSalary += (segMinutes / 60) * segRate;
-                        });
+                            chipSalary += (minutes / 60) * segRate;
+                        }
+                        filteredSalary += chipSalary;
                     } else {
-                        const segRate = chip.isFixedShift
-                            ? Number(cfg.receptionist_fixed_rate || 0)
-                            : Number(cfg.receptionist_normal_rate || 0);
-                        chipSalary += (minutes / 60) * segRate;
+                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        filteredSalary += (minutes / 60) * defaultRate;
                     }
-                    filteredSalary += chipSalary;
-                } else {
-                    let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
-                    filteredSalary += (minutes / 60) * defaultRate;
                 }
             });
         }
@@ -1813,30 +1877,60 @@ function calculateSalary() {
                     hasClassRate = true;
                 }
 
-                let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
+                let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
                 
-                if (hasClassRate) {
-                    filteredSalary += (minutes / 60) * rate;
-                } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
-                    let chipSalary = 0;
-                    if (chip.mergedSegments && chip.mergedSegments.length > 0) {
-                        chip.mergedSegments.forEach(seg => {
-                            const segMinutes = seg.schedMinutes || 0;
-                            const segRate = seg.isFixedShift
+                if (chip.mergedSegments && chip.mergedSegments.length > 0 && !isTiepTan) {
+                    let remainingMinutes = minutes;
+                    const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                    
+                    chip.mergedSegments.forEach((seg, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round(minutes / chip.mergedSegments.length);
+                        } else {
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                segMins = remainingMinutes;
+                            } else {
+                                segMins = Math.round(minutes * ((seg.schedMinutes || 0) / totalSched));
+                                remainingMinutes -= segMins;
+                            }
+                        }
+                        
+                        const normalizeFn = window.normalizeChipFilterName || (x => x);
+                        const segName = normalizeFn(seg.lop);
+                        
+                        let segRate = 0;
+                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                            segRate = Number(classRates[segName]);
+                        } else {
+                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        }
+                        filteredSalary += (segMins / 60) * segRate;
+                    });
+                } else {
+                    if (hasClassRate) {
+                        filteredSalary += (minutes / 60) * rate;
+                    } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
+                        let chipSalary = 0;
+                        if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                            chip.mergedSegments.forEach(seg => {
+                                const segMinutes = seg.schedMinutes || 0;
+                                const segRate = seg.isFixedShift
+                                    ? Number(cfg.receptionist_fixed_rate || 0)
+                                    : Number(cfg.receptionist_normal_rate || 0);
+                                chipSalary += (segMinutes / 60) * segRate;
+                            });
+                        } else {
+                            const segRate = chip.isFixedShift
                                 ? Number(cfg.receptionist_fixed_rate || 0)
                                 : Number(cfg.receptionist_normal_rate || 0);
-                            chipSalary += (segMinutes / 60) * segRate;
-                        });
+                            chipSalary += (minutes / 60) * segRate;
+                        }
+                        filteredSalary += chipSalary;
                     } else {
-                        const segRate = chip.isFixedShift
-                            ? Number(cfg.receptionist_fixed_rate || 0)
-                            : Number(cfg.receptionist_normal_rate || 0);
-                        chipSalary += (minutes / 60) * segRate;
+                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        filteredSalary += (minutes / 60) * defaultRate;
                     }
-                    filteredSalary += chipSalary;
-                } else {
-                    let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
-                    filteredSalary += (minutes / 60) * defaultRate;
                 }
             }
         });
@@ -3072,15 +3166,48 @@ async function populateModalCurrentTab() {
                 groups[groupName].totalMinutes += mins;
             }
         } else {
-            if (!groups[name]) {
-                groups[name] = {
-                    name: name,
-                    chips: [],
-                    totalMinutes: 0
-                };
+            if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                let remainingMinutes = chip.paidMinutes || 0;
+                const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                
+                chip.mergedSegments.forEach((seg, sIdx) => {
+                    let segMins = 0;
+                    if (totalSched <= 0) {
+                        segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round((chip.paidMinutes || 0) / chip.mergedSegments.length);
+                    } else {
+                        if (sIdx === chip.mergedSegments.length - 1) {
+                            segMins = remainingMinutes;
+                        } else {
+                            segMins = Math.round((chip.paidMinutes || 0) * ((seg.schedMinutes || 0) / totalSched));
+                            remainingMinutes -= segMins;
+                        }
+                    }
+                    
+                    const normalizeFn = window.normalizeChipFilterName || (x => x);
+                    const segName = normalizeFn(seg.lop);
+                    if (segName) {
+                        if (!groups[segName]) {
+                            groups[segName] = {
+                                name: segName,
+                                chips: [],
+                                totalMinutes: 0
+                            };
+                        }
+                        groups[segName].chips.push(chip);
+                        groups[segName].totalMinutes += segMins;
+                    }
+                });
+            } else {
+                if (!groups[name]) {
+                    groups[name] = {
+                        name: name,
+                        chips: [],
+                        totalMinutes: 0
+                    };
+                }
+                groups[name].chips.push(chip);
+                groups[name].totalMinutes += (chip.paidMinutes || 0);
             }
-            groups[name].chips.push(chip);
-            groups[name].totalMinutes += (chip.paidMinutes || 0);
         }
     });
     
@@ -3112,8 +3239,17 @@ async function populateModalCurrentTab() {
                             prefillRate = Number(cfg.receptionist_normal_rate || 0);
                         }
                     } else {
-                        const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
-                        prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                        const foundRoleInConfig = cfg.roles && cfg.roles.find(r => {
+                            const rName = r.name || r.id || '';
+                            const normalizeFn = window.normalizeChipFilterName || (x => x);
+                            return normalizeFn(rName) === normalizeFn(name) || r.id === name;
+                        });
+                        if (foundRoleInConfig) {
+                            prefillRate = Number(foundRoleInConfig.rate || 0);
+                        } else {
+                            const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                            prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                        }
                     }
                 }
                 
@@ -3546,11 +3682,40 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                     groups[groupName].totalMinutes += mins;
                 }
             } else {
-                if (!groups[name]) {
-                    groups[name] = { name: name, chips: [], totalMinutes: 0 };
+                if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                    let remainingMinutes = chip.paidMinutes || 0;
+                    const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                    
+                    chip.mergedSegments.forEach((seg, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round((chip.paidMinutes || 0) / chip.mergedSegments.length);
+                        } else {
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                segMins = remainingMinutes;
+                            } else {
+                                segMins = Math.round((chip.paidMinutes || 0) * ((seg.schedMinutes || 0) / totalSched));
+                                remainingMinutes -= segMins;
+                            }
+                        }
+                        
+                        const normalizeFn = window.normalizeChipFilterName || (x => x);
+                        const segName = normalizeFn(seg.lop);
+                        if (segName) {
+                            if (!groups[segName]) {
+                                groups[segName] = { name: segName, chips: [], totalMinutes: 0 };
+                            }
+                            groups[segName].chips.push(chip);
+                            groups[segName].totalMinutes += segMins;
+                        }
+                    });
+                } else {
+                    if (!groups[name]) {
+                        groups[name] = { name: name, chips: [], totalMinutes: 0 };
+                    }
+                    groups[name].chips.push(chip);
+                    groups[name].totalMinutes += (chip.paidMinutes || 0);
                 }
-                groups[name].chips.push(chip);
-                groups[name].totalMinutes += (chip.paidMinutes || 0);
             }
         });
         
@@ -3577,8 +3742,18 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                             rate = Number(user.salary_config?.receptionist_normal_rate || 0);
                         }
                     } else {
-                        const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
-                        rate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                        const cfg = user.salary_config || {};
+                        const foundRoleInConfig = cfg.roles && cfg.roles.find(r => {
+                            const rName = r.name || r.id || '';
+                            const normalizeFn = window.normalizeChipFilterName || (x => x);
+                            return normalizeFn(rName) === normalizeFn(name) || r.id === name;
+                        });
+                        if (foundRoleInConfig) {
+                            rate = Number(foundRoleInConfig.rate || 0);
+                        } else {
+                            const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                            rate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                        }
                     }
                 }
                 
