@@ -536,6 +536,51 @@
             return parts.length > 0 ? parts.join(' / ') : 'TG TA';
         }
 
+        function updateRowMeetingSelectStates(row) {
+            const btn = row.querySelector('.btn-chuyenmon-setup');
+            const specLabel = btn ? btn.innerText.trim() : '';
+            
+            const selectTa = row.querySelector('.hop-ta-select');
+            const selectTtv = row.querySelector('.hop-ttv-select');
+            const selectTt = row.querySelector('.hop-tt-select');
+            
+            const styleDisabled = "background-color: #F3F4F6; color: #9CA3AF; cursor: not-allowed; border-color: #E5E7EB;";
+            const styleEnabled = "background-color: white; color: inherit; cursor: pointer; border-color: #D1D5DB;";
+
+            if (selectTa) {
+                const hasRole = specLabel.includes('TG TA');
+                selectTa.disabled = !hasRole;
+                if (!hasRole) {
+                    selectTa.value = 'Không họp';
+                    selectTa.style.cssText = styleDisabled;
+                } else {
+                    selectTa.style.cssText = styleEnabled;
+                }
+            }
+            
+            if (selectTtv) {
+                const hasRole = specLabel.includes('TG T-TV');
+                selectTtv.disabled = !hasRole;
+                if (!hasRole) {
+                    selectTtv.value = 'Không họp';
+                    selectTtv.style.cssText = styleDisabled;
+                } else {
+                    selectTtv.style.cssText = styleEnabled;
+                }
+            }
+            
+            if (selectTt) {
+                const hasRole = specLabel.includes('TIẾP TÂN') || specLabel.includes('TT');
+                selectTt.disabled = !hasRole;
+                if (!hasRole) {
+                    selectTt.value = 'Không họp';
+                    selectTt.style.cssText = styleDisabled;
+                } else {
+                    selectTt.style.cssText = styleEnabled;
+                }
+            }
+        }
+
         async function renderMeetingsGrid() {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
@@ -647,6 +692,7 @@
                 `;
                 
                 tbody.appendChild(tr);
+                updateRowMeetingSelectStates(tr);
             });
 
             // Populate Chuyen Mon (Role) filter dynamically with monthly values
@@ -825,6 +871,9 @@
             const btn = row ? row.querySelector('.btn-chuyenmon-setup') : null;
             if (btn) {
                 btn.innerText = newLabel;
+            }
+            if (row) {
+                updateRowMeetingSelectStates(row);
             }
             
             closeSpecialtyModal();
