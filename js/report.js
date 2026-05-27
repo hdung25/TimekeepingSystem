@@ -650,7 +650,7 @@ async function renderMonthReport(date, forceServer = false) {
     // FIX: staffRoles đã xử lý đúng cả roles[] lẫn role string — dùng lại thay vì parseRoles()
     // (parseRoles() không handle array từ Firestore, gây isReceptionistStaff = false sai)
     const isReceptionistStaff = currentUserContext && staffRoles.some(r =>
-        ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
+        ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
     );
 
     if (isReceptionistStaff) {
@@ -871,6 +871,7 @@ async function renderMonthReport(date, forceServer = false) {
     // let totalSalary = 0; // Moved to calculateSalary()
     window.currentMonthChips = []; // Store for filtering (paidMinutes > 0 only)
     window.allMonthChips = [];    // Store ALL chips including absent (chip-gray) for stats
+    window.unfilteredAllMonthChips = []; // Track ALL chips without filter applied
     grid.innerHTML = '';
 
     const firstDayIndex = new Date(year, month, 1).getDay(); // 0=Sun
@@ -961,19 +962,17 @@ async function renderMonthReport(date, forceServer = false) {
 
         const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts, bonus10Map);
         // Inject dateStr so we can auto-save roles later
-        chips.forEach(c => c.dateStr = dateStr);
+        chips.forEach(c => {
+            c.dateStr = dateStr;
+            window.unfilteredAllMonthChips.push(c);
+        });
 
         const displayFilterEl = document.getElementById('display-role-filter');
         const displayFilter = displayFilterEl ? displayFilterEl.value : 'all';
 
         let filteredChips = chips;
         if (displayFilter !== 'all') {
-            filteredChips = chips.filter(chip => {
-                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData?.role));
-                if (displayFilter === 'tt') return isTT;
-                if (displayFilter === 'gv') return !isTT;
-                return true;
-            });
+            filteredChips = chips.filter(chip => chip.chipFilterName === displayFilter);
         }
 
         const currentRole = localStorage.getItem('currentRole') || 'staff';
@@ -1486,6 +1485,48 @@ async function renderMonthReport(date, forceServer = false) {
         });
     }
 
+    // Dynamic chip dropdown population
+    const displayFilterEl = document.getElementById('display-role-filter');
+    if (displayFilterEl) {
+        const currentSelectedVal = displayFilterEl.value || 'all';
+        displayFilterEl.innerHTML = '';
+        
+        // Default Option (All)
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = 'all';
+        defaultOpt.textContent = 'Tất cả lớp / ca';
+        displayFilterEl.appendChild(defaultOpt);
+        
+        // Find unique filter names from window.unfilteredAllMonthChips
+        const uniqueFilterNames = [];
+        (window.unfilteredAllMonthChips || []).forEach(chip => {
+            if (chip.chipFilterName && !uniqueFilterNames.includes(chip.chipFilterName)) {
+                uniqueFilterNames.push(chip.chipFilterName);
+            }
+        });
+        
+        // Sort and populate
+        uniqueFilterNames.sort().forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            displayFilterEl.appendChild(opt);
+        });
+        
+        // Restore selected value if valid, otherwise set to 'all'
+        if (uniqueFilterNames.includes(currentSelectedVal)) {
+            displayFilterEl.value = currentSelectedVal;
+        } else {
+            displayFilterEl.value = 'all';
+        }
+    }
+
+    // Toggle button visibility
+    const classRateBtn = document.getElementById('btn-class-rates-setup');
+    if (classRateBtn) {
+        classRateBtn.style.display = isAdminRole ? 'inline-flex' : 'none';
+    }
+
     // Update Salary (Admin)
     window.lastTotalMinutes = totalMinutes;
     // window.currentMonthSalary set by calculateSalary()
@@ -1683,12 +1724,22 @@ function calculateSalary() {
                 const minutes = chip.paidMinutes || 0;
                 filteredMinutes += minutes;
 
-                // Calculate Money
-                let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                // Priority: Class / Ca rate from salary_config.class_rates
+                let rate = 0;
+                let hasClassRate = false;
+                const cfg = window.currentUserContext?.salary_config || {};
+                const classRates = cfg.class_rates || {};
+                
+                if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                    rate = Number(classRates[chip.chipFilterName]);
+                    hasClassRate = true;
+                }
 
                 let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
-                if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
-                    const cfg = window.currentUserContext.salary_config;
+                
+                if (hasClassRate) {
+                    filteredSalary += (minutes / 60) * rate;
+                } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                     let chipSalary = 0;
                     if (chip.mergedSegments && chip.mergedSegments.length > 0) {
                         chip.mergedSegments.forEach(seg => {
@@ -1706,7 +1757,8 @@ function calculateSalary() {
                     }
                     filteredSalary += chipSalary;
                 } else {
-                    filteredSalary += (minutes / 60) * rate;
+                    let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                    filteredSalary += (minutes / 60) * defaultRate;
                 }
             });
         }
@@ -1750,12 +1802,22 @@ function calculateSalary() {
                 const minutes = chip.paidMinutes || 0;
                 filteredMinutes += minutes;
 
-                // Calculate Money
-                let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                // Priority: Class / Ca rate from salary_config.class_rates
+                let rate = 0;
+                let hasClassRate = false;
+                const cfg = window.currentUserContext?.salary_config || {};
+                const classRates = cfg.class_rates || {};
+                
+                if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                    rate = Number(classRates[chip.chipFilterName]);
+                    hasClassRate = true;
+                }
 
                 let isTiepTan = chip.isReceptionist || (chip.sessionData && chip.sessionData.role === 'tiep-tan');
-                if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
-                    const cfg = window.currentUserContext.salary_config;
+                
+                if (hasClassRate) {
+                    filteredSalary += (minutes / 60) * rate;
+                } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                     let chipSalary = 0;
                     if (chip.mergedSegments && chip.mergedSegments.length > 0) {
                         chip.mergedSegments.forEach(seg => {
@@ -1773,7 +1835,8 @@ function calculateSalary() {
                     }
                     filteredSalary += chipSalary;
                 } else {
-                    filteredSalary += (minutes / 60) * rate;
+                    let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                    filteredSalary += (minutes / 60) * defaultRate;
                 }
             }
         });
@@ -1869,7 +1932,14 @@ function calculateSalary() {
     // Store base salary for Export PDF
     window.currentMonthSalary = filteredSalary;
 
-    const totalSalary = filteredSalary + totalBonus;
+    const loadedSettings = window.currentLoadedSalarySettings || {};
+    const adjustVDX = Number(loadedSettings.adjust_vdx || 0);
+    const adjustVKP = Number(loadedSettings.adjust_vkp || 0);
+    const adjustLate = Number(loadedSettings.adjust_late || 0);
+    const advanceInput = document.getElementById('salary-advance');
+    const advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
+
+    const totalSalary = filteredSalary + totalBonus - adjustVDX - adjustVKP - adjustLate - advance;
 
     const finalDisplay = document.getElementById('final-salary-display');
     // Hide salary amount for senior_assistant
@@ -1881,18 +1951,21 @@ function calculateSalary() {
             finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
         }
     }
-
-    // Check Advance field
-    // const advanceInput = document.getElementById('salary-advance');
-    // const advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
 }
 
 async function saveSalarySettings() {
     const staffId = document.getElementById('staff-select').value;
     if (staffId === 'all') return;
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    const activeFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
 
     const rate = 0; // Legacy
-    const advance = document.getElementById('salary-advance').value || 0;
+    const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
     const evaluationData = [];
 
     document.querySelectorAll('.eval-note').forEach((noteInp, index) => {
@@ -1904,36 +1977,63 @@ async function saveSalarySettings() {
         });
     });
 
-    const settingsObj = { rate, advance, evaluation: evaluationData };
+    const loadedSettings = window.currentLoadedSalarySettings || {};
+    const settingsObj = {
+        rate,
+        advance,
+        evaluation: evaluationData,
+        adjust_vdx: loadedSettings.adjust_vdx !== undefined ? loadedSettings.adjust_vdx : 0,
+        adjust_vkp: loadedSettings.adjust_vkp !== undefined ? loadedSettings.adjust_vkp : 0,
+        adjust_late: loadedSettings.adjust_late !== undefined ? loadedSettings.adjust_late : 0
+    };
 
     try {
-        // Save to Firestore for cross-account sync
-        await DBService.saveSalarySettings(staffId, settingsObj);
-        // Also keep localStorage as fallback
-        const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
-        allSettings[staffId] = settingsObj;
-        localStorage.setItem('salary_settings', JSON.stringify(allSettings));
+        // Save to Monthly Settings
+        const firestorePayload = {};
+        firestorePayload[roleKey] = settingsObj;
+        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
+        
+        // Proactively update user context class rates if needed
+        if (window.currentUserContext && window.currentUserContext.salary_config) {
+            window.currentUserContext.salary_config.evaluation = evaluationData;
+        }
+
         alert('Đã lưu bảng lương!');
     } catch (e) {
-        console.error('Error saving salary settings to Firestore:', e);
+        console.error('Error saving salary settings:', e);
         alert('Lỗi khi lưu bảng lương. Vui lòng thử lại.');
     }
 }
 
 async function loadSalarySettings() {
     const staffId = document.getElementById('staff-select').value;
+    if (!staffId || staffId === 'all') return;
+
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    const activeFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
 
     let settings = {};
     try {
-        // Load from Firestore first
-        settings = await DBService.getSalarySettings(staffId);
+        // Load monthly settings first
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
+        settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || monthlySettings['giao_vien'] || monthlySettings['giao-vien'] || monthlySettings['tiep_tan'] || monthlySettings['tiep-tan'] || {};
+        
+        if (Object.keys(settings).length === 0) {
+            // Fallback to general settings
+            settings = await DBService.getSalarySettings(staffId);
+        }
     } catch (e) {
-        console.error('Error loading salary settings from Firestore:', e);
+        console.error('Error loading salary settings:', e);
         // Fallback to localStorage
         const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
         settings = allSettings[staffId] || {};
     }
 
+    window.currentLoadedSalarySettings = settings;
     document.getElementById('salary-advance').value = settings.advance || 0;
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
@@ -2732,3 +2832,944 @@ window._cleanupBonus10ForStaff = async function (staffId) {
         console.log(`Đã xóa ${snap.size} records của staffId: ${staffId}`);
     } catch (e) { console.error('Lỗi:', e); }
 };
+
+// ================= CLASS/SHIFT SPECIFIC WAGE CONFIGURATION MODAL =================
+
+// ================= CLASS/SHIFT SPECIFIC WAGE CONFIGURATION MODAL =================
+
+function formatNumberWithCommas(value) {
+    if (value === undefined || value === null || value === '') return '';
+    let clean = String(value).replace(/[^0-9-]/g, '');
+    if (clean === '' || clean === '-') return clean;
+    const num = parseInt(clean, 10);
+    if (isNaN(num)) return '';
+    return new Intl.NumberFormat('en-US').format(num);
+}
+
+function parseFormattedNumber(value) {
+    if (!value) return 0;
+    let clean = String(value).replace(/,/g, '');
+    return parseFloat(clean) || 0;
+}
+
+function classifyAbsentChip(chip, notesMap) {
+    const dateStr = chip.dateStr;
+    const noteText = (notesMap[dateStr] || '').toLowerCase().trim();
+    if (chip.isVDX || noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) {
+        return 'VDX';
+    }
+    if (noteText.includes('phép') || noteText.includes('vp') || noteText.includes(' p ') || noteText.endsWith(' p') || noteText.startsWith('p ')) {
+        return 'VP';
+    }
+    return 'VKP';
+}
+
+function bindMoneyInputFormatters() {
+    const moneyInputs = document.querySelectorAll('.money-input');
+    moneyInputs.forEach(input => {
+        input.removeEventListener('input', handleMoneyInput);
+        input.addEventListener('input', handleMoneyInput);
+    });
+}
+
+function handleMoneyInput(e) {
+    let cursorPosition = this.selectionStart;
+    let originalLength = this.value.length;
+    
+    let rawVal = this.value;
+    let clean = rawVal.replace(/[^0-9-]/g, '');
+    let formatted = formatNumberWithCommas(clean);
+    this.value = formatted;
+    
+    let newLength = formatted.length;
+    let newCursor = cursorPosition + (newLength - originalLength);
+    this.setSelectionRange(newCursor, newCursor);
+    
+    recalculateSalaryModal();
+}
+
+async function openClassRateModal() {
+    const staffId = getTargetStaffId();
+    if (!staffId || staffId === 'all') {
+        alert("Vui lòng chọn nhân viên để tính lương!");
+        return;
+    }
+
+    const user = window.currentUserContext;
+    if (!user) {
+        alert("Chưa tải được dữ liệu nhân viên. Vui lòng thử lại.");
+        return;
+    }
+
+    // Determine actual worked/scheduled roles based on month chips
+    let receptionistShiftCount = 0;
+    let teachingShiftCount = 0;
+    (window.unfilteredAllMonthChips || []).forEach(chip => {
+        if (chip.class === 'chip-future') return;
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (isTT) receptionistShiftCount++;
+        else teachingShiftCount++;
+    });
+
+    const staffRoles = user
+        ? (Array.isArray(user.roles) && user.roles.length > 0
+            ? user.roles
+            : [user.role || ''])
+        : [];
+        
+    let hasTeaching = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r)) || teachingShiftCount > 0;
+    let hasReceptionist = staffRoles.some(r => ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r)) || receptionistShiftCount > 0;
+    
+    const roleToggle = document.getElementById('modal-role-toggle-container');
+    if (hasTeaching && hasReceptionist) {
+        if (roleToggle) roleToggle.style.display = 'flex';
+        
+        // Default based on actual shifts worked
+        if (receptionistShiftCount > 0 && teachingShiftCount === 0) {
+            window.modalActiveRole = 'tiep-tan';
+        } else if (teachingShiftCount > 0 && receptionistShiftCount === 0) {
+            window.modalActiveRole = 'giao-vien';
+        } else if (receptionistShiftCount > 0 && teachingShiftCount > 0) {
+            window.modalActiveRole = teachingShiftCount >= receptionistShiftCount ? 'giao-vien' : 'tiep-tan';
+        } else {
+            window.modalActiveRole = 'giao-vien';
+        }
+        
+        const btnGv = document.getElementById('btn-modal-role-gv');
+        const btnTt = document.getElementById('btn-modal-role-tt');
+        if (btnGv && btnTt) {
+            if (window.modalActiveRole === 'giao-vien') {
+                btnGv.style.background = '#4338CA';
+                btnGv.style.color = 'white';
+                btnTt.style.background = 'white';
+                btnTt.style.color = '#374151';
+                btnTt.style.border = '1px solid #D1D5DB';
+            } else {
+                btnTt.style.background = '#4338CA';
+                btnTt.style.color = 'white';
+                btnGv.style.background = 'white';
+                btnGv.style.color = '#374151';
+                btnGv.style.border = '1px solid #D1D5DB';
+            }
+        }
+    } else {
+        if (roleToggle) roleToggle.style.display = 'none';
+        window.modalActiveRole = hasReceptionist ? 'tiep-tan' : 'giao-vien';
+    }
+
+    // Default to tab 'current'
+    await switchSalaryModalTab('current');
+    
+    const modal = document.getElementById('class-rate-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeClassRateModal() {
+    const modal = document.getElementById('class-rate-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function populateModalCurrentTab() {
+    const staffId = getTargetStaffId();
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    const monthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr);
+    const roleSettings = monthlySettingsAll[window.modalActiveRole] || monthlySettingsAll[window.modalActiveRole.replace('-', '_')] || {};
+    
+    // 1. Calculate Attendance Stats
+    let workedShifts = 0;
+    let vpShifts = 0;
+    let vdxShifts = 0;
+    let vkpShifts = 0;
+    let lateCount = 0;
+    let totalLateMinutes = 0;
+    
+    (window.unfilteredAllMonthChips || []).forEach(chip => {
+        if (chip.class === 'chip-future') return;
+        
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
+        if (window.modalActiveRole === 'giao-vien' && isTT) return;
+        
+        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+            const type = classifyAbsentChip(chip, _cachedStaffNotes);
+            if (type === 'VP') vpShifts++;
+            else if (type === 'VDX') vdxShifts++;
+            else vkpShifts++;
+        } else {
+            workedShifts++;
+        }
+        
+        const match = chip.text.match(/\(T(\d+)p\)/);
+        if (match) {
+            lateCount++;
+            totalLateMinutes += parseInt(match[1], 10);
+        }
+    });
+    
+    const statWorked = document.getElementById('modal-stat-worked-shifts');
+    const statVp = document.getElementById('modal-stat-vp-shifts');
+    const statVdx = document.getElementById('modal-stat-vdx-shifts');
+    const statVkp = document.getElementById('modal-stat-vkp-shifts');
+    const statLate = document.getElementById('modal-stat-late-shifts');
+    
+    if (statWorked) statWorked.innerText = `${workedShifts} ca`;
+    if (statVp) statVp.innerText = `${vpShifts} ca`;
+    if (statVdx) statVdx.innerText = `${vdxShifts} ca`;
+    if (statVkp) statVkp.innerText = `${vkpShifts} ca`;
+    if (statLate) statLate.innerText = `${lateCount} lần (${totalLateMinutes} phút)`;
+    
+    const adjustVdxInp = document.getElementById('modal-adjust-vdx');
+    const adjustVkpInp = document.getElementById('modal-adjust-vkp');
+    const adjustLateInp = document.getElementById('modal-adjust-late');
+    
+    if (adjustVdxInp) adjustVdxInp.value = formatNumberWithCommas(roleSettings.adjust_vdx !== undefined ? roleSettings.adjust_vdx : 0);
+    if (adjustVkpInp) adjustVkpInp.value = formatNumberWithCommas(roleSettings.adjust_vkp !== undefined ? roleSettings.adjust_vkp : 0);
+    if (adjustLateInp) adjustLateInp.value = formatNumberWithCommas(roleSettings.adjust_late !== undefined ? roleSettings.adjust_late : 0);
+    
+    // 2. Populate Class Rates Table
+    const user = window.currentUserContext || {};
+    const cfg = user.salary_config || {};
+    const classRates = roleSettings.class_rates || cfg.class_rates || {};
+    
+    const groups = {};
+    (window.unfilteredAllMonthChips || []).forEach(chip => {
+        const name = chip.chipFilterName;
+        if (!name) return;
+        
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
+        if (window.modalActiveRole === 'giao-vien' && isTT) return;
+        
+        if (window.modalActiveRole === 'tiep-tan') {
+            if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                chip.mergedSegments.forEach(seg => {
+                    const groupName = seg.isFixedShift ? "Tiếp Tân (Ca Cố Định)" : "Tiếp Tân (Ca Bình Thường)";
+                    const segMins = seg.schedMinutes || 0;
+                    if (!groups[groupName]) {
+                        groups[groupName] = {
+                            name: groupName,
+                            chips: [],
+                            totalMinutes: 0
+                        };
+                    }
+                    groups[groupName].chips.push(chip);
+                    groups[groupName].totalMinutes += segMins;
+                });
+            } else {
+                const groupName = chip.isFixedShift ? "Tiếp Tân (Ca Cố Định)" : "Tiếp Tân (Ca Bình Thường)";
+                const mins = chip.paidMinutes || 0;
+                if (!groups[groupName]) {
+                    groups[groupName] = {
+                        name: groupName,
+                        chips: [],
+                        totalMinutes: 0
+                    };
+                }
+                groups[groupName].chips.push(chip);
+                groups[groupName].totalMinutes += mins;
+            }
+        } else {
+            if (!groups[name]) {
+                groups[name] = {
+                    name: name,
+                    chips: [],
+                    totalMinutes: 0
+                };
+            }
+            groups[name].chips.push(chip);
+            groups[name].totalMinutes += (chip.paidMinutes || 0);
+        }
+    });
+    
+    const tableBody = document.getElementById('class-rate-table-body');
+    if (tableBody) {
+        tableBody.innerHTML = '';
+        
+        let grandTotalMinutes = 0;
+        let grandTotalSalary = 0;
+        
+        const groupKeys = Object.keys(groups).sort();
+        if (groupKeys.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Không có lớp hoặc ca làm việc nào trong tháng này.</td></tr>';
+        } else {
+            groupKeys.forEach(name => {
+                const group = groups[name];
+                const mins = group.totalMinutes;
+                grandTotalMinutes += mins;
+                
+                let prefillRate = 0;
+                if (classRates[name] !== undefined && Number(classRates[name]) > 0) {
+                    prefillRate = Number(classRates[name]);
+                } else {
+                    const isTT = name.startsWith('Tiếp Tân');
+                    if (isTT) {
+                        if (name.includes('Cố Định')) {
+                            prefillRate = Number(cfg.receptionist_fixed_rate || 0);
+                        } else {
+                            prefillRate = Number(cfg.receptionist_normal_rate || 0);
+                        }
+                    } else {
+                        const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                        prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                    }
+                }
+                
+                const hours = mins / 60;
+                const amount = hours * prefillRate;
+                grandTotalSalary += amount;
+                
+                const h = Math.floor(mins / 60);
+                const m = Math.floor(mins % 60);
+                const timeStr = `${h}h${m > 0 ? ' ' + m + 'p' : ''}`;
+                
+                const row = document.createElement('tr');
+                row.style.borderBottom = '1px solid #E5E7EB';
+                row.innerHTML = `
+                    <td style="padding: 0.75rem 1rem; font-weight: 500; color: #374151;">${name}</td>
+                    <td style="padding: 0.75rem 1rem; text-align: center; color: #4B5563;">${timeStr}</td>
+                    <td style="padding: 0.5rem 1rem; text-align: right;">
+                        <input type="text" class="class-rate-input table-input money-input" 
+                            data-name="${name.replace(/"/g, '&quot;')}" 
+                            data-minutes="${mins}"
+                            value="${formatNumberWithCommas(prefillRate)}" 
+                            oninput="recalculateSalaryModal()"
+                            style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px 8px; font-weight: 600;">
+                    </td>
+                    <td class="class-row-total" style="padding: 0.75rem 1rem; text-align: right; font-weight: 700; color: #111827;">
+                        ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount)}
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+        
+        // Add Totals Row
+        const totalsRow = document.createElement('tr');
+        totalsRow.style.background = '#F9FAFB';
+        totalsRow.style.fontWeight = '700';
+        totalsRow.style.borderTop = '2px solid #D1D5DB';
+        
+        const grandH = Math.floor(grandTotalMinutes / 60);
+        const grandM = Math.floor(grandTotalMinutes % 60);
+        const grandTimeStr = `${grandH}h${grandM > 0 ? ' ' + grandM + 'p' : ''}`;
+        
+        totalsRow.innerHTML = `
+            <td style="padding: 0.75rem 1rem; color: #111827;">Tổng Cộng</td>
+            <td style="padding: 0.75rem 1rem; text-align: center; color: #111827;" id="class-rate-total-hours">${grandTimeStr}</td>
+            <td style="padding: 0.75rem 1rem;"></td>
+            <td style="padding: 0.75rem 1rem; text-align: right; color: #4338CA; font-size: 1rem;" id="class-rate-total-salary">
+                ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(grandTotalSalary)}
+            </td>
+        `;
+        tableBody.appendChild(totalsRow);
+    }
+    
+    // 3. Advance & Evaluations Grid
+    const modalAdvanceInp = document.getElementById('modal-salary-advance');
+    if (modalAdvanceInp) modalAdvanceInp.value = formatNumberWithCommas(roleSettings.advance !== undefined ? roleSettings.advance : 0);
+    
+    const evalTableBody = document.getElementById('modal-eval-table-body');
+    if (evalTableBody) {
+        evalTableBody.innerHTML = '';
+        
+        EVALUATION_CRITERIA.forEach((item, index) => {
+            const saved = (roleSettings.evaluation || []).find(e => e.id === index) || {};
+            const amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
+            const noteVal = saved.note || '';
+            
+            const row = document.createElement('tr');
+            row.style.borderBottom = '1px solid #E5E7EB';
+            row.innerHTML = `
+                <td style="padding: 0.5rem; font-weight: 500; color: #374151;">
+                    ${item.label}. ${item.tooltip}
+                </td>
+                <td style="padding: 0.25rem 0.5rem; text-align: right;">
+                    <input type="text" class="modal-eval-amount table-input money-input" 
+                        data-index="${index}" 
+                        value="${formatNumberWithCommas(amountVal)}" 
+                        style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;"
+                        oninput="recalculateSalaryModal()">
+                </td>
+                <td style="padding: 0.25rem 0.5rem;">
+                    <input type="text" class="modal-eval-note table-input" 
+                        data-index="${index}" 
+                        value="${noteVal.replace(/"/g, '&quot;')}" 
+                        placeholder="${item.template || 'Nhập ghi chú...'}" 
+                        style="width: 100%; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-size: 0.8rem;">
+                </td>
+            `;
+            evalTableBody.appendChild(row);
+        });
+    }
+    
+    bindMoneyInputFormatters();
+    recalculateSalaryModal();
+}
+
+function recalculateSalaryModal() {
+    let basePay = 0;
+    
+    const classRateInputs = document.querySelectorAll('.class-rate-input');
+    classRateInputs.forEach(input => {
+        const mins = Number(input.dataset.minutes || 0);
+        const rate = parseFormattedNumber(input.value);
+        const amount = (mins / 60) * rate;
+        basePay += amount;
+        
+        const row = input.closest('tr');
+        if (row) {
+            const totalCell = row.querySelector('.class-row-total');
+            if (totalCell) {
+                totalCell.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+            }
+        }
+    });
+    
+    const classRateTotalCell = document.getElementById('class-rate-total-salary');
+    if (classRateTotalCell) {
+        classRateTotalCell.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(basePay);
+    }
+    
+    let criteriaPay = 0;
+    const evalAmountInputs = document.querySelectorAll('.modal-eval-amount');
+    evalAmountInputs.forEach(input => {
+        const amt = parseFormattedNumber(input.value);
+        criteriaPay += amt;
+    });
+    
+    const penaltyVDX = parseFormattedNumber(document.getElementById('modal-adjust-vdx')?.value || '0');
+    const penaltyVKP = parseFormattedNumber(document.getElementById('modal-adjust-vkp')?.value || '0');
+    const penaltyLate = parseFormattedNumber(document.getElementById('modal-adjust-late')?.value || '0');
+    const advance = parseFormattedNumber(document.getElementById('modal-salary-advance')?.value || '0');
+    
+    const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
+    const netPay = basePay + criteriaPay + attendanceAdjustments - advance;
+    
+    const displayCell = document.getElementById('modal-final-salary-display');
+    if (displayCell) {
+        displayCell.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(netPay);
+    }
+}
+
+async function saveSalarySettingsFromModal() {
+    const staffId = getTargetStaffId();
+    if (!staffId || staffId === 'all') return;
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    const classRates = {};
+    const classRateInputs = document.querySelectorAll('.class-rate-input');
+    classRateInputs.forEach(input => {
+        const name = input.dataset.name;
+        const rate = parseFormattedNumber(input.value);
+        if (name) {
+            classRates[name] = rate;
+        }
+    });
+    
+    const evaluationData = [];
+    document.querySelectorAll('.modal-eval-note').forEach(noteInp => {
+        const index = parseInt(noteInp.dataset.index, 10);
+        const amountInp = document.querySelector(`.modal-eval-amount[data-index="${index}"]`);
+        evaluationData.push({
+            id: index,
+            note: noteInp.value,
+            amount: parseFormattedNumber(amountInp?.value || '0')
+        });
+    });
+    
+    const adjustVDX = parseFormattedNumber(document.getElementById('modal-adjust-vdx')?.value || '0');
+    const adjustVKP = parseFormattedNumber(document.getElementById('modal-adjust-vkp')?.value || '0');
+    const adjustLate = parseFormattedNumber(document.getElementById('modal-adjust-late')?.value || '0');
+    const advance = parseFormattedNumber(document.getElementById('modal-salary-advance')?.value || '0');
+    
+    const settingsObj = {
+        class_rates: classRates,
+        evaluation: evaluationData,
+        adjust_vdx: adjustVDX,
+        adjust_vkp: adjustVKP,
+        adjust_late: adjustLate,
+        advance: advance
+    };
+    
+    try {
+        const firestorePayload = {};
+        const roleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
+        firestorePayload[roleKey] = settingsObj;
+        
+        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
+        
+        if (window.currentUserContext) {
+            if (!window.currentUserContext.salary_config) {
+                window.currentUserContext.salary_config = {};
+            }
+            window.currentUserContext.salary_config.class_rates = classRates;
+            window.currentUserContext.salary_config.evaluation = evaluationData;
+        }
+        
+        window.currentLoadedSalarySettings = settingsObj;
+        
+        UIService.toast('Đã lưu bảng lương và tính thành công!', 'success');
+        closeClassRateModal();
+        calculateSalary();
+    } catch (e) {
+        console.error('Error saving salary settings:', e);
+        UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
+    }
+}
+
+async function toggleModalCalculationRole(role) {
+    window.modalActiveRole = role;
+    
+    const btnGv = document.getElementById('btn-modal-role-gv');
+    const btnTt = document.getElementById('btn-modal-role-tt');
+    
+    if (btnGv && btnTt) {
+        if (role === 'giao-vien') {
+            btnGv.style.background = '#4338CA';
+            btnGv.style.color = 'white';
+            btnTt.style.background = 'white';
+            btnTt.style.color = '#374151';
+            btnTt.style.border = '1px solid #D1D5DB';
+        } else {
+            btnTt.style.background = '#4338CA';
+            btnTt.style.color = 'white';
+            btnGv.style.background = 'white';
+            btnGv.style.color = '#374151';
+            btnGv.style.border = '1px solid #D1D5DB';
+        }
+    }
+    
+    const tabCurrent = document.getElementById('salary-modal-tab-content-current');
+    if (tabCurrent && tabCurrent.style.display !== 'none') {
+        await populateModalCurrentTab();
+    } else {
+        const staffId = getTargetStaffId();
+        const prevDate = new Date(currentDate);
+        prevDate.setMonth(prevDate.getMonth() - 1);
+        const prevYear = prevDate.getFullYear();
+        const prevMonth = prevDate.getMonth();
+        const prevMonthStr = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}`;
+        await loadPreviousMonthHistory(staffId, prevMonthStr, window.currentUserContext);
+    }
+}
+
+async function switchSalaryModalTab(tab) {
+    const tabCurrent = document.getElementById('salary-modal-tab-content-current');
+    const tabHistory = document.getElementById('salary-modal-tab-content-history');
+    
+    const btnCurrent = document.getElementById('btn-salary-tab-current');
+    const btnHistory = document.getElementById('btn-salary-tab-history');
+    
+    if (tab === 'current') {
+        if (tabCurrent) tabCurrent.style.display = 'block';
+        if (tabHistory) tabHistory.style.display = 'none';
+        
+        if (btnCurrent) {
+            btnCurrent.style.borderBottomColor = '#4338CA';
+            btnCurrent.style.color = '#4338CA';
+            btnCurrent.style.fontWeight = '700';
+        }
+        if (btnHistory) {
+            btnHistory.style.borderBottomColor = 'transparent';
+            btnHistory.style.color = '#6B7280';
+            btnHistory.style.fontWeight = '600';
+        }
+        
+        await populateModalCurrentTab();
+    } else {
+        if (tabCurrent) tabCurrent.style.display = 'none';
+        if (tabHistory) tabHistory.style.display = 'block';
+        
+        if (btnHistory) {
+            btnHistory.style.borderBottomColor = '#4338CA';
+            btnHistory.style.color = '#4338CA';
+            btnHistory.style.fontWeight = '700';
+        }
+        if (btnCurrent) {
+            btnCurrent.style.borderBottomColor = 'transparent';
+            btnCurrent.style.color = '#6B7280';
+            btnCurrent.style.fontWeight = '600';
+        }
+        
+        const staffId = getTargetStaffId();
+        const prevDate = new Date(currentDate);
+        prevDate.setMonth(prevDate.getMonth() - 1);
+        const prevYear = prevDate.getFullYear();
+        const prevMonth = prevDate.getMonth();
+        const prevMonthStr = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}`;
+        
+        await loadPreviousMonthHistory(staffId, prevMonthStr, window.currentUserContext);
+    }
+}
+
+async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
+    const historyContainer = document.getElementById('modal-history-content');
+    const loadingEl = document.getElementById('modal-history-loading');
+    
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (historyContainer) historyContainer.style.display = 'none';
+    
+    try {
+        const [prevYearStr, prevMonthNumStr] = prevMonthStr.split('-');
+        const prevYear = parseInt(prevYearStr, 10);
+        const prevMonth = parseInt(prevMonthNumStr, 10) - 1; // 0-indexed
+        
+        const prevNotes = await DBService.getDailyNotes(staffId);
+        const cancelledShifts = await DBService.getCancelledShifts(prevMonthStr, staffId);
+        const savedFixedShifts = await DBService.getFixedShifts(prevMonthStr, staffId);
+        const attendanceRecords = await DBService.getMonthlyAttendance(prevMonthStr, staffId);
+        const receptionistShifts = await DBService.getMonthlyReceptionistShifts(prevMonthStr, staffId);
+        const overtimeRecords = await DBService.getMonthlyOvertimeRequests(prevMonthStr, staffId);
+        const bonus10Records = await DBService.getMonthlyBonus10Requests(prevMonthStr, staffId);
+        const scheduleMap = await DBService.getMonthlySchedule(prevMonthStr);
+        
+        const attendanceMap = {};
+        attendanceRecords.forEach(rec => {
+            if (rec.id && rec.sessions) attendanceMap[rec.id] = rec.sessions;
+        });
+        
+        const receptionistShiftsMap = {};
+        receptionistShifts.forEach(rec => {
+            if (rec.id && rec.shifts) receptionistShiftsMap[rec.id] = rec.shifts;
+        });
+        
+        const overtimeDateMap = {};
+        overtimeRecords.forEach(req => {
+            if (req.dateKey && req.status === 'approved') {
+                if (!overtimeDateMap[req.dateKey]) overtimeDateMap[req.dateKey] = {};
+                overtimeDateMap[req.dateKey][req.sessionId] = req;
+            }
+        });
+        
+        const bonus10Map = {};
+        bonus10Records.forEach(req => {
+            if (req.dateKey && req.status === 'approved') {
+                if (!bonus10Map[req.dateKey]) bonus10Map[req.dateKey] = {};
+                bonus10Map[req.dateKey][req.sessionId] = req;
+            }
+        });
+        
+        const daysInMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+        const prevChips = [];
+        
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const dailySchedule = scheduleMap[dateStr] || {};
+            const dailyAttendance = attendanceMap[dateStr] || [];
+            const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
+            
+            const chips = calculateDailyChips(
+                dailySchedule,
+                dailyAttendance,
+                staffId,
+                dateStr,
+                user,
+                dailyReceptionistShifts,
+                overtimeDateMap[dateStr] || {},
+                cancelledShifts,
+                bonus10Map
+            );
+            
+            chips.forEach(c => {
+                c.dateStr = dateStr;
+                prevChips.push(c);
+            });
+        }
+        
+        const prevMonthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, prevMonthStr);
+        const prevRoleSettings = prevMonthlySettingsAll[window.modalActiveRole] || prevMonthlySettingsAll[window.modalActiveRole.replace('-', '_')] || {};
+        
+        let workedShifts = 0;
+        let vpShifts = 0;
+        let vdxShifts = 0;
+        let vkpShifts = 0;
+        let lateCount = 0;
+        let totalLateMinutes = 0;
+        
+        prevChips.forEach(chip => {
+            if (chip.class === 'chip-future') return;
+            
+            const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
+            if (window.modalActiveRole === 'giao-vien' && isTT) return;
+            
+            if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+                const type = classifyAbsentChip(chip, prevNotes);
+                if (type === 'VP') vpShifts++;
+                else if (type === 'VDX') vdxShifts++;
+                else vkpShifts++;
+            } else {
+                workedShifts++;
+            }
+            
+            const match = chip.text.match(/\(T(\d+)p\)/);
+            if (match) {
+                lateCount++;
+                totalLateMinutes += parseInt(match[1], 10);
+            }
+        });
+        
+        const classRates = prevRoleSettings.class_rates || user.salary_config?.class_rates || {};
+        const groups = {};
+        prevChips.forEach(chip => {
+            const name = chip.chipFilterName;
+            if (!name) return;
+            
+            const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
+            if (window.modalActiveRole === 'giao-vien' && isTT) return;
+            
+            if (window.modalActiveRole === 'tiep-tan') {
+                if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                    chip.mergedSegments.forEach(seg => {
+                        const groupName = seg.isFixedShift ? "Tiếp Tân (Ca Cố Định)" : "Tiếp Tân (Ca Bình Thường)";
+                        const segMins = seg.schedMinutes || 0;
+                        if (!groups[groupName]) {
+                            groups[groupName] = { name: groupName, chips: [], totalMinutes: 0 };
+                        }
+                        groups[groupName].chips.push(chip);
+                        groups[groupName].totalMinutes += segMins;
+                    });
+                } else {
+                    const groupName = chip.isFixedShift ? "Tiếp Tân (Ca Cố Định)" : "Tiếp Tân (Ca Bình Thường)";
+                    const mins = chip.paidMinutes || 0;
+                    if (!groups[groupName]) {
+                        groups[groupName] = { name: groupName, chips: [], totalMinutes: 0 };
+                    }
+                    groups[groupName].chips.push(chip);
+                    groups[groupName].totalMinutes += mins;
+                }
+            } else {
+                if (!groups[name]) {
+                    groups[name] = { name: name, chips: [], totalMinutes: 0 };
+                }
+                groups[name].chips.push(chip);
+                groups[name].totalMinutes += (chip.paidMinutes || 0);
+            }
+        });
+        
+        let basePay = 0;
+        let classRatesRowsHtml = '';
+        const groupKeys = Object.keys(groups).sort();
+        
+        if (groupKeys.length === 0) {
+            classRatesRowsHtml = '<tr><td colspan="4" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Không có lớp hoặc ca làm việc nào.</td></tr>';
+        } else {
+            groupKeys.forEach(name => {
+                const group = groups[name];
+                const mins = group.totalMinutes;
+                
+                let rate = 0;
+                if (classRates[name] !== undefined && Number(classRates[name]) > 0) {
+                    rate = Number(classRates[name]);
+                } else {
+                    const isTT = name.startsWith('Tiếp Tân');
+                    if (isTT) {
+                        if (name.includes('Cố Định')) {
+                            rate = Number(user.salary_config?.receptionist_fixed_rate || 0);
+                        } else {
+                            rate = Number(user.salary_config?.receptionist_normal_rate || 0);
+                        }
+                    } else {
+                        const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                        rate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                    }
+                }
+                
+                const hours = mins / 60;
+                const amt = hours * rate;
+                basePay += amt;
+                
+                const h = Math.floor(mins / 60);
+                const m = Math.floor(mins % 60);
+                const timeStr = `${h}h${m > 0 ? ' ' + m + 'p' : ''}`;
+                
+                classRatesRowsHtml += `
+                    <tr style="border-bottom: 1px solid #E5E7EB;">
+                        <td style="padding: 0.65rem 1rem; font-weight: 500; color: #374151;">${name}</td>
+                        <td style="padding: 0.65rem 1rem; text-align: center; color: #4B5563;">${timeStr}</td>
+                        <td style="padding: 0.65rem 1rem; text-align: right; font-weight: 600; color: #374151;">${formatNumberWithCommas(rate)} ₫</td>
+                        <td style="padding: 0.65rem 1rem; text-align: right; font-weight: 700; color: #111827;">${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amt)}</td>
+                    </tr>
+                `;
+            });
+        }
+        
+        const grandH = Math.floor(prevChips.reduce((acc, c) => {
+            const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+            if (window.modalActiveRole === 'tiep-tan' && !isTT) return acc;
+            if (window.modalActiveRole === 'giao-vien' && isTT) return acc;
+            return acc + (c.paidMinutes || 0);
+        }, 0) / 60);
+        const grandM = Math.floor(prevChips.reduce((acc, c) => {
+            const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+            if (window.modalActiveRole === 'tiep-tan' && !isTT) return acc;
+            if (window.modalActiveRole === 'giao-vien' && isTT) return acc;
+            return acc + (c.paidMinutes || 0);
+        }, 0) % 60);
+        const grandTimeStr = `${grandH}h${grandM > 0 ? ' ' + grandM + 'p' : ''}`;
+        
+        let criteriaPay = 0;
+        let criteriaRowsHtml = '';
+        EVALUATION_CRITERIA.forEach((item, index) => {
+            const saved = (prevRoleSettings.evaluation || []).find(e => e.id === index) || {};
+            const amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
+            const noteVal = saved.note || '';
+            criteriaPay += amountVal;
+            
+            criteriaRowsHtml += `
+                <tr style="border-bottom: 1px solid #E5E7EB;">
+                    <td style="padding: 0.5rem; font-weight: 500; color: #374151;">${item.label}. ${item.tooltip}</td>
+                    <td style="padding: 0.5rem; text-align: right; font-weight: 600; color: ${amountVal >= 0 ? '#059669' : '#DC2626'}">${formatNumberWithCommas(amountVal)} ₫</td>
+                    <td style="padding: 0.5rem; color: #4B5563; font-style: italic; font-size: 0.8rem;">${noteVal || '—'}</td>
+                </tr>
+            `;
+        });
+        
+        const pVDX = prevRoleSettings.adjust_vdx || 0;
+        const pVKP = prevRoleSettings.adjust_vkp || 0;
+        const pLate = prevRoleSettings.adjust_late || 0;
+        const adv = prevRoleSettings.advance || 0;
+        
+        const netPay = basePay + criteriaPay - pVDX - pVKP - pLate - adv;
+        
+        if (historyContainer) {
+            historyContainer.innerHTML = `
+                <div style="margin-bottom: 1rem; font-size: 1.1rem; font-weight: 700; color: #1E3A8A; border-bottom: 2px solid #E5E7EB; padding-bottom: 0.5rem;">
+                    Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Đã Lưu)
+                </div>
+                
+                <div style="margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #E5E7EB; border-radius: 12px; background: #F9FAFB; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem; color: #374151;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #E5E7EB; padding-bottom: 2px;">
+                            <span>Tổng số ca đi làm:</span> <strong>${workedShifts} ca</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #E5E7EB; padding-bottom: 2px;">
+                            <span>Vắng có phép (VP):</span> <strong>${vpShifts} ca</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #E5E7EB; padding-bottom: 2px;">
+                            <span>Vắng đột xuất (VDX):</span> <strong style="color: #D97706;">${vdxShifts} ca</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #E5E7EB; padding-bottom: 2px;">
+                            <span>Vắng không phép (VKP):</span> <strong style="color: #DC2626;">${vkpShifts} ca</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed #E5E7EB; padding-bottom: 2px;">
+                            <span>Trễ giờ ca làm:</span> <strong style="color: #EF4444;">${lateCount} lần (${totalLateMinutes} phút)</strong>
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; justify-content: center; font-size: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Phạt Vắng đột xuất:</span> <strong>${formatNumberWithCommas(pVDX)} ₫</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Phạt Vắng không phép:</span> <strong>${formatNumberWithCommas(pVKP)} ₫</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Phạt Đi trễ:</span> <strong>${formatNumberWithCommas(pLate)} ₫</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 1.5rem; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #F3F4F6; border-bottom: 2px solid #E5E7EB; color: #374151; font-weight: 700;">
+                                <th style="padding: 0.65rem 1rem;">Lớp / Ca</th>
+                                <th style="padding: 0.65rem 1rem; text-align: center; width: 110px;">Tổng Số Giờ</th>
+                                <th style="padding: 0.65rem 1rem; text-align: right; width: 140px;">Lương / Giờ</th>
+                                <th style="padding: 0.65rem 1rem; text-align: right; width: 140px;">Thành Tiền</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${classRatesRowsHtml}
+                            <tr style="background: #F9FAFB; font-weight: 700; border-top: 2px solid #D1D5DB;">
+                                <td style="padding: 0.75rem 1rem; color: #111827;">Tổng Cộng</td>
+                                <td style="padding: 0.75rem 1rem; text-align: center; color: #111827;">${grandTimeStr}</td>
+                                <td style="padding: 0.75rem 1rem;"></td>
+                                <td style="padding: 0.75rem 1rem; text-align: right; color: #4338CA; font-size: 1rem;">${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(basePay)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="border: 1px solid #E5E7EB; border-radius: 12px; padding: 1rem; background: #FAFBFD; margin-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid #E5E7EB; padding-bottom: 0.5rem; font-size: 0.9rem;">
+                        <span style="font-weight: 700; color: #111827;">Tạm Ứng:</span>
+                        <strong style="color: #DC2626;">${formatNumberWithCommas(adv)} ₫</strong>
+                    </div>
+                    <div style="max-height: 250px; overflow-y: auto; padding-right: 4px;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid #E5E7EB; color: #4B5563; font-weight: 700;">
+                                    <th style="padding: 0.35rem 0.5rem;">Tiêu Chí Xét</th>
+                                    <th style="padding: 0.35rem 0.5rem; text-align: right; width: 140px;">Thưởng / Phạt</th>
+                                    <th style="padding: 0.35rem 0.5rem; width: 280px;">Ghi Chú Chi Tiết</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${criteriaRowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 1.5rem; padding: 1rem; border-radius: 12px; background: #ECFDF5; border: 1px solid #A7F3D0; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; color: #065F46; font-size: 1rem;">THỰC LĨNH THÁNG TRƯỚC:</span>
+                    <strong style="font-size: 1.4rem; color: #047857;">${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(netPay)}</strong>
+                </div>
+            `;
+        }
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (historyContainer) historyContainer.style.display = 'block';
+    } catch (e) {
+        console.error("Error loading previous month history:", e);
+        if (loadingEl) loadingEl.innerText = "Lỗi khi tải lịch sử lương tháng trước: " + e.message;
+    }
+}
+
+function exportSalaryPDFFromModal() {
+    const advance = parseFormattedNumber(document.getElementById('modal-salary-advance')?.value || '0');
+    const penaltyVDX = parseFormattedNumber(document.getElementById('modal-adjust-vdx')?.value || '0');
+    const penaltyVKP = parseFormattedNumber(document.getElementById('modal-adjust-vkp')?.value || '0');
+    const penaltyLate = parseFormattedNumber(document.getElementById('modal-adjust-late')?.value || '0');
+    
+    const evaluationData = [];
+    document.querySelectorAll('.modal-eval-note').forEach(noteInp => {
+        const index = parseInt(noteInp.dataset.index, 10);
+        const amountInp = document.querySelector(`.modal-eval-amount[data-index="${index}"]`);
+        const item = EVALUATION_CRITERIA[index];
+        evaluationData.push({
+            label: item.label,
+            title: item.tooltip,
+            note: noteInp.value,
+            amount: parseFormattedNumber(amountInp?.value || '0')
+        });
+    });
+    
+    exportSalaryPDF({
+        customAdvance: advance,
+        customEvalItems: evaluationData,
+        customPenalties: {
+            vdx: penaltyVDX,
+            vkp: penaltyVKP,
+            late: penaltyLate
+        }
+    });
+}
+
+// Expose modal handlers to window scope
+window.openClassRateModal = openClassRateModal;
+window.closeClassRateModal = closeClassRateModal;
+window.recalculateSalaryModal = recalculateSalaryModal;
+window.saveSalarySettingsFromModal = saveSalarySettingsFromModal;
+window.toggleModalCalculationRole = toggleModalCalculationRole;
+window.switchSalaryModalTab = switchSalaryModalTab;
+window.exportSalaryPDFFromModal = exportSalaryPDFFromModal;
+

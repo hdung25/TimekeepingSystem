@@ -11,48 +11,44 @@ function togglePdfTieptanInputs() {
 }
 window.togglePdfTieptanInputs = togglePdfTieptanInputs;
 
-function exportSalaryPDF() {
+function exportSalaryPDF(overrides) {
     // 1. Get Data
     const staffSelect = document.getElementById('staff-select');
     const staffId = staffSelect.value;
     const staffName = staffSelect.options[staffSelect.selectedIndex].text.split('(')[0].trim();
     if (staffId === 'all') { alert("Vui lòng chọn nhân viên để xuất file"); return; }
 
-    // const rate = parseFloat(document.getElementById('salary-rate').value) || 0; // Removed
     const rate = 0; // Legacy logic removal
-    const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
+    
+    // Read values either from overrides (Modal) or fallbacks (Main screen)
+    const advance = overrides && overrides.customAdvance !== undefined
+        ? overrides.customAdvance
+        : (parseFloat(document.getElementById('salary-advance')?.value) || 0);
 
-    // Evaluation Items
     let totalBonus = 0;
-    const evalItems = [];
-    document.querySelectorAll('.eval-amount').forEach((inp, idx) => {
-        const val = parseFloat(inp.value) || 0;
-        totalBonus += val;
-        // Find saved note
-        const noteInp = document.querySelector(`.eval-note[data-index="${idx}"]`);
-        const item = EVALUATION_CRITERIA[idx];
-
-        let displayNote = '';
-        // If template exists and not much note, show template? Or show saved note? 
-        // User form shows specific text like "Vắng phép: 0...". 
-        // We will assume the Note input contains this text if edited, or empty.
-        // If user didn't edit note, we might want to show default template if available?
-        // Let's rely on what's in the note field (user should fill it).
-        // Fallback: if note is empty, show template (if any)
-
-        /// ACTUALLY: User form has specific text. The User should input this into the Note field using the Edit 📝 button.
-        displayNote = noteInp.value || item.template || '';
-
-        evalItems.push({
-            label: item.label,
-            title: item.tooltip,
-            note: displayNote,
-            amount: val
+    let evalItems = [];
+    
+    if (overrides && overrides.customEvalItems) {
+        evalItems = overrides.customEvalItems;
+        totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
+    } else {
+        document.querySelectorAll('.eval-amount').forEach((inp, idx) => {
+            const val = parseFloat(inp.value) || 0;
+            totalBonus += val;
+            const noteInp = document.querySelector(`.eval-note[data-index="${idx}"]`);
+            const item = EVALUATION_CRITERIA[idx];
+            const displayNote = noteInp ? noteInp.value : '';
+            
+            evalItems.push({
+                label: item.label,
+                title: item.tooltip,
+                note: displayNote,
+                amount: val
+            });
         });
-    });
+    }
 
-    // --- FIX: Use Filtered Data for PDF ---
-    // Ensure data is fresh
+    // Refresh and recalculate base salary matching active filters
     calculateSalary();
 
     const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
@@ -62,7 +58,6 @@ function exportSalaryPDF() {
     let normalSalary = 0;
     let fixedSalary = 0;
 
-    // Recalculate filtered minutes matching calculateSalary logic
     chips.forEach(chip => {
         const isReceptionistChip = chip.isReceptionist === true;
         if (!chip.sessionData && !isReceptionistChip) return;
@@ -97,19 +92,32 @@ function exportSalaryPDF() {
 
         if (include) {
             const minutes = chip.paidMinutes || 0;
-            let rate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
             
+            let rate = 0;
+            let hasClassRate = false;
+            const cfg = window.currentUserContext?.salary_config || {};
+            const classRates = cfg.class_rates || {};
+            
+            if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                rate = Number(classRates[chip.chipFilterName]);
+                hasClassRate = true;
+            }
+
             let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
             let isFixed = false;
             
-            if (window.currentUserContext && window.currentUserContext.salary_config) {
-                 const cfg = window.currentUserContext.salary_config;
-                 if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
-                     rate = Number(cfg.receptionist_fixed_rate);
-                     isFixed = true;
-                 } else if (isTiepTan && cfg.receptionist_normal_rate) {
-                     rate = Number(cfg.receptionist_normal_rate);
-                 }
+            if (!hasClassRate) {
+                if (chip.sessionData && chip.sessionData.roleRate) {
+                    rate = Number(chip.sessionData.roleRate);
+                }
+                if (window.currentUserContext && window.currentUserContext.salary_config) {
+                     if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
+                         rate = Number(cfg.receptionist_fixed_rate);
+                         isFixed = true;
+                     } else if (isTiepTan && cfg.receptionist_normal_rate) {
+                         rate = Number(cfg.receptionist_normal_rate);
+                     }
+                }
             }
 
             if (isFixed) {
@@ -123,8 +131,20 @@ function exportSalaryPDF() {
     });
 
     const filteredMinutes = normalMinutes + fixedMinutes;
-    const baseSalary = normalSalary + fixedSalary; // Recalculated accurately to match window.currentMonthSalary
-    const initialTotal = baseSalary + totalBonus;
+    const baseSalary = normalSalary + fixedSalary;
+
+    // Apply custom attendance adjustments (penalties) if provided
+    let penaltyVDX = 0;
+    let penaltyVKP = 0;
+    let penaltyLate = 0;
+    if (overrides && overrides.customPenalties) {
+        penaltyVDX = overrides.customPenalties.vdx || 0;
+        penaltyVKP = overrides.customPenalties.vkp || 0;
+        penaltyLate = overrides.customPenalties.late || 0;
+    }
+
+    const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
+    const initialTotal = baseSalary + totalBonus + attendanceAdjustments;
     const finalNet = initialTotal - advance;
 
     const month = currentDate.getMonth() + 1;
@@ -178,12 +198,19 @@ function exportSalaryPDF() {
         const doanhThuCs3 = parseFloat(document.getElementById('pdf-doanh-thu-cs3')?.value) || 0;
 
         const totalExtras = phiTuVan + doanhThuTong + doanhThuCs2 + doanhThuCs3;
-        const totalI = baseSalary + totalExtras + totalBonus;
+        const totalI = baseSalary + totalExtras + totalBonus + attendanceAdjustments;
         const finalNetTT = totalI - advance;
 
-        // Tiêu chí I = CHUYÊN CẦN (index 0), II = TRÁCH NHIỆM (index 4)
         const criteriaI = evalItems[0];
         const criteriaV = evalItems[4];
+
+        // Format penalties to display if present
+        const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
+            ? `<tr>
+                <td class="bold">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td class="right" style="color:red;font-weight:bold;">${fmt(attendanceAdjustments)} ₫</td>
+               </tr>`
+            : '';
 
         tableHTML = `
         <table>
@@ -224,6 +251,7 @@ function exportSalaryPDF() {
                 <td class="bold">PHÁT SINH (I) + (II)</td>
                 <td class="right">${fmt(totalBonus)}</td>
             </tr>
+            ${penaltiesHtml}
             <tr>
                 <td>
                     <table style="width:100%;border:none;">
@@ -232,8 +260,6 @@ function exportSalaryPDF() {
                             <td style="border:none;">
                                 <div style="margin-bottom:8px;">
                                     <strong>(I) CHUYÊN CẦN</strong><br>
-                                    Vắng phép: &nbsp;&nbsp;&nbsp;&nbsp; Vắng đột xuất:<br>
-                                    Vắng không phép: &nbsp;&nbsp; Trễ: &nbsp;&nbsp; giờ<br>
                                     ${criteriaI?.note ? `<em>${criteriaI.note}</em>` : ''}
                                 </div>
                                 <div>
@@ -261,19 +287,23 @@ function exportSalaryPDF() {
         </table>`;
 
     } else {
-        // FORM GIÁO VIÊN — giữ nguyên table hiện tại
+        const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
+            ? `<tr>
+                <td class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN (Phạt Vắng/Trễ):</td>
+                <td class="bold right" style="color:red;">${fmt(attendanceAdjustments)} ₫</td>
+               </tr>`
+            : '';
+
         tableHTML = `
         <div style="margin-bottom: 15px;">
             Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
         </div>
         <table>
-            <!-- TOTAL SALARY ROW -->
             <tr>
                 <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
                 <td class="bold red-text right">${fmt(initialTotal)}</td>
             </tr>
 
-            <!-- HOURS & RATE -->
             <tr>
                 <td class="bold">
                     TỔNG SỐ GIỜ CƠ BẢN: ${Math.floor(normalMinutes / 60)} giờ ${Math.floor(normalMinutes % 60)} phút
@@ -295,21 +325,20 @@ function exportSalaryPDF() {
             </tr>
             ` : ''}
 
-            <!-- PLACEHOLDERS FOR SPECIFIC TYPES -->
             <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
             <tr><td>TỔNG SỐ GIỜ MẦM NON: giờ</td><td></td></tr>
             <tr><td>TỔNG SỐ GIỜ GTNL/TOEIC/IELTS: giờ</td><td></td></tr>
             <tr><td>TỔNG SỐ GIỜ LIÊN KẾT: giờ</td><td></td></tr>
             <tr><td>TỔNG SỐ GIỜ KÈM 1:1 TẠI NHÀ: giờ</td><td></td></tr>
             <tr><td>TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
+            
+            ${penaltiesHtml}
 
-            <!-- TOTAL BONUS ROW -->
             <tr>
                 <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
                 <td class="bold right">${fmt(totalBonus)}</td>
             </tr>
 
-            <!-- EVALUATION ITEMS Rows -->
             ${evalItems.map(item => `
                 <tr>
                     <td>
@@ -322,13 +351,11 @@ function exportSalaryPDF() {
                 </tr>
             `).join('')}
 
-            <!-- ADVANCE -->
             <tr>
                 <td class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
             </tr>
 
-            <!-- NET PAY -->
             <tr>
                 <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
                 <td class="bold red-text right">${fmt(finalNet)}</td>

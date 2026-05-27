@@ -117,6 +117,13 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isAdmin();
     }
 
+    // 9.1 Monthly Salary Settings (Firestore-synced)
+    // Admin reads/writes monthly salary config. Staff can read their own.
+    match /salary_settings_monthly/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
     // 10. Overtime Requests (Staff → Admin for approval)
     // Staff can create/read their own requests (staffId is a stored field, not path param)
     // Admin can read all, update (approve/reject)

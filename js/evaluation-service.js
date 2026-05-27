@@ -7,6 +7,26 @@
 //   - window.calculateDailyChips() — Merge schedule + attendance → chips[]
 //   - window.removeVietnameseTones() — Utility xử lý chuỗi tiếng Việt
 
+// ================= STRING NORMALIZATION UTILITY =================
+
+function normalizeChipFilterName(rawName) {
+    if (!rawName) return 'Dạy học';
+    let name = String(rawName).trim();
+    
+    // Replace multiple spaces with a single space
+    name = name.replace(/\s+/g, ' ');
+    
+    // Standardize parentheses spacing (e.g. "( Tin Học )" -> "(Tin Học)")
+    name = name.replace(/\(\s*/g, '(');
+    name = name.replace(/\s*\)/g, ')');
+    
+    // Convert to Title Case for casing differences (e.g. "(tin học)" -> "(Tin Học)")
+    name = name.toLowerCase().replace(/(^|\s)\S/g, L => L.toUpperCase());
+    
+    return name.trim();
+}
+window.normalizeChipFilterName = normalizeChipFilterName;
+
 // ================= EVALUATION CRITERIA (10 Tiêu Chí) =================
 
 const EVALUATION_CRITERIA = [
@@ -94,6 +114,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const chips = [];
     const usedSessionIds = new Set();
 
+    // Extract staff roles to determine receptionist vs teaching status
+    const staffRoles = currentUserContext
+        ? (Array.isArray(currentUserContext.roles) && currentUserContext.roles.length > 0
+            ? currentUserContext.roles
+            : [currentUserContext.role || ''])
+        : [];
+    const hasReceptionistRole = staffRoles.some(r => ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r));
+    const hasTeachingRole = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+
     // PRE-PROCESS: xây dựng mergeInfo cho các ca liên tiếp (end ca A = start ca B)
     // Không check cùng branch → hỗ trợ merge ca khác cơ sở
     // mergeInfo["secKey_idx"] = { mergedEnd: string, crossBranch: bool } → ca đầu chuỗi
@@ -174,6 +203,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     paidMinutes: 0,
                     isWarning: false,
                     isVDX: true,
+                    chipFilterName: normalizeChipFilterName(cls.lop),
                     tooltip: `Vắng đột xuất — GV thay thế: ${cls.gvThayThe || '?'}`
                 });
                 return;
@@ -431,6 +461,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     sessionData: matchedSession,
                     isClickable: isClickable,
                     isTeaching: true,
+                    chipFilterName: normalizeChipFilterName(cls.lop),
                     classStart: cls.start, // Store original class start for edit-match preservation
                     classEnd: cls.end,
                     classCompositeKey: cls._compositeKey || null,
@@ -464,6 +495,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         schedData: { start: cls.start, end: cls.end, lop: cls.lop, phong: cls.phong },
                         isClickable: false,
                         isTeaching: true,
+                        chipFilterName: normalizeChipFilterName(cls.lop),
                         classStart: cls.start,
                         classEnd: cls.end,
                         classCompositeKey: cls._compositeKey || null,
@@ -484,6 +516,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         isClickable: true,
                         isWarning: true,
                         isTeaching: true,
+                        chipFilterName: normalizeChipFilterName(cls.lop),
                         classStart: cls.start,
                         classEnd: cls.end,
                         classCompositeKey: cls._compositeKey || null,
@@ -737,6 +770,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 sessionData: matchedSession,
                 isClickable: isClickable,
                 isReceptionist: true,
+                chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                 classCompositeKey: compositeKeyLocal,
                 classSectionKey: rs.shift,
                 classIndex: dayKeyLocal,
@@ -768,6 +802,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     schedData: { start: rs.start, end: rs.end },
                     isClickable: false,
                     isReceptionist: true,
+                    chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
                     classIndex: dayKeyLocal,
@@ -784,6 +819,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isClickable: true,
                     isWarning: true,
                     isReceptionist: true,
+                    chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
                     classIndex: dayKeyLocal,
@@ -796,6 +832,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // 4. Handle Unmatched Sessions
     attendanceSessions.forEach(s => {
         if (!usedSessionIds.has(s.id)) {
+            // Auto-assign role to 'tiep-tan' if role is not set and staff is pure receptionist
+            if (!s.role && hasReceptionistRole && !hasTeachingRole) {
+                s.role = 'tiep-tan';
+                s.roleName = 'Tiếp Tân';
+                s._autoAssignedRole = true;
+            }
+
             const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
             let label = isAdminCreated ? 'Ca Thêm' : 'Ca Ngoài Lịch';
             let duration = 0;
@@ -961,6 +1004,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 }
             }
 
+            let unmatchedChipFilterName = 'Ca Ngoài Lịch';
+            let isChipReceptionist = false;
+            if (s.role) {
+                if (['tiep-tan', 'receptionist', 'receptionist_assistant'].includes(s.role)) {
+                    unmatchedChipFilterName = 'Tiếp Tân';
+                    isChipReceptionist = true;
+                } else {
+                    unmatchedChipFilterName = s.roleName || s.role;
+                }
+            } else if (isAdminCreated) {
+                unmatchedChipFilterName = 'Ca Thêm';
+            }
+
             chips.push({
                 text: label,
                 class: cssClass,
@@ -971,6 +1027,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 isClickable: isClickable,
                 isWarning: isUnmatchedWarning,
                 isAdminCreated: isAdminCreated,
+                isReceptionist: isChipReceptionist,
+                isTeaching: !isChipReceptionist,
+                chipFilterName: normalizeChipFilterName(unmatchedChipFilterName),
                 overtimeId: otIdU,
                 overtimePending: otPendingU,
                 overtimeMinutes: otMinutesU,

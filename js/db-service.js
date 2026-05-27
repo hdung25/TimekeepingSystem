@@ -970,9 +970,13 @@ const DBService = {
 
             // Update Role
             const session = data.sessions[index];
-            session.role = roleData.id;
-            session.roleName = roleData.name;
-            session.roleRate = roleData.rate; // Optional: Snapshot rate at time of locking? Yes, safer.
+            session.role = roleData.id || '';
+            session.roleName = roleData.name || '';
+            if (roleData.rate !== undefined && roleData.rate !== null) {
+                session.roleRate = roleData.rate;
+            } else if (session.roleRate !== undefined) {
+                delete session.roleRate;
+            }
 
             data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
             t.set(ref, data);
@@ -1429,6 +1433,37 @@ const DBService = {
             return true;
         } catch (e) {
             console.error('[SalarySettings] Error saving:', e);
+            throw e;
+        }
+    },
+
+    // Get monthly salary settings for a staff member and specific month
+    async getMonthlySalarySettings(staffId, monthStr) {
+        if (!staffId || staffId.trim() === '' || !monthStr) {
+            console.warn('[MonthlySalarySettings] staffId or monthStr is empty, skipping.');
+            return {};
+        }
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            const doc = await db.collection('salary_settings_monthly').doc(docId).get();
+            return doc.exists ? doc.data() : {};
+        } catch (e) {
+            console.error('[MonthlySalarySettings] Error getting:', e);
+            return {};
+        }
+    },
+
+    // Save monthly salary settings for a staff member and specific month
+    async saveMonthlySalarySettings(staffId, monthStr, settingsObj) {
+        if (!staffId || !monthStr) {
+            throw new Error('[MonthlySalarySettings] staffId and monthStr are required.');
+        }
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            await db.collection('salary_settings_monthly').doc(docId).set(settingsObj, { merge: true });
+            return true;
+        } catch (e) {
+            console.error('[MonthlySalarySettings] Error saving:', e);
             throw e;
         }
     },
