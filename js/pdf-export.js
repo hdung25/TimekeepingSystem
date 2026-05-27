@@ -48,10 +48,11 @@ function exportSalaryPDF(overrides) {
         });
     }
 
-    // Refresh and recalculate base salary matching active filters
     calculateSalary();
 
-    const filterType = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const filterType = overrides && overrides.customFilterType
+        ? overrides.customFilterType
+        : (document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all');
     const chips = window.currentMonthChips || [];
     let normalMinutes = 0;
     let fixedMinutes = 0;
@@ -65,8 +66,8 @@ function exportSalaryPDF(overrides) {
         if (filterType === 'all') {
             include = true;
         } else if (filterType === 'giao-vien') {
-            const roleId = chip.sessionData.role || '';
-            const nameRaw = (chip.sessionData.roleName || '').toLowerCase();
+            const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
+            const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
             const name = removeVietnameseTones(nameRaw);
             const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
             
@@ -79,8 +80,8 @@ function exportSalaryPDF(overrides) {
             if (isReceptionistChip) {
                 include = true;
             } else {
-                const roleId = chip.sessionData?.role || '';
-                const nameRaw = (chip.sessionData?.roleName || '').toLowerCase();
+                const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
+                const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
                 const name = removeVietnameseTones(nameRaw);
                 const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
 
@@ -95,15 +96,25 @@ function exportSalaryPDF(overrides) {
             
             let rate = 0;
             let hasClassRate = false;
+            
+            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const monthlyAll = window.currentMonthlySalarySettingsAll || {};
             const cfg = window.currentUserContext?.salary_config || {};
-            const classRates = cfg.class_rates || {};
+            
+            let classRates = {};
+            if (isTiepTan) {
+                const ttMonthly = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
+                classRates = ttMonthly.class_rates || cfg.class_rates || {};
+            } else {
+                const gvMonthly = monthlyAll['giao_vien'] || monthlyAll['giao-vien'] || {};
+                classRates = gvMonthly.class_rates || cfg.class_rates || {};
+            }
             
             if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
                 rate = Number(classRates[chip.chipFilterName]);
                 hasClassRate = true;
             }
 
-            let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
             let isFixed = false;
             
             if (!hasClassRate) {
@@ -111,11 +122,15 @@ function exportSalaryPDF(overrides) {
                     rate = Number(chip.sessionData.roleRate);
                 }
                 if (window.currentUserContext && window.currentUserContext.salary_config) {
-                     if (isTiepTan && chip.isFixedShift && cfg.receptionist_fixed_rate) {
-                         rate = Number(cfg.receptionist_fixed_rate);
-                         isFixed = true;
-                     } else if (isTiepTan && cfg.receptionist_normal_rate) {
-                         rate = Number(cfg.receptionist_normal_rate);
+                     if (isTiepTan) {
+                         let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
+                         let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                         if (chip.isFixedShift && fixedRate) {
+                             rate = fixedRate;
+                             isFixed = true;
+                         } else if (normalRate) {
+                             rate = normalRate;
+                         }
                      }
                 }
             }

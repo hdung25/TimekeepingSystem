@@ -1758,19 +1758,28 @@ function calculateSalary() {
                 const minutes = chip.paidMinutes || 0;
                 filteredMinutes += minutes;
 
-                // Priority: Class / Ca rate from salary_config.class_rates
+                // Priority: Class / Ca rate from monthly settings or salary_config.class_rates
                 let rate = 0;
                 let hasClassRate = false;
+                
+                const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                const monthlyAll = window.currentMonthlySalarySettingsAll || {};
                 const cfg = window.currentUserContext?.salary_config || {};
-                const classRates = cfg.class_rates || {};
+                
+                let classRates = {};
+                if (isTiepTan) {
+                    const ttMonthly = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
+                    classRates = ttMonthly.class_rates || cfg.class_rates || {};
+                } else {
+                    const gvMonthly = monthlyAll['giao_vien'] || monthlyAll['giao-vien'] || {};
+                    classRates = gvMonthly.class_rates || cfg.class_rates || {};
+                }
                 
                 if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
                     rate = Number(classRates[chip.chipFilterName]);
                     hasClassRate = true;
                 }
 
-                let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
-                
                 if (chip.mergedSegments && chip.mergedSegments.length > 0 && !isTiepTan) {
                     let remainingMinutes = minutes;
                     const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
@@ -1804,18 +1813,17 @@ function calculateSalary() {
                         filteredSalary += (minutes / 60) * rate;
                     } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                         let chipSalary = 0;
+                        let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
+                        let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                        
                         if (chip.mergedSegments && chip.mergedSegments.length > 0) {
                             chip.mergedSegments.forEach(seg => {
                                 const segMinutes = seg.schedMinutes || 0;
-                                const segRate = seg.isFixedShift
-                                    ? Number(cfg.receptionist_fixed_rate || 0)
-                                    : Number(cfg.receptionist_normal_rate || 0);
+                                const segRate = seg.isFixedShift ? fixedRate : normalRate;
                                 chipSalary += (segMinutes / 60) * segRate;
                             });
                         } else {
-                            const segRate = chip.isFixedShift
-                                ? Number(cfg.receptionist_fixed_rate || 0)
-                                : Number(cfg.receptionist_normal_rate || 0);
+                            const segRate = chip.isFixedShift ? fixedRate : normalRate;
                             chipSalary += (minutes / 60) * segRate;
                         }
                         filteredSalary += chipSalary;
@@ -1866,19 +1874,28 @@ function calculateSalary() {
                 const minutes = chip.paidMinutes || 0;
                 filteredMinutes += minutes;
 
-                // Priority: Class / Ca rate from salary_config.class_rates
+                // Priority: Class / Ca rate from monthly settings or salary_config.class_rates
                 let rate = 0;
                 let hasClassRate = false;
+                
+                const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                const monthlyAll = window.currentMonthlySalarySettingsAll || {};
                 const cfg = window.currentUserContext?.salary_config || {};
-                const classRates = cfg.class_rates || {};
+                
+                let classRates = {};
+                if (isTiepTan) {
+                    const ttMonthly = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
+                    classRates = ttMonthly.class_rates || cfg.class_rates || {};
+                } else {
+                    const gvMonthly = monthlyAll['giao_vien'] || monthlyAll['giao-vien'] || {};
+                    classRates = gvMonthly.class_rates || cfg.class_rates || {};
+                }
                 
                 if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
                     rate = Number(classRates[chip.chipFilterName]);
                     hasClassRate = true;
                 }
 
-                let isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
-                
                 if (chip.mergedSegments && chip.mergedSegments.length > 0 && !isTiepTan) {
                     let remainingMinutes = minutes;
                     const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
@@ -1912,18 +1929,17 @@ function calculateSalary() {
                         filteredSalary += (minutes / 60) * rate;
                     } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                         let chipSalary = 0;
+                        let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
+                        let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                        
                         if (chip.mergedSegments && chip.mergedSegments.length > 0) {
                             chip.mergedSegments.forEach(seg => {
                                 const segMinutes = seg.schedMinutes || 0;
-                                const segRate = seg.isFixedShift
-                                    ? Number(cfg.receptionist_fixed_rate || 0)
-                                    : Number(cfg.receptionist_normal_rate || 0);
+                                const segRate = seg.isFixedShift ? fixedRate : normalRate;
                                 chipSalary += (segMinutes / 60) * segRate;
                             });
                         } else {
-                            const segRate = chip.isFixedShift
-                                ? Number(cfg.receptionist_fixed_rate || 0)
-                                : Number(cfg.receptionist_normal_rate || 0);
+                            const segRate = chip.isFixedShift ? fixedRate : normalRate;
                             chipSalary += (minutes / 60) * segRate;
                         }
                         filteredSalary += chipSalary;
@@ -2013,7 +2029,6 @@ function calculateSalary() {
         const autoNotePrefix = "Thưởng chuyên cần:";
         if (attNote && (!attNote.value || attNote.value.startsWith(autoNotePrefix))) {
             attNote.value = `${autoNotePrefix} ${attRate.toLocaleString()}đ/h x ${(filteredMinutes / 60).toFixed(1)}h`;
-            // Update button color/title if possible (though it's usually handled by renderEvaluationTable)
         }
     }
 
@@ -2021,17 +2036,47 @@ function calculateSalary() {
         totalBonus += parseFloat(input.value) || 0;
     });
 
-    updateBonusDisplay(totalBonus);
-
     // Store base salary for Export PDF
     window.currentMonthSalary = filteredSalary;
 
     const loadedSettings = window.currentLoadedSalarySettings || {};
-    const adjustVDX = Number(loadedSettings.adjust_vdx || 0);
-    const adjustVKP = Number(loadedSettings.adjust_vkp || 0);
-    const adjustLate = Number(loadedSettings.adjust_late || 0);
+    let adjustVDX = Number(loadedSettings.adjust_vdx || 0);
+    let adjustVKP = Number(loadedSettings.adjust_vkp || 0);
+    let adjustLate = Number(loadedSettings.adjust_late || 0);
     const advanceInput = document.getElementById('salary-advance');
-    const advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
+    let advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
+
+    // Support dual-role aggregation when filtering by "All"
+    if (roleFilter === 'all') {
+        const monthlyAll = window.currentMonthlySalarySettingsAll || {};
+        
+        // Helper to identify chip roles
+        const checkIsReceptionist = c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+        
+        const hasTeachingChips = allChips.some(c => !checkIsReceptionist(c));
+        const hasReceptionistChips = allChips.some(c => checkIsReceptionist(c));
+        
+        if (hasTeachingChips && hasReceptionistChips) {
+            // Dual-role employee!
+            // Determine active loaded role vs other role
+            const isLoadedTiepTan = window.currentLoadedSalarySettings === (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan']);
+            const activeRole = isLoadedTiepTan ? 'tiep_tan' : 'giao_vien';
+            const otherRole = activeRole === 'tiep_tan' ? 'giao_vien' : 'tiep_tan';
+            
+            const otherSettings = monthlyAll[otherRole] || monthlyAll[otherRole.replace('_', '-')] || {};
+            
+            // Add other role's evaluations, adjustments and advance
+            const otherBonus = (otherSettings.evaluation || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+            totalBonus += otherBonus;
+            
+            adjustVDX += Number(otherSettings.adjust_vdx || 0);
+            adjustVKP += Number(otherSettings.adjust_vkp || 0);
+            adjustLate += Number(otherSettings.adjust_late || 0);
+            advance += Number(otherSettings.advance || 0);
+        }
+    }
+
+    updateBonusDisplay(totalBonus);
 
     const totalSalary = filteredSalary + totalBonus - adjustVDX - adjustVKP - adjustLate - advance;
 
@@ -2087,6 +2132,11 @@ async function saveSalarySettings() {
         firestorePayload[roleKey] = settingsObj;
         await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
         
+        if (!window.currentMonthlySalarySettingsAll) {
+            window.currentMonthlySalarySettingsAll = {};
+        }
+        window.currentMonthlySalarySettingsAll[roleKey] = settingsObj;
+        
         // Proactively update user context class rates if needed
         if (window.currentUserContext && window.currentUserContext.salary_config) {
             window.currentUserContext.salary_config.evaluation = evaluationData;
@@ -2114,6 +2164,7 @@ async function loadSalarySettings() {
     try {
         // Load monthly settings first
         const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
+        window.currentMonthlySalarySettingsAll = monthlySettings || {};
         settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || monthlySettings['giao_vien'] || monthlySettings['giao-vien'] || monthlySettings['tiep_tan'] || monthlySettings['tiep-tan'] || {};
         
         if (Object.keys(settings).length === 0) {
@@ -3449,6 +3500,10 @@ async function saveSalarySettingsFromModal() {
         }
         
         window.currentLoadedSalarySettings = settingsObj;
+        if (!window.currentMonthlySalarySettingsAll) {
+            window.currentMonthlySalarySettingsAll = {};
+        }
+        window.currentMonthlySalarySettingsAll[roleKey] = settingsObj;
         
         UIService.toast('Đã lưu bảng lương và tính thành công!', 'success');
         closeClassRateModal();
