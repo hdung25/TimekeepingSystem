@@ -175,18 +175,25 @@ function exportSalaryPDF(overrides) {
         : '';
 
     const sharedStyles = `
-        body { font-family: 'Times New Roman', serif; padding: 20px; }
-        .header { text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
-        .sub-header { margin-bottom: 10px; font-weight: bold; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th, td { border: 1px solid black; padding: 8px; vertical-align: middle; }
+        body { font-family: 'Times New Roman', serif; padding: 10px 15px; margin: 0; font-size: 11px; line-height: 1.2; }
+        .header { text-align: center; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; font-size: 14px; }
+        .sub-header { margin-bottom: 8px; font-weight: bold; font-size: 11px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+        th, td { border: 1px solid black; padding: 4px 6px; vertical-align: middle; font-size: 10.5px; }
         .red-text { color: red; font-weight: bold; }
         .bold { font-weight: bold; }
         .right { text-align: right; }
         .center { text-align: center; }
         .no-border-top { border-top: none; }
-        .footer-note { font-style: italic; margin-top: 10px; font-size: 0.9em; }
-        .warning { color: red; font-weight: bold; margin-top: 10px; }
+        .footer-note { font-style: italic; margin-top: 8px; font-size: 9px; }
+        .warning { color: red; font-weight: bold; margin-top: 5px; font-size: 9px; }
+        @media print {
+            body { padding: 0; margin: 0; font-size: 9.5px; line-height: 1.15; }
+            .header { margin-bottom: 6px; font-size: 12px; }
+            table { margin-bottom: 6px; }
+            th, td { padding: 3px 5px; font-size: 9.5px; }
+            .footer-note, .warning { font-size: 8.5px; margin-top: 3px; }
+        }
     `;
 
     const sharedHeader = `
@@ -310,7 +317,7 @@ function exportSalaryPDF(overrides) {
             : '';
 
         tableHTML = `
-        <div style="margin-bottom: 15px;">
+        <div style="margin-bottom: 8px;">
             Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
         </div>
         <table>
@@ -322,7 +329,7 @@ function exportSalaryPDF(overrides) {
             <tr>
                 <td class="bold">
                     TỔNG SỐ GIỜ CƠ BẢN: ${Math.floor(normalMinutes / 60)} giờ ${Math.floor(normalMinutes % 60)} phút
-                    <br><br>
+                    <br>
                     LƯƠNG CƠ BẢN:
                 </td>
                 <td class="bold right" style="vertical-align: top;">${fmt(normalSalary)}</td>
@@ -333,7 +340,7 @@ function exportSalaryPDF(overrides) {
                     TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
                     <br>
                     [Ca Cố Định] Đi làm: ${window.fixedWorkedCount || 0} | OFF: ${window.fixedAbsentCount || 0}
-                    <br><br>
+                    <br>
                     LƯƠNG CA CỐ ĐỊNH:
                 </td>
                 <td class="bold right" style="vertical-align: top; color: #6366F1;">${fmt(fixedSalary)}</td>
