@@ -558,6 +558,7 @@
 
             employeesList.forEach((user, index) => {
                 const userId = user.id;
+                const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
                 const savedRecord = (loggedMeetings.records && loggedMeetings.records[userId]) ? loggedMeetings.records[userId] : {};
                 
                 // Mapped code / MS NV format (display extracted number, or if none, index + 1)
