@@ -1759,5 +1759,33 @@ const DBService = {
             console.error('[Bonus10] Error rejecting:', e);
             throw e;
         }
+    },
+
+    getMonthlyMeetings: async (monthStr) => {
+        try {
+            const doc = await db.collection('meetings_log').doc(monthStr).get();
+            if (doc.exists) {
+                return doc.data() || { month: monthStr, records: {} };
+            }
+            return { month: monthStr, records: {} };
+        } catch (error) {
+            console.error("[MeetingsLog] Error getting:", error);
+            return { month: monthStr, records: {} };
+        }
+    },
+
+    saveMonthlyMeetings: async (monthStr, records) => {
+        try {
+            const docRef = db.collection('meetings_log').doc(monthStr);
+            await docRef.set({
+                month: monthStr,
+                records: records,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            return true;
+        } catch (error) {
+            console.error("[MeetingsLog] Error saving:", error);
+            throw error;
+        }
     }
 };

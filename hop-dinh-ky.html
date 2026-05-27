@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Điểm Danh Họp Định Kỳ - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <style>
+        .meetings-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .meetings-table th,
+        .meetings-table td {
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        .meetings-table th {
+            background-color: #F9FAFB;
+            font-weight: 700;
+            color: var(--text-main);
+            position: relative;
+        }
+
+        .meetings-table tbody tr:hover {
+            background-color: rgba(243, 244, 246, 0.5);
+        }
+
+        /* Input styles inside table */
+        .table-input-number {
+            width: 70px;
+            padding: 4px 6px;
+            border: 1.5px solid #D1D5DB;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 600;
+            outline: none;
+            transition: var(--transition-base);
+        }
+
+        .table-input-number:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.1);
+        }
+
+        .table-select {
+            width: 100%;
+            padding: 4px 8px;
+            border: 1.5px solid #D1D5DB;
+            border-radius: 6px;
+            outline: none;
+            background-color: white;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+
+        .table-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.1);
+        }
+
+        /* Filter header row */
+        .filter-row th {
+            padding: 4px 8px 8px 8px !important;
+            background-color: #F3F4F6 !important;
+            border-top: none !important;
+        }
+
+        .filter-input {
+            width: 100%;
+            padding: 4px 8px;
+            border: 1px solid #D1D5DB;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: normal;
+            outline: none;
+        }
+
+        .filter-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.1);
+        }
+
+        /* Page Layout Extensions */
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .month-navigator {
+            display: inline-flex;
+            align-items: center;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 4px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .month-nav-btn {
+            background: transparent;
+            border: none;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: var(--text-muted);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+
+        .month-nav-btn:hover {
+            background: #F3F4F6;
+            color: var(--primary-color);
+        }
+
+        .month-title-display {
+            padding: 0 1rem;
+            font-weight: 700;
+            color: var(--text-main);
+            min-width: 140px;
+            text-align: center;
+        }
+
+        .save-banner {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 1rem;
+        }
+    </style>
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+            <nav id="sidebar-nav"></nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="page-header" style="margin-bottom: 1.5rem;">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;">Họp Định Kỳ</h1>
+                    <p style="color: var(--text-muted);">Quản lý điểm danh họp định kỳ và thống kê phân phát tờ quảng cáo</p>
+                </div>
+                <div class="header-actions">
+                    <div class="month-navigator">
+                        <button type="button" class="month-nav-btn" onclick="changeMonth(-1)">&lt;</button>
+                        <span class="month-title-display" id="month-display">Tháng --, ----</span>
+                        <button type="button" class="month-nav-btn" onclick="changeMonth(1)">&gt;</button>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveMeetings()" style="padding: 0.6rem 1.5rem; font-weight: 600;">
+                        Lưu Lại
+                    </button>
+                </div>
+            </header>
+
+            <!-- Excel-like Table Grid Container -->
+            <div class="glass-panel" style="overflow: hidden; padding: 0;">
+                <div style="overflow-x: auto; width: 100%;">
+                    <table class="meetings-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 80px;">MS NV</th>
+                                <th>HỌ VÀ TÊN</th>
+                                <th style="width: 100px;">TÊN</th>
+                                <th>CHUYÊN MÔN</th>
+                                <th style="width: 90px; text-align: center;">SỐ TỜ CS1</th>
+                                <th style="width: 90px; text-align: center;">SỐ TỜ CS2</th>
+                                <th style="width: 90px; text-align: center;">SỐ TỜ CS3</th>
+                                <th style="width: 170px;">HỌP TG TIẾNG ANH</th>
+                                <th style="width: 170px;">HỌP TG T-TV</th>
+                                <th style="width: 170px;">HỌP TIẾP TÂN</th>
+                            </tr>
+                            <!-- Excel-style inline header filter row -->
+                            <tr class="filter-row">
+                                <th>
+                                    <input type="text" id="filter-msnv" class="filter-input" placeholder="Lọc..." oninput="applyFilters()">
+                                </th>
+                                <th>
+                                    <input type="text" id="filter-fullname" class="filter-input" placeholder="Lọc..." oninput="applyFilters()">
+                                </th>
+                                <th>
+                                    <input type="text" id="filter-name" class="filter-input" placeholder="Lọc..." oninput="applyFilters()">
+                                </th>
+                                <th>
+                                    <select id="filter-chuyenmon" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
+                                        <option value="all">Tất cả</option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <input type="text" id="filter-cs1" class="filter-input" placeholder="Lọc..." oninput="applyFilters()">
+                                </th>
+                                <th>
+                                    <input type="text" id="filter-cs2" class="filter-input" placeholder="Lọc..." oninput="applyFilters()">
+                                </th>
+                                <th>
+                                    <input type="text" id="filter-cs3" class="filter-input" placeholder="Lọc..." oninput="applyFilters()">
+                                </th>
+                                <th>
+                                    <select id="filter-hopta" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
+                                        <option value="all">Tất cả</option>
+                                        <option value="Có">Có</option>
+                                        <option value="Vắng phép">Vắng phép</option>
+                                        <option value="Vắng đột xuất">Vắng đột xuất</option>
+                                        <option value="Vắng không phép">Vắng không phép</option>
+                                        <option value="Không họp">Không họp</option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <select id="filter-hopttv" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
+                                        <option value="all">Tất cả</option>
+                                        <option value="Có">Có</option>
+                                        <option value="Vắng phép">Vắng phép</option>
+                                        <option value="Vắng đột xuất">Vắng đột xuất</option>
+                                        <option value="Vắng không phép">Vắng không phép</option>
+                                        <option value="Không họp">Không họp</option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <select id="filter-hoptt" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
+                                        <option value="all">Tất cả</option>
+                                        <option value="Có">Có</option>
+                                        <option value="Vắng phép">Vắng phép</option>
+                                        <option value="Vắng đột xuất">Vắng đột xuất</option>
+                                        <option value="Vắng không phép">Vắng không phép</option>
+                                        <option value="Không họp">Không họp</option>
+                                    </select>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="meetings-tbody">
+                            <tr>
+                                <td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                    Đang tải danh sách nhân sự...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- UI Animations, Sidebar and Main controller scripts -->
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/auth-helper.js"></script>
+    
+    <script>
+        // Check Auth permissions (must be admin or senior_assistant)
+        document.addEventListener('DOMContentLoaded', async () => {
+            const currentUser = localStorage.getItem('currentUser');
+            const roleRaw = localStorage.getItem('currentRole') || 'staff';
+            const roles = parseRoles(roleRaw);
+            const isAdminLike = roles.some(r => r === 'admin' || r === 'senior_assistant');
+            
+            if (!currentUser || !isAdminLike) {
+                window.location.href = 'index.html';
+                return;
+            }
+            
+            // Render side nav
+            renderSidebar();
+            
+            // Initialize Month & Year
+            updateMonthDisplay();
+            
+            // Load Employees & Data
+            await loadEmployeesAndMeetings();
+        });
+
+        let currentDate = new Date(); // Month context
+        let employeesList = []; // Holds list of active users
+
+        function updateMonthDisplay() {
+            const monthsVN = [
+                "Tháng 01", "Tháng 02", "Tháng 03", "Tháng 04", "Tháng 05", "Tháng 06",
+                "Tháng 07", "Tháng 08", "Tháng 09", "Tháng 10", "Tháng 11", "Tháng 12"
+            ];
+            const title = `${monthsVN[currentDate.getMonth()]}, ${currentDate.getFullYear()}`;
+            document.getElementById('month-display').innerText = title;
+        }
+
+        async function changeMonth(offset) {
+            currentDate.setMonth(currentDate.getMonth() + offset);
+            updateMonthDisplay();
+            
+            // Show loading state
+            const tbody = document.getElementById('meetings-tbody');
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu tháng mới...</td></tr>';
+            
+            await renderMeetingsGrid();
+        }
+
+        async function loadEmployeesAndMeetings() {
+            try {
+                // Fetch fresh list of users
+                const rawUsers = await DBService.getUsers();
+                // Filter out non-personnel or specific service accounts if needed, keeping active accounts
+                employeesList = rawUsers.filter(u => u.username && u.name);
+                
+                // Sort employees sequentially by username (or fallback to index)
+                employeesList.sort((a, b) => {
+                    const codeA = parseInt(a.username, 10);
+                    const codeB = parseInt(b.username, 10);
+                    if (!isNaN(codeA) && !isNaN(codeB)) return codeA - codeB;
+                    return (a.username || '').localeCompare(b.username || '');
+                });
+
+                // Populate Chuyen Mon (Role) filter unique options
+                populateChuyenMonFilter(employeesList);
+                
+                // Render the table grid with values
+                await renderMeetingsGrid();
+            } catch (err) {
+                console.error("Error loading personnel:", err);
+                const tbody = document.getElementById('meetings-tbody');
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: #EF4444; font-weight: 600;">Lỗi khi tải danh sách nhân viên. Vui lòng thử lại.</td></tr>';
+            }
+        }
+
+        function populateChuyenMonFilter(users) {
+            const select = document.getElementById('filter-chuyenmon');
+            const seen = new Set();
+            
+            const ROLE_LABELS = {
+                'admin': 'Trợ lý / GV', // Map roles directly to expertise labels
+                'senior_assistant': 'Trợ lý cấp cao',
+                'assistant': 'Trợ lý',
+                'teaching_assistant': 'Trợ giảng',
+                'receptionist': 'Tiếp tân',
+                'receptionist_assistant': 'Trợ lý tiếp tân',
+                'staff': 'Trợ giảng'
+            };
+
+            users.forEach(u => {
+                const userRolesArr = Array.isArray(u.roles) && u.roles.length > 0
+                    ? u.roles
+                    : (u.role ? [u.role] : ['staff']);
+                
+                // Form specialized label
+                let specLabel = '';
+                if (userRolesArr.includes('receptionist') && userRolesArr.some(r => ['admin','senior_assistant','assistant','teaching_assistant','staff'].includes(r))) {
+                    specLabel = 'TT + TG';
+                } else if (userRolesArr.includes('receptionist') || userRolesArr.includes('receptionist_assistant')) {
+                    specLabel = 'TIẾP TÂN';
+                } else {
+                    specLabel = 'TRỢ GIẢNG';
+                }
+
+                if (specLabel && !seen.has(specLabel)) {
+                    seen.add(specLabel);
+                    const opt = document.createElement('option');
+                    opt.value = specLabel;
+                    opt.innerText = specLabel;
+                    select.appendChild(opt);
+                }
+            });
+        }
+
+        function formatUserSpecialty(user) {
+            const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0
+                ? user.roles
+                : (user.role ? [user.role] : ['staff']);
+            
+            if (userRolesArr.includes('receptionist') && userRolesArr.some(r => ['admin','senior_assistant','assistant','teaching_assistant','staff'].includes(r))) {
+                return 'TT + TG';
+            } else if (userRolesArr.includes('receptionist') || userRolesArr.includes('receptionist_assistant')) {
+                return 'TIẾP TÂN';
+            } else {
+                return 'TRỢ GIẢNG';
+            }
+        }
+
+        async function renderMeetingsGrid() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+            
+            let loggedMeetings = { records: {} };
+            try {
+                loggedMeetings = await DBService.getMonthlyMeetings(monthStr);
+            } catch (e) {
+                console.error("Could not fetch meetings logs:", e);
+            }
+
+            const tbody = document.getElementById('meetings-tbody');
+            tbody.innerHTML = '';
+
+            if (employeesList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Không tìm thấy nhân viên nào trong danh sách.</td></tr>';
+                return;
+            }
+
+            employeesList.forEach((user, index) => {
+                const userId = user.id;
+                const savedRecord = (loggedMeetings.records && loggedMeetings.records[userId]) ? loggedMeetings.records[userId] : {};
+                
+                // Mapped code / MS NV format
+                const msnvDisplay = user.username || (index + 1);
+
+                // Split name parts to isolate first name (TÊN in red uppercase)
+                const nameParts = (user.name || '').trim().split(' ');
+                const firstName = nameParts[nameParts.length - 1] || user.username || '';
+                
+                // Format Expertise / Chuyên Môn
+                const specLabel = formatUserSpecialty(user);
+
+                // Fetch numeric values with fallback to 0
+                const cs1_val = savedRecord.so_to_cs1 !== undefined ? savedRecord.so_to_cs1 : 0;
+                const cs2_val = savedRecord.so_to_cs2 !== undefined ? savedRecord.so_to_cs2 : 0;
+                const cs3_val = savedRecord.so_to_cs3 !== undefined ? savedRecord.so_to_cs3 : 0;
+
+                // Smart default for meetings attendance based on employee role
+                const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
+                const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+                const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+
+                let default_hop_ta = "Không họp";
+                let default_hop_ttv = "Không họp";
+                let default_hop_tt = "Không họp";
+
+                if (hasTeachingRole) {
+                    default_hop_ta = "Có";
+                    default_hop_ttv = "Có";
+                }
+                if (hasReceptionistRole) {
+                    default_hop_tt = "Có";
+                }
+
+                const hop_ta_selected = savedRecord.hop_tg_tieng_anh !== undefined ? savedRecord.hop_tg_tieng_anh : default_hop_ta;
+                const hop_ttv_selected = savedRecord.hop_tg_t_tv !== undefined ? savedRecord.hop_tg_t_tv : default_hop_ttv;
+                const hop_tt_selected = savedRecord.hop_tiep_tan !== undefined ? savedRecord.hop_tiep_tan : default_hop_tt;
+
+                const tr = document.createElement('tr');
+                tr.dataset.userId = userId;
+                tr.dataset.roles = JSON.stringify(userRolesArr);
+                
+                tr.innerHTML = `
+                    <td class="cell-msnv" style="font-weight: 600; font-family: monospace; color: var(--text-muted);">${msnvDisplay}</td>
+                    <td class="cell-fullname" style="font-weight: 600; color: var(--text-main);">${user.name || ''}</td>
+                    <td class="cell-name"><span style="color: #EF4444; font-weight: 700;">${firstName.toUpperCase()}</span></td>
+                    <td class="cell-chuyenmon" style="font-weight: 500;">${specLabel}</td>
+                    <td style="text-align: center;">
+                        <input type="number" class="table-input-number cs1-input" min="0" value="${cs1_val}">
+                    </td>
+                    <td style="text-align: center;">
+                        <input type="number" class="table-input-number cs2-input" min="0" value="${cs2_val}">
+                    </td>
+                    <td style="text-align: center;">
+                        <input type="number" class="table-input-number cs3-input" min="0" value="${cs3_val}">
+                    </td>
+                    <td>
+                        <select class="table-select hop-ta-select">
+                            <option value="Có" ${hop_ta_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Vắng phép" ${hop_ta_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
+                            <option value="Vắng đột xuất" ${hop_ta_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
+                            <option value="Vắng không phép" ${hop_ta_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
+                            <option value="Không họp" ${hop_ta_selected === 'Không họp' ? 'selected' : ''}>Không họp</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select class="table-select hop-ttv-select">
+                            <option value="Có" ${hop_ttv_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Vắng phép" ${hop_ttv_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
+                            <option value="Vắng đột xuất" ${hop_ttv_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
+                            <option value="Vắng không phép" ${hop_ttv_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
+                            <option value="Không họp" ${hop_ttv_selected === 'Không họp' ? 'selected' : ''}>Không họp</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select class="table-select hop-tt-select">
+                            <option value="Có" ${hop_tt_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Vắng phép" ${hop_tt_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
+                            <option value="Vắng đột xuất" ${hop_tt_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
+                            <option value="Vắng không phép" ${hop_tt_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
+                            <option value="Không họp" ${hop_tt_selected === 'Không họp' ? 'selected' : ''}>Không họp</option>
+                        </select>
+                    </td>
+                `;
+                
+                tbody.appendChild(tr);
+            });
+
+            // Re-apply any existing active filter values
+            applyFilters();
+        }
+
+        // Excel Column Filtering Logic
+        function applyFilters() {
+            const filterMsnv = document.getElementById('filter-msnv').value.trim().toLowerCase();
+            const filterFullname = document.getElementById('filter-fullname').value.trim().toLowerCase();
+            const filterName = document.getElementById('filter-name').value.trim().toLowerCase();
+            const filterChuyenmon = document.getElementById('filter-chuyenmon').value;
+            const filterCs1 = document.getElementById('filter-cs1').value.trim();
+            const filterCs2 = document.getElementById('filter-cs2').value.trim();
+            const filterCs3 = document.getElementById('filter-cs3').value.trim();
+            const filterHopta = document.getElementById('filter-hopta').value;
+            const filterHopttv = document.getElementById('filter-hopttv').value;
+            const filterHoptt = document.getElementById('filter-hoptt').value;
+
+            const rows = document.querySelectorAll('#meetings-tbody tr');
+
+            rows.forEach(row => {
+                // If it's a data-less row, skip
+                if (!row.dataset.userId) return;
+
+                const cellMsnv = row.querySelector('.cell-msnv').textContent.trim().toLowerCase();
+                const cellFullname = row.querySelector('.cell-fullname').textContent.trim().toLowerCase();
+                const cellName = row.querySelector('.cell-name').textContent.trim().toLowerCase();
+                const cellChuyenmon = row.querySelector('.cell-chuyenmon').textContent.trim();
+
+                const cs1Val = row.querySelector('.cs1-input').value.trim();
+                const cs2Val = row.querySelector('.cs2-input').value.trim();
+                const cs3Val = row.querySelector('.cs3-input').value.trim();
+
+                const hoptaVal = row.querySelector('.hop-ta-select').value;
+                const hopttvVal = row.querySelector('.hop-ttv-select').value;
+                const hopttVal = row.querySelector('.hop-tt-select').value;
+
+                let matches = true;
+
+                // Match texts
+                if (filterMsnv && !cellMsnv.includes(filterMsnv)) matches = false;
+                if (filterFullname && !cellFullname.includes(filterFullname)) matches = false;
+                if (filterName && !cellName.includes(filterName)) matches = false;
+
+                // Match Chuyen Mon select
+                if (filterChuyenmon !== 'all' && cellChuyenmon !== filterChuyenmon) matches = false;
+
+                // Match numbers exactly or loosely
+                if (filterCs1 && cs1Val !== filterCs1) matches = false;
+                if (filterCs2 && cs2Val !== filterCs2) matches = false;
+                if (filterCs3 && cs3Val !== filterCs3) matches = false;
+
+                // Match meeting selects
+                if (filterHopta !== 'all' && hoptaVal !== filterHopta) matches = false;
+                if (filterHopttv !== 'all' && hopttvVal !== filterHopttv) matches = false;
+                if (filterHoptt !== 'all' && hopttVal !== filterHoptt) matches = false;
+
+                // Set visibility
+                row.style.display = matches ? '' : 'none';
+            });
+        }
+
+        async function saveMeetings() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+            
+            const records = {};
+            const rows = document.querySelectorAll('#meetings-tbody tr');
+            
+            let hasValidRows = false;
+            rows.forEach(row => {
+                const userId = row.dataset.userId;
+                if (!userId) return;
+                
+                hasValidRows = true;
+                records[userId] = {
+                    so_to_cs1: parseInt(row.querySelector('.cs1-input').value, 10) || 0,
+                    so_to_cs2: parseInt(row.querySelector('.cs2-input').value, 10) || 0,
+                    so_to_cs3: parseInt(row.querySelector('.cs3-input').value, 10) || 0,
+                    hop_tg_tieng_anh: row.querySelector('.hop-ta-select').value,
+                    hop_tg_t_tv: row.querySelector('.hop-ttv-select').value,
+                    hop_tiep_tan: row.querySelector('.hop-tt-select').value
+                };
+            });
+
+            if (!hasValidRows) {
+                if (typeof UIService !== 'undefined' && UIService.toast) {
+                    UIService.toast("Không có dữ liệu hợp lệ để lưu!", "error");
+                } else {
+                    alert("Không có dữ liệu hợp lệ để lưu!");
+                }
+                return;
+            }
+
+            try {
+                // Show loading state
+                const saveBtn = document.querySelector('button[onclick="saveMeetings()"]');
+                const oldText = saveBtn.innerText;
+                saveBtn.innerText = "Đang lưu...";
+                saveBtn.disabled = true;
+
+                await DBService.saveMonthlyMeetings(monthStr, records);
+
+                UIService.toast("Đã lưu bảng điểm danh thành công!", "success");
+                
+                saveBtn.innerText = oldText;
+                saveBtn.disabled = false;
+            } catch (err) {
+                console.error("Error saving meetings log:", err);
+                UIService.toast("Lỗi lưu dữ liệu: " + err.message, "error");
+            }
+        }
+    </script>
+</body>
+
+</html>

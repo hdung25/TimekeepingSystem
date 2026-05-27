@@ -3120,7 +3120,20 @@ async function populateModalCurrentTab() {
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
-    const monthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr);
+    let monthlySettingsAll = {};
+    let meetingsLog = null;
+    try {
+        const res = await Promise.all([
+            DBService.getMonthlySalarySettings(staffId, monthStr),
+            DBService.getMonthlyMeetings(monthStr)
+        ]);
+        monthlySettingsAll = res[0] || {};
+        meetingsLog = res[1] || null;
+    } catch (err) {
+        console.error("Error fetching modal settings in parallel:", err);
+        monthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+    }
+    
     const roleSettings = monthlySettingsAll[window.modalActiveRole] || monthlySettingsAll[window.modalActiveRole.replace('-', '_')] || {};
     
     // 1. Calculate Attendance Stats
@@ -3130,6 +3143,7 @@ async function populateModalCurrentTab() {
     let vkpShifts = 0;
     let lateCount = 0;
     let totalLateMinutes = 0;
+    let grandTotalMinutes = 0; // High-scope to access in evaluations auto-fill
     
     (window.unfilteredAllMonthChips || []).forEach(chip => {
         if (chip.class === 'chip-future') return;
@@ -3266,7 +3280,7 @@ async function populateModalCurrentTab() {
     if (tableBody) {
         tableBody.innerHTML = '';
         
-        let grandTotalMinutes = 0;
+        grandTotalMinutes = 0;
         let grandTotalSalary = 0;
         
         const groupKeys = Object.keys(groups).sort();
@@ -3364,8 +3378,36 @@ async function populateModalCurrentTab() {
         
         EVALUATION_CRITERIA.forEach((item, index) => {
             const saved = (roleSettings.evaluation || []).find(e => e.id === index) || {};
-            const amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
-            const noteVal = saved.note || '';
+            let amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
+            let noteVal = saved.note || '';
+
+            // AUTO-POPULATE CRITERIA I, II, X IF EMPTY OR SET TO TEMPLATE
+            if (index === 0) {
+                // I. CHUYÊN CẦN – TÁC PHONG
+                if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Vắng phép:') || noteVal.startsWith('Vắng phép: ...')) {
+                    noteVal = `Vắng phép: ${vpShifts}; Vắng đột xuất: ${vdxShifts}; Vắng không phép: ${vkpShifts}`;
+                }
+                if (saved.amount === undefined) {
+                    const attRate = Number(roleSettings.attendance_rate || user.salary_config?.attendance_rate || 0);
+                    if (attRate > 0) {
+                        amountVal = Math.round((grandTotalMinutes / 60) * attRate);
+                    }
+                }
+            } else if (index === 1) {
+                // II. ĐÚNG GIỜ
+                if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Trễ:') || noteVal.startsWith('Trễ: ...')) {
+                    noteVal = `Trễ: ${totalLateMinutes} phút; Số lần trễ: ${lateCount} lần`;
+                }
+            } else if (index === 9) {
+                // X. HỌP ĐỊNH KÌ
+                if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Tiếng Anh:') || noteVal.startsWith('Tiếng Anh: ...')) {
+                    const rec = (meetingsLog && meetingsLog.records) ? meetingsLog.records[staffId] : null;
+                    const status_ta = (rec && rec.hop_tg_tieng_anh) ? rec.hop_tg_tieng_anh : 'x';
+                    const status_ttv = (rec && rec.hop_tg_t_tv) ? rec.hop_tg_t_tv : 'x';
+                    const status_receptionist = (rec && rec.hop_tiep_tan) ? rec.hop_tiep_tan : 'x';
+                    noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
+                }
+            }
             
             const row = document.createElement('tr');
             row.style.borderBottom = '1px solid #E5E7EB';

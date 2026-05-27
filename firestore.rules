@@ -160,6 +160,12 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isAdmin();
     }
 
+    // 15. Meetings Log (Họp Định Kỳ)
+    match /meetings_log/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;
