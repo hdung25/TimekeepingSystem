@@ -313,10 +313,7 @@ function exportSalaryPDF(overrides) {
                </tr>`
             : '';
 
-        const employeeId = (window.currentUserContext?.username || staffId).toUpperCase();
-        const headerTitle = "TRUNG TÂM NGOẠI NGỮ VÀ TOÁN TƯ DUY TRẺ";
-
-        tableHTML = `
+        const employeeId = (window.cur        tableHTML = `
         <div class="header">${headerTitle}</div>
         <div class="sub-header">
             MÃ NHÂN VIÊN: ${employeeId}
@@ -325,11 +322,11 @@ function exportSalaryPDF(overrides) {
         </div>
         <table>
             <tr>
-                <td class="bold red-text" style="width:70%">TỔNG LƯƠNG (1)</td>
-                <td class="bold red-text right">${fmt(totalI)}</td>
+                <td colspan="2" class="bold red-text" style="width:70%">TỔNG LƯƠNG (1)</td>
+                <td class="bold red-text right" style="width:30%">${fmt(totalI)}</td>
             </tr>
             <tr>
-                <td class="bold">
+                <td colspan="2" class="bold">
                     TỔNG SỐ GIỜ: ${filteredMinutes > 0 ? formatHoursDecimal(filteredMinutes) : 'giờ'}
                     <br>
                     LƯƠNG CƠ BẢN:
@@ -337,40 +334,40 @@ function exportSalaryPDF(overrides) {
                 <td class="bold right" style="vertical-align:top">${baseSalary > 0 ? fmt(baseSalary) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">PHÍ TƯ VẤN:</td>
+                <td colspan="2" class="bold">PHÍ TƯ VẤN:</td>
                 <td class="right">${phiTuVan > 0 ? fmt(phiTuVan) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">CHẤM BÀI/ DẠY VẼ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH: &nbsp; giờ</td>
+                <td colspan="2" class="bold">CHẤM BÀI/ DẠY VẼ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH: &nbsp; giờ</td>
                 <td></td>
             </tr>
-            <tr><td class="bold">TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
-            <tr><td class="bold">LƯƠNG HIỆU SUẤT:</td><td></td></tr>
+            <tr><td colspan="2" class="bold">TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
+            <tr><td colspan="2" class="bold">LƯƠNG HIỆU SUẤT:</td><td></td></tr>
             <tr>
-                <td class="bold">THU NHẬP TĂNG THÊM DOANH THU TỔNG:</td>
+                <td colspan="2" class="bold">THU NHẬP TĂNG THÊM DOANH THU TỔNG:</td>
                 <td class="right">${doanhThuTong > 0 ? fmt(doanhThuTong) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">THU NHẬP TĂNG THÊM DOANH THU CS2:</td>
+                <td colspan="2" class="bold">THU NHẬP TĂNG THÊM DOANH THU CS2:</td>
                 <td class="right">${doanhThuCs2 > 0 ? fmt(doanhThuCs2) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">THU NHẬP TĂNG THÊM DOANH THU CS3:</td>
+                <td colspan="2" class="bold">THU NHẬP TĂNG THÊM DOANH THU CS3:</td>
                 <td class="right">${doanhThuCs3 > 0 ? fmt(doanhThuCs3) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">PHÁT SINH (I) + (II)</td>
+                <td colspan="2" class="bold">PHÁT SINH (I) + (II)</td>
                 <td class="right">${totalBonus > 0 ? fmt(totalBonus) : ''}</td>
             </tr>
             ${penaltiesHtml}
             <tr>
                 <td rowspan="2" class="center bold" style="width: 15%;">TIÊU<br>CHÍ<br>XÉT</td>
-                <td>
+                <td style="width: 55%;">
                     <span class="bold">(I) CHUYÊN CẦN</span><br>
                     Vắng phép: ${vpShifts} &nbsp;&nbsp; Vắng đột xuất: ${vdxShifts}<br>
                     Vắng không phép: ${vkpShifts} &nbsp;&nbsp; Trễ: ${formatLateHours(totalLateMinutes)} giờ
                 </td>
-                <td class="right">${criteriaI?.amount ? fmt(criteriaI.amount) : ''}</td>
+                <td class="right" style="width: 30%;">${criteriaI?.amount ? fmt(criteriaI.amount) : ''}</td>
             </tr>
             <tr>
                 <td>
@@ -379,11 +376,11 @@ function exportSalaryPDF(overrides) {
                 <td class="right">${criteriaV?.amount ? fmt(criteriaV.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold red-text">TẠM ỨNG (2)</td>
+                <td colspan="2" class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
             </tr>
             <tr>
-                <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                <td colspan="2" class="bold red-text">THỰC LÃNH (1)-(2)</td>
                 <td class="bold red-text right">${fmt(finalNetTT)}</td>
             </tr>
         </table>`;
@@ -391,7 +388,7 @@ function exportSalaryPDF(overrides) {
     } else {
         const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
             ? `<tr>
-                <td class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td colspan="3" class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN:</td>
                 <td class="right" style="color:red;font-weight:bold;">${fmt(attendanceAdjustments)}</td>
                </tr>`
             : '';
@@ -419,11 +416,11 @@ function exportSalaryPDF(overrides) {
         </div>
         <table>
             <tr>
-                <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
-                <td class="bold red-text right">${fmt(initialTotal)}</td>
+                <td colspan="3" class="bold red-text" style="width: 85%">TỔNG LƯƠNG (1)</td>
+                <td class="bold red-text right" style="width: 15%">${fmt(initialTotal)}</td>
             </tr>
             <tr>
-                <td class="bold">
+                <td colspan="3" class="bold">
                     TỔNG SỐ GIỜ: ${totalBaseMins > 0 ? formatHoursDecimal(totalBaseMins) : 'giờ'} / buổi
                     <br>
                     LƯƠNG CƠ BẢN:
@@ -431,32 +428,32 @@ function exportSalaryPDF(overrides) {
                 <td class="bold right" style="vertical-align: top;">${totalBaseSalary > 0 ? fmt(totalBaseSalary) : ''}</td>
             </tr>
             <tr>
-                <td>TỔNG SỐ GIỜ TIN HỌC: ${totalTinHocMins > 0 ? formatHoursDecimal(totalTinHocMins) : 'giờ'}</td>
+                <td colspan="3">TỔNG SỐ GIỜ TIN HỌC: ${totalTinHocMins > 0 ? formatHoursDecimal(totalTinHocMins) : 'giờ'}</td>
                 <td class="right">${totalTinHocSalary > 0 ? fmt(totalTinHocSalary) : ''}</td>
             </tr>
             <tr>
-                <td>SOẠN BÀI/ CHẤM BÀI/SỰ KIỆN/PHÁT SINH: ${totalExtraMins > 0 ? formatHoursDecimal(totalExtraMins) : 'giờ'}</td>
+                <td colspan="3">SOẠN BÀI/ CHẤM BÀI/SỰ KIỆN/PHÁT SINH: ${totalExtraMins > 0 ? formatHoursDecimal(totalExtraMins) : 'giờ'}</td>
                 <td class="right">${totalExtraSalary > 0 ? fmt(totalExtraSalary) : ''}</td>
             </tr>
             <tr>
-                <td>TỔNG SỐ GIỜ MẦM NON: ${totalPreschoolMins > 0 ? formatHoursDecimal(totalPreschoolMins) : 'giờ'}</td>
+                <td colspan="3">TỔNG SỐ GIỜ MẦM NON: ${totalPreschoolMins > 0 ? formatHoursDecimal(totalPreschoolMins) : 'giờ'}</td>
                 <td class="right">${totalPreschoolSalary > 0 ? fmt(totalPreschoolSalary) : ''}</td>
             </tr>
             <tr>
-                <td>TỔNG SỐ GIỜ LIÊN KẾT: ${totalAffiliateMins > 0 ? formatHoursDecimal(totalAffiliateMins) : 'giờ'}</td>
+                <td colspan="3">TỔNG SỐ GIỜ LIÊN KẾT: ${totalAffiliateMins > 0 ? formatHoursDecimal(totalAffiliateMins) : 'giờ'}</td>
                 <td class="right">${totalAffiliateSalary > 0 ? fmt(totalAffiliateSalary) : ''}</td>
             </tr>
             <tr>
-                <td>TỔNG SỐ GIỜ KÈM 1:1 (TẠI NHÀ): ${totalTutoringMins > 0 ? formatHoursDecimal(totalTutoringMins) : 'giờ'}</td>
+                <td colspan="3">TỔNG SỐ GIỜ KÈM 1:1 (TẠI NHÀ): ${totalTutoringMins > 0 ? formatHoursDecimal(totalTutoringMins) : 'giờ'}</td>
                 <td class="right">${totalTutoringSalary > 0 ? fmt(totalTutoringSalary) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">TRỢ CẤP CHỨC VỤ:</td>
+                <td colspan="3" class="bold">TRỢ CẤP CHỨC VỤ:</td>
                 <td></td>
             </tr>
             ${penaltiesHtml}
             <tr>
-                <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
+                <td colspan="3" class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
                 <td class="bold right">${totalBonus > 0 ? fmt(totalBonus) : ''}</td>
             </tr>
             
@@ -516,11 +513,11 @@ function exportSalaryPDF(overrides) {
             </tr>
             
             <tr>
-                <td class="bold red-text">TẠM ỨNG (2)</td>
+                <td colspan="3" class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
             </tr>
             <tr>
-                <td class="bold red-text">THỰC LĨNH (1)-(2)</td>
+                <td colspan="3" class="bold red-text">THỰC LÃNH (1)-(2)</td>
                 <td class="bold red-text right">${fmt(finalNet)}</td>
             </tr>
         </table>`;
