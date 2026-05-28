@@ -269,7 +269,7 @@ function exportSalaryPDF(overrides) {
         body { font-family: 'Times New Roman', serif; padding: 10px 15px; margin: 0; font-size: 11.5px; line-height: 1.25; color: black; }
         .header { text-align: center; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; font-size: 14.5px; }
         .sub-header { margin-bottom: 10px; font-weight: bold; font-size: 11px; text-align: left; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
         th, td { border: 1px solid black; padding: 5px 8px; vertical-align: middle; font-size: 11px; color: black; }
         .red-text { color: red; font-weight: bold; }
         .bold { font-weight: bold; }
@@ -308,12 +308,14 @@ function exportSalaryPDF(overrides) {
 
         const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
             ? `<tr>
-                <td class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td colspan="2" class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN:</td>
                 <td class="right" style="color:red;font-weight:bold;">${fmt(attendanceAdjustments)}</td>
                </tr>`
             : '';
 
-        const employeeId = (window.cur        tableHTML = `
+        const employeeId = (window.currentUserContext?.username || staffId).toUpperCase();
+        const headerTitle = "TRUNG TÂM NGOẠI NGỮ VÀ TOÁN TƯ DUY TRẺ";
+        tableHTML = `
         <div class="header">${headerTitle}</div>
         <div class="sub-header">
             MÃ NHÂN VIÊN: ${employeeId}
@@ -321,6 +323,11 @@ function exportSalaryPDF(overrides) {
             HỌ VÀ TÊN: ${staffName.toUpperCase()}
         </div>
         <table>
+            <colgroup>
+                <col style="width: 15%;">
+                <col style="width: 55%;">
+                <col style="width: 30%;">
+            </colgroup>
             <tr>
                 <td colspan="2" class="bold red-text" style="width:70%">TỔNG LƯƠNG (1)</td>
                 <td class="bold red-text right" style="width:30%">${fmt(totalI)}</td>
@@ -415,6 +422,12 @@ function exportSalaryPDF(overrides) {
             HỌ VÀ TÊN: ${staffName.toUpperCase()}
         </div>
         <table>
+            <colgroup>
+                <col style="width: 10%;">
+                <col style="width: 25%;">
+                <col style="width: 50%;">
+                <col style="width: 15%;">
+            </colgroup>
             <tr>
                 <td colspan="3" class="bold red-text" style="width: 85%">TỔNG LƯƠNG (1)</td>
                 <td class="bold red-text right" style="width: 15%">${fmt(initialTotal)}</td>
