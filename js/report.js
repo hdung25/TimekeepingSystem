@@ -258,11 +258,10 @@ function selectStaffFromDropdown(user) {
             ? user.roles
             : [user.role || ''];
         const hasReceptionist = staffRoles.some(r =>
-            r === 'receptionist' || r === 'receptionist_assistant'
+            ['receptionist', 'receptionist_assistant', 'tiep-tan', 'tiep_tan', 'receptionist_lead', 'receptionist_staff'].includes(r)
         );
         const hasTeaching = staffRoles.some(r =>
-            r === 'teaching_assistant' || r === 'assistant' ||
-            r === 'staff'
+            ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r)
         );
         if (hasReceptionist && !hasTeaching) {
             filterEl.value = 'tiep-tan';
@@ -3062,8 +3061,12 @@ async function openClassRateModal() {
             : [user.role || ''])
         : [];
         
-    let hasTeaching = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r)) || teachingShiftCount > 0;
-    let hasReceptionist = staffRoles.some(r => ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r)) || receptionistShiftCount > 0;
+    const cfg = user.salary_config || {};
+    const hasTeachingConfig = (cfg.roles && cfg.roles.length > 0) || (Number(cfg.rate) > 0);
+    const hasReceptionistConfig = (Number(cfg.receptionist_normal_rate) > 0) || (Number(cfg.receptionist_fixed_rate) > 0);
+        
+    let hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r)) || teachingShiftCount > 0 || hasTeachingConfig;
+    let hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'tiep-tan', 'tiep_tan', 'receptionist_lead', 'receptionist_staff'].includes(r)) || receptionistShiftCount > 0 || hasReceptionistConfig;
     
     const roleToggle = document.getElementById('modal-role-toggle-container');
     if (hasTeaching && hasReceptionist) {
