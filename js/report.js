@@ -4032,7 +4032,8 @@ function exportSalaryPDFFromModal() {
             vdx: penaltyVDX,
             vkp: penaltyVKP,
             late: penaltyLate
-        }
+        },
+        customFilterType: window.modalActiveRole
     });
 }
 

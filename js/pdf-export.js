@@ -10,7 +10,6 @@ function togglePdfTieptanInputs() {
     if (box) box.style.display = (filterType === 'tiep-tan') ? 'block' : 'none';
 }
 window.togglePdfTieptanInputs = togglePdfTieptanInputs;
-
 function exportSalaryPDF(overrides) {
     // 1. Get Data
     const staffSelect = document.getElementById('staff-select');
@@ -18,8 +17,6 @@ function exportSalaryPDF(overrides) {
     const staffName = staffSelect.options[staffSelect.selectedIndex].text.split('(')[0].trim();
     if (staffId === 'all') { alert("Vui lòng chọn nhân viên để xuất file"); return; }
 
-    const rate = 0; // Legacy logic removal
-    
     // Read values either from overrides (Modal) or fallbacks (Main screen)
     const advance = overrides && overrides.customAdvance !== undefined
         ? overrides.customAdvance
@@ -58,6 +55,25 @@ function exportSalaryPDF(overrides) {
     let fixedMinutes = 0;
     let normalSalary = 0;
     let fixedSalary = 0;
+
+    // Detailed hour/salary categories for Teacher (Form 1)
+    let totalBaseMins = 0;
+    let totalBaseSalary = 0;
+
+    let totalTinHocMins = 0;
+    let totalTinHocSalary = 0;
+
+    let totalPreschoolMins = 0; // Mầm non
+    let totalPreschoolSalary = 0;
+
+    let totalAffiliateMins = 0; // Liên kết
+    let totalAffiliateSalary = 0;
+
+    let totalTutoringMins = 0; // Kèm 1:1
+    let totalTutoringSalary = 0;
+
+    let totalExtraMins = 0; // Soạn bài/Chấm bài...
+    let totalExtraSalary = 0;
 
     chips.forEach(chip => {
         const isReceptionistChip = chip.isReceptionist === true;
@@ -123,30 +139,91 @@ function exportSalaryPDF(overrides) {
                 }
                 if (window.currentUserContext && window.currentUserContext.salary_config) {
                      if (isTiepTan) {
-                         let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
-                         let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
-                         if (chip.isFixedShift && fixedRate) {
-                             rate = fixedRate;
-                             isFixed = true;
-                         } else if (normalRate) {
-                             rate = normalRate;
-                         }
+                          let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
+                          let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                          if (chip.isFixedShift && fixedRate) {
+                              rate = fixedRate;
+                              isFixed = true;
+                          } else if (normalRate) {
+                              rate = normalRate;
+                          }
                      }
                 }
             }
 
+            const salary = (minutes / 60) * rate;
+
             if (isFixed) {
                  fixedMinutes += minutes;
-                 fixedSalary += (minutes / 60) * rate;
+                 fixedSalary += salary;
             } else {
                  normalMinutes += minutes;
-                 normalSalary += (minutes / 60) * rate;
+                 normalSalary += salary;
+            }
+
+            // Categorize hours for Teacher
+            if (!isTiepTan) {
+                const filterNameRaw = (chip.chipFilterName || '').toLowerCase();
+                const filterNameNorm = removeVietnameseTones(filterNameRaw);
+
+                if (filterNameNorm.includes('tin hoc')) {
+                    totalTinHocMins += minutes;
+                    totalTinHocSalary += salary;
+                } else if (filterNameNorm.includes('mam non')) {
+                    totalPreschoolMins += minutes;
+                    totalPreschoolSalary += salary;
+                } else if (filterNameNorm.includes('lien ket')) {
+                    totalAffiliateMins += minutes;
+                    totalAffiliateSalary += salary;
+                } else if (filterNameNorm.includes('kem 1:1') || filterNameNorm.includes('kem 1-1') || filterNameNorm.includes('tai nha')) {
+                    totalTutoringMins += minutes;
+                    totalTutoringSalary += salary;
+                } else if (filterNameNorm.includes('soan') || filterNameNorm.includes('cham') || filterNameNorm.includes('su kien') || filterNameNorm.includes('phat sinh')) {
+                    totalExtraMins += minutes;
+                    totalExtraSalary += salary;
+                } else {
+                    totalBaseMins += minutes;
+                    totalBaseSalary += salary;
+                }
             }
         }
     });
 
     const filteredMinutes = normalMinutes + fixedMinutes;
     const baseSalary = normalSalary + fixedSalary;
+
+    // Calculate Attendance Stats dynamically from unfilteredAllMonthChips
+    let workedShifts = 0;
+    let vpShifts = 0;
+    let vdxShifts = 0;
+    let vkpShifts = 0;
+    let lateCount = 0;
+    let totalLateMinutes = 0;
+
+    const unfilteredChips = window.unfilteredAllMonthChips || [];
+    const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
+    unfilteredChips.forEach(chip => {
+        if (chip.class === 'chip-future') return;
+        
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (filterType === 'tiep-tan' && !isTT) return;
+        if (filterType === 'giao-vien' && isTT) return;
+        
+        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+            const type = classifyAbsentChip(chip, notesMap);
+            if (type === 'VP') vpShifts++;
+            else if (type === 'VDX') vdxShifts++;
+            else vkpShifts++;
+        } else {
+            workedShifts++;
+        }
+        
+        const match = chip.text.match(/\(T(\d+)p\)/);
+        if (match) {
+            lateCount++;
+            totalLateMinutes += parseInt(match[1], 10);
+        }
+    });
 
     // Apply custom attendance adjustments (penalties) if provided
     let penaltyVDX = 0;
@@ -165,48 +242,51 @@ function exportSalaryPDF(overrides) {
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
 
-    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(n);
+    const fmt = (n) => new Intl.NumberFormat('vi-VN').format(Math.round(n));
+
+    // Decimal hour formatting helpers
+    const formatHoursDecimal = (mins) => {
+        const h = mins / 60;
+        if (Number.isInteger(h)) return h.toString() + ' giờ';
+        return h.toFixed(2).replace('.', ',') + ' giờ';
+    };
+
+    const formatLateHours = (mins) => {
+        if (!mins) return '0';
+        const hours = mins / 60;
+        const formatted = hours.toFixed(2).replace('.', ',');
+        return formatted.startsWith('0,') ? formatted.substring(1) : formatted;
+    };
 
     // 2. Build HTML
     const printWindow = window.open('', '_blank');
     const msgVal = document.getElementById('pdf-message')?.value?.trim() || '';
     const messageRow = msgVal
-        ? `<div class="footer-note"><strong>Nhắn gửi:</strong> ${msgVal}</div>`
+        ? `<div class="footer-note" style="margin-top: 10px;"><strong>Nhắn gửi:</strong> ${msgVal}</div>`
         : '';
 
     const sharedStyles = `
-        body { font-family: 'Times New Roman', serif; padding: 10px 15px; margin: 0; font-size: 11px; line-height: 1.2; }
-        .header { text-align: center; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; font-size: 14px; }
-        .sub-header { margin-bottom: 8px; font-weight: bold; font-size: 11px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-        th, td { border: 1px solid black; padding: 4px 6px; vertical-align: middle; font-size: 10.5px; }
+        body { font-family: 'Times New Roman', serif; padding: 10px 15px; margin: 0; font-size: 11.5px; line-height: 1.25; color: black; }
+        .header { text-align: center; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; font-size: 14.5px; }
+        .sub-header { margin-bottom: 10px; font-weight: bold; font-size: 11px; text-align: left; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+        th, td { border: 1px solid black; padding: 5px 8px; vertical-align: middle; font-size: 11px; color: black; }
         .red-text { color: red; font-weight: bold; }
         .bold { font-weight: bold; }
         .right { text-align: right; }
         .center { text-align: center; }
-        .no-border-top { border-top: none; }
-        .footer-note { font-style: italic; margin-top: 8px; font-size: 9px; }
-        .warning { color: red; font-weight: bold; margin-top: 5px; font-size: 9px; }
+        .footer-note { font-style: italic; margin-top: 8px; font-size: 10px; }
+        .warning { color: red; font-weight: bold; margin-top: 5px; font-size: 10px; }
         @media print {
-            body { padding: 0; margin: 0; font-size: 9.5px; line-height: 1.15; }
-            .header { margin-bottom: 6px; font-size: 12px; }
+            body { padding: 0; margin: 0; font-size: 10px; line-height: 1.2; }
+            .header { margin-bottom: 4px; font-size: 13px; }
             table { margin-bottom: 6px; }
-            th, td { padding: 3px 5px; font-size: 9.5px; }
-            .footer-note, .warning { font-size: 8.5px; margin-top: 3px; }
+            th, td { padding: 4px 6px; font-size: 10px; }
+            .footer-note, .warning { font-size: 9px; margin-top: 4px; }
         }
     `;
 
-    const sharedHeader = `
-        <div class="header">TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ</div>
-        <div class="sub-header">
-            MÃ NHÂN VIÊN: ${(window.currentUserContext?.username || staffId).toUpperCase()}
-            &nbsp;&nbsp;&nbsp;&nbsp;
-            HỌ VÀ TÊN: ${staffName.toUpperCase()}
-        </div>
-    `;
-
-    const footerNote = `<div class="footer-note">Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thúy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)</div>`;
-    
+    const footerNote = `<div class="footer-note">Lưu ý: Nếu bảng lương có sai sót vui lòng liên hệ chị Thủy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)</div>`;
     const sharedFooter = filterType === 'tiep-tan'
         ? `${footerNote}${messageRow}`
         : `${footerNote}${messageRow}<div class="warning">*LƯU Ý: - Lương tháng ${month}/${year} chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!</div>`;
@@ -226,15 +306,23 @@ function exportSalaryPDF(overrides) {
         const criteriaI = evalItems[0];
         const criteriaV = evalItems[4];
 
-        // Format penalties to display if present
         const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
             ? `<tr>
-                <td class="bold">KHẤU TRỪ CHUYÊN CẦN:</td>
-                <td class="right" style="color:red;font-weight:bold;">${fmt(attendanceAdjustments)} ₫</td>
+                <td class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td class="right" style="color:red;font-weight:bold;">${fmt(attendanceAdjustments)}</td>
                </tr>`
             : '';
 
+        const employeeId = (window.currentUserContext?.username || staffId).toUpperCase();
+        const headerTitle = "TRUNG TÂM NGOẠI NGỮ VÀ TOÁN TƯ DUY TRẺ";
+
         tableHTML = `
+        <div class="header">${headerTitle}</div>
+        <div class="sub-header">
+            MÃ NHÂN VIÊN: ${employeeId}
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            HỌ VÀ TÊN: ${staffName.toUpperCase()}
+        </div>
         <table>
             <tr>
                 <td class="bold red-text" style="width:70%">TỔNG LƯƠNG (1)</td>
@@ -242,65 +330,57 @@ function exportSalaryPDF(overrides) {
             </tr>
             <tr>
                 <td class="bold">
-                    TỔNG SỐ GIỜ: ${Math.floor(filteredMinutes/60)} giờ ${Math.floor(filteredMinutes%60)} phút
-                    <br><br>LƯƠNG CƠ BẢN:
+                    TỔNG SỐ GIỜ: ${filteredMinutes > 0 ? formatHoursDecimal(filteredMinutes) : 'giờ'}
+                    <br>
+                    LƯƠNG CƠ BẢN:
                 </td>
-                <td class="bold right" style="vertical-align:top">${fmt(baseSalary)}</td>
+                <td class="bold right" style="vertical-align:top">${baseSalary > 0 ? fmt(baseSalary) : ''}</td>
             </tr>
             <tr>
                 <td class="bold">PHÍ TƯ VẤN:</td>
-                <td class="right">${phiTuVan !== 0 ? fmt(phiTuVan) : ''}</td>
+                <td class="right">${phiTuVan > 0 ? fmt(phiTuVan) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">CHẤM BÀI/ DẠY VỀ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH: &nbsp; giờ</td>
+                <td class="bold">CHẤM BÀI/ DẠY VẼ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH: &nbsp; giờ</td>
                 <td></td>
             </tr>
             <tr><td class="bold">TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
             <tr><td class="bold">LƯƠNG HIỆU SUẤT:</td><td></td></tr>
             <tr>
                 <td class="bold">THU NHẬP TĂNG THÊM DOANH THU TỔNG:</td>
-                <td class="right">${doanhThuTong !== 0 ? fmt(doanhThuTong) : ''}</td>
+                <td class="right">${doanhThuTong > 0 ? fmt(doanhThuTong) : ''}</td>
             </tr>
             <tr>
                 <td class="bold">THU NHẬP TĂNG THÊM DOANH THU CS2:</td>
-                <td class="right">${doanhThuCs2 !== 0 ? fmt(doanhThuCs2) : ''}</td>
+                <td class="right">${doanhThuCs2 > 0 ? fmt(doanhThuCs2) : ''}</td>
             </tr>
             <tr>
                 <td class="bold">THU NHẬP TĂNG THÊM DOANH THU CS3:</td>
-                <td class="right">${doanhThuCs3 !== 0 ? fmt(doanhThuCs3) : ''}</td>
+                <td class="right">${doanhThuCs3 > 0 ? fmt(doanhThuCs3) : ''}</td>
             </tr>
             <tr>
                 <td class="bold">PHÁT SINH (I) + (II)</td>
-                <td class="right">${fmt(totalBonus)}</td>
+                <td class="right">${totalBonus > 0 ? fmt(totalBonus) : ''}</td>
             </tr>
             ${penaltiesHtml}
             <tr>
+                <td rowspan="2" class="center bold" style="width: 15%;">TIÊU<br>CHÍ<br>XÉT</td>
                 <td>
-                    <table style="width:100%;border:none;">
-                        <tr>
-                            <td style="border:none;width:25%;font-weight:bold;vertical-align:top;">TIÊU CHÍ XÉT</td>
-                            <td style="border:none;">
-                                <div style="margin-bottom:8px;">
-                                    <strong>(I) CHUYÊN CẦN</strong><br>
-                                    ${criteriaI?.note ? `<em>${criteriaI.note}</em>` : ''}
-                                </div>
-                                <div>
-                                    <strong>(II) TRÁCH NHIỆM:</strong>
-                                    ${criteriaV?.note ? `<em>${criteriaV.note}</em>` : ''}
-                                </div>
-                            </td>
-                            <td style="border:none;text-align:right;vertical-align:top;width:20%;">
-                                ${criteriaI?.amount ? fmt(criteriaI.amount) : ''}<br><br>
-                                ${criteriaV?.amount ? fmt(criteriaV.amount) : ''}
-                            </td>
-                        </tr>
-                    </table>
+                    <span class="bold">(I) CHUYÊN CẦN</span><br>
+                    Vắng phép: ${vpShifts} &nbsp;&nbsp; Vắng đột xuất: ${vdxShifts}<br>
+                    Vắng không phép: ${vkpShifts} &nbsp;&nbsp; Trễ: ${formatLateHours(totalLateMinutes)} giờ
                 </td>
-                <td></td>
+                <td class="right">${criteriaI?.amount ? fmt(criteriaI.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td>
+                    <span class="bold">(II) TRÁCH NHIỆM:</span> ${criteriaV?.note || ''}
+                </td>
+                <td class="right">${criteriaV?.amount ? fmt(criteriaV.amount) : ''}</td>
             </tr>
             <tr>
                 <td class="bold red-text">TẠM ỨNG (2)</td>
-                <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
+                <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
             </tr>
             <tr>
                 <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
@@ -311,75 +391,136 @@ function exportSalaryPDF(overrides) {
     } else {
         const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
             ? `<tr>
-                <td class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN (Phạt Vắng/Trễ):</td>
-                <td class="bold right" style="color:red;">${fmt(attendanceAdjustments)} ₫</td>
+                <td class="bold" style="color:red;">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td class="right" style="color:red;font-weight:bold;">${fmt(attendanceAdjustments)}</td>
                </tr>`
             : '';
 
+        const criteria0 = evalItems[0];
+        const criteria1 = evalItems[1];
+        const criteria2 = evalItems[2];
+        const criteria3 = evalItems[3];
+        const criteria4 = evalItems[4];
+        const criteria5 = evalItems[5];
+        const criteria6 = evalItems[6];
+        const criteria7 = evalItems[7];
+        const criteria8 = evalItems[8];
+        const criteria9 = evalItems[9];
+
+        const employeeId = (window.currentUserContext?.username || staffId).toUpperCase();
+        const headerTitle = "TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ";
+
         tableHTML = `
-        <div style="margin-bottom: 8px;">
-            Tổng số tháng làm việc năm ${year} (từ sau tết âm lịch): ...
+        <div class="header">${headerTitle}</div>
+        <div class="sub-header">
+            MÃ NHÂN VIÊN: ${employeeId}
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            HỌ VÀ TÊN: ${staffName.toUpperCase()}
         </div>
         <table>
             <tr>
                 <td class="bold red-text" style="width: 70%">TỔNG LƯƠNG (1)</td>
                 <td class="bold red-text right">${fmt(initialTotal)}</td>
             </tr>
-
             <tr>
                 <td class="bold">
-                    TỔNG SỐ GIỜ CƠ BẢN: ${Math.floor(normalMinutes / 60)} giờ ${Math.floor(normalMinutes % 60)} phút
+                    TỔNG SỐ GIỜ: ${totalBaseMins > 0 ? formatHoursDecimal(totalBaseMins) : 'giờ'} / buổi
                     <br>
                     LƯƠNG CƠ BẢN:
                 </td>
-                <td class="bold right" style="vertical-align: top;">${fmt(normalSalary)}</td>
+                <td class="bold right" style="vertical-align: top;">${totalBaseSalary > 0 ? fmt(totalBaseSalary) : ''}</td>
             </tr>
-            ${(fixedMinutes > 0 || window.fixedWorkedCount > 0 || window.fixedAbsentCount > 0) ? `
             <tr>
-                <td class="bold" style="color: #6366F1;">
-                    TỔNG SỐ GIỜ CỐ ĐỊNH: ${Math.floor(fixedMinutes / 60)} giờ ${Math.floor(fixedMinutes % 60)} phút
-                    <br>
-                    [Ca Cố Định] Đi làm: ${window.fixedWorkedCount || 0} | OFF: ${window.fixedAbsentCount || 0}
-                    <br>
-                    LƯƠNG CA CỐ ĐỊNH:
-                </td>
-                <td class="bold right" style="vertical-align: top; color: #6366F1;">${fmt(fixedSalary)}</td>
+                <td>TỔNG SỐ GIỜ TIN HỌC: ${totalTinHocMins > 0 ? formatHoursDecimal(totalTinHocMins) : 'giờ'}</td>
+                <td class="right">${totalTinHocSalary > 0 ? fmt(totalTinHocSalary) : ''}</td>
             </tr>
-            ` : ''}
-
-            <tr><td>SOẠN BÀI/ CHẤM BÀI/ SỰ KIỆN/ PHÁT SINH: giờ</td><td></td></tr>
-            <tr><td>TỔNG SỐ GIỜ MẦM NON: giờ</td><td></td></tr>
-            <tr><td>TỔNG SỐ GIỜ GTNL/TOEIC/IELTS: giờ</td><td></td></tr>
-            <tr><td>TỔNG SỐ GIỜ LIÊN KẾT: giờ</td><td></td></tr>
-            <tr><td>TỔNG SỐ GIỜ KÈM 1:1 TẠI NHÀ: giờ</td><td></td></tr>
-            <tr><td>TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
-            
+            <tr>
+                <td>SOẠN BÀI/ CHẤM BÀI/SỰ KIỆN/PHÁT SINH: ${totalExtraMins > 0 ? formatHoursDecimal(totalExtraMins) : 'giờ'}</td>
+                <td class="right">${totalExtraSalary > 0 ? fmt(totalExtraSalary) : ''}</td>
+            </tr>
+            <tr>
+                <td>TỔNG SỐ GIỜ MẦM NON: ${totalPreschoolMins > 0 ? formatHoursDecimal(totalPreschoolMins) : 'giờ'}</td>
+                <td class="right">${totalPreschoolSalary > 0 ? fmt(totalPreschoolSalary) : ''}</td>
+            </tr>
+            <tr>
+                <td>TỔNG SỐ GIỜ LIÊN KẾT: ${totalAffiliateMins > 0 ? formatHoursDecimal(totalAffiliateMins) : 'giờ'}</td>
+                <td class="right">${totalAffiliateSalary > 0 ? fmt(totalAffiliateSalary) : ''}</td>
+            </tr>
+            <tr>
+                <td>TỔNG SỐ GIỜ KÈM 1:1 (TẠI NHÀ): ${totalTutoringMins > 0 ? formatHoursDecimal(totalTutoringMins) : 'giờ'}</td>
+                <td class="right">${totalTutoringSalary > 0 ? fmt(totalTutoringSalary) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">TRỢ CẤP CHỨC VỤ:</td>
+                <td></td>
+            </tr>
             ${penaltiesHtml}
-
             <tr>
                 <td class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
-                <td class="bold right">${fmt(totalBonus)}</td>
+                <td class="bold right">${totalBonus > 0 ? fmt(totalBonus) : ''}</td>
             </tr>
-
-            ${evalItems.map(item => `
-                <tr>
-                    <td>
-                        <div style="display:flex;">
-                            <div style="width: 40%; font-weight:bold;">(${item.label}) ${item.title}</div>
-                            <div style="width: 60%;">${item.note}</div>
-                        </div>
-                    </td>
-                    <td class="right">${item.amount !== 0 ? fmt(item.amount) : ''}</td>
-                </tr>
-            `).join('')}
-
+            
+            <!-- TIÊU CHÍ ĐÁNH GIÁ (Gộp dòng đứng) -->
+            <tr>
+                <td rowspan="10" class="center bold" style="width: 10%;">TIÊU<br>CHÍ<br>ĐÁNH<br>GIÁ</td>
+                <td class="bold" style="width: 25%;">(I) CHUYÊN CẦN – TÁC PHONG</td>
+                <td style="width: 50%;">
+                    Vắng phép: ${vpShifts} &nbsp;&nbsp; Vắng đột xuất: ${vdxShifts} &nbsp;&nbsp; Vắng không phép: ${vkpShifts}
+                </td>
+                <td class="right" style="width: 15%;">${criteria0?.amount ? fmt(criteria0.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(II) ĐÚNG GIỜ</td>
+                <td>Trễ: ${totalLateMinutes ? (totalLateMinutes / 60).toFixed(2).replace('.', ',') + ' giờ' : 'nhiều giờ'} &nbsp;&nbsp; số lần trễ: ${lateCount ? lateCount + ' lần' : 'lần'}</td>
+                <td class="right">${criteria1?.amount ? fmt(criteria1.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(II) TẬP TRUNG LÀM VIỆC</td>
+                <td>${criteria2?.note || ''}</td>
+                <td class="right">${criteria2?.amount ? fmt(criteria2.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(III) NHIỆT TÌNH</td>
+                <td>${criteria3?.note || ''}</td>
+                <td class="right">${criteria3?.amount ? fmt(criteria3.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(IV) TRÁCH NHIỆM</td>
+                <td>${criteria4?.note || ''}</td>
+                <td class="right">${criteria4?.amount ? fmt(criteria4.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(V) SOẠN BÀI/NHẬN XÉT</td>
+                <td>${criteria5?.note || ''}</td>
+                <td class="right">${criteria5?.amount ? fmt(criteria5.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(VI) CHUYÊN MÔN</td>
+                <td>${criteria6?.note || ''}</td>
+                <td class="right">${criteria6?.amount ? fmt(criteria6.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(VII) KỸ NĂNG SƯ PHẠM</td>
+                <td>${criteria7?.note || ''}</td>
+                <td class="right">${criteria7?.amount ? fmt(criteria7.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(VIII) SỐ GIỜ LÀM</td>
+                <td>MỐC XÉT THƯỞNG: 50,65,80 ${criteria8?.note ? `<br>${criteria8.note}` : ''}</td>
+                <td class="right">${criteria8?.amount ? fmt(criteria8.amount) : ''}</td>
+            </tr>
+            <tr>
+                <td class="bold">(IX) HỌP ĐỊNH KÌ</td>
+                <td>${criteria9?.note || ''}</td>
+                <td class="right">${criteria9?.amount ? fmt(criteria9.amount) : ''}</td>
+            </tr>
+            
             <tr>
                 <td class="bold red-text">TẠM ỨNG (2)</td>
-                <td class="right">${advance !== 0 ? fmt(advance) : ''}</td>
+                <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
             </tr>
-
             <tr>
-                <td class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                <td class="bold red-text">THỰC LĨNH (1)-(2)</td>
                 <td class="bold red-text right">${fmt(finalNet)}</td>
             </tr>
         </table>`;
@@ -392,7 +533,6 @@ function exportSalaryPDF(overrides) {
             <style>${sharedStyles}</style>
         </head>
         <body>
-            ${sharedHeader}
             ${tableHTML}
             ${sharedFooter}
             <script>window.print();<\/script>
