@@ -37,6 +37,8 @@ async function initReport() {
     if (isAdminLike) {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'flex';
+        const headerRevs = document.getElementById('admin-header-revenues');
+        if (headerRevs) headerRevs.style.display = 'flex';
         document.getElementById('page-title').innerText = isSalaryAdmin ? 'Tính Lương & Duyệt Công' : 'Duyệt Công Nhân Viên';
         await populateStaffSelect();
 
@@ -76,6 +78,8 @@ async function initReport() {
     } else {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'none';
+        const headerRevs = document.getElementById('admin-header-revenues');
+        if (headerRevs) headerRevs.style.display = 'none';
         document.getElementById('page-title').innerText = 'Bảng Công Cá Nhân';
 
         const bonusBtn = document.getElementById('btn-manual-bonus');
@@ -1573,6 +1577,15 @@ async function renderMonthReport(date, forceServer = false) {
 
 // ================= SALARY CALCULATION & EVALUATION =================
 // EVALUATION_CRITERIA → Moved to evaluation-service.js
+const RECEP_EVALUATION_CRITERIA = [
+    { label: 'I', tooltip: 'CHUYÊN CẦN – TÁC PHONG', index: 0, default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
+    { label: 'II', tooltip: 'TRÁCH NHIỆM', index: 4, default: 0 },
+    { label: 'III', tooltip: 'PHÍ TƯ VẤN', index: 1, default: 0 },
+    { label: 'IV', tooltip: 'CHẤM BÀI / DẠY VẼ / ĐĂNG BÀI / SỰ KIỆN / PHÁT SINH', index: 2, default: 0 },
+    { label: 'V', tooltip: 'TRỢ CẤP CHỨC VỤ', index: 3, default: 0 },
+    { label: 'VI', tooltip: 'LƯƠNG HIỆU SUẤT', index: 5, default: 0 },
+    { label: 'VII', tooltip: 'THƯỞNG DOANH THU CS3 (Thủ công)', index: 6, default: 0 }
+];
 
 let currentEvalIndex = null;
 
@@ -1585,13 +1598,17 @@ function renderEvaluationTable(savedData = []) {
     section.style.display = showEval ? 'block' : 'none';
     if (!showEval) return;
 
+    const activeFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const isRecep = (activeFilter === 'tiep-tan');
+    const criteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+
     const thead = document.getElementById('eval-thead');
     const tbody = document.getElementById('evaluation-table-body');
     if (!tbody || !thead) return;
 
     // Headers
     let headerHtml = '<tr><th style="padding: 0.5rem; border: 1px solid #e5e7eb; width: 100px;">Nội dung</th>';
-    EVALUATION_CRITERIA.forEach(item => {
+    criteriaList.forEach(item => {
         headerHtml += `<th style="padding: 0.5rem; border: 1px solid #e5e7eb; text-align: center;" title="${item.tooltip}">${item.label}</th>`;
     });
     headerHtml += '</tr>';
@@ -1602,27 +1619,40 @@ function renderEvaluationTable(savedData = []) {
     let trAmount = '<tr><td style="padding: 0.5rem; font-weight: 600;">Thưởng/Phạt</td>';
     let trNote = '<tr><td style="padding: 0.5rem; font-weight: 600;">Ghi chú</td>';
 
-    EVALUATION_CRITERIA.forEach((item, index) => {
-        const rowData = savedData[index] || {};
+    criteriaList.forEach((item, index) => {
+        const criteriaIndex = isRecep ? item.index : index;
+        const rowData = savedData.find(e => e.id === criteriaIndex) || {};
         const note = rowData.note || '';
         const amount = rowData.amount !== undefined ? rowData.amount : item.default;
 
         totalBonus += Number(amount);
 
+        const isReadOnlyAttr = isRecep 
+            ? 'readonly style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600; color: #4B5563;"' 
+            : 'style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600;"';
+
         trAmount += `
             <td style="padding: 0.25rem; border: 1px solid #e5e7eb;">
                 <input type="number" class="table-input eval-amount" 
-                    value="${amount}" step="1000" data-index="${index}" oninput="calculateSalary()"
-                    style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600;">
+                    value="${amount}" step="1000" data-index="${criteriaIndex}" oninput="calculateSalary()"
+                    ${isReadOnlyAttr}>
             </td>`;
 
         const noteBtnColor = note ? 'var(--primary-color)' : '#9ca3af';
+        const noteButtonHtml = isRecep ? `
+            <span title="${note || 'Không có ghi chú'}" style="font-size: 0.85rem; color: #4B5563;">
+                ${note ? '📝' : '—'}
+            </span>
+        ` : `
+            <button type="button" onclick="openEvalNoteModal(${index})" style="background: none; border: none; cursor: pointer; color: ${noteBtnColor};" title="${note || 'Thêm ghi chú'}">
+               📝
+            </button>
+        `;
+
         trNote += `
             <td style="padding: 0.25rem; border: 1px solid #e5e7eb; text-align: center;">
-                <input type="hidden" class="eval-note" value="${note.replace(/"/g, '&quot;')}" data-index="${index}">
-                <button type="button" onclick="openEvalNoteModal(${index})" style="background: none; border: none; cursor: pointer; color: ${noteBtnColor};" title="${note || 'Thêm ghi chú'}">
-                   📝
-                </button>
+                <input type="hidden" class="eval-note" value="${note.replace(/"/g, '&quot;')}" data-index="${criteriaIndex}">
+                ${noteButtonHtml}
             </td>`;
     });
 
@@ -2037,25 +2067,17 @@ function calculateSalary() {
 
     // Redistribution logic for Receptionist collective bonus pool
     if (roleFilter === 'tiep-tan') {
-        const actualCenterRevenue = parseFloat(document.getElementById('pdf-actual-revenue-total')?.value) || 0;
-        const actualCs2Revenue = parseFloat(document.getElementById('pdf-actual-revenue-cs2')?.value) || 0;
+        const actualCenterRevenue = parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0');
+        const actualCs2Revenue = parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0');
         
         let P_tong = 0;
         let P_cs2 = 0;
         
-        if (window.recepBonusConfig) {
-            const getMatchedBonus = (rev, tiers) => {
-                if (!tiers || tiers.length === 0) return 0;
-                let matched = 0;
-                for (let i = 0; i < tiers.length; i++) {
-                    if (rev >= tiers[i].revenue) matched = tiers[i].bonus;
-                }
-                return matched;
-            };
-            
-            P_tong = getMatchedBonus(actualCenterRevenue, window.recepBonusConfig.center_tiers);
-            P_cs2 = getMatchedBonus(actualCs2Revenue, window.recepBonusConfig.cs2_tiers);
-        }
+        if (actualCenterRevenue >= 525000000) P_tong = 7000000;
+        else if (actualCenterRevenue >= 500000000) P_tong = 4000000;
+        else if (actualCenterRevenue >= 475000000) P_tong = 1500000;
+
+        if (actualCs2Revenue >= 65000000) P_cs2 = 500000;
         
         const staffId = document.getElementById('staff-select').value;
         const currentRecepData = (window.allReceptionistsData || []).find(r => r.id === staffId);
@@ -2077,15 +2099,23 @@ function calculateSalary() {
         
         const outputTong = document.getElementById('pdf-doanh-thu-tong');
         const outputCs2 = document.getElementById('pdf-doanh-thu-cs2');
-        if (outputTong) outputTong.value = Math.round(myCenterBonus);
-        if (outputCs2) outputCs2.value = Math.round(myCs2Bonus);
+        if (outputTong) outputTong.value = formatNumberWithCommas(Math.round(myCenterBonus));
+        if (outputCs2) outputCs2.value = formatNumberWithCommas(Math.round(myCs2Bonus));
         
-        // Sum extras into totalSalary calculation
-        const phiTuVan = parseFloat(document.getElementById('pdf-phi-tu-van')?.value) || 0;
-        const doanhThuCs3 = parseFloat(document.getElementById('pdf-doanh-thu-cs3')?.value) || 0;
-        const totalExtras = phiTuVan + doanhThuCs3 + Math.round(myCenterBonus) + Math.round(myCs2Bonus);
+        // Read and populate read-only Phi tu van and Doanh thu CS3
+        const evaluation = window.currentLoadedSalarySettings?.evaluation || [];
+        const phiTuVanObj = evaluation.find(e => e.id === 1);
+        const doanhThuCs3Obj = evaluation.find(e => e.id === 6);
+        const phiTuVan = phiTuVanObj ? (Number(phiTuVanObj.amount) || 0) : 0;
+        const doanhThuCs3 = doanhThuCs3Obj ? (Number(doanhThuCs3Obj.amount) || 0) : 0;
+
+        const phiTuVanDisplay = document.getElementById('pdf-phi-tu-van');
+        const doanhThuCs3Display = document.getElementById('pdf-doanh-thu-cs3');
+        if (phiTuVanDisplay) phiTuVanDisplay.value = formatNumberWithCommas(phiTuVan);
+        if (doanhThuCs3Display) doanhThuCs3Display.value = formatNumberWithCommas(doanhThuCs3);
         
-        totalBonus += totalExtras;
+        // Sum collective bonuses (Phi tu van and CS3 are already inside totalBonus from evaluations)
+        totalBonus += Math.round(myCenterBonus) + Math.round(myCs2Bonus);
     }
 
     // Store base salary for Export PDF
@@ -2159,12 +2189,14 @@ async function saveSalarySettings() {
     const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
     const evaluationData = [];
 
-    document.querySelectorAll('.eval-note').forEach((noteInp, index) => {
-        const amountInp = document.querySelector(`.eval-amount[data-index="${index}"]`);
+    document.querySelectorAll('.eval-note').forEach((noteInp) => {
+        const criteriaIndex = parseInt(noteInp.dataset.index, 10);
+        if (isNaN(criteriaIndex)) return;
+        const amountInp = document.querySelector(`.eval-amount[data-index="${criteriaIndex}"]`);
         evaluationData.push({
-            id: index,
+            id: criteriaIndex,
             note: noteInp.value,
-            amount: parseFloat(amountInp.value) || 0
+            amount: amountInp ? (parseFloat(amountInp.value) || 0) : 0
         });
     });
 
@@ -2247,35 +2279,59 @@ async function loadSalarySettings() {
     window.currentLoadedSalarySettings = settings;
     document.getElementById('salary-advance').value = settings.advance || 0;
     
-    // Load receptionist bonus config & revenues if tiep-tan is active
+    // Load monthly actual revenues unconditionally for the header
+    try {
+        const revDoc = await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).get();
+        const revenues = revDoc.exists ? revDoc.data() : { total: 0, cs2: 0 };
+        
+        const headerTotal = document.getElementById('header-actual-revenue-total');
+        const headerCs2 = document.getElementById('header-actual-revenue-cs2');
+        
+        if (headerTotal) headerTotal.value = formatNumberWithCommas(revenues.total || 0);
+        if (headerCs2) headerCs2.value = formatNumberWithCommas(revenues.cs2 || 0);
+    } catch (e) {
+        console.error('Error loading global monthly revenues:', e);
+    }
+
     if (activeFilter === 'tiep-tan') {
         try {
-            window.recepBonusConfig = await DBService.getReceptionistBonusConfig();
-            
-            // Render config UI fields
-            renderRecepBonusConfigUI();
-            
-            const revDoc = await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).get();
-            const revenues = revDoc.exists ? revDoc.data() : { total: 0, cs2: 0 };
-            
-            const inputTotal = document.getElementById('pdf-actual-revenue-total');
-            const inputCs2 = document.getElementById('pdf-actual-revenue-cs2');
-            
-            if (inputTotal) inputTotal.value = revenues.total || 0;
-            if (inputCs2) inputCs2.value = revenues.cs2 || 0;
-
             // Load and compute cống hiến points for all receptionists in background
             loadAndComputeAllReceptionists(monthStr).catch(err => {
                 console.error("Error computing all receptionist scores:", err);
             });
         } catch (e) {
-            console.error('Error loading receptionist bonus config/revenues:', e);
+            console.error('Error loading receptionist cống hiến points:', e);
         }
     }
     
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
 }
+
+async function saveHeaderRevenues() {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    const totalRev = parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0');
+    const cs2Rev = parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0');
+
+    try {
+        await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).set({
+            total: totalRev,
+            cs2: cs2Rev
+        }, { merge: true });
+
+        UIService.toast('Da luu doanh thu thanh cong!', 'success');
+        
+        // Recalculate cống hiến points and salary for everyone in receptionist group
+        await loadAndComputeAllReceptionists(monthStr);
+    } catch (e) {
+        console.error('Error saving header revenues:', e);
+        UIService.toast('Loi khi luu doanh thu: ' + e.message, 'error');
+    }
+}
+window.saveHeaderRevenues = saveHeaderRevenues;
 
 // ================= NOTES =================
 
@@ -3486,36 +3542,51 @@ async function populateModalCurrentTab() {
     if (evalTableBody) {
         evalTableBody.innerHTML = '';
         
-        EVALUATION_CRITERIA.forEach((item, index) => {
-            const saved = (roleSettings.evaluation || []).find(e => e.id === index) || {};
+        const isRecep = (window.modalActiveRole === 'tiep-tan');
+        const activeCriteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+        
+        activeCriteriaList.forEach((item, index) => {
+            const criteriaIndex = isRecep ? item.index : index;
+            const saved = (roleSettings.evaluation || []).find(e => e.id === criteriaIndex) || {};
             let amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             let noteVal = saved.note || '';
 
-            // AUTO-POPULATE CRITERIA I, II, X IF EMPTY OR SET TO TEMPLATE
-            if (index === 0) {
-                // I. CHUYÊN CẦN – TÁC PHONG
-                if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Vắng phép:') || noteVal.startsWith('Vắng phép: ...')) {
-                    noteVal = `Vắng phép: ${vpShifts}; Vắng đột xuất: ${vdxShifts}; Vắng không phép: ${vkpShifts}`;
-                }
-                if (saved.amount === undefined) {
-                    const attRate = Number(roleSettings.attendance_rate || user.salary_config?.attendance_rate || 0);
-                    if (attRate > 0) {
-                        amountVal = Math.round((grandTotalMinutes / 60) * attRate);
+            // AUTO-POPULATE CRITERIA
+            if (isRecep) {
+                if (criteriaIndex === 0) {
+                    if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Vắng phép:') || noteVal.startsWith('Vắng phép: ...')) {
+                        noteVal = `Vắng phép: ${vpShifts}; Vắng đột xuất: ${vdxShifts}; Vắng không phép: ${vkpShifts}`;
+                    }
+                    if (saved.amount === undefined) {
+                        const attRate = Number(roleSettings.attendance_rate || user.salary_config?.attendance_rate || 0);
+                        if (attRate > 0) {
+                            amountVal = Math.round((grandTotalMinutes / 60) * attRate);
+                        }
                     }
                 }
-            } else if (index === 1) {
-                // II. ĐÚNG GIỜ
-                if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Trễ:') || noteVal.startsWith('Trễ: ...')) {
-                    noteVal = `Trễ: ${totalLateMinutes} phút; Số lần trễ: ${lateCount} lần`;
-                }
-            } else if (index === 9) {
-                // X. HỌP ĐỊNH KÌ
-                if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Tiếng Anh:') || noteVal.startsWith('Tiếng Anh: ...')) {
-                    const rec = (meetingsLog && meetingsLog.records) ? meetingsLog.records[staffId] : null;
-                    const status_ta = (rec && rec.hop_tg_tieng_anh) ? rec.hop_tg_tieng_anh : 'x';
-                    const status_ttv = (rec && rec.hop_tg_t_tv) ? rec.hop_tg_t_tv : 'x';
-                    const status_receptionist = (rec && rec.hop_tiep_tan) ? rec.hop_tiep_tan : 'x';
-                    noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
+            } else {
+                if (index === 0) {
+                    if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Vắng phép:') || noteVal.startsWith('Vắng phép: ...')) {
+                        noteVal = `Vắng phép: ${vpShifts}; Vắng đột xuất: ${vdxShifts}; Vắng không phép: ${vkpShifts}`;
+                    }
+                    if (saved.amount === undefined) {
+                        const attRate = Number(roleSettings.attendance_rate || user.salary_config?.attendance_rate || 0);
+                        if (attRate > 0) {
+                            amountVal = Math.round((grandTotalMinutes / 60) * attRate);
+                        }
+                    }
+                } else if (index === 1) {
+                    if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Trễ:') || noteVal.startsWith('Trễ: ...')) {
+                        noteVal = `Trễ: ${totalLateMinutes} phút; Số lần trễ: ${lateCount} lần`;
+                    }
+                } else if (index === 9) {
+                    if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Tiếng Anh:') || noteVal.startsWith('Tiếng Anh: ...')) {
+                        const rec = (meetingsLog && meetingsLog.records) ? meetingsLog.records[staffId] : null;
+                        const status_ta = (rec && rec.hop_tg_tieng_anh) ? rec.hop_tg_tieng_anh : 'x';
+                        const status_ttv = (rec && rec.hop_tg_t_tv) ? rec.hop_tg_t_tv : 'x';
+                        const status_receptionist = (rec && rec.hop_tiep_tan) ? rec.hop_tiep_tan : 'x';
+                        noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
+                    }
                 }
             }
             
@@ -3527,14 +3598,14 @@ async function populateModalCurrentTab() {
                 </td>
                 <td style="padding: 0.25rem 0.5rem; text-align: right;">
                     <input type="text" class="modal-eval-amount table-input money-input" 
-                        data-index="${index}" 
+                        data-index="${criteriaIndex}" 
                         value="${formatNumberWithCommas(amountVal)}" 
                         style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;"
                         oninput="recalculateSalaryModal()">
                 </td>
                 <td style="padding: 0.25rem 0.5rem;">
                     <input type="text" class="modal-eval-note table-input" 
-                        data-index="${index}" 
+                        data-index="${criteriaIndex}" 
                         value="${noteVal.replace(/"/g, '&quot;')}" 
                         placeholder="${item.template || 'Nhập ghi chú...'}" 
                         style="width: 100%; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-size: 0.8rem;">
@@ -3611,7 +3682,14 @@ function recalculateSalaryModal() {
     const advance = parseFormattedNumber(document.getElementById('modal-salary-advance')?.value || '0');
     
     const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
-    const netPay = basePay + criteriaPay + attendanceAdjustments - advance;
+    
+    let recepPoolPay = 0;
+    if (window.modalActiveRole === 'tiep-tan') {
+        recepPoolPay += parseFormattedNumber(document.getElementById('pdf-doanh-thu-tong')?.value || '0');
+        recepPoolPay += parseFormattedNumber(document.getElementById('pdf-doanh-thu-cs2')?.value || '0');
+    }
+    
+    const netPay = basePay + criteriaPay + recepPoolPay + attendanceAdjustments - advance;
     
     const displayCell = document.getElementById('modal-final-salary-display');
     if (displayCell) {
@@ -4158,11 +4236,16 @@ function exportSalaryPDFFromModal() {
     const penaltyLate = parseFormattedNumber(document.getElementById('modal-adjust-late')?.value || '0');
     
     const evaluationData = [];
+    const isRecep = window.modalActiveRole === 'tiep-tan';
+    const activeCriteria = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+    
     document.querySelectorAll('.modal-eval-note').forEach(noteInp => {
         const index = parseInt(noteInp.dataset.index, 10);
         const amountInp = document.querySelector(`.modal-eval-amount[data-index="${index}"]`);
-        const item = EVALUATION_CRITERIA[index];
+        const item = isRecep ? activeCriteria.find(e => e.index === index) : activeCriteria[index];
+        if (!item) return;
         evaluationData.push({
+            id: index,
             label: item.label,
             title: item.tooltip,
             note: noteInp.value,

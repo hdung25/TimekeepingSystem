@@ -17,32 +17,50 @@ function exportSalaryPDF(overrides) {
     const staffName = staffSelect.options[staffSelect.selectedIndex].text.split('(')[0].trim();
     if (staffId === 'all') { alert("Vui lòng chọn nhân viên để xuất file"); return; }
 
-    // Read values either from overrides (Modal) or fallbacks (Main screen)
+    let totalBonus = 0;
+    let evalItems = [];
+    
+    const RECEP_EVALUATION_CRITERIA = [
+        { label: 'I', tooltip: 'CHUYÊN CẦN – TÁC PHONG', index: 0, default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
+        { label: 'II', tooltip: 'TRÁCH NHIỆM', index: 4, default: 0 },
+        { label: 'III', tooltip: 'PHÍ TƯ VẤN', index: 1, default: 0 },
+        { label: 'IV', tooltip: 'CHẤM BÀI / DẠY VẼ / ĐĂNG BÀI / SỰ KIỆN / PHÁT SINH', index: 2, default: 0 },
+        { label: 'V', tooltip: 'TRỢ CẤP CHỨC VỤ', index: 3, default: 0 },
+        { label: 'VI', tooltip: 'LƯƠNG HIỆU SUẤT', index: 5, default: 0 },
+        { label: 'VII', tooltip: 'THƯỞNG DOANH THU CS3 (Thủ công)', index: 6, default: 0 }
+    ];
+
+    const filterType = overrides && overrides.customFilterType
+        ? overrides.customFilterType
+        : (document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all');
+
     const advance = overrides && overrides.customAdvance !== undefined
         ? overrides.customAdvance
         : (parseFloat(document.getElementById('salary-advance')?.value) || 0);
 
-    let totalBonus = 0;
-    let evalItems = [];
-    
     if (overrides && overrides.customEvalItems) {
         evalItems = overrides.customEvalItems;
         totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
     } else {
-        document.querySelectorAll('.eval-amount').forEach((inp, idx) => {
+        document.querySelectorAll('.eval-amount').forEach((inp) => {
             const val = parseFloat(inp.value) || 0;
-            totalBonus += val;
-            const noteInp = document.querySelector(`.eval-note[data-index="${idx}"]`);
-            const item = EVALUATION_CRITERIA[idx];
+            const criteriaIndex = parseInt(inp.dataset.index, 10);
+            if (isNaN(criteriaIndex)) return;
+            const noteInp = document.querySelector(`.eval-note[data-index="${criteriaIndex}"]`);
+            
+            const activeCriteria = filterType === 'tiep-tan' ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+            const item = activeCriteria.find(e => (filterType === 'tiep-tan' ? e.index === criteriaIndex : activeCriteria.indexOf(e) === criteriaIndex)) || { label: '', tooltip: 'Đánh giá' };
             const displayNote = noteInp ? noteInp.value : '';
             
             evalItems.push({
+                id: criteriaIndex,
                 label: item.label,
                 title: item.tooltip,
                 note: displayNote,
                 amount: val
             });
         });
+        totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
     }
 
     calculateSalary();
@@ -360,17 +378,40 @@ function exportSalaryPDF(overrides) {
     let tableHTML = '';
 
     if (filterType === 'tiep-tan') {
-        const phiTuVan = parseFloat(document.getElementById('pdf-phi-tu-van')?.value) || 0;
-        const doanhThuTong = parseFloat(document.getElementById('pdf-doanh-thu-tong')?.value) || 0;
-        const doanhThuCs2 = parseFloat(document.getElementById('pdf-doanh-thu-cs2')?.value) || 0;
-        const doanhThuCs3 = parseFloat(document.getElementById('pdf-doanh-thu-cs3')?.value) || 0;
+        const parseNum = (val) => {
+            if (!val) return 0;
+            if (typeof val === 'number') return val;
+            const clean = String(val).replace(/[^0-9-]/g, '');
+            return parseFloat(clean) || 0;
+        };
 
-        const totalExtras = phiTuVan + doanhThuTong + doanhThuCs2 + doanhThuCs3;
-        const totalI = baseSalary + totalExtras + totalBonus + attendanceAdjustments;
+        const getEvalAmount = (id) => {
+            const found = evalItems.find(item => item.id === id);
+            return found ? Number(found.amount) : 0;
+        };
+        const getEvalNote = (id) => {
+            const found = evalItems.find(item => item.id === id);
+            return found ? found.note : '';
+        };
+
+        const phiTuVan = getEvalAmount(1);
+        const chamBaiPhatSinh = getEvalAmount(2);
+        const chamBaiNote = getEvalNote(2);
+        const troCapChucVu = getEvalAmount(3);
+        const troCapNote = getEvalNote(3);
+        const luongHieuSuat = getEvalAmount(5);
+        const luongHieuSuatNote = getEvalNote(5);
+        const doanhThuCs3 = getEvalAmount(6);
+
+        const doanhThuTong = parseNum(document.getElementById('pdf-doanh-thu-tong')?.value || 0);
+        const doanhThuCs2 = parseNum(document.getElementById('pdf-doanh-thu-cs2')?.value || 0);
+
+        const criteriaI = evalItems.find(item => item.id === 0);
+        const criteriaV = evalItems.find(item => item.id === 4);
+
+        const phatSinh = (criteriaI?.amount || 0) + (criteriaV?.amount || 0);
+        const totalI = baseSalary + phiTuVan + chamBaiPhatSinh + troCapChucVu + luongHieuSuat + doanhThuTong + doanhThuCs2 + doanhThuCs3 + phatSinh + attendanceAdjustments;
         const finalNetTT = totalI - advance;
-
-        const criteriaI = evalItems[0];
-        const criteriaV = evalItems[4];
 
         const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
             ? `<tr>
@@ -411,11 +452,17 @@ function exportSalaryPDF(overrides) {
                 <td class="right">${phiTuVan > 0 ? fmt(phiTuVan) : ''}</td>
             </tr>
             <tr>
-                <td colspan="2" class="bold">CHẤM BÀI/ DẠY VẼ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH: &nbsp; giờ</td>
-                <td></td>
+                <td colspan="2" class="bold">CHẤM BÀI/ DẠY VẼ/ ĐĂNG BÀI/ SỰ KIỆN / PHÁT SINH:${chamBaiNote ? ' ' + chamBaiNote : ''}</td>
+                <td class="right">${chamBaiPhatSinh > 0 ? fmt(chamBaiPhatSinh) : ''}</td>
             </tr>
-            <tr><td colspan="2" class="bold">TRỢ CẤP CHỨC VỤ:</td><td></td></tr>
-            <tr><td colspan="2" class="bold">LƯƠNG HIỆU SUẤT:</td><td></td></tr>
+            <tr>
+                <td colspan="2" class="bold">TRỢ CẤP CHỨC VỤ:${troCapNote ? ' ' + troCapNote : ''}</td>
+                <td class="right">${troCapChucVu > 0 ? fmt(troCapChucVu) : ''}</td>
+            </tr>
+            <tr>
+                <td colspan="2" class="bold">LƯƠNG HIỆU SUẤT:${luongHieuSuatNote ? ' ' + luongHieuSuatNote : ''}</td>
+                <td class="right">${luongHieuSuat > 0 ? fmt(luongHieuSuat) : ''}</td>
+            </tr>
             <tr>
                 <td colspan="2" class="bold">THU NHẬP TĂNG THÊM DOANH THU TỔNG:</td>
                 <td class="right">${doanhThuTong > 0 ? fmt(doanhThuTong) : ''}</td>
@@ -430,7 +477,7 @@ function exportSalaryPDF(overrides) {
             </tr>
             <tr>
                 <td colspan="2" class="bold">PHÁT SINH (I) + (II)</td>
-                <td class="right">${totalBonus > 0 ? fmt(totalBonus) : ''}</td>
+                <td class="right">${phatSinh > 0 ? fmt(phatSinh) : ''}</td>
             </tr>
             ${penaltiesHtml}
             <tr>
