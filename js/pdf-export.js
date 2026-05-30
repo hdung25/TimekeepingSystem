@@ -131,59 +131,125 @@ function exportSalaryPDF(overrides) {
                 hasClassRate = true;
             }
 
-            let isFixed = false;
-            
-            if (!hasClassRate) {
-                if (chip.sessionData && chip.sessionData.roleRate) {
-                    rate = Number(chip.sessionData.roleRate);
-                }
-                if (window.currentUserContext && window.currentUserContext.salary_config) {
-                     if (isTiepTan) {
-                          let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
-                          let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
-                          if (chip.isFixedShift && fixedRate) {
-                              rate = fixedRate;
-                              isFixed = true;
-                          } else if (normalRate) {
-                              rate = normalRate;
-                          }
-                     }
-                }
-            }
-
-            const salary = (minutes / 60) * rate;
-
-            if (isFixed) {
-                 fixedMinutes += minutes;
-                 fixedSalary += salary;
-            } else {
-                 normalMinutes += minutes;
-                 normalSalary += salary;
-            }
-
-            // Categorize hours for Teacher
-            if (!isTiepTan) {
-                const filterNameRaw = (chip.chipFilterName || '').toLowerCase();
-                const filterNameNorm = removeVietnameseTones(filterNameRaw);
-
-                if (filterNameNorm.includes('tin hoc')) {
-                    totalTinHocMins += minutes;
-                    totalTinHocSalary += salary;
-                } else if (filterNameNorm.includes('mam non')) {
-                    totalPreschoolMins += minutes;
-                    totalPreschoolSalary += salary;
-                } else if (filterNameNorm.includes('lien ket')) {
-                    totalAffiliateMins += minutes;
-                    totalAffiliateSalary += salary;
-                } else if (filterNameNorm.includes('kem 1:1') || filterNameNorm.includes('kem 1-1') || filterNameNorm.includes('tai nha')) {
-                    totalTutoringMins += minutes;
-                    totalTutoringSalary += salary;
-                } else if (filterNameNorm.includes('soan') || filterNameNorm.includes('cham') || filterNameNorm.includes('su kien') || filterNameNorm.includes('phat sinh')) {
-                    totalExtraMins += minutes;
-                    totalExtraSalary += salary;
+            if (isTiepTan) {
+                let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
+                let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                
+                if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                    chip.mergedSegments.forEach(seg => {
+                        const segMinutes = seg.schedMinutes || 0;
+                        const segRate = seg.isFixedShift ? fixedRate : normalRate;
+                        const segSalary = (segMinutes / 60) * segRate;
+                        
+                        if (seg.isFixedShift) {
+                            fixedMinutes += segMinutes;
+                            fixedSalary += segSalary;
+                        } else {
+                            normalMinutes += segMinutes;
+                            normalSalary += segSalary;
+                        }
+                    });
                 } else {
-                    totalBaseMins += minutes;
-                    totalBaseSalary += salary;
+                    const segRate = chip.isFixedShift ? fixedRate : normalRate;
+                    const salary = (minutes / 60) * segRate;
+                    if (chip.isFixedShift) {
+                        fixedMinutes += minutes;
+                        fixedSalary += salary;
+                    } else {
+                        normalMinutes += minutes;
+                        normalSalary += salary;
+                    }
+                }
+            } else {
+                if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                    let remainingMinutes = minutes;
+                    const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                    
+                    chip.mergedSegments.forEach((seg, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round(minutes / chip.mergedSegments.length);
+                        } else {
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                segMins = remainingMinutes;
+                            } else {
+                                segMins = Math.round(minutes * ((seg.schedMinutes || 0) / totalSched));
+                                remainingMinutes -= segMins;
+                            }
+                        }
+                        
+                        const normalizeFn = window.normalizeChipFilterName || (x => x);
+                        const segName = normalizeFn(seg.lop);
+                        
+                        let segRate = 0;
+                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                            segRate = Number(classRates[segName]);
+                        } else {
+                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        }
+                        const salary = (segMins / 60) * segRate;
+                        normalMinutes += segMins;
+                        normalSalary += salary;
+                        
+                        // Categorize hours for Teacher
+                        const filterNameRaw = (segName || '').toLowerCase();
+                        const filterNameNorm = removeVietnameseTones(filterNameRaw);
+                        if (filterNameNorm.includes('tin hoc')) {
+                            totalTinHocMins += segMins;
+                            totalTinHocSalary += salary;
+                        } else if (filterNameNorm.includes('mam non')) {
+                            totalPreschoolMins += segMins;
+                            totalPreschoolSalary += salary;
+                        } else if (filterNameNorm.includes('lien ket')) {
+                            totalAffiliateMins += segMins;
+                            totalAffiliateSalary += salary;
+                        } else if (filterNameNorm.includes('kem 1:1') || filterNameNorm.includes('kem 1-1') || filterNameNorm.includes('tai nha')) {
+                            totalTutoringMins += segMins;
+                            totalTutoringSalary += salary;
+                        } else if (filterNameNorm.includes('soan') || filterNameNorm.includes('cham') || filterNameNorm.includes('su kien') || filterNameNorm.includes('phat sinh')) {
+                            totalExtraMins += segMins;
+                            totalExtraSalary += salary;
+                        } else {
+                            totalBaseMins += segMins;
+                            totalBaseSalary += salary;
+                        }
+                    });
+                } else {
+                    if (hasClassRate) {
+                        const salary = (minutes / 60) * rate;
+                        normalMinutes += minutes;
+                        normalSalary += salary;
+                        
+                        const filterNameRaw = (chip.chipFilterName || '').toLowerCase();
+                        const filterNameNorm = removeVietnameseTones(filterNameRaw);
+                        if (filterNameNorm.includes('tin hoc')) {
+                            totalTinHocMins += minutes;
+                            totalTinHocSalary += salary;
+                        } else if (filterNameNorm.includes('mam non')) {
+                            totalPreschoolMins += minutes;
+                            totalPreschoolSalary += salary;
+                        } else if (filterNameNorm.includes('lien ket')) {
+                            totalAffiliateMins += minutes;
+                            totalAffiliateSalary += salary;
+                        } else if (filterNameNorm.includes('kem 1:1') || filterNameNorm.includes('kem 1-1') || filterNameNorm.includes('tai nha')) {
+                            totalTutoringMins += minutes;
+                            totalTutoringSalary += salary;
+                        } else if (filterNameNorm.includes('soan') || filterNameNorm.includes('cham') || filterNameNorm.includes('su kien') || filterNameNorm.includes('phat sinh')) {
+                            totalExtraMins += minutes;
+                            totalExtraSalary += salary;
+                        } else {
+                            totalBaseMins += minutes;
+                            totalBaseSalary += salary;
+                        }
+                    } else {
+                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        const salary = (minutes / 60) * defaultRate;
+                        normalMinutes += minutes;
+                        normalSalary += salary;
+                        
+                        totalBaseMins += minutes;
+                        totalBaseSalary += salary;
+                    }
                 }
             }
         }
@@ -466,7 +532,7 @@ function exportSalaryPDF(overrides) {
             </tr>
             ${penaltiesHtml}
             <tr>
-                <td colspan="3" class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX):</td>
+                <td colspan="3" class="bold">TỔNG THƯỞNG (I+II+III+IV+V+VI+VII+VIII+IX+X):</td>
                 <td class="bold right">${totalBonus > 0 ? fmt(totalBonus) : ''}</td>
             </tr>
             
@@ -485,42 +551,42 @@ function exportSalaryPDF(overrides) {
                 <td class="right">${criteria1?.amount ? fmt(criteria1.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(II) TẬP TRUNG LÀM VIỆC</td>
+                <td class="bold">(III) TẬP TRUNG LÀM VIỆC</td>
                 <td>${criteria2?.note || ''}</td>
                 <td class="right">${criteria2?.amount ? fmt(criteria2.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(III) NHIỆT TÌNH</td>
+                <td class="bold">(IV) NHIỆT TÌNH</td>
                 <td>${criteria3?.note || ''}</td>
                 <td class="right">${criteria3?.amount ? fmt(criteria3.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(IV) TRÁCH NHIỆM</td>
+                <td class="bold">(V) TRÁCH NHIỆM</td>
                 <td>${criteria4?.note || ''}</td>
                 <td class="right">${criteria4?.amount ? fmt(criteria4.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(V) SOẠN BÀI/NHẬN XÉT</td>
+                <td class="bold">(VI) SOẠN BÀI/NHẬN XÉT</td>
                 <td>${criteria5?.note || ''}</td>
                 <td class="right">${criteria5?.amount ? fmt(criteria5.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(VI) CHUYÊN MÔN</td>
+                <td class="bold">(VII) CHUYÊN MÔN</td>
                 <td>${criteria6?.note || ''}</td>
                 <td class="right">${criteria6?.amount ? fmt(criteria6.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(VII) KỸ NĂNG SƯ PHẠM</td>
+                <td class="bold">(VIII) KỸ NĂNG SƯ PHẠM</td>
                 <td>${criteria7?.note || ''}</td>
                 <td class="right">${criteria7?.amount ? fmt(criteria7.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(VIII) SỐ GIỜ LÀM</td>
+                <td class="bold">(IX) SỐ GIỜ LÀM</td>
                 <td>MỐC XÉT THƯỞNG: 50,65,80 ${criteria8?.note ? `<br>${criteria8.note}` : ''}</td>
                 <td class="right">${criteria8?.amount ? fmt(criteria8.amount) : ''}</td>
             </tr>
             <tr>
-                <td class="bold">(IX) HỌP ĐỊNH KÌ</td>
+                <td class="bold">(X) HỌP ĐỊNH KÌ</td>
                 <td>${criteria9?.note || ''}</td>
                 <td class="right">${criteria9?.amount ? fmt(criteria9.amount) : ''}</td>
             </tr>

@@ -2035,6 +2035,59 @@ function calculateSalary() {
         totalBonus += parseFloat(input.value) || 0;
     });
 
+    // Redistribution logic for Receptionist collective bonus pool
+    if (roleFilter === 'tiep-tan') {
+        const actualCenterRevenue = parseFloat(document.getElementById('pdf-actual-revenue-total')?.value) || 0;
+        const actualCs2Revenue = parseFloat(document.getElementById('pdf-actual-revenue-cs2')?.value) || 0;
+        
+        let P_tong = 0;
+        let P_cs2 = 0;
+        
+        if (window.recepBonusConfig) {
+            const getMatchedBonus = (rev, tiers) => {
+                if (!tiers || tiers.length === 0) return 0;
+                let matched = 0;
+                for (let i = 0; i < tiers.length; i++) {
+                    if (rev >= tiers[i].revenue) matched = tiers[i].bonus;
+                }
+                return matched;
+            };
+            
+            P_tong = getMatchedBonus(actualCenterRevenue, window.recepBonusConfig.center_tiers);
+            P_cs2 = getMatchedBonus(actualCs2Revenue, window.recepBonusConfig.cs2_tiers);
+        }
+        
+        const staffId = document.getElementById('staff-select').value;
+        const currentRecepData = (window.allReceptionistsData || []).find(r => r.id === staffId);
+        
+        let myCenterBonus = 0;
+        let myCs2Bonus = 0;
+        
+        if (currentRecepData) {
+            const sumC = (window.allReceptionistsData || []).reduce((sum, r) => sum + r.C_j, 0);
+            if (sumC > 0) {
+                myCenterBonus = P_tong * (currentRecepData.C_j / sumC);
+            }
+            
+            const sumC_cs2 = (window.allReceptionistsData || []).filter(r => r.hasCs2Shift).reduce((sum, r) => sum + r.C_j_cs2, 0);
+            if (sumC_cs2 > 0 && currentRecepData.hasCs2Shift) {
+                myCs2Bonus = P_cs2 * (currentRecepData.C_j_cs2 / sumC_cs2);
+            }
+        }
+        
+        const outputTong = document.getElementById('pdf-doanh-thu-tong');
+        const outputCs2 = document.getElementById('pdf-doanh-thu-cs2');
+        if (outputTong) outputTong.value = Math.round(myCenterBonus);
+        if (outputCs2) outputCs2.value = Math.round(myCs2Bonus);
+        
+        // Sum extras into totalSalary calculation
+        const phiTuVan = parseFloat(document.getElementById('pdf-phi-tu-van')?.value) || 0;
+        const doanhThuCs3 = parseFloat(document.getElementById('pdf-doanh-thu-cs3')?.value) || 0;
+        const totalExtras = phiTuVan + doanhThuCs3 + Math.round(myCenterBonus) + Math.round(myCs2Bonus);
+        
+        totalBonus += totalExtras;
+    }
+
     // Store base salary for Export PDF
     window.currentMonthSalary = filteredSalary;
 
@@ -2136,6 +2189,20 @@ async function saveSalarySettings() {
         }
         window.currentMonthlySalarySettingsAll[roleKey] = settingsObj;
         
+        // Save revenues to recep_revenue_${monthStr} if tiep-tan
+        if (activeFilter === 'tiep-tan') {
+            const totalRev = parseFloat(document.getElementById('pdf-actual-revenue-total')?.value) || 0;
+            const cs2Rev = parseFloat(document.getElementById('pdf-actual-revenue-cs2')?.value) || 0;
+            try {
+                await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).set({
+                    total: totalRev,
+                    cs2: cs2Rev
+                }, { merge: true });
+            } catch (e) {
+                console.error('Error saving receptionist revenues:', e);
+            }
+        }
+
         // Proactively update user context class rates if needed
         if (window.currentUserContext && window.currentUserContext.salary_config) {
             window.currentUserContext.salary_config.evaluation = evaluationData;
@@ -2179,6 +2246,33 @@ async function loadSalarySettings() {
 
     window.currentLoadedSalarySettings = settings;
     document.getElementById('salary-advance').value = settings.advance || 0;
+    
+    // Load receptionist bonus config & revenues if tiep-tan is active
+    if (activeFilter === 'tiep-tan') {
+        try {
+            window.recepBonusConfig = await DBService.getReceptionistBonusConfig();
+            
+            // Render config UI fields
+            renderRecepBonusConfigUI();
+            
+            const revDoc = await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).get();
+            const revenues = revDoc.exists ? revDoc.data() : { total: 0, cs2: 0 };
+            
+            const inputTotal = document.getElementById('pdf-actual-revenue-total');
+            const inputCs2 = document.getElementById('pdf-actual-revenue-cs2');
+            
+            if (inputTotal) inputTotal.value = revenues.total || 0;
+            if (inputCs2) inputCs2.value = revenues.cs2 || 0;
+
+            // Load and compute cống hiến points for all receptionists in background
+            loadAndComputeAllReceptionists(monthStr).catch(err => {
+                console.error("Error computing all receptionist scores:", err);
+            });
+        } catch (e) {
+            console.error('Error loading receptionist bonus config/revenues:', e);
+        }
+    }
+    
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
 }
@@ -3375,6 +3469,19 @@ async function populateModalCurrentTab() {
     const modalAdvanceInp = document.getElementById('modal-salary-advance');
     if (modalAdvanceInp) modalAdvanceInp.value = formatNumberWithCommas(roleSettings.advance !== undefined ? roleSettings.advance : 0);
     
+    // Recep contribution factors
+    const tiepTanContrBox = document.getElementById('modal-tieptan-contribution-factors');
+    if (tiepTanContrBox) {
+        if (window.modalActiveRole === 'tiep-tan') {
+            tiepTanContrBox.style.display = 'block';
+            document.getElementById('modal-recep-fixed-factor').value = roleSettings.fixed_shift_factor !== undefined ? roleSettings.fixed_shift_factor : 1.5;
+            document.getElementById('modal-recep-attendance-factor').value = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : 1.0;
+            document.getElementById('modal-recep-responsibility-factor').value = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
+        } else {
+            tiepTanContrBox.style.display = 'none';
+        }
+    }
+    
     const evalTableBody = document.getElementById('modal-eval-table-body');
     if (evalTableBody) {
         evalTableBody.innerHTML = '';
@@ -3444,12 +3551,22 @@ async function populateModalCurrentTab() {
 function recalculateSalaryModal() {
     let basePay = 0;
     
+    let fixedMinutes = 0;
+    let normalMinutes = 0;
+    
     const classRateInputs = document.querySelectorAll('.class-rate-input');
     classRateInputs.forEach(input => {
+        const name = input.dataset.name;
         const mins = Number(input.dataset.minutes || 0);
         const rate = parseFormattedNumber(input.value);
         const amount = (mins / 60) * rate;
         basePay += amount;
+        
+        if (name === "Tiếp Tân (Ca Cố Định)") {
+            fixedMinutes = mins;
+        } else if (name === "Tiếp Tân (Ca Bình Thường)") {
+            normalMinutes = mins;
+        }
         
         const row = input.closest('tr');
         if (row) {
@@ -3459,6 +3576,22 @@ function recalculateSalaryModal() {
             }
         }
     });
+    
+    // Calculate Personal Score for Receptionist
+    if (window.modalActiveRole === 'tiep-tan') {
+        const fixedFactor = parseFloat(document.getElementById('modal-recep-fixed-factor')?.value) || 1.5;
+        const attFactor = parseFloat(document.getElementById('modal-recep-attendance-factor')?.value) || 1.0;
+        const respFactor = parseFloat(document.getElementById('modal-recep-responsibility-factor')?.value) || 1.0;
+        
+        const fixedHours = fixedMinutes / 60;
+        const normalHours = normalMinutes / 60;
+        
+        const score = (fixedHours * fixedFactor + normalHours * 1) * attFactor * respFactor;
+        const scoreEl = document.getElementById('modal-recep-personal-score');
+        if (scoreEl) {
+            scoreEl.innerText = score.toFixed(2);
+        }
+    }
     
     const classRateTotalCell = document.getElementById('class-rate-total-salary');
     if (classRateTotalCell) {
@@ -3528,6 +3661,15 @@ async function saveSalarySettingsFromModal() {
         adjust_late: adjustLate,
         advance: advance
     };
+    
+    if (window.modalActiveRole === 'tiep-tan') {
+        settingsObj.fixed_shift_factor = parseFloat(document.getElementById('modal-recep-fixed-factor')?.value) || 1.5;
+        settingsObj.attendance_factor = parseFloat(document.getElementById('modal-recep-attendance-factor')?.value) || 1.0;
+        settingsObj.responsibility_factor = parseFloat(document.getElementById('modal-recep-responsibility-factor')?.value) || 1.0;
+        
+        const scoreEl = document.getElementById('modal-recep-personal-score');
+        settingsObj.personal_score = scoreEl ? parseFloat(scoreEl.innerText) : 0;
+    }
     
     try {
         const firestorePayload = {};
@@ -4040,6 +4182,372 @@ function exportSalaryPDFFromModal() {
     });
 }
 
+// Receptionist Collective Bonus Config & Redistribution functions
+
+function toggleRecepBonusConfigUI() {
+    const el = document.getElementById('recep-bonus-config-ui');
+    if (el) {
+        if (el.style.display === 'none') {
+            el.style.display = 'flex';
+            renderRecepBonusConfigUI();
+        } else {
+            el.style.display = 'none';
+        }
+    }
+}
+
+function closeRecepBonusConfigUI() {
+    const el = document.getElementById('recep-bonus-config-ui');
+    if (el) el.style.display = 'none';
+}
+
+function renderRecepBonusConfigUI() {
+    const config = window.recepBonusConfig || { center_tiers: [], cs2_tiers: [] };
+    
+    const centerContainer = document.getElementById('recep-config-center-tiers-inputs');
+    if (centerContainer) {
+        centerContainer.innerHTML = '';
+        const tiers = config.center_tiers || [];
+        tiers.forEach((tier, index) => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.gap = '0.25rem';
+            row.style.alignItems = 'center';
+            row.innerHTML = `
+                <input type="number" class="recep-center-tier-rev modern-input" value="${tier.revenue}" style="flex:1; padding:4px; font-size:0.75rem;" placeholder="Doanh thu">
+                <input type="number" class="recep-center-tier-bonus modern-input" value="${tier.bonus}" style="flex:1; padding:4px; font-size:0.75rem;" placeholder="Quỹ thưởng">
+                <button type="button" onclick="removeRecepCenterTier(${index})" style="background:none; border:none; color:#EF4444; font-size:0.8rem; cursor:pointer;">✕</button>
+            `;
+            centerContainer.appendChild(row);
+        });
+        
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.innerText = '+ Thêm mốc';
+        addBtn.style.alignSelf = 'flex-start';
+        addBtn.style.background = '#EEF2FF';
+        addBtn.style.border = '1px dashed #4338CA';
+        addBtn.style.color = '#4338CA';
+        addBtn.style.padding = '2px 6px';
+        addBtn.style.borderRadius = '4px';
+        addBtn.style.fontSize = '0.65rem';
+        addBtn.style.fontWeight = '700';
+        addBtn.style.cursor = 'pointer';
+        addBtn.style.marginTop = '2px';
+        addBtn.onclick = () => {
+            if (!config.center_tiers) config.center_tiers = [];
+            config.center_tiers.push({ revenue: 0, bonus: 0 });
+            renderRecepBonusConfigUI();
+        };
+        centerContainer.appendChild(addBtn);
+    }
+    
+    const cs2Container = document.getElementById('recep-config-cs2-tiers-inputs');
+    if (cs2Container) {
+        cs2Container.innerHTML = '';
+        const tiers = config.cs2_tiers || [];
+        tiers.forEach((tier, index) => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.gap = '0.25rem';
+            row.style.alignItems = 'center';
+            row.innerHTML = `
+                <input type="number" class="recep-cs2-tier-rev modern-input" value="${tier.revenue}" style="flex:1; padding:4px; font-size:0.75rem;" placeholder="Doanh thu">
+                <input type="number" class="recep-cs2-tier-bonus modern-input" value="${tier.bonus}" style="flex:1; padding:4px; font-size:0.75rem;" placeholder="Quỹ thưởng">
+                <button type="button" onclick="removeRecepCs2Tier(${index})" style="background:none; border:none; color:#EF4444; font-size:0.8rem; cursor:pointer;">✕</button>
+            `;
+            cs2Container.appendChild(row);
+        });
+        
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.innerText = '+ Thêm mốc';
+        addBtn.style.alignSelf = 'flex-start';
+        addBtn.style.background = '#EEF2FF';
+        addBtn.style.border = '1px dashed #4338CA';
+        addBtn.style.color = '#4338CA';
+        addBtn.style.padding = '2px 6px';
+        addBtn.style.borderRadius = '4px';
+        addBtn.style.fontSize = '0.65rem';
+        addBtn.style.fontWeight = '700';
+        addBtn.style.cursor = 'pointer';
+        addBtn.style.marginTop = '2px';
+        addBtn.onclick = () => {
+            if (!config.cs2_tiers) config.cs2_tiers = [];
+            config.cs2_tiers.push({ revenue: 0, bonus: 0 });
+            renderRecepBonusConfigUI();
+        };
+        cs2Container.appendChild(addBtn);
+    }
+}
+
+function removeRecepCenterTier(index) {
+    if (window.recepBonusConfig && window.recepBonusConfig.center_tiers) {
+        window.recepBonusConfig.center_tiers.splice(index, 1);
+        renderRecepBonusConfigUI();
+    }
+}
+
+function removeRecepCs2Tier(index) {
+    if (window.recepBonusConfig && window.recepBonusConfig.cs2_tiers) {
+        window.recepBonusConfig.cs2_tiers.splice(index, 1);
+        renderRecepBonusConfigUI();
+    }
+}
+
+async function saveRecepBonusConfigUI() {
+    const centerRevs = document.querySelectorAll('.recep-center-tier-rev');
+    const centerBonuses = document.querySelectorAll('.recep-center-tier-bonus');
+    const cs2Revs = document.querySelectorAll('.recep-cs2-tier-rev');
+    const cs2Bonuses = document.querySelectorAll('.recep-cs2-tier-bonus');
+    
+    const center_tiers = [];
+    centerRevs.forEach((input, index) => {
+        const revenue = parseFloat(input.value) || 0;
+        const bonus = parseFloat(centerBonuses[index].value) || 0;
+        if (revenue > 0 || bonus > 0) {
+            center_tiers.push({ revenue, bonus });
+        }
+    });
+    center_tiers.sort((a, b) => a.revenue - b.revenue);
+    
+    const cs2_tiers = [];
+    cs2Revs.forEach((input, index) => {
+        const revenue = parseFloat(input.value) || 0;
+        const bonus = parseFloat(cs2Bonuses[index].value) || 0;
+        if (revenue > 0 || bonus > 0) {
+            cs2_tiers.push({ revenue, bonus });
+        }
+    });
+    cs2_tiers.sort((a, b) => a.revenue - b.revenue);
+    
+    const newConfig = { center_tiers, cs2_tiers };
+    try {
+        await DBService.saveReceptionistBonusConfig(newConfig);
+        window.recepBonusConfig = newConfig;
+        UIService.toast('Đã lưu cấu hình mốc thưởng!', 'success');
+        closeRecepBonusConfigUI();
+        calculateSalary();
+    } catch (e) {
+        console.error('Error saving receptionist bonus config:', e);
+        UIService.toast('Lỗi khi lưu cấu hình: ' + e.message, 'error');
+    }
+}
+
+async function loadAndComputeAllReceptionists(monthStr) {
+    const allUsers = window._allStaffList || [];
+    const receptionists = allUsers.filter(u => {
+        const roles = Array.isArray(u.roles) ? u.roles : [u.role || ''];
+        return roles.some(r => ['receptionist', 'receptionist_assistant', 'tiep-tan', 'tiep_tan', 'receptionist_lead', 'receptionist_staff', 'admin', 'senior_assistant', 'assistant'].includes(r));
+    });
+    
+    const allMonthlySettings = await DBService.getAllMonthlySalarySettings(monthStr);
+    
+    const BRANCHES = ['cs1', 'cs2', 'cs3'];
+    const shiftConfigMap = {};
+    for (const branch of BRANCHES) {
+        shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
+    }
+    
+    const [yearStr, monthValStr] = monthStr.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthValStr, 10) - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const getMonday = (d) => {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        date.setDate(diff);
+        date.setHours(0, 0, 0, 0);
+        return date;
+    };
+
+    const mondaysSet = new Set();
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dateObj = new Date(year, month, d);
+        const monday = getMonday(dateObj);
+        const mKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+        mondaysSet.add(mKey);
+    }
+    const mondaysList = [...mondaysSet];
+    
+    const recepPromises = [];
+    BRANCHES.forEach(branch => {
+        mondaysList.forEach(mondayKey => {
+            const compositeKey = `${branch}__${mondayKey}`;
+            recepPromises.push(
+                DBService.getReceptionistSchedule(compositeKey).then(data => ({
+                    branch,
+                    mondayKey,
+                    data: data || {}
+                }))
+            );
+        });
+    });
+    const recepResults = await Promise.all(recepPromises);
+    
+    const staffDataPromises = receptionists.map(async (u) => {
+        const rId = u.id;
+        const [attendanceRecords, notes, cancelledShifts] = await Promise.all([
+            DBService.getMonthlyAttendance(monthStr, rId),
+            DBService.getDailyNotes(rId),
+            DBService.getCancelledShifts(monthStr, rId)
+        ]);
+        return {
+            id: rId,
+            user: u,
+            attendanceRecords,
+            notes,
+            cancelledShifts
+        };
+    });
+    const staffDataList = await Promise.all(staffDataPromises);
+    
+    const results = [];
+    staffDataList.forEach(item => {
+        const rId = item.id;
+        const u = item.user;
+        const attendanceRecords = item.attendanceRecords || [];
+        const notes = item.notes || {};
+        const cancelledShifts = item.cancelledShifts || [];
+        
+        const receptionistShiftsMap = {};
+        const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
+        const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
+        const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateObj = new Date(year, month, d);
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const monday = getMonday(dateObj);
+            const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+
+            const dayOfWeek = dateObj.getDay();
+            const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const dayKey = DAY_KEYS_MAP[dayIdx];
+
+            recepResults.forEach(result => {
+                if (result.mondayKey !== mondayKey) return;
+
+                SHIFT_KEYS.forEach(shiftKey => {
+                    const shiftData = result.data[shiftKey];
+                    if (!shiftData || !shiftData[dayKey]) return;
+
+                    const staffList = shiftData[dayKey];
+                    const staffEntry = staffList.find(s => s.id === rId);
+                    if (!staffEntry) return;
+
+                    if (!receptionistShiftsMap[dateStr]) receptionistShiftsMap[dateStr] = [];
+
+                    const branchConfig = shiftConfigMap[result.branch] || {};
+                    const weekShiftConfig = result.data?._shiftConfig?.[shiftKey];
+                    const defaultStart = staffEntry.customStart || weekShiftConfig?.start || branchConfig[shiftKey]?.start || '07:00';
+                    const defaultEnd = staffEntry.customEnd || weekShiftConfig?.end || branchConfig[shiftKey]?.end || '11:30';
+
+                    receptionistShiftsMap[dateStr].push({
+                        shift: shiftKey,
+                        label: SHIFT_LABELS[shiftKey],
+                        start: staffEntry.customStart || defaultStart,
+                        end: staffEntry.customEnd || defaultEnd,
+                        branch: result.branch,
+                        isFixedShift: staffEntry.isFixedShift ? true : false
+                    });
+                });
+            });
+        }
+        
+        const attendanceMap = {};
+        attendanceRecords.forEach(record => {
+            if (record.date) {
+                attendanceMap[record.date] = record.sessions || [];
+            }
+        });
+        
+        const allChips = [];
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const dailySchedule = {};
+            const dailyAttendance = attendanceMap[dateStr] || [];
+            const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
+
+            const chips = calculateDailyChips(dailySchedule, dailyAttendance, rId, dateStr, u, dailyReceptionistShifts, {}, cancelledShifts, {});
+            chips.forEach(c => {
+                if (c.class !== 'chip-future') {
+                    allChips.push(c);
+                }
+            });
+        }
+        
+        let fixedWorkedMinutes = 0;
+        let normalWorkedMinutes = 0;
+        let hasCs2Shift = false;
+        let fixedWorkedMinutesCs2 = 0;
+        let normalWorkedMinutesCs2 = 0;
+
+        allChips.forEach(chip => {
+            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            if (!isTiepTan) return;
+            if (chip.class === 'chip-gray') return;
+            
+            const isCs2 = chip.branch === 'cs2' || chip.sessionData?.branch === 'cs2' || (chip.mergedSegments && chip.mergedSegments.some(s => s.branch === 'cs2' || s.lop?.includes('CS2')));
+            if (isCs2) {
+                hasCs2Shift = true;
+            }
+
+            if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                chip.mergedSegments.forEach(seg => {
+                    const segMins = seg.schedMinutes || 0;
+                    const segIsCs2 = seg.branch === 'cs2' || seg.lop?.includes('CS2') || chip.branch === 'cs2';
+                    if (seg.isFixedShift) {
+                        fixedWorkedMinutes += segMins;
+                        if (segIsCs2) fixedWorkedMinutesCs2 += segMins;
+                    } else {
+                        normalWorkedMinutes += segMins;
+                        if (segIsCs2) normalWorkedMinutesCs2 += segMins;
+                    }
+                });
+            } else {
+                const mins = chip.paidMinutes || 0;
+                if (chip.isFixedShift) {
+                    fixedWorkedMinutes += mins;
+                    if (isCs2) fixedWorkedMinutesCs2 += mins;
+                } else {
+                    normalWorkedMinutes += mins;
+                    if (isCs2) normalWorkedMinutesCs2 += mins;
+                }
+            }
+        });
+        
+        const staffSettings = allMonthlySettings[rId] || {};
+        const roleSettings = staffSettings.tiep_tan || staffSettings['tiep-tan'] || {};
+        
+        const fixedFactor = roleSettings.fixed_shift_factor !== undefined ? roleSettings.fixed_shift_factor : 1.5;
+        const attFactor = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : 1.0;
+        const respFactor = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
+        
+        const A_j = fixedWorkedMinutes / 60;
+        const B_j = normalWorkedMinutes / 60;
+        const C_j = (A_j * fixedFactor + B_j * 1) * attFactor * respFactor;
+        
+        const A_j_cs2 = fixedWorkedMinutesCs2 / 60;
+        const B_j_cs2 = normalWorkedMinutesCs2 / 60;
+        const C_j_cs2 = (A_j_cs2 * fixedFactor + B_j_cs2 * 1) * attFactor * respFactor;
+        
+        results.push({
+            id: rId,
+            name: u.name || u.username,
+            C_j,
+            C_j_cs2,
+            hasCs2Shift
+        });
+    });
+    
+    window.allReceptionistsData = results;
+    console.log('[Redistribution] Computed cống hiến point for receptionists:', results);
+    calculateSalary();
+}
+
 // Expose modal handlers to window scope
 window.openClassRateModal = openClassRateModal;
 window.closeClassRateModal = closeClassRateModal;
@@ -4048,4 +4556,12 @@ window.saveSalarySettingsFromModal = saveSalarySettingsFromModal;
 window.toggleModalCalculationRole = toggleModalCalculationRole;
 window.switchSalaryModalTab = switchSalaryModalTab;
 window.exportSalaryPDFFromModal = exportSalaryPDFFromModal;
+
+// Expose receptionist collective bonus pool functions to window scope
+window.toggleRecepBonusConfigUI = toggleRecepBonusConfigUI;
+window.closeRecepBonusConfigUI = closeRecepBonusConfigUI;
+window.saveRecepBonusConfigUI = saveRecepBonusConfigUI;
+window.removeRecepCenterTier = removeRecepCenterTier;
+window.removeRecepCs2Tier = removeRecepCs2Tier;
+window.loadAndComputeAllReceptionists = loadAndComputeAllReceptionists;
 

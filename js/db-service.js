@@ -1468,6 +1468,69 @@ const DBService = {
         }
     },
 
+    // Get all monthly salary settings for a given month
+    async getAllMonthlySalarySettings(monthStr) {
+        if (!monthStr) return {};
+        try {
+            const snapshot = await db.collection('salary_settings_monthly').get();
+            const results = {};
+            snapshot.forEach(doc => {
+                if (doc.id.startsWith(monthStr + '_')) {
+                    const sId = doc.id.substring(monthStr.length + 1);
+                    results[sId] = doc.data();
+                }
+            });
+            return results;
+        } catch (e) {
+            console.error('[MonthlySalarySettings] Error getting all:', e);
+            return {};
+        }
+    },
+
+    // Get receptionist collective bonus pool mốc configuration
+    async getReceptionistBonusConfig() {
+        try {
+            const doc = await db.collection('settings').doc('receptionist_bonus').get();
+            if (doc.exists) {
+                return doc.data();
+            }
+            // Return defaults if document does not exist yet
+            return {
+                center_tiers: [
+                    { revenue: 475000000, bonus: 1000000 },
+                    { revenue: 500000000, bonus: 4000000 },
+                    { revenue: 525000000, bonus: 7000000 }
+                ],
+                cs2_tiers: [
+                    { revenue: 65000000, bonus: 500000 }
+                ]
+            };
+        } catch (e) {
+            console.error('[ReceptionistBonusConfig] Error getting config:', e);
+            return {
+                center_tiers: [
+                    { revenue: 475000000, bonus: 1000000 },
+                    { revenue: 500000000, bonus: 4000000 },
+                    { revenue: 525000000, bonus: 7000000 }
+                ],
+                cs2_tiers: [
+                    { revenue: 65000000, bonus: 500000 }
+                ]
+            };
+        }
+    },
+
+    // Save receptionist collective bonus pool mốc configuration
+    async saveReceptionistBonusConfig(config) {
+        try {
+            await db.collection('settings').doc('receptionist_bonus').set(config, { merge: true });
+            return true;
+        } catch (e) {
+            console.error('[ReceptionistBonusConfig] Error saving config:', e);
+            throw e;
+        }
+    },
+
     // ================= OVERTIME REQUESTS =================
 
     // Staff submits an overtime request (status: pending)
