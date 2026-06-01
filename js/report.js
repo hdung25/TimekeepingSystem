@@ -2454,7 +2454,53 @@ function initFlatpickr() {
             altFormat: "d/m/Y H:i",  // Changed to 24-hour format (H instead of h)
             locale: "vn",
             time_24hr: true,          // Use 24-hour format
-            minuteIncrement: 1        // Ensure 1-minute increment (no rounding to 5 or 10)
+            minuteIncrement: 1,        // Ensure 1-minute increment (no rounding to 5 or 10)
+            allowInput: true,         // Allow typing manually
+            parseDate: (datestr, format) => {
+                if (!datestr) return null;
+                let cleanStr = datestr.trim().replace(/h/gi, ':');
+                
+                // Match DD/MM/YYYY HH:mm
+                const dmyRegex = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s+(\d{1,2}):(\d{2})$/;
+                const matchDmy = cleanStr.match(dmyRegex);
+                if (matchDmy) {
+                    const day = parseInt(matchDmy[1], 10);
+                    const month = parseInt(matchDmy[2], 10);
+                    const year = parseInt(matchDmy[3], 10);
+                    const hour = parseInt(matchDmy[4], 10);
+                    const minute = parseInt(matchDmy[5], 10);
+                    return new Date(year, month - 1, day, hour, minute, 0, 0);
+                }
+                
+                // Match YYYY-MM-DD HH:mm or YYYY-MM-DDTHH:mm
+                const isoRegex = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})[T\s](\d{1,2}):(\d{2})$/;
+                const matchIso = cleanStr.match(isoRegex);
+                if (matchIso) {
+                    const year = parseInt(matchIso[1], 10);
+                    const month = parseInt(matchIso[2], 10);
+                    const day = parseInt(matchIso[3], 10);
+                    const hour = parseInt(matchIso[4], 10);
+                    const minute = parseInt(matchIso[5], 10);
+                    return new Date(year, month - 1, day, hour, minute, 0, 0);
+                }
+                
+                // Match HH:mm (uses current date in modal as context)
+                const timeRegex = /^(\d{1,2}):(\d{2})$/;
+                const matchTime = cleanStr.match(timeRegex);
+                if (matchTime) {
+                    const hour = parseInt(matchTime[1], 10);
+                    const minute = parseInt(matchTime[2], 10);
+                    const dateKey = document.getElementById('edit-date-key')?.value;
+                    if (dateKey) {
+                        const [year, month, day] = dateKey.split('-').map(Number);
+                        return new Date(year, month - 1, day, hour, minute, 0, 0);
+                    }
+                }
+                
+                const parsed = new Date(cleanStr);
+                if (!isNaN(parsed.getTime())) return parsed;
+                return null;
+            }
         };
         if (!fpCheckIn) fpCheckIn = flatpickr("#edit-check-in", config);
         if (!fpCheckOut) fpCheckOut = flatpickr("#edit-check-out", config);
