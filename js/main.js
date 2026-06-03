@@ -217,6 +217,39 @@ window._deduplicateBonus10Requests = async function () {
     }
 };
 
+// DEDUPLICATE overtime_requests — Chạy từ console: window._deduplicateOvertimeRequests()
+window._deduplicateOvertimeRequests = async function () {
+    try {
+        console.log('[Dedup-OT] Đang tải danh sách overtime pending...');
+        const snap = await db.collection('overtime_requests')
+            .where('status', '==', 'pending')
+            .get();
+        if (snap.empty) {
+            console.log('[Dedup-OT] ✅ Không có pending nào cần kiểm tra.');
+            return;
+        }
+        console.log(`[Dedup-OT] Tổng pending: ${snap.size}`);
+        const seen = new Map();
+        const toDelete = [];
+        snap.docs.forEach(doc => {
+            const d = doc.data();
+            const key = `${d.staffId}_${d.dateKey}_${d.sessionId}`;
+            if (seen.has(key)) toDelete.push(doc.ref);
+            else seen.set(key, doc.id);
+        });
+        if (toDelete.length === 0) {
+            console.log('[Dedup-OT] ✅ Không có bản ghi trùng nào. Dữ liệu sạch!');
+            return;
+        }
+        console.log(`[Dedup-OT] Tìm thấy ${toDelete.length} bản duplicate. Đang xóa...`);
+        const batch = db.batch();
+        toDelete.forEach(ref => batch.delete(ref));
+        await batch.commit();
+        console.log(`[Dedup-OT] ✅ Đã xóa ${toDelete.length} bản trùng! Reload trang để thấy kết quả.`);
+    } catch (e) {
+        console.error('[Dedup-OT] ❌ Lỗi:', e);
+    }
+};
 
 document.addEventListener('DOMContentLoaded', () => {
     // ... (Startup logic)

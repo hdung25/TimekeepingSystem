@@ -1537,16 +1537,17 @@ const DBService = {
     // duration: "HH:MM" string, sessionId: the attendance session this OT belongs to
     createOvertimeRequest: async (staffId, staffName, dateKey, sessionId, duration) => {
         try {
-            // Check duplicate: cùng staffId + dateKey + sessionId + status pending
-            const existing = await db.collection('overtime_requests')
+            // Check duplicate: chỉ dùng 2 WHERE để tránh lỗi composite index Firestore,
+            // filter sessionId + status ở client-side
+            const dupSnap = await db.collection('overtime_requests')
                 .where('staffId', '==', staffId)
                 .where('dateKey', '==', dateKey)
-                .where('sessionId', '==', String(sessionId))
-                .where('status', '==', 'pending')
-                .limit(1)
                 .get();
-
-            if (!existing.empty) {
+            const alreadyExists = dupSnap.docs.some(doc => {
+                const d = doc.data();
+                return String(d.sessionId) === String(sessionId) && d.status === 'pending';
+            });
+            if (alreadyExists) {
                 throw new Error('Bạn đã gửi yêu cầu tăng ca cho ca này rồi!');
             }
 
@@ -1738,15 +1739,17 @@ const DBService = {
 
     createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
         try {
-            // Check duplicate: cùng staffId + dateKey + sessionId + status pending
-            const existing = await db.collection('bonus10_requests')
+            // Check duplicate: chỉ dùng 2 WHERE để tránh lỗi composite index Firestore,
+            // filter sessionId + status ở client-side
+            const dupSnap10 = await db.collection('bonus10_requests')
                 .where('staffId', '==', staffId)
                 .where('dateKey', '==', dateKey)
-                .where('sessionId', '==', String(sessionId))
-                .where('status', '==', 'pending')
-                .limit(1)
                 .get();
-            if (!existing.empty) {
+            const alreadyExists10 = dupSnap10.docs.some(doc => {
+                const d = doc.data();
+                return String(d.sessionId) === String(sessionId) && d.status === 'pending';
+            });
+            if (alreadyExists10) {
                 throw new Error('Bạn đã gửi yêu cầu sớm 10p cho ca này rồi!');
             }
 
