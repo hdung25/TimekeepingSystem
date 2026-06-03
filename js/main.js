@@ -162,8 +162,8 @@ window.resolveAlertBtn = async function (alertId, btn) {
     const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
     try {
         await DBService.resolveAlert(alertId, adminName);
-        // Reload alerts
-        loadUnregisteredAlerts();
+        // Reload alerts (await để đảm bảo refresh sau khi Firestore write xong)
+        await loadUnregisteredAlerts();
     } catch (e) {
         alert("Lỗi: " + e.message);
         if (btn) btn.disabled = false;
@@ -175,7 +175,7 @@ window.rejectOvertimeFromDashboard = async function(requestId, btn) {
     const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
     try {
         await DBService.rejectOvertimeRequest(requestId, adminName);
-        loadUnregisteredAlerts(); // Refresh list
+        await loadUnregisteredAlerts(); // await để đảm bảo refresh sau khi Firestore write xong
         if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối yêu cầu tăng ca.', 'info');
     } catch(e) {
         if (btn) btn.disabled = false;

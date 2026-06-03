@@ -1738,6 +1738,18 @@ const DBService = {
 
     createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
         try {
+            // Check duplicate: cùng staffId + dateKey + sessionId + status pending
+            const existing = await db.collection('bonus10_requests')
+                .where('staffId', '==', staffId)
+                .where('dateKey', '==', dateKey)
+                .where('sessionId', '==', String(sessionId))
+                .where('status', '==', 'pending')
+                .limit(1)
+                .get();
+            if (!existing.empty) {
+                throw new Error('Bạn đã gửi yêu cầu sớm 10p cho ca này rồi!');
+            }
+
             const docRef = await db.collection('bonus10_requests').add({
                 staffId,
                 staffName: staffName || 'N/A',

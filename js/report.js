@@ -3173,6 +3173,48 @@ window._cleanupBonus10ForStaff = async function (staffId) {
     } catch (e) { console.error('Lỗi:', e); }
 };
 
+// DEDUPLICATE — Xóa bản ghi bonus10 pending bị trùng, chỉ giữ lại 1 bản per (staffId, dateKey, sessionId)
+// Chạy từ console: window._deduplicateBonus10Requests()
+window._deduplicateBonus10Requests = async function () {
+    try {
+        console.log('[Dedup] Đang tải danh sách bonus10 pending...');
+        const snap = await db.collection('bonus10_requests')
+            .where('status', '==', 'pending')
+            .get();
+
+        if (snap.empty) {
+            console.log('[Dedup] ✅ Không có pending nào cần kiểm tra.');
+            return;
+        }
+
+        const seen = new Map();
+        const toDelete = [];
+
+        snap.docs.forEach(doc => {
+            const d = doc.data();
+            const key = `${d.staffId}_${d.dateKey}_${d.sessionId}`;
+            if (seen.has(key)) {
+                toDelete.push(doc.ref); // bản trùng → đánh dấu xóa
+            } else {
+                seen.set(key, doc.id); // giữ bản đầu tiên
+            }
+        });
+
+        if (toDelete.length === 0) {
+            console.log('[Dedup] ✅ Không có bản ghi trùng nào. Dữ liệu đã sạch!');
+            return;
+        }
+
+        console.log(`[Dedup] Tìm thấy ${toDelete.length} bản ghi duplicate. Đang xóa...`);
+        const batch = db.batch();
+        toDelete.forEach(ref => batch.delete(ref));
+        await batch.commit();
+        console.log(`[Dedup] ✅ Đã xóa ${toDelete.length} bản ghi trùng lặp thành công!`);
+    } catch (e) {
+        console.error('[Dedup] ❌ Lỗi:', e);
+    }
+};
+
 // ================= CLASS/SHIFT SPECIFIC WAGE CONFIGURATION MODAL =================
 
 // ================= CLASS/SHIFT SPECIFIC WAGE CONFIGURATION MODAL =================
