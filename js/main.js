@@ -183,6 +183,41 @@ window.rejectOvertimeFromDashboard = async function(requestId, btn) {
     }
 };
 
+// DEDUPLICATE bonus10_requests — Chạy từ console trên bất kỳ trang nào:
+// window._deduplicateBonus10Requests()
+window._deduplicateBonus10Requests = async function () {
+    try {
+        console.log('[Dedup] Đang tải danh sách bonus10 pending...');
+        const snap = await db.collection('bonus10_requests')
+            .where('status', '==', 'pending')
+            .get();
+        if (snap.empty) {
+            console.log('[Dedup] ✅ Không có pending nào cần kiểm tra.');
+            return;
+        }
+        const seen = new Map();
+        const toDelete = [];
+        snap.docs.forEach(doc => {
+            const d = doc.data();
+            const key = `${d.staffId}_${d.dateKey}_${d.sessionId}`;
+            if (seen.has(key)) toDelete.push(doc.ref);
+            else seen.set(key, doc.id);
+        });
+        if (toDelete.length === 0) {
+            console.log('[Dedup] ✅ Không có bản ghi trùng nào. Dữ liệu sạch!');
+            return;
+        }
+        console.log(`[Dedup] Tìm thấy ${toDelete.length} bản duplicate. Đang xóa...`);
+        const batch = db.batch();
+        toDelete.forEach(ref => batch.delete(ref));
+        await batch.commit();
+        console.log(`[Dedup] ✅ Đã xóa ${toDelete.length} bản trùng lặp! Reload trang để thấy kết quả.`);
+    } catch (e) {
+        console.error('[Dedup] ❌ Lỗi:', e);
+    }
+};
+
+
 document.addEventListener('DOMContentLoaded', () => {
     // ... (Startup logic)
     console.log('Timekeeping System Loaded');
