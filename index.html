@@ -22,6 +22,7 @@
     <!-- App Config -->
     <script src='js/firebase-config.js?v=secure1'></script>
     <script src='js/db-service.js?v=secure1'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
@@ -118,6 +119,14 @@
     <script src="js/ui-service.js?v=secure1"></script>
     <script src="js/main.js?v=secure1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

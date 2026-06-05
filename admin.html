@@ -24,6 +24,7 @@
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
@@ -247,7 +248,7 @@
                             <button id="btn-delete-archive" class="btn"
                                 style="background: #ccc; color: white; cursor: not-allowed;" disabled
                                 onclick="runArchiveDelete()">
-                                🗑️ Xóa Dữ Liệu Trên Cloud
+                                <i data-lucide="trash-2"></i> Xóa Dữ Liệu Trên Cloud
                             </button>
                             <span id="delete-hint"
                                 style="font-size: 0.8rem; margin-left: 0.5rem; color: var(--text-muted);">
@@ -567,7 +568,7 @@
                     <div class="chart-panel full-width">
                         <div
                             style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
-                            <h3 style="margin-bottom: 0;"><span class="chart-icon">👤</span> Phân Tích Cá Nhân</h3>
+                            <h3 style="margin-bottom: 0;"><span class="chart-icon"><i data-lucide="user"></i></span> Phân Tích Cá Nhân</h3>
                             <input type="text" class="list-search-input" placeholder="Tìm nhân viên..."
                                 oninput="filterAnalyticsSelect(this.value)"
                                 style="width: 220px; border-radius: 10px; font-size: 0.9rem;">
@@ -585,7 +586,7 @@
                                 </div>
                             </div>
                             <div>
-                                <h4>📈 Giờ Làm Theo Tuần</h4>
+                                <h4><i data-lucide="trending-up"></i> Giờ Làm Theo Tuần</h4>
                                 <div style="position: relative; height: 250px;">
                                     <canvas id="chart-weekly-hours"></canvas>
                                 </div>
@@ -595,7 +596,7 @@
 
                     <!-- Row 3: Staff Comparison with Multi-Select (BOTTOM) -->
                     <div class="chart-panel full-width">
-                        <h3><span class="chart-icon">📊</span> So Sánh Nhân Viên</h3>
+                        <h3><span class="chart-icon"><i data-lucide="bar-chart-2"></i></span> So Sánh Nhân Viên</h3>
                         <div
                             style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
                             <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">Chọn nhân viên để so
@@ -632,6 +633,14 @@
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

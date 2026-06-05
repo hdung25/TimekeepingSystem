@@ -1,3 +1,29 @@
+window.getIconHtml = function(name, attrs = {}) {
+    if (window.lucide && window.lucide.icons) {
+        let icon = window.lucide.icons[name];
+        if (!icon) {
+            const camelName = name.replace(/-([a-z0-9])/g, g => g[1].toUpperCase());
+            icon = window.lucide.icons[camelName];
+        }
+        if (!icon) {
+            const pascalName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+            icon = window.lucide.icons[pascalName];
+        }
+        if (icon) {
+            const mergedAttrs = Object.assign({
+                width: '18',
+                height: '18',
+                'stroke-width': '2',
+                'stroke': 'currentColor',
+                'fill': 'none',
+                class: 'lucide-icon lucide-' + name
+            }, attrs);
+            return icon.toSvg(mergedAttrs);
+        }
+    }
+    return `<span class="icon-fallback" data-name="${name}"></span>`;
+};
+
 const UIService = {
     init() {
         if (!document.querySelector('.toast-container')) {
@@ -15,15 +41,18 @@ const UIService = {
         toast.className = `toast ${type}`;
 
         // Icons based on type
-        let icon = '';
-        if (type === 'success') icon = '✅';
-        if (type === 'error') icon = '❌';
-        if (type === 'warning') icon = '⚠️';
-        if (type === 'info') icon = 'ℹ️';
+        let iconName = 'info';
+        let strokeColor = 'currentColor';
+        if (type === 'success') { iconName = 'check-circle'; strokeColor = '#10B981'; }
+        if (type === 'error') { iconName = 'x-circle'; strokeColor = '#EF4444'; }
+        if (type === 'warning') { iconName = 'alert-triangle'; strokeColor = '#F59E0B'; }
+        if (type === 'info') { iconName = 'info'; strokeColor = '#3B82F6'; }
+
+        const iconHtml = window.getIconHtml(iconName, { stroke: strokeColor, width: '20', height: '20' });
 
         toast.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 1.2rem;">${icon}</span>
+                <span style="display: flex; align-items: center;">${iconHtml}</span>
                 <span style="font-weight: 500;">${message}</span>
             </div>
         `;

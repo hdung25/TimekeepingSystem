@@ -23,6 +23,7 @@
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
@@ -93,7 +94,7 @@
 
             <!-- Personal Analytics Section -->
             <div class="glass-panel" style="padding: 1.5rem; margin-top: 1.5rem;">
-                <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1.5rem;">📊 Thống Kê Tháng Này</h2>
+                <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1.5rem;"><i data-lucide="bar-chart-2"></i> Thống Kê Tháng Này</h2>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
                     <div>
                         <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">🍩 Tỷ Lệ Đúng
@@ -103,7 +104,7 @@
                         </div>
                     </div>
                     <div>
-                        <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">📈 Giờ Làm Theo
+                        <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;"><i data-lucide="trending-up"></i> Giờ Làm Theo
                             Tuần</h4>
                         <div style="position: relative; height: 240px;">
                             <canvas id="staff-chart-weekly"></canvas>
@@ -117,6 +118,14 @@
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

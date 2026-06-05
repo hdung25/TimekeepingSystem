@@ -109,6 +109,7 @@
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
     <script src='js/db-service.js'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
@@ -261,7 +262,7 @@
                         <input type="number" id="new-role-rate" class="form-input" placeholder="Lương/Giờ (VND)"
                             style="flex: 1; min-width: 120px;">
                         <button type="button" class="btn btn-primary" onclick="addNewRole()"
-                            style="white-space:nowrap;">➕ Thêm</button>
+                            style="white-space:nowrap;"><i data-lucide="plus"></i> Thêm</button>
                     </div>
                 </div>
             </div>
@@ -309,7 +310,7 @@
 
             <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                 <button type="button" class="btn btn-secondary" onclick="closeSalaryModal()">Đóng</button>
-                <button type="button" class="btn btn-primary" onclick="saveSalaryConfig()">💾 Lưu Cấu Hình</button>
+                <button type="button" class="btn btn-primary" onclick="saveSalaryConfig()"><i data-lucide="save"></i> Lưu Cấu Hình</button>
             </div>
         </div>
     </div>
@@ -320,6 +321,14 @@
     <script src="js/auth-helper.js"></script>
     <script src="js/personnel.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

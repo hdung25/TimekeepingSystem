@@ -92,7 +92,7 @@ async function loadUnregisteredAlerts() {
         const totalCount = overtimeRequests.length + bonus10Requests.length;
 
         if (totalCount === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 1rem;">✅ Không có yêu cầu nào chờ duyệt.</p>';
+            container.innerHTML = `<p style="color: var(--text-muted); text-align: center; padding: 1rem; display:flex; align-items:center; justify-content:center; gap:6px;">${window.getIconHtml('check-circle', {width: '18', height: '18'})} Không có yêu cầu nào chờ duyệt.</p>`;
             if (badge) badge.style.display = 'none';
             return;
         }
@@ -109,7 +109,7 @@ async function loadUnregisteredAlerts() {
             html += `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;border-bottom:1px solid var(--border-color);background:#F5F3FF;">
                     <div>
-                        <span style="background:#7C3AED;color:white;padding:1px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;">⭐ SỚM 10P</span>
+                        `<span style="background:#7C3AED;color:white;padding:3px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;display:inline-flex;align-items:center;gap:3px;">${window.getIconHtml('star', {width: '12', height: '12'})} SỚM 10P</span>`
                         <strong>${req.staffName || 'N/A'}</strong>
                         <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${req.dateKey || ''}</span>
                     </div>
@@ -126,14 +126,14 @@ async function loadUnregisteredAlerts() {
             html += `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;border-bottom:1px solid var(--border-color);background:#FFFBEB;">
                     <div>
-                        <span style="background:#F59E0B;color:white;padding:1px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;">⏱️ TĂNG CA</span>
+                        `<span style="background:#F59E0B;color:white;padding:3px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;display:inline-flex;align-items:center;gap:3px;">${window.getIconHtml('clock', {width: '12', height: '12'})} TĂNG CA</span>`
                         <strong>${ot.staffName || 'N/A'}</strong>
                         <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${ot.dateKey} — +${ot.duration}</span>
                     </div>
                     <div style="display:flex;gap:0.5rem;">
                         <button class="btn" onclick="rejectOvertimeFromDashboard('${ot.id}', this)"
                             style="background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;padding:0.4rem 0.75rem;font-size:0.85rem;">
-                            ❌ Từ Chối
+                            ${window.getIconHtml('x-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:3px;'})} Từ Chối
                         </button>
                         <a href="bao-cao.html?staffId=${ot.staffId}" class="btn"
                             style="background:#F59E0B;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
@@ -556,7 +556,7 @@ async function loadStaffNotifications() {
         bell.id = 'notif-bell';
         bell.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:999;cursor:pointer;background:white;border-radius:50%;width:48px;height:48px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,0.15);border:2px solid #3B82F6;transition:transform 0.2s';
         bell.innerHTML = `
-            <span style="font-size:1.5rem">🔔</span>
+            `<span style="display:flex;align-items:center;">${window.getIconHtml('bell', {width: '22', height: '22', stroke: '#3B82F6'})}</span>`
             <span id="notif-badge" style="position:absolute;top:-4px;right:-4px;background:#EF4444;color:white;font-size:0.7rem;font-weight:700;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 4px">${notifications.length}</span>
         `;
         bell.onmouseover = () => { bell.style.transform = 'scale(1.1)'; };
@@ -582,10 +582,10 @@ function showNotificationPopup(notifications) {
     if (existing) existing.remove();
 
     const actionLabels = {
-        'add_session': '➕ Thêm ca',
-        'edit_session': '✏️ Sửa giờ',
-        'delete_session': '🗑️ Xóa ca',
-        'select_role': '🎯 Chọn vai trò'
+        'add_session': window.getIconHtml('plus-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Thêm ca',
+        'edit_session': window.getIconHtml('edit', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Sửa giờ',
+        'delete_session': window.getIconHtml('trash-2', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Xóa ca',
+        'select_role': window.getIconHtml('target', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Chọn vai trò'
     };
 
     const overlay = document.createElement('div');
@@ -598,7 +598,7 @@ function showNotificationPopup(notifications) {
 
     const header = `
         <div style="padding:1.25rem;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:white;border-radius:16px 16px 0 0;z-index:1">
-            <h3 style="margin:0;font-size:1.1rem;font-weight:700;color:#1F2937">🔔 Thông Báo</h3>
+            `<h3 style="margin:0;font-size:1.1rem;font-weight:700;color:#1F2937;display:flex;align-items:center;gap:6px;">${window.getIconHtml('bell', {width: '20', height: '20', stroke: '#3B82F6'})} Thông Báo</h3>`
             <span style="color:#6B7280;font-size:0.85rem">${notifications.length} mới</span>
         </div>
     `;
@@ -620,7 +620,7 @@ function showNotificationPopup(notifications) {
 
     const footer = `
         <div style="padding:1rem 1.25rem;border-top:1px solid #E5E7EB;text-align:center;position:sticky;bottom:0;background:white;border-radius:0 0 16px 16px">
-            <button id="btn-mark-all-read" style="background:#3B82F6;color:white;border:none;padding:0.6rem 1.5rem;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">✅ Đã đọc tất cả</button>
+            `<button id="btn-mark-all-read" style="background:#3B82F6;color:white;border:none;padding:0.6rem 1.5rem;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:opacity 0.2s;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity=\'0.9\'" onmouseout="this.style.opacity=\'1\'">${window.getIconHtml(\'check-circle\', {width: \'16\', height: \'16\'})} Đã đọc tất cả</button>`
         </div>
     `;
 
@@ -1273,7 +1273,7 @@ window.runArchiveDelete = async function () {
         alert("Lỗi xóa dữ liệu: " + e.message);
         if (btn) {
             btn.disabled = false;
-            btn.innerText = "🗑️ Xóa Dữ Liệu Trên Cloud";
+            btn.innerHTML = window.getIconHtml('trash-2', {style: 'display:inline-block; vertical-align:middle; margin-right:4px;'}) + ' Xóa Dữ Liệu Trên Cloud';
         }
     }
 };

@@ -125,7 +125,30 @@ async function populateStaffSelect() {
     if (!isAdmin) {
         const myId = localStorage.getItem('currentUserId');
         users = users.filter(u => u.id === myId);
+    } else {
+        // Filter out non-personnel and admin accounts
+        users = users.filter(u => {
+            if (!u.username || !u.name) return false;
+            const uname = u.username.toLowerCase();
+            return uname !== 'admin' && uname !== 'admin1';
+        });
     }
+
+    // Extract employee numerical codes from usernames and sort them
+    users.forEach(u => {
+        const match = (u.username || '').match(/\d+$/);
+        u.msnvStr = match ? match[0] : '';
+        u.msnv = match ? parseInt(match[0], 10) : null;
+    });
+
+    users.sort((a, b) => {
+        if (a.msnv !== null && b.msnv !== null) {
+            return a.msnv - b.msnv;
+        }
+        if (a.msnv !== null) return -1;
+        if (b.msnv !== null) return 1;
+        return (a.username || '').localeCompare(b.username || '');
+    });
 
     // Lưu global để filter
     window._allStaffList = users;
@@ -151,6 +174,23 @@ async function populateStaffSelect() {
         selectStaffFromDropdown(users[0]);
     }
 }
+
+window.navigateStaff = function(direction) {
+    if (!window._allStaffList || window._allStaffList.length === 0) return;
+    const currentId = getTargetStaffId();
+    let index = window._allStaffList.findIndex(u => u.id === currentId);
+    
+    if (index === -1) {
+        index = direction > 0 ? 0 : window._allStaffList.length - 1;
+    } else {
+        index = (index + direction + window._allStaffList.length) % window._allStaffList.length;
+    }
+    
+    const targetUser = window._allStaffList[index];
+    if (targetUser) {
+        selectStaffFromDropdown(targetUser);
+    }
+};
 
 function renderStaffDropdownItems(users) {
     const list = document.getElementById('staff-dropdown-list');
@@ -936,7 +976,7 @@ async function renderMonthReport(date, forceServer = false) {
             holDiv.style.color = '#EF4444';
             holDiv.style.marginTop = '2px';
             holDiv.style.fontWeight = 'bold';
-            holDiv.innerText = `🚩 ${holidayName}`;
+            holDiv.innerHTML = `${window.getIconHtml('flag', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px;'})} ${holidayName}`;
             dateHeader.appendChild(holDiv);
 
             // Highlight cell background slightly (holiday takes priority if also has note)
@@ -949,7 +989,7 @@ async function renderMonthReport(date, forceServer = false) {
         controlsDiv.style.gap = '4px';
 
         const noteBtn = document.createElement('button');
-        noteBtn.innerHTML = '📝';
+        noteBtn.innerHTML = window.getIconHtml('file-text', {width: '14', height: '14'});
         noteBtn.className = 'action-btn';
         noteBtn.title = hasNote ? `Ghi chú: ${noteText.substring(0, 50)}...` : 'Thêm ghi chú';
         noteBtn.onclick = () => openNoteModal(dateStr);
@@ -961,7 +1001,7 @@ async function renderMonthReport(date, forceServer = false) {
         // --- ADMIN ONLY: Manual Add Button ---
         if (isAdminRole) {
             const addBtn = document.createElement('button');
-            addBtn.innerHTML = '➕';
+            addBtn.innerHTML = window.getIconHtml('plus', {width: '14', height: '14'});
             addBtn.className = 'action-btn';
             addBtn.title = 'Chấm công bù/thủ công';
             addBtn.style.color = '#10B981'; // Green
@@ -1040,7 +1080,7 @@ async function renderMonthReport(date, forceServer = false) {
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="display:inline-flex; align-items:center;">${window.getIconHtml('calendar', {width: '20', height: '20'})}</span>
                                     <div>
                                         <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
@@ -1048,14 +1088,14 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="display:inline-flex; align-items:center; color:#10B981;">${window.getIconHtml('play-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca bắt đầu</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.start || '???'}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="display:inline-flex; align-items:center; color:#EF4444;">${window.getIconHtml('stop-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ca kết thúc</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.end || '???'}</div>
@@ -1064,11 +1104,11 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Trạng thái</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('clipboard', {width: '16', height: '16'})} Trạng thái</div>
                                 <div style="font-size:0.85rem;color:#7F1D1D">Tiếp tân đã được xếp lịch cho ca này nhưng <strong>không có dữ liệu chấm công</strong>.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('info', {width: '16', height: '16'})} Giải pháp</div>
                                 <div style="font-size:0.85rem;color:#065F46">Tiếp tân cần <strong>"Vào Ca"</strong> trên trang Chấm Công trước khi bắt đầu ca, hoặc Admin hãy chấm công bù.</div>
                             </div>
                             <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
@@ -1087,7 +1127,7 @@ async function renderMonthReport(date, forceServer = false) {
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="display:inline-flex; align-items:center;">${window.getIconHtml('calendar', {width: '20', height: '20'})}</span>
                                     <div>
                                         <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
@@ -1095,14 +1135,14 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="display:inline-flex; align-items:center; color:#10B981;">${window.getIconHtml('play-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
                                             <div style="font-weight:600;color:#1F2937">${startTime}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="display:inline-flex; align-items:center; color:#EF4444;">${window.getIconHtml('stop-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
                                             <div style="font-weight:600;color:#1F2937">${endTime}</div>
@@ -1111,7 +1151,7 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                             </div>
                             <div style="background:#EFF6FF;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #3B82F6">
-                                <div style="font-size:0.8rem;font-weight:600;color:#2563EB;margin-bottom:0.25rem">🛠️ Thông tin</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#2563EB;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('wrench', {width: '16', height: '16'})} Thông tin</div>
                                 <div style="font-size:0.85rem;color:#1E40AF">Ca này được <strong>Quản lý thêm thủ công</strong>. Nếu chưa chọn vai trò, hãy bấm vào chip để chọn.</div>
                             </div>
                             <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:#3B82F6;color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
@@ -1128,7 +1168,7 @@ async function renderMonthReport(date, forceServer = false) {
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="display:inline-flex; align-items:center;">${window.getIconHtml('calendar', {width: '20', height: '20'})}</span>
                                     <div>
                                         <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
@@ -1136,14 +1176,14 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="display:inline-flex; align-items:center; color:#10B981;">${window.getIconHtml('play-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giờ bắt đầu</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.start || '???'}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="display:inline-flex; align-items:center; color:#EF4444;">${window.getIconHtml('stop-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Giờ kết thúc</div>
                                             <div style="font-weight:600;color:#1F2937">${schedInfo.end || '???'}</div>
@@ -1152,11 +1192,11 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Trạng thái</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('clipboard', {width: '16', height: '16'})} Trạng thái</div>
                                 <div style="font-size:0.85rem;color:#7F1D1D">Đã nhận lớp nhưng <strong>không có dữ liệu chấm công</strong>.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('info', {width: '16', height: '16'})} Giải pháp</div>
                                 <div style="font-size:0.85rem;color:#065F46">Trợ giảng cần <strong>"Vào Ca"</strong> trên trang Chấm Công trước khi bắt đầu lớp, hoặc Admin hãy chấm công bù.</div>
                             </div>
                             <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
@@ -1175,7 +1215,7 @@ async function renderMonthReport(date, forceServer = false) {
                             </div>
                             <div style="background:#F9FAFB;border-radius:12px;padding:1rem;margin-bottom:1rem">
                                 <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;align-items:center">
-                                    <span style="font-size:1.25rem">📅</span>
+                                    <span style="display:inline-flex; align-items:center;">${window.getIconHtml('calendar', {width: '20', height: '20'})}</span>
                                     <div>
                                         <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ngày</div>
                                         <div style="font-weight:600;color:#1F2937">${dateStr}</div>
@@ -1183,14 +1223,14 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                                 <div style="display:flex;gap:1.5rem">
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🟢</span>
+                                        <span style="display:inline-flex; align-items:center; color:#10B981;">${window.getIconHtml('play-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Vào ca</div>
                                             <div style="font-weight:600;color:#1F2937">${startTime}</div>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:0.5rem;align-items:center">
-                                        <span style="font-size:1.25rem">🔴</span>
+                                        <span style="display:inline-flex; align-items:center; color:#EF4444;">${window.getIconHtml('stop-circle', {width: '20', height: '20'})}</span>
                                         <div>
                                             <div style="font-size:0.75rem;color:#6B7280;font-weight:500">Ra ca</div>
                                             <div style="font-weight:600;color:#1F2937">${endTime}</div>
@@ -1199,11 +1239,11 @@ async function renderMonthReport(date, forceServer = false) {
                                 </div>
                             </div>
                             <div style="background:#FEF2F2;border-radius:12px;padding:1rem;margin-bottom:0.75rem;border-left:3px solid #EF4444">
-                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem">📋 Lý do</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#DC2626;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('clipboard', {width: '16', height: '16'})} Lý do</div>
                                 <div style="font-size:0.85rem;color:#7F1D1D">Thời gian chấm công không khớp với bất kỳ lớp/ca nào trong lịch đã xếp.</div>
                             </div>
                             <div style="background:#ECFDF5;border-radius:12px;padding:1rem;margin-bottom:1.5rem;border-left:3px solid #10B981">
-                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem">💡 Giải pháp</div>
+                                <div style="font-size:0.8rem;font-weight:600;color:#059669;margin-bottom:0.25rem;display:flex;align-items:center;gap:4px;">${window.getIconHtml('info', {width: '16', height: '16'})} Giải pháp</div>
                                 <div style="font-size:0.85rem;color:#065F46">Trợ giảng cần <strong>"Nhận Lớp"</strong> trong mục Lịch Làm, hoặc Tiếp tân cần được Admin <strong>xếp lịch</strong> trước khi Vào Ca.</div>
                             </div>
                             <button id="warning-modal-close-btn" style="width:100%;padding:0.75rem;background:var(--primary-color, #3B82F6);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;transition:opacity 0.2s" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">Đã hiểu</button>
@@ -1250,7 +1290,7 @@ async function renderMonthReport(date, forceServer = false) {
                 const hasBonus = chip.sessionData && chip.sessionData.bonus10;
 
                 if (b10Status === 'approved' || hasBonus) {
-                    b10Btn.innerHTML = '⭐+10p';
+                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
                     b10Btn.disabled = true;
@@ -1271,7 +1311,7 @@ async function renderMonthReport(date, forceServer = false) {
                         cb.onclick = (e) => e.stopPropagation();
                         div.appendChild(cb);
 
-                        b10Btn.innerHTML = '⭐ Duyệt';
+                        b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Duyệt';
                         b10Btn.style.background = '#FEF3C7';
                         b10Btn.style.color = '#D97706';
                         b10Btn.title = 'Duyệt thưởng 10p cho ca này';
@@ -1280,7 +1320,7 @@ async function renderMonthReport(date, forceServer = false) {
                             approveBonus10(chip.bonus10Id, chip.sessionId, dateStr, staffId);
                         };
                     } else {
-                        b10Btn.innerHTML = '⭐ Chờ duyệt';
+                        b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Chờ';
                         b10Btn.style.background = '#FEF3C7';
                         b10Btn.style.color = '#D97706';
                         b10Btn.disabled = true;
@@ -1288,7 +1328,7 @@ async function renderMonthReport(date, forceServer = false) {
                     }
                 } else {
                     // Chưa có hoặc bị reject → cho submit
-                    b10Btn.innerHTML = '⭐ Sớm 10p';
+                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Sớm';
                     b10Btn.style.background = b10Status === 'rejected' ? '#FEE2E2' : '#F3F4F6';
                     b10Btn.style.color = b10Status === 'rejected' ? '#DC2626' : '#6B7280';
                     b10Btn.title = b10Status === 'rejected' ? 'Bị từ chối — bấm để gửi lại' : 'Yêu cầu thưởng 10p vào sớm';
@@ -1379,7 +1419,7 @@ async function renderMonthReport(date, forceServer = false) {
             // Add Edit Icon for Admin if there is an underlying session
             if (isAdminRole && chip.sessionId) {
                 const editBtn = document.createElement('span');
-                editBtn.innerHTML = '✏️';
+                editBtn.innerHTML = window.getIconHtml('pencil', {width: '12', height: '12'});
                 editBtn.style.cursor = 'pointer';
                 editBtn.style.fontSize = '0.8em';
                 editBtn.style.marginLeft = '4px';
@@ -1401,7 +1441,7 @@ async function renderMonthReport(date, forceServer = false) {
                 // Admin: if this chip has a pending overtime, show Confirm/Reject buttons
                 if (chip.overtimePending && chip.overtimeId) {
                     const confirmBtn = document.createElement('span');
-                    confirmBtn.innerHTML = '✅';
+                    confirmBtn.innerHTML = window.getIconHtml('check-circle', {width: '14', height: '14', stroke: '#10B981'});
                     confirmBtn.title = 'Xác nhận tăng ca';
                     confirmBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;';
                     confirmBtn.onclick = async (e) => {
@@ -1415,7 +1455,7 @@ async function renderMonthReport(date, forceServer = false) {
                     div.appendChild(confirmBtn);
 
                     const rejectBtn = document.createElement('span');
-                    rejectBtn.innerHTML = '❌';
+                    rejectBtn.innerHTML = window.getIconHtml('x-circle', {width: '14', height: '14', stroke: '#EF4444'});
                     rejectBtn.title = 'Từ chối tăng ca';
                     rejectBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:2px;';
                     rejectBtn.onclick = async (e) => {
@@ -1433,7 +1473,7 @@ async function renderMonthReport(date, forceServer = false) {
             // Staff: add ⏱️ Overtime Request button on completed sessions with no pending OT
             if (role !== 'admin' && chip.sessionId && chip.sessionData && chip.sessionData.checkOut && !chip.overtimePending && !chip.overtimeMinutes) {
                 const otBtn = document.createElement('span');
-                otBtn.innerHTML = '⏱️';
+                otBtn.innerHTML = window.getIconHtml('clock', {width: '14', height: '14'});
                 otBtn.title = 'Yêu cầu tăng ca';
                 otBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;opacity:0.6;';
                 otBtn.onmouseover = () => otBtn.style.opacity = '1';
@@ -2163,14 +2203,75 @@ function calculateSalary() {
     const totalSalary = filteredSalary + totalBonus - adjustVDX - adjustVKP - adjustLate - advance;
 
     const finalDisplay = document.getElementById('final-salary-display');
-    // Hide salary amount for senior_assistant
-    const currentRole = localStorage.getItem('currentRole');
     if (finalDisplay) {
-        if (currentRole === 'senior_assistant') {
-            finalDisplay.innerText = '******';
-        } else {
-            finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
+        finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
+    }
+    applySalaryVisibility();
+}
+
+function applySalaryVisibility() {
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    let roles = [];
+    try {
+        const parsed = JSON.parse(roleRaw);
+        roles = Array.isArray(parsed) ? parsed : [roleRaw];
+    } catch(e) {
+        roles = [roleRaw];
+    }
+    const isSeniorAssistant = roles.includes('senior_assistant') && !roles.includes('admin');
+
+    if (isSeniorAssistant) {
+        const modalTables = document.querySelectorAll('#class-rate-modal table');
+        modalTables.forEach(modalTable => {
+            const ths = modalTable.querySelectorAll('thead th');
+            if (ths.length >= 4) {
+                ths[2].style.display = 'none';
+                ths[3].style.display = 'none';
+            }
+            const rows = modalTable.querySelectorAll('tbody tr');
+            rows.forEach(r => {
+                const tds = r.querySelectorAll('td');
+                if (tds.length >= 4) {
+                    tds[2].style.display = 'none';
+                    tds[3].style.display = 'none';
+                }
+            });
+        });
+
+        const modalFinalDisplay = document.getElementById('modal-final-salary-display');
+        if (modalFinalDisplay) modalFinalDisplay.innerText = '******';
+
+        const finalDisplay = document.getElementById('final-salary-display');
+        if (finalDisplay) finalDisplay.innerText = '******';
+
+        const historyContainer = document.getElementById('modal-history-content');
+        if (historyContainer) {
+            const historyNetPayEl = historyContainer.querySelector('div[style*="ECFDF5"] strong');
+            if (historyNetPayEl) historyNetPayEl.innerText = '******';
         }
+
+        const pdfBtns = document.querySelectorAll('button[onclick*="exportSalaryPDF"]');
+        pdfBtns.forEach(btn => btn.style.display = 'none');
+    } else {
+        const modalTables = document.querySelectorAll('#class-rate-modal table');
+        modalTables.forEach(modalTable => {
+            const ths = modalTable.querySelectorAll('thead th');
+            if (ths.length >= 4) {
+                ths[2].style.display = '';
+                ths[3].style.display = '';
+            }
+            const rows = modalTable.querySelectorAll('tbody tr');
+            rows.forEach(r => {
+                const tds = r.querySelectorAll('td');
+                if (tds.length >= 4) {
+                    tds[2].style.display = '';
+                    tds[3].style.display = '';
+                }
+            });
+        });
+        
+        const pdfBtns = document.querySelectorAll('button[onclick*="exportSalaryPDF"]');
+        pdfBtns.forEach(btn => btn.style.display = '');
     }
 }
 
@@ -2507,6 +2608,98 @@ function initFlatpickr() {
     }
 }
 
+// Searchable Role Dropdown Helpers
+window.openRoleDropdown = function() {
+    const list = document.getElementById('role-dropdown-list');
+    if (list) {
+        list.style.display = 'block';
+        window.renderRoleOptions();
+    }
+};
+
+window.closeRoleDropdown = function() {
+    setTimeout(() => {
+        const list = document.getElementById('role-dropdown-list');
+        if (list) list.style.display = 'none';
+    }, 200);
+};
+
+window.filterRoleDropdown = function(query) {
+    const term = query.toLowerCase().trim();
+    const items = document.querySelectorAll('.role-dropdown-item');
+    items.forEach(item => {
+        const name = item.textContent.toLowerCase();
+        if (name.includes(term)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+};
+
+window.selectRoleItem = function(val, text, rate) {
+    const select = document.getElementById('edit-role');
+    const input = document.getElementById('role-search-input');
+    const clearBtn = document.getElementById('role-search-clear');
+    
+    if (select) {
+        select.value = val;
+        const event = new Event('change');
+        select.dispatchEvent(event);
+    }
+    if (input) {
+        input.value = text;
+    }
+    if (clearBtn) {
+        clearBtn.style.display = val ? 'inline' : 'none';
+    }
+    
+    const shiftTypeContainer = document.getElementById('edit-shift-type-container');
+    if (shiftTypeContainer) {
+        shiftTypeContainer.style.display = (val === 'tiep-tan') ? 'block' : 'none';
+    }
+    
+    const list = document.getElementById('role-dropdown-list');
+    if (list) list.style.display = 'none';
+};
+
+window.clearRoleSearch = function() {
+    window.selectRoleItem('', '-- Chưa chọn Role --', 0);
+};
+
+window.renderRoleOptions = function() {
+    const select = document.getElementById('edit-role');
+    const list = document.getElementById('role-dropdown-list');
+    if (!select || !list) return;
+
+    list.innerHTML = '';
+    Array.from(select.options).forEach(opt => {
+        const div = document.createElement('div');
+        div.className = 'role-dropdown-item';
+        div.style.padding = '0.75rem 1rem';
+        div.style.cursor = 'pointer';
+        div.style.fontSize = '0.95rem';
+        div.style.transition = 'background 0.2s';
+        div.style.borderBottom = '1px solid #F3F4F6';
+        div.textContent = opt.textContent;
+        div.onclick = () => {
+            window.selectRoleItem(opt.value, opt.textContent, opt.dataset.rate);
+        };
+        div.onmouseenter = () => { div.style.background = '#F3F4F6'; };
+        div.onmouseleave = () => { div.style.background = 'transparent'; };
+        list.appendChild(div);
+    });
+};
+
+// Global click listener to close role dropdown
+document.addEventListener('click', function(e) {
+    const wrapper = document.getElementById('role-search-wrapper');
+    const list = document.getElementById('role-dropdown-list');
+    if (wrapper && !wrapper.contains(e.target)) {
+        if (list) list.style.display = 'none';
+    }
+});
+
 async function populateRoleDropdown(staffId, selectElementId, currentRoleId = null) {
     const select = document.getElementById(selectElementId);
     if (!select) return;
@@ -2546,6 +2739,22 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
     } catch (e) {
         console.warn('Cannot load roles:', e);
     }
+
+    // Sync searchable inputs
+    const selectedOpt = select.options[select.selectedIndex];
+    const input = document.getElementById('role-search-input');
+    const clearBtn = document.getElementById('role-search-clear');
+    if (input) {
+        input.value = selectedOpt ? selectedOpt.text : '-- Chưa chọn Role --';
+    }
+    if (clearBtn) {
+        clearBtn.style.display = (selectedOpt && selectedOpt.value) ? 'inline' : 'none';
+    }
+    
+    const shiftTypeContainer = document.getElementById('edit-shift-type-container');
+    if (shiftTypeContainer) {
+        shiftTypeContainer.style.display = (selectedOpt && selectedOpt.value === 'tiep-tan') ? 'block' : 'none';
+    }
 }
 
 async function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
@@ -2569,8 +2778,6 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
         if (preFill.end) endVal = preFill.end;
     }
 
-    // Safely map 'YYYY-MM-DD' directly instead of parsing with `new Date()`
-    // to strictly prevent Timezone shifts or Day/Month swapping 
     const isoDate = dateKey;
     const startIso = `${isoDate}T${startVal}`;
     const endIso = `${isoDate}T${endVal}`;
@@ -2592,6 +2799,13 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     const staffId = getTargetStaffId();
     await populateRoleDropdown(staffId, 'edit-role');
 
+    // Default shift type to normal
+    const radios = document.getElementsByName('edit-shift-type');
+    radios.forEach(r => {
+        if (r.value === 'fixed') r.checked = false;
+        if (r.value === 'normal') r.checked = true;
+    });
+
     // Update Mode Title
     document.querySelector('#edit-time-modal h2').innerText = "Thêm Ca Làm Việc Mới";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
@@ -2611,18 +2825,14 @@ async function openEditModal(dateKey, sessionId, sessionData, classStart, classC
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
-    // Store the original class start time (if editing a class-matched session)
-    // so after saving, the session still links to its class via linkedClassStart
     const linkedEl = document.getElementById('edit-linked-class-start');
     if (linkedEl) linkedEl.value = classStart || (sessionData ? (sessionData.linkedClassStart || '') : '');
 
-    // Store class metadata for deletion
     document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
     document.getElementById('edit-class-section-key').value = classSectionKey || '';
     document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
     document.getElementById('edit-class-is-receptionist').value = isReceptionist ? 'true' : '';
 
-    // Convert ISO string to datetime-local format (YYYY-MM-DDTHH:mm)
     const toLocalISO = (isoStr) => {
         if (!isoStr) return '';
         const d = new Date(isoStr);
@@ -2654,10 +2864,19 @@ async function openEditModal(dateKey, sessionId, sessionData, classStart, classC
     const staffId = getTargetStaffId();
     await populateRoleDropdown(staffId, 'edit-role', sessionData ? sessionData.role : null);
 
-    // Update Mode Title
+    // Update shift type radio buttons
+    const isFixed = sessionData && sessionData.isFixedShift === true;
+    const radios = document.getElementsByName('edit-shift-type');
+    radios.forEach(r => {
+        if (r.value === 'fixed') {
+            r.checked = isFixed;
+        } else if (r.value === 'normal') {
+            r.checked = !isFixed;
+        }
+    });
+
     document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
-    // Show delete button in edit mode
     const delSection = document.querySelector('#edit-time-modal .delete-section');
     if (delSection) delSection.style.display = 'block';
 }
@@ -2680,23 +2899,15 @@ async function saveEditedTime() {
         return;
     }
 
-    // Helper function to parse datetime-local format (YYYY-MM-DDTHH:mm) properly
-    // This ensures minutes are preserved exactly (e.g., 9:20 stays 9:20, not rounded to 9:10)
     const parseLocalDateTime = (localDateTimeStr) => {
         if (!localDateTimeStr) return null;
-
-        // Format: "2026-04-17T09:20" -> Parse manually to preserve exact minutes
         const [datePart, timePart] = localDateTimeStr.split('T');
         if (!datePart || !timePart) {
-            return new Date(localDateTimeStr); // Fallback to standard parsing
+            return new Date(localDateTimeStr);
         }
-
         const [year, month, day] = datePart.split('-').map(Number);
         const [hour, minute] = timePart.split(':').map(Number);
-
-        // Create date using local time (not UTC)
-        const date = new Date(year, month - 1, day, hour, minute, 0, 0);
-        return date;
+        return new Date(year, month - 1, day, hour, minute, 0, 0);
     };
 
     const checkInDate = parseLocalDateTime(checkIn);
@@ -2716,10 +2927,6 @@ async function saveEditedTime() {
     const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
 
     const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
-
-    // FIX bug Ánh: nếu modal mở từ chip Vắng tiếp tân (có classSectionKey + isReceptionist),
-    // link cứng session mới vào ca gốc đó. Tránh trường hợp session match nhầm khung giờ ca khác,
-    // khiến chip Vắng vẫn còn + chip "Ca Ngoài Lịch" mới xuất hiện riêng → double display.
     const classSectionKey = document.getElementById('edit-class-section-key')?.value || '';
     const classIsReceptionist = document.getElementById('edit-class-is-receptionist')?.value === 'true';
 
@@ -2733,15 +2940,21 @@ async function saveEditedTime() {
         start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
         isAdminEdited: true,
-        ...(linkedClassStart ? { linkedClassStart } : {}), // Preserve class link after edit
+        ...(linkedClassStart ? { linkedClassStart } : {}),
         ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {})
     };
 
-    // Thêm vào sessionData khi update:
     if (selectedRoleId) {
         newData.role = selectedRoleId;
         newData.roleName = selectedRoleName;
         newData.roleRate = Number(selectedRoleRate);
+    }
+
+    if (selectedRoleId === 'tiep-tan') {
+        const checkedRadio = document.querySelector('input[name="edit-shift-type"]:checked');
+        newData.isFixedShift = (checkedRadio && checkedRadio.value === 'fixed');
+    } else {
+        newData.isFixedShift = false;
     }
 
     try {
@@ -3688,12 +3901,24 @@ async function populateModalCurrentTab() {
             document.getElementById('modal-recep-fixed-factor').value = calculatedFixed;
             
             // Calculate dynamic performance factor (based on base salary hourly rate)
-            const user = window.currentUserContext || {};
-            const cfg = user.salary_config || {};
-            const classRates = roleSettings.class_rates || cfg.class_rates || {};
             let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
-            const calculatedAtt = getPerformanceFactorByRate(normalRate);
-            document.getElementById('modal-recep-attendance-factor').value = calculatedAtt.toFixed(1);
+            let calculatedAtt = getPerformanceFactorByRate(normalRate);
+            if (normalRate > 0 && normalRate < 22000) {
+                calculatedAtt = 0.0;
+            }
+            const attInp = document.getElementById('modal-recep-attendance-factor');
+            if (attInp) {
+                attInp.value = calculatedAtt.toFixed(1);
+                if (normalRate > 0 && normalRate < 22000) {
+                    attInp.readOnly = true;
+                    attInp.style.backgroundColor = "#F3F4F6";
+                    attInp.style.cursor = "not-allowed";
+                } else {
+                    attInp.readOnly = false;
+                    attInp.style.backgroundColor = "";
+                    attInp.style.cursor = "";
+                }
+            }
             
             // Handle dropdown select value for team leader rating (responsibility factor)
             const respVal = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
@@ -3761,8 +3986,9 @@ async function populateModalCurrentTab() {
                         const rec = (meetingsLog && meetingsLog.records) ? meetingsLog.records[staffId] : null;
                         const status_ta = (rec && rec.hop_tg_tieng_anh) ? rec.hop_tg_tieng_anh : 'x';
                         const status_ttv = (rec && rec.hop_tg_t_tv) ? rec.hop_tg_t_tv : 'x';
+                        const status_ttd = (rec && rec.hop_toan_tu_duy) ? rec.hop_toan_tu_duy : 'x';
                         const status_receptionist = (rec && rec.hop_tiep_tan) ? rec.hop_tiep_tan : 'x';
-                        noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
+                        noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; TTD: ${status_ttd}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
                     }
                 }
             }
@@ -3834,9 +4060,23 @@ function recalculateSalaryModal() {
         const fixedInp = document.getElementById('modal-recep-fixed-factor');
         if (fixedInp) fixedInp.value = calculatedFixed;
         
-        const autoAttFactor = getPerformanceFactorByRate(normalRate);
+        let autoAttFactor = getPerformanceFactorByRate(normalRate);
+        if (normalRate > 0 && normalRate < 22000) {
+            autoAttFactor = 0.0;
+        }
         const attInp = document.getElementById('modal-recep-attendance-factor');
-        if (attInp) attInp.value = autoAttFactor.toFixed(1);
+        if (attInp) {
+            attInp.value = autoAttFactor.toFixed(1);
+            if (normalRate > 0 && normalRate < 22000) {
+                attInp.readOnly = true;
+                attInp.style.backgroundColor = "#F3F4F6";
+                attInp.style.cursor = "not-allowed";
+            } else {
+                attInp.readOnly = false;
+                attInp.style.backgroundColor = "";
+                attInp.style.cursor = "";
+            }
+        }
 
         const fixedFactor = parseFloat(document.getElementById('modal-recep-fixed-factor')?.value) || 1.5;
         const attFactor = parseFloat(document.getElementById('modal-recep-attendance-factor')?.value) || 1.0;
@@ -3883,6 +4123,7 @@ function recalculateSalaryModal() {
     if (displayCell) {
         displayCell.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(netPay);
     }
+    applySalaryVisibility();
 }
 
 async function saveSalarySettingsFromModal() {
@@ -4411,6 +4652,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         
         if (loadingEl) loadingEl.style.display = 'none';
         if (historyContainer) historyContainer.style.display = 'block';
+        applySalaryVisibility();
     } catch (e) {
         console.error("Error loading previous month history:", e);
         if (loadingEl) loadingEl.innerText = "Lỗi khi tải lịch sử lương tháng trước: " + e.message;
@@ -4800,7 +5042,10 @@ async function loadAndComputeAllReceptionists(monthStr) {
         const cfg = u.salary_config || {};
         const classRates = roleSettings.class_rates || cfg.class_rates || {};
         let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
-        const attFactor = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : getPerformanceFactorByRate(normalRate);
+        let attFactor = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : getPerformanceFactorByRate(normalRate);
+        if (normalRate > 0 && normalRate < 22000) {
+            attFactor = 0.0;
+        }
         const respFactor = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
         
         const A_j = fixedWorkedMinutes / 60;

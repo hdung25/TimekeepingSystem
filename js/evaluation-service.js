@@ -449,10 +449,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // BONUS 10P (từ request được duyệt)
                     if (b10StatusT === 'approved' || matchedSession.bonus10) {
                         minutes += 10;
-                        label += ` ⭐+10p`;
+                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                         tooltip += ` | Thưởng 10p (đã duyệt)`;
                     } else if (b10StatusT === 'pending') {
-                        label += ` ⭐?`;
+                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                         tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                     }
 
@@ -495,10 +495,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     otId = otData.id;
                     if (otData.status === 'approved') {
                         otMinutes = otData.minutes || 0;
-                        label += ` ⏱️+${otData.duration}`;
+                        label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+' + otData.duration;
                     } else if (otData.status === 'pending') {
                         otPending = true;
-                        label += ` ⏱️?`;
+                        label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                     }
                 }
 
@@ -754,10 +754,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // BONUS 10P (từ request được duyệt)
                 if (b10StatusR === 'approved' || matchedSession.bonus10) {
                     minutes += 10;
-                    label += ` ⭐+10p`;
+                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     tooltip += ` | Thưởng 10p (đã duyệt)`;
                 } else if (b10StatusR === 'pending') {
-                    label += ` ⭐?`;
+                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                 }
 
@@ -802,10 +802,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 otIdR = otDataR.id;
                 if (otDataR.status === 'approved') {
                     otMinutesR = otDataR.minutes || 0;
-                    label += ` ⏱️+${otDataR.duration}`;
+                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+' + otDataR.duration;
                 } else if (otDataR.status === 'pending') {
                     otPendingR = true;
-                    label += ` ⏱️?`;
+                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                 }
             }
 
@@ -939,7 +939,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 });
             }
             // Dùng lịch gần nhất nếu trong vòng 90 phút
-            const USE_SCHED = !isAdminCreated && nearestSchedStart && nearestDiff < 90 * 60 * 1000;
+            const USE_SCHED = !isAdminCreated && !s.isAdminEdited && nearestSchedStart && nearestDiff < 90 * 60 * 1000;
 
             let b10DataU, b10StatusU;
 
@@ -1006,10 +1006,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 b10StatusU = b10DataU ? b10DataU.status : null;
                 if (b10StatusU === 'approved' || s.bonus10) {
                     duration += 10;
-                    label += ` ⭐+10p`;
+                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     tooltip += ` | Thưởng 10p (đã duyệt)`;
                 } else if (b10StatusU === 'pending') {
-                    label += ` ⭐?`;
+                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                 }
 
@@ -1045,10 +1045,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 otIdU = otDataU.id;
                 if (otDataU.status === 'approved') {
                     otMinutesU = otDataU.minutes || 0;
-                    label += ` ⏱️+${otDataU.duration}`;
+                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+' + otDataU.duration;
                 } else if (otDataU.status === 'pending') {
                     otPendingU = true;
-                    label += ` ⏱️?`;
+                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                 }
             }
 

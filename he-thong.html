@@ -24,6 +24,7 @@
     <script src='js/auth-guard.js'></script> <!-- Security Guard -->
     <script src='js/db-service.js'></script>
     <script src='js/migration-tool.js'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
@@ -247,6 +248,14 @@
         }
     </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

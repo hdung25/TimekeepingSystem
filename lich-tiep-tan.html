@@ -458,6 +458,7 @@
     <script src='js/ui-service.js'></script>
     <script src='js/main.js'></script>
     <script src='js/auth-guard.js'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
@@ -476,21 +477,21 @@
         <main class="main-content">
             <header class="page-header" style="margin-bottom: 1.5rem;">
                 <div>
-                    <h1 style="font-size: 1.5rem; font-weight: 700;">📋 Lịch Tiếp Tân</h1>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;"><i data-lucide="clipboard"></i> Lịch Tiếp Tân</h1>
                     <p style="color: var(--text-muted); margin-top: 0.25rem;">Quản lý lịch trực tiếp tân theo tuần</p>
                 </div>
                 <div id="save-area" style="display:none; gap: 0.5rem; flex-wrap: wrap;">
                     <button id="btn-mark-fixed" class="btn" onclick="toggleScheduleFixedShiftMode()"
                         style="font-size:0.95rem; padding:0.6rem 1.25rem; background:#E0E7FF; color:#4F46E5; border:1px solid #C7D2FE; font-weight:600;">
-                        ⭐ Đánh dấu Ca Cố Định
+                        <i data-lucide="star"></i> Đánh dấu Ca Cố Định
                     </button>
                     <button class="btn" onclick="clearCurrentWeek()"
                         style="font-size:0.95rem; padding:0.6rem 1.25rem; background:#FEE2E2; color:#DC2626; border:1px solid #FECACA; font-weight:600;">
-                        🗑 Xóa Lịch
+                        <i data-lucide="trash-2"></i> Xóa Lịch
                     </button>
                     <button class="btn btn-primary" onclick="saveFullWeek()"
                         style="font-size:0.95rem; padding:0.6rem 1.5rem;">
-                        💾 Lưu Lịch Tuần
+                        <i data-lucide="save"></i> Lưu Lịch Tuần
                     </button>
                 </div>
             </header>
@@ -513,14 +514,14 @@
             <div id="inherit-banner"
                 style="display: none; background: linear-gradient(135deg, #FEF3C7, #FDE68A); border: 1px solid #F59E0B; border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1rem; display: none;">
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                    <span style="font-size: 1.25rem;">📋</span>
+                    <span style="font-size: 1.25rem;"><i data-lucide="clipboard"></i></span>
                     <div style="flex: 1; min-width: 200px;">
                         <strong style="color: #92400E;">Lịch kế thừa</strong>
                         <p id="inherit-banner-text" style="font-size: 0.85rem; color: #78350F; margin: 0.25rem 0 0;">
                             Lịch này được copy từ tuần trước. Bấm Xác Nhận để áp dụng cho tuần này.</p>
                     </div>
                     <button class="btn btn-primary" onclick="confirmInheritedSchedule()" style="white-space: nowrap;">
-                        ✅ Xác Nhận Lịch Tuần Này
+                        <i data-lucide="check-circle"></i> Xác Nhận Lịch Tuần Này
                     </button>
                 </div>
             </div>
@@ -568,7 +569,7 @@
                 <button class="btn"
                     style="background: var(--border-color); color: var(--text-main); padding: 0.6rem 1.25rem;"
                     onclick="closeCellModal()">Hủy</button>
-                <button class="btn btn-primary" style="flex: 1; padding: 0.6rem;" onclick="saveCellData()">✅ Xác
+                <button class="btn btn-primary" style="flex: 1; padding: 0.6rem;" onclick="saveCellData()"><i data-lucide="check-circle"></i> Xác
                     nhận</button>
             </div>
         </div>
@@ -576,6 +577,14 @@
 
     <script src="js/main.js"></script>
     <script src="js/receptionist-schedule.js"></script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

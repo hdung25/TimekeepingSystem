@@ -438,10 +438,8 @@ const DBService = {
             // Update specific fields
             const session = data.sessions[sessionIndex];
 
-            // Merge valid fields
-            if (newData.checkIn) session.checkIn = newData.checkIn;
-            if (newData.checkOut !== undefined) session.checkOut = newData.checkOut; // Allow null
-            if (newData.start) session.start = newData.start;
+            // Merge all fields
+            Object.assign(session, newData);
 
             // Sync top level if it's the latest session
             if (sessionIndex === data.sessions.length - 1) {
@@ -1038,7 +1036,8 @@ const DBService = {
                 start: newStart,
                 checkIn: sessionData.checkIn,
                 checkOut: sessionData.checkOut || null,
-                type: 'admin_add'
+                type: 'admin_add',
+                ...sessionData
             };
 
             data.sessions.push(newSession);
