@@ -620,7 +620,7 @@ function showNotificationPopup(notifications) {
 
     const footer = `
         <div style="padding:1rem 1.25rem;border-top:1px solid #E5E7EB;text-align:center;position:sticky;bottom:0;background:white;border-radius:0 0 16px 16px">
-            `<button id="btn-mark-all-read" style="background:#3B82F6;color:white;border:none;padding:0.6rem 1.5rem;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:opacity 0.2s;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity=\'0.9\'" onmouseout="this.style.opacity=\'1\'">${window.getIconHtml(\'check-circle\', {width: \'16\', height: \'16\'})} Đã đọc tất cả</button>`
+            <button id="btn-mark-all-read" style="background:#3B82F6;color:white;border:none;padding:0.6rem 1.5rem;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:opacity 0.2s;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity=\'0.9\'" onmouseout="this.style.opacity=\'1\'">${window.getIconHtml(\'check-circle\', {width: \'16\', height: \'16\'})} Đã đọc tất cả</button>
         </div>
     `;
 
