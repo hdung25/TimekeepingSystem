@@ -3673,7 +3673,7 @@ async function populateModalCurrentTab() {
             
             // Calculate dynamic fixed shift factor (Excel formula scaled dynamically)
             const calculatedFixed = getRecepDynamicFixedFactor(window.unfilteredAllMonthChips || []);
-            document.getElementById('modal-recep-fixed-factor').value = calculatedFixed.toFixed(1);
+            document.getElementById('modal-recep-fixed-factor').value = calculatedFixed;
             
             // Calculate dynamic performance factor (based on base salary hourly rate)
             const user = window.currentUserContext || {};
@@ -3820,7 +3820,7 @@ function recalculateSalaryModal() {
         // Automatically calculate and update dynamic factors before reading them
         const calculatedFixed = getRecepDynamicFixedFactor(window.unfilteredAllMonthChips || []);
         const fixedInp = document.getElementById('modal-recep-fixed-factor');
-        if (fixedInp) fixedInp.value = calculatedFixed.toFixed(1);
+        if (fixedInp) fixedInp.value = calculatedFixed;
         
         const autoAttFactor = getPerformanceFactorByRate(normalRate);
         const attInp = document.getElementById('modal-recep-attendance-factor');
@@ -4781,8 +4781,8 @@ async function loadAndComputeAllReceptionists(monthStr) {
         const staffSettings = allMonthlySettings[rId] || {};
         const roleSettings = staffSettings.tiep_tan || staffSettings['tiep-tan'] || {};
         
-        // Calculate dynamic fixed shift factor (Excel formula scaled dynamically, rounded to 1 decimal place)
-        const fixedFactor = parseFloat(getRecepDynamicFixedFactor(allChips).toFixed(1));
+        // Calculate dynamic fixed shift factor (Excel formula scaled dynamically)
+        const fixedFactor = getRecepDynamicFixedFactor(allChips);
         
         // Calculate dynamic performance factor (based on base salary hourly rate)
         const cfg = u.salary_config || {};
