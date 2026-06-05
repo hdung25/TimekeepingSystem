@@ -3289,23 +3289,35 @@ function getRecepDynamicFixedFactor(chips) {
         if (!isTiepTan) return;
         if (chip.class === 'chip-future') return;
         
-        let chipMinutes = 0;
         if (chip.mergedSegments && chip.mergedSegments.length > 0) {
             chip.mergedSegments.forEach(seg => {
-                chipMinutes += seg.schedMinutes || 0;
+                if (!seg.isFixedShift) return;
+                const segMins = seg.schedMinutes || 0;
+                if (chip.class === 'chip-gray' || chip.class === 'chip-red' || chip.isVDX) {
+                    absentMinutes += segMins;
+                } else {
+                    workedMinutes += segMins;
+                }
             });
-        } else if (chip.schedData && chip.schedData.start && chip.schedData.end) {
-            const [sH, sM] = chip.schedData.start.split(':').map(Number);
-            const [eH, eM] = chip.schedData.end.split(':').map(Number);
-            chipMinutes = (eH * 60 + eM) - (sH * 60 + sM);
         } else {
-            chipMinutes = chip.paidMinutes || 0;
-        }
+            // Check if it's a fixed shift
+            const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
+            if (!isFixed) return;
+            
+            let chipMinutes = 0;
+            if (chip.schedData && chip.schedData.start && chip.schedData.end) {
+                const [sH, sM] = chip.schedData.start.split(':').map(Number);
+                const [eH, eM] = chip.schedData.end.split(':').map(Number);
+                chipMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+            } else {
+                chipMinutes = chip.paidMinutes || 0;
+            }
 
-        if (chip.class === 'chip-gray' || chip.class === 'chip-red' || chip.isVDX) {
-            absentMinutes += chipMinutes;
-        } else {
-            workedMinutes += chipMinutes;
+            if (chip.class === 'chip-gray' || chip.class === 'chip-red' || chip.isVDX) {
+                absentMinutes += chipMinutes;
+            } else {
+                workedMinutes += chipMinutes;
+            }
         }
     });
 
