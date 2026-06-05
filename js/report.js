@@ -4781,8 +4781,8 @@ async function loadAndComputeAllReceptionists(monthStr) {
         const staffSettings = allMonthlySettings[rId] || {};
         const roleSettings = staffSettings.tiep_tan || staffSettings['tiep-tan'] || {};
         
-        // Calculate dynamic fixed shift factor (Excel formula scaled dynamically)
-        const fixedFactor = getRecepDynamicFixedFactor(allChips);
+        // Calculate dynamic fixed shift factor (Excel formula scaled dynamically, rounded to 1 decimal place)
+        const fixedFactor = parseFloat(getRecepDynamicFixedFactor(allChips).toFixed(1));
         
         // Calculate dynamic performance factor (based on base salary hourly rate)
         const cfg = u.salary_config || {};
