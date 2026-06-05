@@ -3272,6 +3272,7 @@ function handleMoneyInput(e) {
 
 function getPerformanceFactorByRate(rate) {
     const kRate = rate > 1000 ? rate / 1000 : rate;
+    if (kRate < 22) return 0.0;
     if (kRate <= 22) return 1.0;
     if (kRate <= 25) return 1.1;
     if (kRate <= 27) return 1.2;
