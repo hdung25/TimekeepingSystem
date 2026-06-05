@@ -109,7 +109,7 @@ async function loadUnregisteredAlerts() {
             html += `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;border-bottom:1px solid var(--border-color);background:#F5F3FF;">
                     <div>
-                        `<span style="background:#7C3AED;color:white;padding:3px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;display:inline-flex;align-items:center;gap:3px;">${window.getIconHtml('star', {width: '12', height: '12'})} SỚM 10P</span>`
+                        <span style="background:#7C3AED;color:white;padding:3px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;display:inline-flex;align-items:center;gap:3px;">${window.getIconHtml('star', {width: '12', height: '12'})} SỚM 10P</span>
                         <strong>${req.staffName || 'N/A'}</strong>
                         <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${req.dateKey || ''}</span>
                     </div>
@@ -126,7 +126,7 @@ async function loadUnregisteredAlerts() {
             html += `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;border-bottom:1px solid var(--border-color);background:#FFFBEB;">
                     <div>
-                        `<span style="background:#F59E0B;color:white;padding:3px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;display:inline-flex;align-items:center;gap:3px;">${window.getIconHtml('clock', {width: '12', height: '12'})} TĂNG CA</span>`
+                        <span style="background:#F59E0B;color:white;padding:3px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;margin-right:0.5rem;display:inline-flex;align-items:center;gap:3px;">${window.getIconHtml('clock', {width: '12', height: '12'})} TĂNG CA</span>
                         <strong>${ot.staffName || 'N/A'}</strong>
                         <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${ot.dateKey} — +${ot.duration}</span>
                     </div>
@@ -556,7 +556,7 @@ async function loadStaffNotifications() {
         bell.id = 'notif-bell';
         bell.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:999;cursor:pointer;background:white;border-radius:50%;width:48px;height:48px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,0.15);border:2px solid #3B82F6;transition:transform 0.2s';
         bell.innerHTML = `
-            `<span style="display:flex;align-items:center;">${window.getIconHtml('bell', {width: '22', height: '22', stroke: '#3B82F6'})}</span>`
+            <span style="display:flex;align-items:center;">${window.getIconHtml('bell', {width: '22', height: '22', stroke: '#3B82F6'})}</span>
             <span id="notif-badge" style="position:absolute;top:-4px;right:-4px;background:#EF4444;color:white;font-size:0.7rem;font-weight:700;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 4px">${notifications.length}</span>
         `;
         bell.onmouseover = () => { bell.style.transform = 'scale(1.1)'; };
@@ -598,7 +598,7 @@ function showNotificationPopup(notifications) {
 
     const header = `
         <div style="padding:1.25rem;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:white;border-radius:16px 16px 0 0;z-index:1">
-            `<h3 style="margin:0;font-size:1.1rem;font-weight:700;color:#1F2937;display:flex;align-items:center;gap:6px;">${window.getIconHtml('bell', {width: '20', height: '20', stroke: '#3B82F6'})} Thông Báo</h3>`
+            <h3 style="margin:0;font-size:1.1rem;font-weight:700;color:#1F2937;display:flex;align-items:center;gap:6px;">${window.getIconHtml('bell', {width: '20', height: '20', stroke: '#3B82F6'})} Thông Báo</h3>
             <span style="color:#6B7280;font-size:0.85rem">${notifications.length} mới</span>
         </div>
     `;
