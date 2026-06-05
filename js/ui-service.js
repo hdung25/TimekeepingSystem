@@ -1,25 +1,25 @@
 window.getIconHtml = function(name, attrs = {}) {
-    if (window.lucide && window.lucide.icons) {
-        let icon = window.lucide.icons[name];
-        if (!icon) {
-            const camelName = name.replace(/-([a-z0-9])/g, g => g[1].toUpperCase());
-            icon = window.lucide.icons[camelName];
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        const tempDiv = document.createElement('div');
+        const i = document.createElement('i');
+        i.setAttribute('data-lucide', name);
+        
+        const mergedAttrs = Object.assign({
+            width: '18',
+            height: '18',
+            'stroke-width': '2',
+            'stroke': 'currentColor',
+            'fill': 'none',
+            class: 'lucide-icon lucide-' + name
+        }, attrs);
+        
+        for (const [key, value] of Object.entries(mergedAttrs)) {
+            i.setAttribute(key, value);
         }
-        if (!icon) {
-            const pascalName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
-            icon = window.lucide.icons[pascalName];
-        }
-        if (icon) {
-            const mergedAttrs = Object.assign({
-                width: '18',
-                height: '18',
-                'stroke-width': '2',
-                'stroke': 'currentColor',
-                'fill': 'none',
-                class: 'lucide-icon lucide-' + name
-            }, attrs);
-            return icon.toSvg(mergedAttrs);
-        }
+        
+        tempDiv.appendChild(i);
+        window.lucide.createIcons({ root: tempDiv });
+        return tempDiv.innerHTML;
     }
     return `<span class="icon-fallback" data-name="${name}"></span>`;
 };
