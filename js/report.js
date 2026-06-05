@@ -1578,8 +1578,8 @@ async function renderMonthReport(date, forceServer = false) {
 // ================= SALARY CALCULATION & EVALUATION =================
 // EVALUATION_CRITERIA → Moved to evaluation-service.js
 const RECEP_EVALUATION_CRITERIA = [
-    { label: 'I', tooltip: 'CHUYÊN CẦN – TÁC PHONG', index: 0, default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
-    { label: 'II', tooltip: 'TRÁCH NHIỆM', index: 4, default: 0 },
+    { label: 'I', tooltip: 'HIỆU SUẤT', index: 0, default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
+    { label: 'II', tooltip: 'ĐÁNH GIÁ CỦA TỔ TRƯỞNG CỦA TỔ TRƯỞNG', index: 4, default: 0 },
     { label: 'III', tooltip: 'PHÍ TƯ VẤN', index: 1, default: 0 },
     { label: 'IV', tooltip: 'CHẤM BÀI / DẠY VẼ / ĐĂNG BÀI / SỰ KIỆN / PHÁT SINH', index: 2, default: 0 },
     { label: 'V', tooltip: 'TRỢ CẤP CHỨC VỤ', index: 3, default: 0 },
@@ -3270,6 +3270,57 @@ function handleMoneyInput(e) {
     recalculateSalaryModal();
 }
 
+function getPerformanceFactorByRate(rate) {
+    const kRate = rate > 1000 ? rate / 1000 : rate;
+    if (kRate <= 22) return 1.0;
+    if (kRate <= 25) return 1.1;
+    if (kRate <= 27) return 1.2;
+    if (kRate <= 30) return 1.3;
+    return 1.4;
+}
+
+function getRecepDynamicFixedFactor(chips) {
+    let workedMinutes = 0;
+    let absentMinutes = 0;
+    
+    (chips || []).forEach(chip => {
+        const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (!isTiepTan) return;
+        if (chip.class === 'chip-future') return;
+        
+        let chipMinutes = 0;
+        if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+            chip.mergedSegments.forEach(seg => {
+                chipMinutes += seg.schedMinutes || 0;
+            });
+        } else if (chip.schedData && chip.schedData.start && chip.schedData.end) {
+            const [sH, sM] = chip.schedData.start.split(':').map(Number);
+            const [eH, eM] = chip.schedData.end.split(':').map(Number);
+            chipMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+        } else {
+            chipMinutes = chip.paidMinutes || 0;
+        }
+
+        if (chip.class === 'chip-gray' || chip.class === 'chip-red' || chip.isVDX) {
+            absentMinutes += chipMinutes;
+        } else {
+            workedMinutes += chipMinutes;
+        }
+    });
+
+    const workedHours = workedMinutes / 60;
+    const absentHours = absentMinutes / 60;
+    const totalHours = workedHours + absentHours;
+    
+    if (totalHours <= 0) return 1.5;
+    const ratio = absentHours / totalHours;
+    if (ratio <= 0.1) {
+        return 1.5;
+    } else {
+        return Math.max(0, 1.5 - ((ratio - 0.1) * 5));
+    }
+}
+
 async function openClassRateModal() {
     const staffId = getTargetStaffId();
     if (!staffId || staffId === 'all') {
@@ -3618,9 +3669,34 @@ async function populateModalCurrentTab() {
     if (tiepTanContrBox) {
         if (window.modalActiveRole === 'tiep-tan') {
             tiepTanContrBox.style.display = 'block';
-            document.getElementById('modal-recep-fixed-factor').value = roleSettings.fixed_shift_factor !== undefined ? roleSettings.fixed_shift_factor : 1.5;
-            document.getElementById('modal-recep-attendance-factor').value = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : 1.0;
-            document.getElementById('modal-recep-responsibility-factor').value = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
+            
+            // Calculate dynamic fixed shift factor (Excel formula scaled dynamically)
+            const calculatedFixed = getRecepDynamicFixedFactor(window.unfilteredAllMonthChips || []);
+            document.getElementById('modal-recep-fixed-factor').value = calculatedFixed.toFixed(1);
+            
+            // Calculate dynamic performance factor (based on base salary hourly rate)
+            const user = window.currentUserContext || {};
+            const cfg = user.salary_config || {};
+            const classRates = roleSettings.class_rates || cfg.class_rates || {};
+            let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+            const calculatedAtt = getPerformanceFactorByRate(normalRate);
+            document.getElementById('modal-recep-attendance-factor').value = calculatedAtt.toFixed(1);
+            
+            // Handle dropdown select value for team leader rating (responsibility factor)
+            const respVal = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
+            const respSelect = document.getElementById('modal-recep-responsibility-factor');
+            if (respSelect) {
+                const allowedValues = ['1.1', '1.0', '0.9', '0.7'];
+                // clear any dynamically added 'Khác' option first to avoid duplicates
+                const prevKhac = respSelect.querySelector('option[value="' + respVal + '"]');
+                if (!allowedValues.includes(String(respVal)) && !prevKhac) {
+                    const opt = document.createElement('option');
+                    opt.value = respVal;
+                    opt.innerText = `Khác (${respVal})`;
+                    respSelect.appendChild(opt);
+                }
+                respSelect.value = String(respVal);
+            }
         } else {
             tiepTanContrBox.style.display = 'none';
         }
@@ -3712,6 +3788,7 @@ function recalculateSalaryModal() {
     
     let fixedMinutes = 0;
     let normalMinutes = 0;
+    let normalRate = 0;
     
     const classRateInputs = document.querySelectorAll('.class-rate-input');
     classRateInputs.forEach(input => {
@@ -3725,6 +3802,7 @@ function recalculateSalaryModal() {
             fixedMinutes = mins;
         } else if (name === "Tiếp Tân (Ca Bình Thường)") {
             normalMinutes = mins;
+            normalRate = rate;
         }
         
         const row = input.closest('tr');
@@ -3738,6 +3816,15 @@ function recalculateSalaryModal() {
     
     // Calculate Personal Score for Receptionist
     if (window.modalActiveRole === 'tiep-tan') {
+        // Automatically calculate and update dynamic factors before reading them
+        const calculatedFixed = getRecepDynamicFixedFactor(window.unfilteredAllMonthChips || []);
+        const fixedInp = document.getElementById('modal-recep-fixed-factor');
+        if (fixedInp) fixedInp.value = calculatedFixed.toFixed(1);
+        
+        const autoAttFactor = getPerformanceFactorByRate(normalRate);
+        const attInp = document.getElementById('modal-recep-attendance-factor');
+        if (attInp) attInp.value = autoAttFactor.toFixed(1);
+
         const fixedFactor = parseFloat(document.getElementById('modal-recep-fixed-factor')?.value) || 1.5;
         const attFactor = parseFloat(document.getElementById('modal-recep-attendance-factor')?.value) || 1.0;
         const respFactor = parseFloat(document.getElementById('modal-recep-responsibility-factor')?.value) || 1.0;
@@ -3748,7 +3835,7 @@ function recalculateSalaryModal() {
         const score = (fixedHours * fixedFactor + normalHours * 1) * attFactor * respFactor;
         const scoreEl = document.getElementById('modal-recep-personal-score');
         if (scoreEl) {
-            scoreEl.innerText = score.toFixed(2);
+            scoreEl.innerText = score.toFixed(1);
         }
     }
     
@@ -4693,17 +4780,23 @@ async function loadAndComputeAllReceptionists(monthStr) {
         const staffSettings = allMonthlySettings[rId] || {};
         const roleSettings = staffSettings.tiep_tan || staffSettings['tiep-tan'] || {};
         
-        const fixedFactor = roleSettings.fixed_shift_factor !== undefined ? roleSettings.fixed_shift_factor : 1.5;
-        const attFactor = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : 1.0;
+        // Calculate dynamic fixed shift factor (Excel formula scaled dynamically)
+        const fixedFactor = getRecepDynamicFixedFactor(allChips);
+        
+        // Calculate dynamic performance factor (based on base salary hourly rate)
+        const cfg = u.salary_config || {};
+        const classRates = roleSettings.class_rates || cfg.class_rates || {};
+        let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+        const attFactor = roleSettings.attendance_factor !== undefined ? roleSettings.attendance_factor : getPerformanceFactorByRate(normalRate);
         const respFactor = roleSettings.responsibility_factor !== undefined ? roleSettings.responsibility_factor : 1.0;
         
         const A_j = fixedWorkedMinutes / 60;
         const B_j = normalWorkedMinutes / 60;
-        const C_j = (A_j * fixedFactor + B_j * 1) * attFactor * respFactor;
+        const C_j = parseFloat(((A_j * fixedFactor + B_j * 1) * attFactor * respFactor).toFixed(1));
         
         const A_j_cs2 = fixedWorkedMinutesCs2 / 60;
         const B_j_cs2 = normalWorkedMinutesCs2 / 60;
-        const C_j_cs2 = (A_j_cs2 * fixedFactor + B_j_cs2 * 1) * attFactor * respFactor;
+        const C_j_cs2 = parseFloat(((A_j_cs2 * fixedFactor + B_j_cs2 * 1) * attFactor * respFactor).toFixed(1));
         
         results.push({
             id: rId,

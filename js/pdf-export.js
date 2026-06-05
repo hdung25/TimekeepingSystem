@@ -21,8 +21,8 @@ function exportSalaryPDF(overrides) {
     let evalItems = [];
     
     const RECEP_EVALUATION_CRITERIA = [
-        { label: 'I', tooltip: 'CHUYÊN CẦN – TÁC PHONG', index: 0, default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
-        { label: 'II', tooltip: 'TRÁCH NHIỆM', index: 4, default: 0 },
+        { label: 'I', tooltip: 'HIỆU SUẤT', index: 0, default: 0, template: 'Vắng phép: ...; Vắng đột xuất: ...; Vắng không phép: ...' },
+        { label: 'II', tooltip: 'ĐÁNH GIÁ CỦA TỔ TRƯỞNG CỦA TỔ TRƯỞNG', index: 4, default: 0 },
         { label: 'III', tooltip: 'PHÍ TƯ VẤN', index: 1, default: 0 },
         { label: 'IV', tooltip: 'CHẤM BÀI / DẠY VẼ / ĐĂNG BÀI / SỰ KIỆN / PHÁT SINH', index: 2, default: 0 },
         { label: 'V', tooltip: 'TRỢ CẤP CHỨC VỤ', index: 3, default: 0 },
@@ -483,7 +483,7 @@ function exportSalaryPDF(overrides) {
             <tr>
                 <td rowspan="2" class="center bold" style="width: 15%;">TIÊU<br>CHÍ<br>XÉT</td>
                 <td style="width: 55%;">
-                    <span class="bold">(I) CHUYÊN CẦN</span><br>
+                    <span class="bold">(I) HIỆU SUẤT</span><br>
                     Vắng phép: ${vpShifts} &nbsp;&nbsp; Vắng đột xuất: ${vdxShifts}<br>
                     Vắng không phép: ${vkpShifts} &nbsp;&nbsp; Trễ: ${formatLateHours(totalLateMinutes)} giờ
                 </td>
@@ -491,7 +491,7 @@ function exportSalaryPDF(overrides) {
             </tr>
             <tr>
                 <td>
-                    <span class="bold">(II) TRÁCH NHIỆM:</span> ${criteriaV?.note || ''}
+                    <span class="bold">(II) ĐÁNH GIÁ CỦA TỔ TRƯỞNG CỦA TỔ TRƯỞNG:</span> ${criteriaV?.note || ''}
                 </td>
                 <td class="right">${criteriaV?.amount ? fmt(criteriaV.amount) : ''}</td>
             </tr>
