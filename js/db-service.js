@@ -19,6 +19,16 @@ const DBService = {
             }
         });
     },
+    _invalidateAttendance(dateKey, userId) {
+        this._invalidate(`attendance_${dateKey}_${userId}`);
+        if (dateKey && typeof dateKey === 'string') {
+            const parts = dateKey.split('-');
+            if (parts.length >= 2) {
+                const monthStr = `${parts[0]}-${parts[1]}`;
+                this._invalidate(`monthly_attendance_${monthStr}_${userId}`);
+            }
+        }
+    },
 
     // 1. Kiểm tra kết nối
     testConnection: async () => {
@@ -169,14 +179,22 @@ const DBService = {
     },
 
     getUsers: async () => {
-        try {
-            const snapshot = await db.collection('users').get();
-            const rawUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            return DBService.generateUniqueShortNames(rawUsers);
-        } catch (error) {
-            console.error("Error getting users:", error);
-            return [];
-        }
+        const cacheKey = 'users_all';
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snapshot = await db.collection('users').get();
+                const rawUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                return DBService.generateUniqueShortNames(rawUsers);
+            } catch (error) {
+                console.error("Error getting users:", error);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     saveUser: async (user) => {
@@ -184,6 +202,7 @@ const DBService = {
             // user.id determines update or create
             const ref = db.collection('users').doc(user.id);
             await ref.set(user, { merge: true });
+            DBService._invalidate('users_all');
 
             // Sync role to user_roles collection if admin is modifying
             const currentRole = localStorage.getItem('currentRole');
@@ -218,6 +237,7 @@ const DBService = {
     deleteUser: async (userId) => {
         try {
             await db.collection('users').doc(userId).delete();
+            DBService._invalidate('users_all');
             return true;
         } catch (error) {
             console.error("Error deleting user:", error);
@@ -470,7 +490,7 @@ const DBService = {
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
             });
-            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            DBService._invalidateAttendance(dateKey, userId);
         } catch (error) {
             console.error("Error in updateAttendanceSession:", error);
             throw error;
@@ -588,84 +608,93 @@ const DBService = {
         return promise;
     },
 
-    // 8. Monthly Attendance Report
     getMonthlyAttendance: async (monthStr, userId, forceServer = false) => {
-        // monthStr: "YYYY-MM"
-        // forceServer: bypass Firestore cache (use after editing sessions)
-        try {
-            const [year, month] = monthStr.split('-').map(Number);
-            const daysInMonth = new Date(year, month, 0).getDate();
-            const getOptions = forceServer ? { source: 'server' } : {};
+        const cacheKey = `monthly_attendance_${monthStr}_${userId}`;
+        if (!forceServer && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
-            const promises = [];
-            for (let d = 1; d <= daysInMonth; d++) {
-                const dayStr = String(d).padStart(2, '0');
-                const dateKey = `${year}-${String(month).padStart(2, '0')}-${dayStr}`;
-                const docId = `${dateKey}_${userId}`;
-                promises.push(db.collection('attendance_logs').doc(docId).get(getOptions));
-            }
+        const promise = (async () => {
+            try {
+                const getOptions = forceServer ? { source: 'server' } : {};
+                const snap = await db.collection('attendance_logs')
+                    .where('userId', '==', userId)
+                    .get(getOptions);
 
-            const snapshots = await Promise.all(promises);
-
-            let logs = [];
-            snapshots.forEach(doc => {
-                if (!doc.exists) return;
-
-                let data = doc.data();
-                // Ensure date exists (poly-fill for legacy docs)
-                if (!data.date) {
-                    data.date = doc.id.split('_')[0];
-                }
-
-                // Apply same read-time migration
-                if (!data.sessions || !Array.isArray(data.sessions)) {
-                    if (data.checkIn) {
-                        data.sessions = [{
-                            id: 'legacy',
-                            start: data.checkIn,
-                            checkIn: data.checkIn,
-                            checkOut: data.checkOut || null
-                        }];
-                    } else {
-                        data.sessions = [];
+                let logs = [];
+                snap.forEach(doc => {
+                    let data = doc.data();
+                    // Ensure date exists (poly-fill for legacy docs)
+                    const date = data.date || doc.id.split('_')[0];
+                    
+                    if (date && date.startsWith(monthStr)) {
+                        // Apply same read-time migration
+                        if (!data.sessions || !Array.isArray(data.sessions)) {
+                            if (data.checkIn) {
+                                data.sessions = [{
+                                    id: 'legacy',
+                                    start: data.checkIn,
+                                    checkIn: data.checkIn,
+                                    checkOut: data.checkOut || null
+                                }];
+                            } else {
+                                data.sessions = [];
+                            }
+                        }
+                        data.date = date; // polyfill
+                        logs.push(data);
                     }
-                }
-                logs.push(data);
-            });
-            return logs;
-        } catch (error) {
-            console.error("Monthly attendance error:", error);
-            return [];
+                });
+                return logs;
+            } catch (error) {
+                console.error("Monthly attendance error:", error);
+                return [];
+            }
+        })();
+
+        if (!forceServer) {
+            DBService._cache[cacheKey] = promise;
         }
+        return promise;
     },
 
     // 9a. Subjects (Môn học) CRUD
     getSubjects: async () => {
-        try {
-            const snap = await db.collection('subjects').orderBy('name').get();
-            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        } catch (e) {
-            console.warn('getSubjects error:', e);
-            return [];
-        }
+        const cacheKey = 'subjects_all';
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snap = await db.collection('subjects').orderBy('name').get();
+                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            } catch (e) {
+                console.warn('getSubjects error:', e);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     saveSubject: async (data) => {
         try {
+            let resId;
             if (data.id) {
                 const { id, ...rest } = data;
                 await db.collection('subjects').doc(id).set(rest, { merge: true });
-                return data.id;
+                resId = data.id;
             } else {
                 const ref = await db.collection('subjects').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-                return ref.id;
+                resId = ref.id;
             }
+            DBService._invalidate('subjects_all');
+            return resId;
         } catch (e) { console.error('saveSubject error:', e); throw e; }
     },
 
     deleteSubject: async (id) => {
         try {
             await db.collection('subjects').doc(id).delete();
+            DBService._invalidate('subjects_all');
         } catch (e) { console.error('deleteSubject error:', e); throw e; }
     },
 
@@ -755,7 +784,7 @@ const DBService = {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
+        await db.runTransaction(async (t) => {
             const doc = await t.get(ref);
             let data = doc.exists ? doc.data() : {
                 userId,
@@ -814,7 +843,7 @@ const DBService = {
 
             t.set(ref, data);
         });
-        DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        DBService._invalidateAttendance(dateKey, userId);
     },
 
     checkOutPersonal: async (userId, checkOutTime = null) => {
@@ -823,7 +852,7 @@ const DBService = {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
+        await db.runTransaction(async (t) => {
             const doc = await t.get(ref);
             if (!doc.exists) throw new Error("Bạn chưa check-in hôm nay!");
 
@@ -859,7 +888,7 @@ const DBService = {
 
             t.set(ref, data);
         });
-        DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        DBService._invalidateAttendance(dateKey, userId);
     },
 
     // 7.1 Manual Add (Admin)
@@ -874,7 +903,7 @@ const DBService = {
             if (userDoc.exists) userName = userDoc.data().name || userDoc.data().username;
         } catch (e) { console.warn("Could not fetch user name for manual add", e); }
 
-        return db.runTransaction(async (t) => {
+        await db.runTransaction(async (t) => {
             const doc = await t.get(ref);
             let data = doc.exists ? doc.data() : {
                 userId,
@@ -910,6 +939,7 @@ const DBService = {
 
             t.set(ref, data);
         });
+        DBService._invalidateAttendance(dateKey, userId);
     },
 
     deleteSession: async (userId, dateKey, sessionId) => {
@@ -961,7 +991,7 @@ const DBService = {
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
             });
-            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            DBService._invalidateAttendance(dateKey, userId);
         } catch (error) {
             console.error("Error in deleteSession:", error);
             throw error;
@@ -1002,7 +1032,7 @@ const DBService = {
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
             });
-            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            DBService._invalidateAttendance(dateKey, userId);
         } catch (error) {
             console.error("Error in updateSession:", error);
             throw error;
@@ -1037,7 +1067,7 @@ const DBService = {
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
             });
-            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            DBService._invalidateAttendance(dateKey, userId);
         } catch (error) {
             console.error("Error in updateSessionRole:", error);
             throw error;
@@ -1068,7 +1098,7 @@ const DBService = {
 
                 result = data.sessions[index].bonus10;
             });
-            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            DBService._invalidateAttendance(dateKey, userId);
             return result;
         } catch (error) {
             console.error("Error in toggleSessionBonus10:", error);
@@ -1121,7 +1151,7 @@ const DBService = {
 
                 t.set(ref, data);
             });
-            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            DBService._invalidateAttendance(dateKey, userId);
         } catch (error) {
             console.error("Error in addSession:", error);
             throw error;
@@ -1130,9 +1160,9 @@ const DBService = {
 
     getDashboardStats: async () => {
         try {
-            // Count Users
-            const usersSnap = await db.collection('users').get();
-            const totalUsers = usersSnap.size;
+            // Count Users (Optimized with cache)
+            const users = await DBService.getUsers();
+            const totalUsers = users.length;
 
             // Count Active Attendance Today (Local Time Logic)
             const now = new Date();

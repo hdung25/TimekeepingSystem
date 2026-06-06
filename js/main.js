@@ -1112,31 +1112,37 @@ async function checkAndAlertUnregistered(userId, userName) {
         const now = new Date();
         const dateKey = getLocalDateKeyFromDate(now);
         console.log('[AlertCheck] Checking registration for', userName, 'on', dateKey);
-        const schedule = await DBService.getSchedule(dateKey);
-        if (!schedule) {
-            // No schedule today → create alert (checking in without any class)
-            console.log('[AlertCheck] No schedule today → creating alert');
-            await DBService.createUnregisteredAlert(userId, userName, dateKey, now.toISOString());
-            return;
-        }
+
+        const BRANCHES = ['cs1', 'cs2', 'cs3'];
+        let hasRegistered = false;
+        let foundAnySchedule = false;
 
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
-        let hasRegistered = false;
 
-        sections.forEach(sec => {
-            if (schedule[sec]) {
-                schedule[sec].forEach(cls => {
-                    const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId);
-                    if (isRegistered) hasRegistered = true;
+        for (const branch of BRANCHES) {
+            const compositeKey = `${branch}__${dateKey}`;
+            const schedule = await DBService.getSchedule(compositeKey);
+            if (schedule && Object.keys(schedule).length > 0) {
+                foundAnySchedule = true;
+                sections.forEach(sec => {
+                    if (schedule[sec]) {
+                        schedule[sec].forEach(cls => {
+                            const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId) ||
+                                                (cls.gvId && cls.gvId === userId) ||
+                                                (cls.gvThayTheId && cls.gvThayTheId === userId);
+                            if (isRegistered) hasRegistered = true;
+                        });
+                    }
                 });
             }
-        });
+        }
 
-        if (!hasRegistered) {
-            console.log('[AlertCheck] User NOT registered for any class → creating alert');
+        // Only alert if schedules exist across branches but they did not register or get assigned to any
+        if (foundAnySchedule && !hasRegistered) {
+            console.log('[AlertCheck] User NOT registered/assigned for any class across branches → creating alert');
             await DBService.createUnregisteredAlert(userId, userName, dateKey, now.toISOString());
         } else {
-            console.log('[AlertCheck] User is registered for at least one class → no alert');
+            console.log('[AlertCheck] User is registered/assigned or no schedules today → no alert');
         }
     } catch (e) {
         console.error('[AlertCheck] Error:', e);
