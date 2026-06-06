@@ -634,11 +634,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const mondayKeyLocal = `${mondayLocal.getFullYear()}-${String(mondayLocal.getMonth() + 1).padStart(2, '0')}-${String(mondayLocal.getDate()).padStart(2, '0')}`;
         const compositeKeyLocal = `${rs.branch}_${mondayKeyLocal}`;
 
-        // --- NEW: Check Cancelled Shifts ---
-        if (cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`)) {
-            return; // Skip this explicitly cancelled shift
-        }
-
 
         // Find matching attendance session
         const matchedSession = attendanceSessions.find(s => {
@@ -833,46 +828,69 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         } else {
             // === NO ATTENDANCE FOR THIS SHIFT ===
-            // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
-            const todayStrShift = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
-            const nowTimeStrShift = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-            const isFutureDateShift = dateStr > todayStrShift;
-            const isTodayFutureTimeShift = (dateStr === todayStrShift) && (rs.start > nowTimeStrShift);
+            // Check if this shift was explicitly cancelled (marked absent on receptionist schedule)
+            const isShiftCancelled = cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`);
 
-            if (isFutureDateShift || isTodayFutureTimeShift) {
-                // Ca chưa diễn ra → hiện (ST) để tiếp tân thấy lịch sắp tới
-                chips.push({
-                    text: label + ' (ST)',
-                    class: 'chip-future',
-                    paidMinutes: 0,
-                    tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
-                    sessionId: null,
-                    schedData: { start: rs.start, end: rs.end },
-                    isClickable: false,
-                    isReceptionist: true,
-                    chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
-                    classCompositeKey: compositeKeyLocal,
-                    classSectionKey: rs.shift,
-                    classIndex: dayKeyLocal,
-                    isFixedShift: rs.isFixedShift
-                });
-            } else {
+            if (isShiftCancelled) {
                 chips.push({
                     text: label + ' (V)',
                     class: 'chip-gray',
                     paidMinutes: 0,
-                    tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công (Vắng)',
+                    tooltip: 'Ca tiếp tân - Vắng (Đã báo vắng)',
                     sessionId: null,
                     schedData: { start: rs.start, end: rs.end },
                     isClickable: true,
-                    isWarning: true,
+                    isWarning: false, // Excused absence
                     isReceptionist: true,
                     chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
                     classIndex: dayKeyLocal,
-                    isFixedShift: rs.isFixedShift
+                    isFixedShift: rs.isFixedShift,
+                    isCancelled: true
                 });
+            } else {
+                // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
+                const todayStrShift = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
+                const nowTimeStrShift = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                const isFutureDateShift = dateStr > todayStrShift;
+                const isTodayFutureTimeShift = (dateStr === todayStrShift) && (rs.start > nowTimeStrShift);
+
+                if (isFutureDateShift || isTodayFutureTimeShift) {
+                    // Ca chưa diễn ra → hiện (ST) để tiếp tân thấy lịch sắp tới
+                    chips.push({
+                        text: label + ' (ST)',
+                        class: 'chip-future',
+                        paidMinutes: 0,
+                        tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
+                        sessionId: null,
+                        schedData: { start: rs.start, end: rs.end },
+                        isClickable: false,
+                        isReceptionist: true,
+                        chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
+                        classCompositeKey: compositeKeyLocal,
+                        classSectionKey: rs.shift,
+                        classIndex: dayKeyLocal,
+                        isFixedShift: rs.isFixedShift
+                    });
+                } else {
+                    chips.push({
+                        text: label + ' (V)',
+                        class: 'chip-gray',
+                        paidMinutes: 0,
+                        tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công (Vắng)',
+                        sessionId: null,
+                        schedData: { start: rs.start, end: rs.end },
+                        isClickable: true,
+                        isWarning: true,
+                        isReceptionist: true,
+                        chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
+                        classCompositeKey: compositeKeyLocal,
+                        classSectionKey: rs.shift,
+                        classIndex: dayKeyLocal,
+                        isFixedShift: rs.isFixedShift
+                    });
+                }
             }
         }
     });

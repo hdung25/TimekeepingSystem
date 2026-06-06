@@ -3499,6 +3499,9 @@ function parseFormattedNumber(value) {
 }
 
 function classifyAbsentChip(chip, notesMap) {
+    if (chip.isCancelled) {
+        return 'VP';
+    }
     const dateStr = chip.dateStr;
     const noteText = (notesMap[dateStr] || '').toLowerCase().trim();
     if (chip.isVDX || noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) {
