@@ -11,6 +11,15 @@ function getLocalDateKeyFromDate(date) {
 }
 
 const DBService = {
+    _cache: {},
+    _invalidate(pattern) {
+        Object.keys(this._cache).forEach(key => {
+            if (key.includes(pattern)) {
+                delete this._cache[key];
+            }
+        });
+    },
+
     // 1. Kiểm tra kết nối
     testConnection: async () => {
         try {
@@ -229,68 +238,76 @@ const DBService = {
 
     // 4. Schedule Management
     getSchedule: async (compositeKey) => {
-        try {
-            const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
-            const manifestName = `schedule_manifest_${branch}`;
+        const cacheKey = `schedule_${compositeKey}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
-            // 1. Try Direct Fetch (Lịch Riêng)
-            const doc = await db.collection('schedules').doc(docId).get();
+        const promise = (async () => {
+            try {
+                const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
+                const manifestName = `schedule_manifest_${branch}`;
 
-            if (doc.exists) {
-                const data = doc.data();
-                const hasStructure = Object.keys(data).length > 0;
-                if (hasStructure) return data;
-            }
+                // 1. Try Direct Fetch (Lịch Riêng)
+                const doc = await db.collection('schedules').doc(docId).get();
 
-            // 2. Fallback: Find Nearest Neighbor (Lịch Kế Thừa) — branch-specific manifest
-            // Try branch-specific manifest first, then legacy fallback
-            let manifestDoc = await db.collection('settings').doc(manifestName).get();
-            if (!manifestDoc.exists) {
-                // Legacy fallback: old manifest (for cs1 backward compat)
-                if (branch === 'cs1') {
-                    manifestDoc = await db.collection('settings').doc('schedule_manifest').get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    const hasStructure = Object.keys(data).length > 0;
+                    if (hasStructure) return data;
                 }
-                if (!manifestDoc || !manifestDoc.exists) return {};
-            }
 
-            const manifest = manifestDoc.data();
-
-            const [y, m, d] = dateKey.split('-').map(Number);
-            const localDate = new Date(y, m - 1, d);
-            const dayOfWeek = localDate.getDay();
-            const dayKey = String(dayOfWeek);
-
-            const availableDates = manifest[dayKey] || manifest[dayOfWeek] || [];
-            const pastDates = availableDates.filter(d => d < docId);
-
-            if (pastDates.length === 0) return {};
-
-            pastDates.sort().reverse();
-            const neighborDocId = pastDates[0];
-
-            console.log(`[Schedule] Inheriting from ${neighborDocId} for ${docId}`);
-
-            const neighborDoc = await db.collection('schedules').doc(neighborDocId).get();
-            if (!neighborDoc.exists) return {};
-
-            const templateData = neighborDoc.data();
-
-            // SANITIZATION: Clean up 'registeredTeachers'
-            Object.keys(templateData).forEach(key => {
-                if (Array.isArray(templateData[key])) {
-                    templateData[key] = templateData[key].map(row => ({
-                        ...row,
-                        registeredTeachers: []
-                    }));
+                // 2. Fallback: Find Nearest Neighbor (Lịch Kế Thừa) — branch-specific manifest
+                // Try branch-specific manifest first, then legacy fallback
+                let manifestDoc = await db.collection('settings').doc(manifestName).get();
+                if (!manifestDoc.exists) {
+                    // Legacy fallback: old manifest (for cs1 backward compat)
+                    if (branch === 'cs1') {
+                        manifestDoc = await db.collection('settings').doc('schedule_manifest').get();
+                    }
+                    if (!manifestDoc || !manifestDoc.exists) return {};
                 }
-            });
 
-            return templateData;
+                const manifest = manifestDoc.data();
 
-        } catch (error) {
-            console.error("Error getting schedule:", error);
-            return {};
-        }
+                const [y, m, d] = dateKey.split('-').map(Number);
+                const localDate = new Date(y, m - 1, d);
+                const dayOfWeek = localDate.getDay();
+                const dayKey = String(dayOfWeek);
+
+                const availableDates = manifest[dayKey] || manifest[dayOfWeek] || [];
+                const pastDates = availableDates.filter(d => d < docId);
+
+                if (pastDates.length === 0) return {};
+
+                pastDates.sort().reverse();
+                const neighborDocId = pastDates[0];
+
+                console.log(`[Schedule] Inheriting from ${neighborDocId} for ${docId}`);
+
+                const neighborDoc = await db.collection('schedules').doc(neighborDocId).get();
+                if (!neighborDoc.exists) return {};
+
+                const templateData = neighborDoc.data();
+
+                // SANITIZATION: Clean up 'registeredTeachers'
+                Object.keys(templateData).forEach(key => {
+                    if (Array.isArray(templateData[key])) {
+                        templateData[key] = templateData[key].map(row => ({
+                            ...row,
+                            registeredTeachers: []
+                        }));
+                    }
+                });
+
+                return templateData;
+
+            } catch (error) {
+                console.error("Error getting schedule:", error);
+                return {};
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     saveSchedule: async (compositeKey, data) => {
@@ -302,6 +319,7 @@ const DBService = {
             // 2. Update Manifest
             await DBService.updateScheduleManifest(compositeKey);
 
+            DBService._invalidate(`schedule_${compositeKey}`);
             return true;
         } catch (error) {
             console.error("Error saving schedule:", error);
@@ -415,6 +433,7 @@ const DBService = {
 
                 transaction.set(docRef, data);
             });
+            DBService._invalidate(`schedule_${compositeKey}`);
             return true;
         } catch (error) {
             console.error("Registration error:", error);
@@ -426,30 +445,36 @@ const DBService = {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            if (!doc.exists) throw new Error("Không tìm thấy phiên làm việc!");
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) throw new Error("Không tìm thấy phiên làm việc!");
 
-            const data = doc.data();
-            const sessionIndex = data.sessions.findIndex(s => String(s.id) === String(sessionId)); // Loose compare
+                const data = doc.data();
+                const sessionIndex = data.sessions.findIndex(s => String(s.id) === String(sessionId)); // Loose compare
 
-            if (sessionIndex === -1) throw new Error("Không tìm thấy phiên này!");
+                if (sessionIndex === -1) throw new Error("Không tìm thấy phiên này!");
 
-            // Update specific fields
-            const session = data.sessions[sessionIndex];
+                // Update specific fields
+                const session = data.sessions[sessionIndex];
 
-            // Merge all fields
-            Object.assign(session, newData);
+                // Merge all fields
+                Object.assign(session, newData);
 
-            // Sync top level if it's the latest session
-            if (sessionIndex === data.sessions.length - 1) {
-                if (newData.checkIn) data.checkIn = newData.checkIn;
-                if (newData.checkOut !== undefined) data.checkOut = newData.checkOut;
-            }
+                // Sync top level if it's the latest session
+                if (sessionIndex === data.sessions.length - 1) {
+                    if (newData.checkIn) data.checkIn = newData.checkIn;
+                    if (newData.checkOut !== undefined) data.checkOut = newData.checkOut;
+                }
 
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
-            t.set(ref, data);
-        });
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
+            });
+            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        } catch (error) {
+            console.error("Error in updateAttendanceSession:", error);
+            throw error;
+        }
     },
 
     // 6. Dashboard Stats
@@ -526,33 +551,41 @@ const DBService = {
 
     // 7. Personal Attendance (Isolated)
     getPersonalAttendance: async (dateKey, userId) => {
-        try {
-            const docId = `${dateKey}_${userId}`;
-            const doc = await db.collection('attendance_logs').doc(docId).get();
+        const cacheKey = `attendance_${dateKey}_${userId}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
-            if (!doc.exists) return null;
+        const promise = (async () => {
+            try {
+                const docId = `${dateKey}_${userId}`;
+                const doc = await db.collection('attendance_logs').doc(docId).get();
 
-            let data = doc.data();
+                if (!doc.exists) return null;
 
-            // Read-time Migration for Legacy Data
-            if (!data.sessions || !Array.isArray(data.sessions)) {
-                if (data.checkIn) {
-                    data.sessions = [{
-                        id: 'legacy', // Marker ID
-                        start: data.checkIn,
-                        checkIn: data.checkIn,
-                        checkOut: data.checkOut || null
-                    }];
-                } else {
-                    data.sessions = [];
+                let data = doc.data();
+
+                // Read-time Migration for Legacy Data
+                if (!data.sessions || !Array.isArray(data.sessions)) {
+                    if (data.checkIn) {
+                        data.sessions = [{
+                            id: 'legacy', // Marker ID
+                            start: data.checkIn,
+                            checkIn: data.checkIn,
+                            checkOut: data.checkOut || null
+                        }];
+                    } else {
+                        data.sessions = [];
+                    }
                 }
-            }
 
-            return data;
-        } catch (error) {
-            console.error("Get personal attendance error:", error);
-            return null;
-        }
+                return data;
+            } catch (error) {
+                console.error("Get personal attendance error:", error);
+                return null;
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     // 8. Monthly Attendance Report
@@ -656,18 +689,28 @@ const DBService = {
 
     // 9. System Settings
     getSystemSettings: async () => {
-        try {
-            const doc = await db.collection('settings').doc('system').get();
-            return doc.exists ? doc.data() : {};
-        } catch (error) {
-            console.error("Error getting settings:", error);
-            return {};
-        }
+        const cacheKey = 'system_settings';
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const doc = await db.collection('settings').doc('system').get();
+                return doc.exists ? doc.data() : {};
+            } catch (error) {
+                console.error("Error getting settings:", error);
+                return {};
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     saveSystemSettings: async (data) => {
         try {
             await db.collection('settings').doc('system').set(data, { merge: true });
+            DBService._invalidate('system_settings');
+            DBService._invalidate('receptionist_config_');
             return true;
         } catch (error) {
             console.error("Error saving settings:", error);
@@ -771,6 +814,7 @@ const DBService = {
 
             t.set(ref, data);
         });
+        DBService._invalidate(`attendance_${dateKey}_${userId}`);
     },
 
     checkOutPersonal: async (userId, checkOutTime = null) => {
@@ -815,6 +859,7 @@ const DBService = {
 
             t.set(ref, data);
         });
+        DBService._invalidate(`attendance_${dateKey}_${userId}`);
     },
 
     // 7.1 Manual Add (Admin)
@@ -871,138 +916,164 @@ const DBService = {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            if (!doc.exists) return;
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) return;
 
-            const data = doc.data();
+                const data = doc.data();
 
-            // MIGRATION LOGIC (Important for consistency)
-            if (!data.sessions || !Array.isArray(data.sessions)) {
-                if (data.checkIn) {
-                    data.sessions = [{
-                        id: 'legacy',
-                        start: data.checkIn,
-                        checkIn: data.checkIn,
-                        checkOut: data.checkOut || null
-                    }];
-                } else {
-                    data.sessions = [];
+                // MIGRATION LOGIC (Important for consistency)
+                if (!data.sessions || !Array.isArray(data.sessions)) {
+                    if (data.checkIn) {
+                        data.sessions = [{
+                            id: 'legacy',
+                            start: data.checkIn,
+                            checkIn: data.checkIn,
+                            checkOut: data.checkOut || null
+                        }];
+                    } else {
+                        data.sessions = [];
+                    }
                 }
-            }
 
-            // Filter out the session
-            const originalLength = data.sessions.length;
-            data.sessions = data.sessions.filter(s => String(s.id) !== String(sessionId));
+                // Filter out the session
+                const originalLength = data.sessions.length;
+                data.sessions = data.sessions.filter(s => String(s.id) !== String(sessionId));
 
-            if (data.sessions.length === originalLength) {
-                // Try searching by index logic if needed, but ID is best.
-                // If timestamp ID match failed (maybe date string vs number), try loose compare
-            }
+                if (data.sessions.length === originalLength) {
+                    // Try searching by index logic if needed, but ID is best.
+                    // If timestamp ID match failed (maybe date string vs number), try loose compare
+                }
 
-            // Re-sync top level status if needed
-            // If we deleted the open session, we are checked out?
-            // Just keep last session's status or reset
-            const lastSession = data.sessions[data.sessions.length - 1];
-            if (lastSession) {
-                data.checkIn = lastSession.checkIn;
-                data.checkOut = lastSession.checkOut;
-            } else {
-                data.checkIn = null;
-                data.checkOut = null;
-            }
+                // Re-sync top level status if needed
+                // If we deleted the open session, we are checked out?
+                // Just keep last session's status or reset
+                const lastSession = data.sessions[data.sessions.length - 1];
+                if (lastSession) {
+                    data.checkIn = lastSession.checkIn;
+                    data.checkOut = lastSession.checkOut;
+                } else {
+                    data.checkIn = null;
+                    data.checkOut = null;
+                }
 
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
-            t.set(ref, data);
-        });
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
+            });
+            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        } catch (error) {
+            console.error("Error in deleteSession:", error);
+            throw error;
+        }
     },
 
     updateSession: async (userId, dateKey, sessionId, newData) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            if (!doc.exists) throw new Error("Attendance record not found");
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) throw new Error("Attendance record not found");
 
-            const data = doc.data();
-            if (!data.sessions) throw new Error("No sessions found");
+                const data = doc.data();
+                if (!data.sessions) throw new Error("No sessions found");
 
-            const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
-            if (index === -1) throw new Error("Session not found");
+                const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+                if (index === -1) throw new Error("Session not found");
 
-            // Update fields
-            const session = data.sessions[index];
-            if (newData.checkIn) {
-                session.checkIn = newData.checkIn;
-                session.start = newData.checkIn; // Sync legacy
-            }
-            if (newData.checkOut !== undefined) {
-                session.checkOut = newData.checkOut; // Can be null
-            }
+                // Update fields
+                const session = data.sessions[index];
+                if (newData.checkIn) {
+                    session.checkIn = newData.checkIn;
+                    session.start = newData.checkIn; // Sync legacy
+                }
+                if (newData.checkOut !== undefined) {
+                    session.checkOut = newData.checkOut; // Can be null
+                }
 
-            // Sync top level if this is the last session
-            if (index === data.sessions.length - 1) {
-                data.checkIn = session.checkIn;
-                data.checkOut = session.checkOut;
-            }
+                // Sync top level if this is the last session
+                if (index === data.sessions.length - 1) {
+                    data.checkIn = session.checkIn;
+                    data.checkOut = session.checkOut;
+                }
 
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
-            t.set(ref, data);
-        });
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
+            });
+            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        } catch (error) {
+            console.error("Error in updateSession:", error);
+            throw error;
+        }
     },
 
     updateSessionRole: async (userId, dateKey, sessionId, roleData) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            if (!doc.exists) throw new Error("Attendance record not found");
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) throw new Error("Attendance record not found");
 
-            const data = doc.data();
-            if (!data.sessions) throw new Error("No sessions found");
+                const data = doc.data();
+                if (!data.sessions) throw new Error("No sessions found");
 
-            const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
-            if (index === -1) throw new Error("Session not found");
+                const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+                if (index === -1) throw new Error("Session not found");
 
-            // Update Role
-            const session = data.sessions[index];
-            session.role = roleData.id || '';
-            session.roleName = roleData.name || '';
-            if (roleData.rate !== undefined && roleData.rate !== null) {
-                session.roleRate = roleData.rate;
-            } else if (session.roleRate !== undefined) {
-                delete session.roleRate;
-            }
+                // Update Role
+                const session = data.sessions[index];
+                session.role = roleData.id || '';
+                session.roleName = roleData.name || '';
+                if (roleData.rate !== undefined && roleData.rate !== null) {
+                    session.roleRate = roleData.rate;
+                } else if (session.roleRate !== undefined) {
+                    delete session.roleRate;
+                }
 
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
-            t.set(ref, data);
-        });
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
+            });
+            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        } catch (error) {
+            console.error("Error in updateSessionRole:", error);
+            throw error;
+        }
     },
 
     toggleSessionBonus10: async (userId, dateKey, sessionId) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
-        return db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            if (!doc.exists) throw new Error("Không tìm thấy dữ liệu chấm công ngày này");
+        try {
+            let result;
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) throw new Error("Không tìm thấy dữ liệu chấm công ngày này");
 
-            const data = doc.data();
-            if (!data.sessions) throw new Error("Không tìm thấy phiên làm việc nào");
+                const data = doc.data();
+                if (!data.sessions) throw new Error("Không tìm thấy phiên làm việc nào");
 
-            const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
-            if (index === -1) throw new Error("Không tìm thấy phiên làm việc cụ thể");
+                const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+                if (index === -1) throw new Error("Không tìm thấy phiên làm việc cụ thể");
 
-            // Toggle bonus10 (treat undefined as false, so !undefined -> true)
-            data.sessions[index].bonus10 = !data.sessions[index].bonus10;
+                // Toggle bonus10 (treat undefined as false, so !undefined -> true)
+                data.sessions[index].bonus10 = !data.sessions[index].bonus10;
 
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
-            t.set(ref, data);
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
 
-            return data.sessions[index].bonus10;
-        });
+                result = data.sessions[index].bonus10;
+            });
+            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+            return result;
+        } catch (error) {
+            console.error("Error in toggleSessionBonus10:", error);
+            throw error;
+        }
     },
 
     // 7.2 Generic Add Session (Admin)
@@ -1017,38 +1088,44 @@ const DBService = {
             if (userDoc.exists) userName = userDoc.data().name || userDoc.data().username;
         } catch (e) { }
 
-        return db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            let data = doc.exists ? doc.data() : {
-                userId,
-                name: userName,
-                date: dateKey,
-                sessions: []
-            };
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                let data = doc.exists ? doc.data() : {
+                    userId,
+                    name: userName,
+                    date: dateKey,
+                    sessions: []
+                };
 
-            if (!data.sessions) data.sessions = [];
+                if (!data.sessions) data.sessions = [];
 
-            // Helper to get Start Time from ISO or legacy
-            const newStart = sessionData.checkIn || sessionData.start || new Date().toISOString();
+                // Helper to get Start Time from ISO or legacy
+                const newStart = sessionData.checkIn || sessionData.start || new Date().toISOString();
 
-            const newSession = {
-                id: Date.now(),
-                start: newStart,
-                checkIn: sessionData.checkIn,
-                checkOut: sessionData.checkOut || null,
-                type: 'admin_add',
-                ...sessionData
-            };
+                const newSession = {
+                    id: Date.now(),
+                    start: newStart,
+                    checkIn: sessionData.checkIn,
+                    checkOut: sessionData.checkOut || null,
+                    type: 'admin_add',
+                    ...sessionData
+                };
 
-            data.sessions.push(newSession);
+                data.sessions.push(newSession);
 
-            // Sync top level (last session wins)
-            data.checkIn = newSession.checkIn;
-            data.checkOut = newSession.checkOut;
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                // Sync top level (last session wins)
+                data.checkIn = newSession.checkIn;
+                data.checkOut = newSession.checkOut;
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
 
-            t.set(ref, data);
-        });
+                t.set(ref, data);
+            });
+            DBService._invalidate(`attendance_${dateKey}_${userId}`);
+        } catch (error) {
+            console.error("Error in addSession:", error);
+            throw error;
+        }
     },
 
     getDashboardStats: async () => {
@@ -1304,18 +1381,27 @@ const DBService = {
     // ================= RECEPTIONIST SCHEDULE =================
 
     async getReceptionistSchedule(compositeKey) {
-        try {
-            const doc = await db.collection('receptionist_schedules').doc(compositeKey).get();
-            return doc.exists ? doc.data() : null;
-        } catch (e) {
-            console.error('[ReceptionistSchedule] Error getting:', e);
-            return null;
-        }
+        const cacheKey = `receptionist_schedule_${compositeKey}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const doc = await db.collection('receptionist_schedules').doc(compositeKey).get();
+                return doc.exists ? doc.data() : null;
+            } catch (e) {
+                console.error('[ReceptionistSchedule] Error getting:', e);
+                return null;
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     async saveReceptionistSchedule(compositeKey, data) {
         try {
             await db.collection('receptionist_schedules').doc(compositeKey).set(data);
+            DBService._invalidate(`receptionist_schedule_${compositeKey}`);
             return true;
         } catch (e) {
             console.error('[ReceptionistSchedule] Error saving:', e);
@@ -1326,7 +1412,7 @@ const DBService = {
     async unassignReceptionist(compositeKey, shiftKey, dayKey, staffId) {
         try {
             console.log(`[UnassignReceptionist] Start: composite=${compositeKey}, shift=${shiftKey}, day=${dayKey}, staff=${staffId}`);
-            return await db.runTransaction(async (t) => {
+            const result = await db.runTransaction(async (t) => {
                 const docRef = db.collection('receptionist_schedules').doc(compositeKey);
                 const doc = await t.get(docRef);
                 if (!doc.exists) {
@@ -1353,6 +1439,8 @@ const DBService = {
                 console.log(`[UnassignReceptionist] No match found for staffId: ${staffId}`);
                 return false;
             });
+            DBService._invalidate(`receptionist_schedule_${compositeKey}`);
+            return result;
         } catch (e) {
             console.error('[ReceptionistSchedule] Error unassigning:', e);
             throw e;
@@ -1361,23 +1449,31 @@ const DBService = {
 
     // Get receptionist shift time config from system settings (per-branch)
     async getReceptionistShiftConfig(branch) {
-        const defaults = {
-            morning: { start: '07:00', end: '11:30' },
-            afternoon: { start: '14:00', end: '18:00' },
-            evening: { start: '17:30', end: '21:30' }
-        };
-        try {
-            const settings = await this.getSystemSettings();
-            // Try per-branch key first, then fallback to global
-            if (branch) {
-                const branchKey = `receptionistShifts_${branch}`;
-                if (settings?.[branchKey]) return settings[branchKey];
+        const cacheKey = `receptionist_config_${branch || 'global'}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            const defaults = {
+                morning: { start: '07:00', end: '11:30' },
+                afternoon: { start: '14:00', end: '18:00' },
+                evening: { start: '17:30', end: '21:30' }
+            };
+            try {
+                const settings = await this.getSystemSettings();
+                // Try per-branch key first, then fallback to global
+                if (branch) {
+                    const branchKey = `receptionistShifts_${branch}`;
+                    if (settings?.[branchKey]) return settings[branchKey];
+                }
+                return settings?.receptionistShifts || defaults;
+            } catch (e) {
+                console.warn('[ReceptionistSchedule] Using default shift config');
+                return defaults;
             }
-            return settings?.receptionistShifts || defaults;
-        } catch (e) {
-            console.warn('[ReceptionistSchedule] Using default shift config');
-            return defaults;
-        }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     // ================= DAILY NOTES (Firestore-synced) =================

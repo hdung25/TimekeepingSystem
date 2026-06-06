@@ -456,6 +456,9 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
             if (typeof renderGlobalCheckIn === 'function') {
                 await renderGlobalCheckIn();
             }
+            if (typeof renderTodayChips === 'function') {
+                renderTodayChips();
+            }
         }
     } catch (e) {
         console.warn('[GlobalAutoCheckout] Receptionist error:', e);
@@ -532,6 +535,9 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             }
             if (typeof renderGlobalCheckIn === 'function') {
                 await renderGlobalCheckIn();
+            }
+            if (typeof renderTodayChips === 'function') {
+                renderTodayChips();
             }
         }
     } catch (e) {
@@ -1052,6 +1058,13 @@ window.confirmClass = async function (id) {
     }
 };
 
+function withTimeout(promise, ms = 10000) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Hết thời gian phản hồi từ máy chủ (Timeout). Vui lòng thử lại sau!")), ms))
+    ]);
+}
+
 // 1. GLOBAL CHECK-IN/OUT (Cloud Isolated)
 window.globalCheckIn = async function (btn) {
     if (btn) {
@@ -1076,7 +1089,7 @@ window.globalCheckIn = async function (btn) {
     }
 
     try {
-        await DBService.checkInPersonal(currentUserId, userFullName);
+        await withTimeout(DBService.checkInPersonal(currentUserId, userFullName), 10000);
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
         if (typeof renderTodayChips === 'function') renderTodayChips();
 
@@ -1148,7 +1161,7 @@ window.globalCheckOut = async function (btn) {
     }
 
     try {
-        await DBService.checkOutPersonal(currentUserId);
+        await withTimeout(DBService.checkOutPersonal(currentUserId), 10000);
         // alert("Check-out thành công!");
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
         if (typeof renderTodayChips === 'function') renderTodayChips();
