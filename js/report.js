@@ -153,40 +153,31 @@ async function populateStaffSelect() {
     // Lưu global để filter
     window._allStaffList = users;
 
-    // Populate hidden select (backward compat)
-    if (select) {
-        select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
-        users.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u.id;
-            opt.textContent = u.name || u.username;
-            select.appendChild(opt);
-        });
-    }
-
-    // Render dropdown list
-    if (dropdownList) {
-        renderStaffDropdownItems(users);
+    // Run filter to populate select and dropdown
+    if (typeof filterStaffListByRole === 'function') {
+        filterStaffListByRole();
     }
 
     // Nếu chỉ có 1 user (staff tự xem) → auto-select
-    if (users.length === 1) {
-        selectStaffFromDropdown(users[0]);
+    const list = window._filteredStaffList || users;
+    if (list.length === 1) {
+        selectStaffFromDropdown(list[0]);
     }
 }
 
 window.navigateStaff = function(direction) {
-    if (!window._allStaffList || window._allStaffList.length === 0) return;
+    const list = window._filteredStaffList || window._allStaffList || [];
+    if (list.length === 0) return;
     const currentId = getTargetStaffId();
-    let index = window._allStaffList.findIndex(u => u.id === currentId);
+    let index = list.findIndex(u => u.id === currentId);
     
     if (index === -1) {
-        index = direction > 0 ? 0 : window._allStaffList.length - 1;
+        index = direction > 0 ? 0 : list.length - 1;
     } else {
-        index = (index + direction + window._allStaffList.length) % window._allStaffList.length;
+        index = (index + direction + list.length) % list.length;
     }
     
-    const targetUser = window._allStaffList[index];
+    const targetUser = list[index];
     if (targetUser) {
         selectStaffFromDropdown(targetUser);
     }
@@ -268,14 +259,14 @@ function closeStaffDropdown() {
 }
 
 function filterStaffDropdown(query) {
-    if (!window._allStaffList) return;
+    const listToSearch = window._filteredStaffList || window._allStaffList || [];
     const q = query.toLowerCase().trim();
     const filtered = q
-        ? window._allStaffList.filter(u =>
+        ? listToSearch.filter(u =>
             (u.name || '').toLowerCase().includes(q) ||
             (u.username || '').toLowerCase().includes(q)
         )
-        : window._allStaffList;
+        : listToSearch;
 
     renderStaffDropdownItems(filtered.filter(u => !(u.role === 'admin' && u.username === 'admin')));
 
@@ -295,32 +286,69 @@ function selectStaffFromDropdown(user) {
     // 3. Close dropdown
     closeStaffDropdown();
 
-    // Auto-detect salary-role-filter theo role nhân viên được chọn
-    const filterEl = document.getElementById('salary-role-filter');
-    if (filterEl) {
-        const staffRoles = (user.roles && user.roles.length > 0)
-            ? user.roles
-            : [user.role || ''];
-        const hasReceptionist = staffRoles.some(r =>
-            ['receptionist', 'receptionist_assistant', 'tiep-tan', 'tiep_tan', 'receptionist_lead', 'receptionist_staff'].includes(r)
-        );
-        const hasTeaching = staffRoles.some(r =>
-            ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r)
-        );
-        if (hasReceptionist && !hasTeaching) {
-            filterEl.value = 'tiep-tan';
-        } else if (hasTeaching && !hasReceptionist) {
-            filterEl.value = 'giao-vien';
-        } else {
-            filterEl.value = 'all'; // đa role → để admin chọn tay
-        }
-        if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
+    if (typeof togglePdfTieptanInputs === 'function') {
+        togglePdfTieptanInputs();
     }
 
     // 4. Load report
     _cachedStaffId = null;
     renderMonthReport(currentDate);
 }
+
+window.filterStaffListByRole = function() {
+    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    
+    if (!window._allStaffList) return;
+    
+    let filteredUsers = window._allStaffList;
+    if (filterVal === 'tiep-tan') {
+        filteredUsers = window._allStaffList.filter(u => {
+            const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
+            return roles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        });
+    } else if (filterVal === 'giao-vien') {
+        filteredUsers = window._allStaffList.filter(u => {
+            const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
+            return roles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        });
+    }
+    
+    window._filteredStaffList = filteredUsers;
+    
+    // Update the hidden select (staff-select) options
+    const select = document.getElementById('staff-select');
+    if (select) {
+        select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
+        filteredUsers.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.id;
+            opt.textContent = u.name || u.username;
+            select.appendChild(opt);
+        });
+    }
+    
+    // Update the searchable dropdown items
+    renderStaffDropdownItems(filteredUsers);
+    
+    // Check if current selected user is in the filtered list
+    const currentSelectedId = select ? select.value : '';
+    const isCurrentInFiltered = filteredUsers.some(u => u.id === currentSelectedId);
+    
+    if (!isCurrentInFiltered && filteredUsers.length > 0) {
+        // Automatically select the first user in the filtered list
+        selectStaffFromDropdown(filteredUsers[0]);
+    } else if (filteredUsers.length === 0) {
+        // Clear selection
+        if (select) select.value = '';
+        const input = document.getElementById('staff-search-input');
+        if (input) input.value = '';
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } else {
+        // If current is still in list, just refresh salary settings loading
+        loadSalarySettings();
+    }
+};
 
 function changeReportMonth(offset) {
     currentDate.setMonth(currentDate.getMonth() + offset);
@@ -1638,8 +1666,15 @@ function renderEvaluationTable(savedData = []) {
     section.style.display = showEval ? 'block' : 'none';
     if (!showEval) return;
 
-    const activeFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
-    const isRecep = (activeFilter === 'tiep-tan');
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
+    const isRecep = hasReceptionist && !hasTeaching;
     const criteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
 
     const thead = document.getElementById('eval-thead');
@@ -1713,7 +1748,7 @@ function updateBonusDisplay(amount) {
 
 function calculateSalary() {
     // 1. Get Settings
-    const roleFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const roleFilter = 'all';
 
     // 2. Filter Chips & Calculate Minutes
     const hoursDisplay = document.getElementById('role-hours-display');
@@ -2283,7 +2318,15 @@ async function saveSalarySettings() {
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
-    const activeFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
+    const activeFilter = (hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
     const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
 
     const rate = 0; // Legacy
@@ -2356,7 +2399,15 @@ async function loadSalarySettings() {
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
-    const activeFilter = document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all';
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
+    const activeFilter = (hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
     const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
 
     let settings = {};

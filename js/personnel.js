@@ -34,13 +34,26 @@ let isEditing = false;
 
 async function renderStaffTable() {
     const tbody = document.getElementById('staff-table-body');
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Đang tải dữ liệu...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Đang tải dữ liệu...</td></tr>';
 
     // FETCH FROM CLOUD
     const users = await DBService.getUsers();
-    // For salary settings, we might keep storing in user object or separate.
-    // In migration tool, we migrated salary_config INTO the user object.
-    // So we should read from user.salary_config
+
+    // Extract employee numerical codes from usernames and sort them
+    users.forEach(u => {
+        const match = (u.username || '').match(/\d+$/);
+        u.msnvStr = match ? match[0] : '';
+        u.msnv = match ? parseInt(match[0], 10) : null;
+    });
+
+    users.sort((a, b) => {
+        if (a.msnv !== null && b.msnv !== null) {
+            return a.msnv - b.msnv;
+        }
+        if (a.msnv !== null) return -1;
+        if (b.msnv !== null) return 1;
+        return (a.username || '').localeCompare(b.username || '');
+    });
 
     const ROLE_LABELS = {
         'admin': 'Quản Trị Viên',
@@ -54,7 +67,10 @@ async function renderStaffTable() {
 
     let html = '';
 
-    users.forEach(user => {
+    users.forEach((user, index) => {
+        // Mapped code / MS NV format (display extracted number, or if none, index + 1)
+        const msnvDisplay = user.msnvStr || (index + 1);
+
         // Lấy TẤT CẢ vai trò từ user.roles[] (đa vai trò)
         const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0
             ? user.roles
@@ -65,6 +81,7 @@ async function renderStaffTable() {
 
         html += `
             <tr>
+                <td><span style="font-weight: 600; font-family: monospace; color: var(--text-muted);">${msnvDisplay}</span></td>
                 <td>
                     <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">${roleLabelsStr}</div>
@@ -97,7 +114,7 @@ async function renderStaffTable() {
     });
 
     if (html === '') {
-        html = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Chưa có nhân viên nào.</td></tr>';
+        html = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Chưa có nhân viên nào.</td></tr>';
     }
 
     tbody.innerHTML = html;

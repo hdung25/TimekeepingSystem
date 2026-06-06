@@ -5,9 +5,14 @@
 //   - window.currentMonthChips, window.currentMonthSalary
 
 function togglePdfTieptanInputs() {
-    const filterType = document.getElementById('salary-role-filter')?.value;
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+    }
     const box = document.getElementById('pdf-tieptan-inputs');
-    if (box) box.style.display = (filterType === 'tiep-tan') ? 'block' : 'none';
+    if (box) box.style.display = hasReceptionist ? 'block' : 'none';
 }
 window.togglePdfTieptanInputs = togglePdfTieptanInputs;
 function exportSalaryPDF(overrides) {
@@ -30,9 +35,26 @@ function exportSalaryPDF(overrides) {
         { label: 'VII', tooltip: 'THƯỞNG DOANH THU CS3 (Thủ công)', index: 6, default: 0 }
     ];
 
-    const filterType = overrides && overrides.customFilterType
+    let filterType = overrides && overrides.customFilterType
         ? overrides.customFilterType
         : (document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all');
+
+    // Auto-detect role if 'all' to ensure correct PDF template is used
+    if (filterType === 'all') {
+        const user = window.currentUserContext;
+        let hasReceptionist = false;
+        let hasTeaching = false;
+        if (user) {
+            const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+            hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        }
+        if (hasReceptionist && !hasTeaching) {
+            filterType = 'tiep-tan';
+        } else if (hasTeaching && !hasReceptionist) {
+            filterType = 'giao-vien';
+        }
+    }
 
     const advance = overrides && overrides.customAdvance !== undefined
         ? overrides.customAdvance
@@ -65,9 +87,7 @@ function exportSalaryPDF(overrides) {
 
     calculateSalary();
 
-    const filterType = overrides && overrides.customFilterType
-        ? overrides.customFilterType
-        : (document.getElementById('salary-role-filter') ? document.getElementById('salary-role-filter').value : 'all');
+
     const chips = window.currentMonthChips || [];
     let normalMinutes = 0;
     let fixedMinutes = 0;
