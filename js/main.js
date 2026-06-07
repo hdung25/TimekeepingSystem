@@ -315,6 +315,11 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => switchTab(tab), 100);
         }
 
+        // Check and render periodic meeting banner
+        setTimeout(() => {
+            checkAndRenderMeetingBanner();
+        }, 1000);
+
         // ===== GLOBAL AUTO-CHECKOUT (runs on ALL pages) =====
         // Ensures receptionist/teacher shifts are auto-closed even if user
         // navigates away from the Chấm Công page.
@@ -1294,5 +1299,354 @@ window.runArchiveDelete = async function () {
             btn.disabled = false;
             btn.innerHTML = window.getIconHtml('trash-2', {style: 'display:inline-block; vertical-align:middle; margin-right:4px;'}) + ' Xóa Dữ Liệu Trên Cloud';
         }
+    }
+};
+
+// ================= PERIODIC MEETING AUTOMATION =================
+
+window.TTV_NAMES = [
+    'NGUYỄN THỊ NGỌC GIÀU',
+    'ĐẬU THỊ THUỶ HẰNG',
+    'ĐẬU THỊ THỦY HẰNG',
+    'PHẠM KIM KHÁNH QUỲNH',
+    'NGUYỄN NGỌC MỸ SANG',
+    'NGUYỄN THÚY NGÂN',
+    'NGUYỄN THUÝ NGÂN',
+    'LÊ VÕ THANH NGÂN',
+    'NGUYỄN PHAN THANH NHÂN',
+    'PHẠM THỊ TRÚC MY',
+    'PHẠM THỊ TRÚC MỸ',
+    'ĐOÀN THỊ THU THÙY',
+    'ĐOÀN THỊ THU THUÝ',
+    'ĐOÀN THỊ THU THUY',
+    'TRẦN VÂN KHÁNH',
+    'VÕ MINH TRƯỜNG',
+    'ĐẬU THỊ THÚY NA',
+    'ĐẬU THỊ THUÝ NA',
+    'HÀ HUY DŨNG',
+    'VÕ QUANG MỸ',
+    'VÕ QUANG MY',
+    'PHÙNG THỊ THANH THẢO',
+    'ĐẶNG THỊ NHƯ NGỌC',
+    'LÊ NGỌC ANH'
+];
+
+window.TA_NAMES = [
+    'TRẦN GIA BẢO',
+    'TRẦN THỊ TRANG ANH',
+    'QUANG HUY',
+    'NGUYỄN HUỲNH UYÊN VY',
+    'NGUYỄN THỊ NGỌC GIÀU',
+    'PHẠM QUANG TIẾN',
+    'PHAN MẠNH PHÁT',
+    'NGUYỄN HOÀNG NGUYÊN',
+    'NGUYỄN NGỌC MỸ SANG',
+    'LÊ ĐĂNG KHOA',
+    'PHẠM KHIẾT LINH',
+    'VŨ LÊ ANH QUÂN',
+    'VỦ LÊ ANH QUÂN',
+    'LÊ MAI THANH NHÂN',
+    'NGUYỄN NGỌC CÔNG',
+    'THÁI NGUYỄN KIỀU MY',
+    'THÁI NGUYỄN KIỀU MỸ',
+    'PHẠM NGỌC SƠN',
+    'ĐOÀN THỊ THU THÙY',
+    'ĐOÀN THỊ THU THUY',
+    'VŨ THỊ MAI LINH',
+    'LÊ THỊ THANH TRÚC',
+    'VÕ MINH TRƯỜNG',
+    'NGUYỄN NGỌC MỸ YẾN',
+    'NGUYỄN NGỌC MỸ YEN',
+    'NGUYỄN TRÍ HẢI',
+    'HÀ HUY DŨNG',
+    'NGUYỄN LÊ MAI LINH',
+    'LÊ THỊ PHƯƠNG THÙY',
+    'LÊ THỊ PHƯƠNG THUY',
+    'PHẠM THỊ PHƯƠNG THẢO',
+    'PHÙNG THỊ THANH THẢO',
+    'TRƯƠNG XUÂN NHI',
+    'ĐINH THANH THẢO',
+    'NGUYỄN THỊ TÂM ANH',
+    'NGUYỄN THỊ TUYẾT MINH',
+    'NGUYỄN THỊ THU PHƯƠNG',
+    'TRẦN LÊ ANH',
+    'NGUYỄN HOÀNG DIỄM MY',
+    'DƯƠNG LÊ BẢO NGỌC',
+    'NGUYỄN THỊ BÌNH PHƯƠNG',
+    'TRẦN TIỂU NHI',
+    'BÙI NHƯ QUỲNH',
+    'NGUYỄN THỊ NHƯ QUỲNH'
+];
+
+window.formatUserSpecialty = function(user) {
+    const nameUpper = (user.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    const usernameLower = (user.username || '').trim().toLowerCase();
+    
+    const isTA = window.TA_NAMES.includes(nameUpper) || usernameLower === 'huy4';
+    const isTTV = window.TTV_NAMES.includes(nameUpper);
+    
+    const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0
+        ? user.roles
+        : (user.role ? [user.role] : ['staff']);
+    
+    const isReceptionist = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+    
+    let parts = [];
+    if (isTA) parts.push('TG TA');
+    if (isTTV) parts.push('TG T-TV');
+    
+    if (parts.length === 0 && !isReceptionist) {
+        parts.push('TG TA'); // Default to TG TA
+    }
+    
+    if (isReceptionist) {
+        parts.push('TIẾP TÂN');
+    }
+    
+    return parts.length > 0 ? parts.join(' / ') : 'TG TA';
+};
+
+window.checkAndRenderMeetingBanner = async function() {
+    const container = document.getElementById('meeting-banner-container');
+    if (!container) return;
+
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (!currentUserId) return;
+
+    try {
+        const todayMeetings = await DBService.getTodayMeetings();
+        if (todayMeetings.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        const users = await DBService.getUsers();
+        const currentUser = users.find(u => u.id === currentUserId);
+        if (!currentUser) return;
+
+        const now = new Date();
+        const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        let specLabel = '';
+        try {
+            const loggedMeetings = await DBService.getMonthlyMeetings(monthStr);
+            if (loggedMeetings?.records?.[currentUserId]?.chuyen_mon) {
+                specLabel = loggedMeetings.records[currentUserId].chuyen_mon;
+            }
+        } catch(e) {
+            console.warn("Could not load monthly meetings in banner check:", e);
+        }
+        if (!specLabel) {
+            specLabel = window.formatUserSpecialty(currentUser);
+        }
+
+        const userSpecs = specLabel.toUpperCase();
+        
+        const matchingMeetings = todayMeetings.filter(m => {
+            let deptKey = m.department.toUpperCase();
+            if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
+            if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
+            if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
+            if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return userSpecs.includes('TIẾP TÂN') || userSpecs.includes('TT');
+            return false;
+        });
+
+        if (matchingMeetings.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        let bannerHtml = '';
+        const currentTime = new Date();
+        
+        for (const meeting of matchingMeetings) {
+            const [_y, _m, _d] = meeting.date.split('-').map(Number);
+            
+            const [ciSH, ciSM] = meeting.checkInStart.split(':').map(Number);
+            const ciStart = new Date(_y, _m - 1, _d, ciSH, ciSM, 0);
+            
+            const [eH, eM] = meeting.endTime.split(':').map(Number);
+            const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+
+            if (currentTime < ciStart || currentTime > mEnd) {
+                continue;
+            }
+
+            const attendanceSnap = await db.collection('meeting_attendance').doc(`${meeting.id}_${currentUserId}`).get();
+            const attendanceData = attendanceSnap.exists ? attendanceSnap.data() : null;
+
+            container.style.display = 'block';
+            
+            const deptLabel = meeting.department;
+            const timeRange = `${meeting.startTime} - ${meeting.endTime}`;
+            const ciRange = `${meeting.checkInStart} - ${meeting.checkInClose}`;
+
+            if (attendanceData) {
+                const checkInTimeStr = new Date(attendanceData.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                const isLate = attendanceData.status === 'Trễ';
+                const statusColor = isLate ? '#D97706' : '#059669';
+                
+                bannerHtml += `
+                    <div class="glass-panel" style="
+                        background: linear-gradient(135deg, rgba(243, 244, 246, 0.9) 0%, rgba(249, 250, 251, 0.95) 100%);
+                        border-left: 5px solid #7C3AED;
+                        padding: 1.25rem;
+                        border-radius: 12px;
+                        margin-bottom: 1rem;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        box-shadow: var(--shadow-md);
+                        backdrop-filter: blur(8px);
+                    ">
+                        <div>
+                            <h3 style="color: #4C1D95; font-size: 1.1rem; font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 8px;">
+                                ${window.getIconHtml('calendar', {width: '18', height: '18', stroke: '#7C3AED'})}
+                                Lịch Họp Định Kỳ: ${meeting.title || 'Họp bộ phận'}
+                            </h3>
+                            <div style="font-size: 0.85rem; color: #5B21B6; opacity: 0.9;">
+                                <span style="display:inline-block; margin-right: 1.5rem;"><strong>Bộ phận:</strong> ${deptLabel}</span>
+                                <span style="display:inline-block; margin-right: 1.5rem;">🕒 ${timeRange}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <span style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                                background: ${isLate ? '#FEF3C7' : '#D1FAE5'};
+                                color: ${statusColor};
+                                padding: 6px 14px;
+                                border-radius: 20px;
+                                font-weight: 700;
+                                font-size: 0.85rem;
+                                border: 1.5px solid ${statusColor};
+                            ">
+                                ${window.getIconHtml('check-circle', {width: '16', height: '16', stroke: statusColor})}
+                                Đã điểm danh (${attendanceData.status}) lúc ${checkInTimeStr}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            } else {
+                bannerHtml += `
+                    <div class="glass-panel" style="
+                        background: linear-gradient(135deg, rgba(245, 243, 255, 0.9) 0%, rgba(255, 255, 255, 0.95) 100%);
+                        border-left: 5px solid #7C3AED;
+                        padding: 1.25rem;
+                        border-radius: 12px;
+                        margin-bottom: 1rem;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        box-shadow: var(--shadow-lg);
+                        backdrop-filter: blur(8px);
+                        animation: pulse-banner 2s infinite alternate;
+                    ">
+                        <div>
+                            <h3 style="color: #4C1D95; font-size: 1.1rem; font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 8px;">
+                                ${window.getIconHtml('calendar', {width: '18', height: '18', stroke: '#7C3AED'})}
+                                Lịch Họp Định Kỳ: ${meeting.title || 'Họp bộ phận'}
+                            </h3>
+                            <div style="font-size: 0.85rem; color: #5B21B6; opacity: 0.9;">
+                                <span style="display:inline-block; margin-right: 1.25rem;"><strong>Bộ phận:</strong> ${deptLabel}</span>
+                                <span style="display:inline-block; margin-right: 1.25rem;">🕒 ${timeRange}</span>
+                                <span style="display:inline-block;">⏱️ Điểm danh: ${ciRange}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn" onclick="checkInToMeeting('${meeting.id}', this)" style="
+                                background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+                                color: white;
+                                padding: 0.6rem 1.25rem;
+                                border-radius: 8px;
+                                font-weight: 700;
+                                box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+                                border: none;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 15px rgba(124, 58, 237, 0.45)';" onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 12px rgba(124, 58, 237, 0.3)';">
+                                ${window.getIconHtml('check-circle', {width: '16', height: '16'})}
+                                Điểm Danh Họp
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        container.innerHTML = bannerHtml;
+        if (bannerHtml === '') {
+            container.style.display = 'none';
+        } else {
+            if (!document.getElementById('meeting-banner-animation-styles')) {
+                const styleSheet = document.createElement("style");
+                styleSheet.id = 'meeting-banner-animation-styles';
+                styleSheet.innerText = `
+                    @keyframes pulse-banner {
+                        0% { box-shadow: 0 4px 10px rgba(124, 58, 237, 0.1); }
+                        100% { box-shadow: 0 4px 18px rgba(124, 58, 237, 0.25); }
+                    }
+                `;
+                document.head.appendChild(styleSheet);
+            }
+            if (window.lucide) window.lucide.createIcons();
+        }
+
+    } catch (error) {
+        console.error("Error checking meeting banner:", error);
+    }
+};
+
+window.checkInToMeeting = async function(meetingId, btn) {
+    if (btn) btn.disabled = true;
+    
+    const currentUserId = localStorage.getItem('currentUserId');
+    const userFullName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser');
+    
+    if (!currentUserId) {
+        alert("Vui lòng đăng nhập lại!");
+        if (btn) btn.disabled = false;
+        return;
+    }
+
+    try {
+        const meetingDoc = await db.collection('meetings').doc(meetingId).get();
+        if (!meetingDoc.exists) {
+            alert("Cuộc họp không tồn tại!");
+            if (btn) btn.disabled = false;
+            return;
+        }
+
+        const meeting = meetingDoc.data();
+        const now = new Date();
+        const [_y, _m, _d] = meeting.date.split('-').map(Number);
+        
+        const [ciCH, ciCM] = meeting.checkInClose.split(':').map(Number);
+        const ciClose = new Date(_y, _m - 1, _d, ciCH, ciCM, 0);
+
+        let status = 'Có';
+        if (now > ciClose) {
+            status = 'Trễ';
+        }
+
+        await DBService.checkInMeeting(meetingId, currentUserId, userFullName, status);
+        
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast(`Điểm danh họp thành công! Trạng thái: ${status}`, "success");
+        } else {
+            alert(`Điểm danh họp thành công! Trạng thái: ${status}`);
+        }
+
+        await window.checkAndRenderMeetingBanner();
+        
+        if (window.location.pathname.includes('hop-dinh-ky.html') && typeof renderMeetingsGrid === 'function') {
+            await renderMeetingsGrid();
+        }
+    } catch(err) {
+        alert("Lỗi điểm danh: " + err.message);
+        if (btn) btn.disabled = false;
     }
 };

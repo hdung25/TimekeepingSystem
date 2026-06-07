@@ -1990,5 +1990,191 @@ const DBService = {
             console.error("[MeetingsLog] Error saving:", error);
             throw error;
         }
+    },
+
+    // ================= PERIODIC MEETING AUTOMATION =================
+
+    createMeeting: async (meetingData) => {
+        try {
+            const docRef = await db.collection('meetings').add({
+                ...meetingData,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            return docRef.id;
+        } catch (error) {
+            console.error("[Meetings] Error creating:", error);
+            throw error;
+        }
+    },
+
+    deleteMeeting: async (meetingId) => {
+        try {
+            await db.collection('meetings').doc(meetingId).delete();
+            const attendanceSnap = await db.collection('meeting_attendance')
+                .where('meetingId', '==', meetingId)
+                .get();
+            const batch = db.batch();
+            attendanceSnap.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+            return true;
+        } catch (error) {
+            console.error("[Meetings] Error deleting:", error);
+            throw error;
+        }
+    },
+
+    getMeetingsForMonth: async (monthStr) => {
+        try {
+            const snapshot = await db.collection('meetings').get();
+            const meetings = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.date && data.date.startsWith(monthStr)) {
+                    meetings.push({ id: doc.id, ...data });
+                }
+            });
+            meetings.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+            return meetings;
+        } catch (error) {
+            console.error("[Meetings] Error getting for month:", error);
+            return [];
+        }
+    },
+
+    getTodayMeetings: async () => {
+        try {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const todayStr = `${year}-${month}-${day}`;
+
+            const snapshot = await db.collection('meetings')
+                .where('date', '==', todayStr)
+                .get();
+            const meetings = [];
+            snapshot.forEach(doc => {
+                meetings.push({ id: doc.id, ...doc.data() });
+            });
+            return meetings;
+        } catch (error) {
+            console.error("[Meetings] Error getting today meetings:", error);
+            return [];
+        }
+    },
+
+    checkInMeeting: async (meetingId, userId, userName, status) => {
+        try {
+            const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
+            const checkInTime = new Date().toISOString();
+            await attendanceRef.set({
+                meetingId,
+                userId,
+                userName,
+                status,
+                checkInTime,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            const meetingDoc = await db.collection('meetings').doc(meetingId).get();
+            if (meetingDoc.exists) {
+                const mData = meetingDoc.data();
+                const dept = mData.department;
+                const mDate = mData.date;
+                if (dept && mDate) {
+                    const monthStr = mDate.substring(0, 7);
+                    
+                    let fieldName = '';
+                    if (dept === 'TG TA') fieldName = 'hop_tg_tieng_anh';
+                    else if (dept === 'TG T-TV') fieldName = 'hop_tg_t_tv';
+                    else if (dept === 'TOÁN TƯ DUY') fieldName = 'hop_toan_tu_duy';
+                    else if (dept === 'TIẾP TÂN') fieldName = 'hop_tiep_tan';
+
+                    if (fieldName) {
+                        const logRef = db.collection('meetings_log').doc(monthStr);
+                        const updateKey = `records.${userId}.${fieldName}`;
+                        const updateData = {};
+                        updateData[updateKey] = status;
+                        
+                        await logRef.update(updateData).catch(async (err) => {
+                            if (err.code === 'not-found') {
+                                const initialData = { month: monthStr, records: {} };
+                                initialData.records[userId] = { [fieldName]: status };
+                                await logRef.set(initialData, { merge: true });
+                            }
+                        });
+                    }
+                }
+            }
+            return { checkInTime, status };
+        } catch (error) {
+            console.error("[Meetings] Error check-in:", error);
+            throw error;
+        }
+    },
+
+    getMeetingAttendance: async (meetingId) => {
+        try {
+            const snapshot = await db.collection('meeting_attendance')
+                .where('meetingId', '==', meetingId)
+                .get();
+            const attendance = [];
+            snapshot.forEach(doc => {
+                attendance.push({ id: doc.id, ...doc.data() });
+            });
+            return attendance;
+        } catch (error) {
+            console.error("[Meetings] Error getting attendance:", error);
+            return [];
+        }
+    },
+
+    updateMeetingAttendanceStatus: async (meetingId, userId, userName, status) => {
+        try {
+            const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
+            await attendanceRef.set({
+                meetingId,
+                userId,
+                userName,
+                status,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            const meetingDoc = await db.collection('meetings').doc(meetingId).get();
+            if (meetingDoc.exists) {
+                const mData = meetingDoc.data();
+                const dept = mData.department;
+                const mDate = mData.date;
+                if (dept && mDate) {
+                    const monthStr = mDate.substring(0, 7);
+                    let fieldName = '';
+                    if (dept === 'TG TA') fieldName = 'hop_tg_tieng_anh';
+                    else if (dept === 'TG T-TV') fieldName = 'hop_tg_t_tv';
+                    else if (dept === 'TOÁN TƯ DUY') fieldName = 'hop_toan_tu_duy';
+                    else if (dept === 'TIẾP TÂN') fieldName = 'hop_tiep_tan';
+
+                    if (fieldName) {
+                        const logRef = db.collection('meetings_log').doc(monthStr);
+                        const updateKey = `records.${userId}.${fieldName}`;
+                        const updateData = {};
+                        updateData[updateKey] = status;
+                        
+                        await logRef.update(updateData).catch(async (err) => {
+                            if (err.code === 'not-found') {
+                                const initialData = { month: monthStr, records: {} };
+                                initialData.records[userId] = { [fieldName]: status };
+                                await logRef.set(initialData, { merge: true });
+                            }
+                        });
+                    }
+                }
+            }
+            return true;
+        } catch (error) {
+            console.error("[Meetings] Error updating attendance status:", error);
+            throw error;
+        }
     }
 };

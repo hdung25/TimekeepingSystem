@@ -166,6 +166,18 @@ service cloud.firestore {
       allow write: if isAuthenticated() && isAdmin();
     }
 
+    // 16. Meetings (Lịch họp định kỳ)
+    match /meetings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // 17. Meeting Attendance (Điểm danh cuộc họp tự động)
+    match /meeting_attendance/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;

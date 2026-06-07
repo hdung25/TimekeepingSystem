@@ -187,22 +187,31 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <header class="page-header" style="margin-bottom: 1.5rem;">
-                <div>
-                    <h1 style="font-size: 1.5rem; font-weight: 700;">Họp Định Kỳ</h1>
-                    <p style="color: var(--text-muted);">Quản lý điểm danh họp định kỳ và thống kê phân phát tờ quảng cáo</p>
-                </div>
-                <div class="header-actions">
-                    <div class="month-navigator">
-                        <button type="button" class="month-nav-btn" onclick="changeMonth(-1)">&lt;</button>
-                        <span class="month-title-display" id="month-display">Tháng --, ----</span>
-                        <button type="button" class="month-nav-btn" onclick="changeMonth(1)">&gt;</button>
+            <div id="main-grid-view">
+                <header class="page-header" style="margin-bottom: 1.5rem;">
+                    <div>
+                        <h1 style="font-size: 1.5rem; font-weight: 700;">Họp Định Kỳ</h1>
+                        <p style="color: var(--text-muted);">Quản lý điểm danh họp định kỳ và thống kê phân phát tờ quảng cáo</p>
                     </div>
-                    <button class="btn btn-primary" onclick="saveMeetings()" style="padding: 0.6rem 1.5rem; font-weight: 600;">
-                        Lưu Lại
-                    </button>
-                </div>
-            </header>
+                    <div class="header-actions">
+                        <button type="button" class="btn" onclick="openCreateMeetingModal()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-circle"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+                            Tạo Lịch Họp
+                        </button>
+                        <button type="button" class="btn" onclick="showMeetingsStats()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bar-chart-2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                            Thống Kê
+                        </button>
+                        <div class="month-navigator">
+                            <button type="button" class="month-nav-btn" onclick="changeMonth(-1)">&lt;</button>
+                            <span class="month-title-display" id="month-display">Tháng --, ----</span>
+                            <button type="button" class="month-nav-btn" onclick="changeMonth(1)">&gt;</button>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveMeetings()" style="padding: 0.6rem 1.5rem; font-weight: 600;">
+                            Lưu Lại
+                        </button>
+                    </div>
+                </header>
 
             <!-- Excel-like Table Grid Container -->
             <div class="glass-panel" style="overflow: hidden; padding: 0;">
@@ -251,6 +260,7 @@
                                     <select id="filter-hopta" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
                                         <option value="all">Tất cả</option>
                                         <option value="Có">Có</option>
+                                        <option value="Trễ">Trễ</option>
                                         <option value="Vắng phép">Vắng phép</option>
                                         <option value="Vắng đột xuất">Vắng đột xuất</option>
                                         <option value="Vắng không phép">Vắng không phép</option>
@@ -261,6 +271,7 @@
                                     <select id="filter-hopttv" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
                                         <option value="all">Tất cả</option>
                                         <option value="Có">Có</option>
+                                        <option value="Trễ">Trễ</option>
                                         <option value="Vắng phép">Vắng phép</option>
                                         <option value="Vắng đột xuất">Vắng đột xuất</option>
                                         <option value="Vắng không phép">Vắng không phép</option>
@@ -271,6 +282,7 @@
                                     <select id="filter-hopttd" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
                                         <option value="all">Tất cả</option>
                                         <option value="Có">Có</option>
+                                        <option value="Trễ">Trễ</option>
                                         <option value="Vắng phép">Vắng phép</option>
                                         <option value="Vắng đột xuất">Vắng đột xuất</option>
                                         <option value="Vắng không phép">Vắng không phép</option>
@@ -281,6 +293,7 @@
                                     <select id="filter-hoptt" class="table-select" style="padding: 2px 4px; font-size: 0.8rem;" onchange="applyFilters()">
                                         <option value="all">Tất cả</option>
                                         <option value="Có">Có</option>
+                                        <option value="Trễ">Trễ</option>
                                         <option value="Vắng phép">Vắng phép</option>
                                         <option value="Vắng đột xuất">Vắng đột xuất</option>
                                         <option value="Vắng không phép">Vắng không phép</option>
@@ -297,6 +310,145 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div> <!-- Close glass-panel -->
+            </div> <!-- Close main-grid-view -->
+
+            <!-- Meetings Stats Full-screen View -->
+            <div id="meetings-stats-view" style="display: none; padding-bottom: 2rem;">
+                <header class="page-header" style="margin-bottom: 1.5rem;">
+                    <div>
+                        <h1 style="font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                            <button type="button" class="month-nav-btn" onclick="hideMeetingsStats()" style="border: 1px solid var(--border-color); background: white; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; transition: var(--transition-base);">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left"><polyline points="15 18 9 12 15 6"/></svg>
+                            </button>
+                            Thống Kê Họp Định Kỳ
+                        </h1>
+                        <p style="color: var(--text-muted);">Số liệu tham dự họp của các bộ phận trong tháng</p>
+                    </div>
+                    <div class="header-actions">
+                        <button type="button" class="btn" onclick="exportMeetingsStatsCSV()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: #059669; color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Xuất Báo Cáo
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Stats Overview Cards -->
+                <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                    <div class="stat-card">
+                        <h3>Tổng số cuộc họp</h3>
+                        <p class="stat-number" id="stats-total-meetings" style="color: #7C3AED;">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Tỷ lệ tham dự TB</h3>
+                        <p class="stat-number" id="stats-attendance-rate" style="color: #059669;">0%</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Tổng lượt đi trễ</h3>
+                        <p class="stat-number" id="stats-total-late" style="color: #D97706;">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Tổng lượt vắng</h3>
+                        <p class="stat-number" id="stats-total-absent" style="color: #EF4444;">0</p>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: start;">
+                    <!-- Left panel: list of meetings -->
+                    <div class="glass-panel" style="padding: 1.25rem; max-height: calc(100vh - 280px); overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;">
+                        <h3 style="font-size: 1rem; font-weight: 700; border-bottom: 1.5px solid var(--border-color); padding-bottom: 0.5rem; margin-top: 0; color: var(--text-main);">Danh sách cuộc họp</h3>
+                        <div id="stats-meetings-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Right panel: detailed attendance -->
+                    <div class="glass-panel" style="padding: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1.5px solid var(--border-color); padding-bottom: 0.75rem;">
+                            <h3 id="stats-meeting-detail-title" style="font-size: 1.1rem; font-weight: 700; color: #4F46E5; margin: 0;">Chi tiết cuộc họp</h3>
+                            <button type="button" class="btn" id="btn-delete-meeting" style="background: #FEE2E2; color: #DC2626; border: 1px solid #FCA5A5; padding: 0.5rem 1rem; font-weight: 600; border-radius: 6px; cursor: pointer; display: none;">Xóa Cuộc Họp</button>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table class="meetings-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 80px;">MS NV</th>
+                                        <th>HỌ VÀ TÊN</th>
+                                        <th>CHUYÊN MÔN</th>
+                                        <th style="width: 150px; text-align: center;">GIỜ ĐIỂM DANH</th>
+                                        <th style="width: 180px;">TRẠNG THÁI</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stats-meeting-details-tbody">
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Vui lòng chọn một cuộc họp để xem chi tiết.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Create Meeting Modal -->
+            <div id="create-meeting-modal" class="modal" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
+                <div class="modal-content" style="max-width: 500px; width: 90%; border-radius: 12px; padding: 2rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-xl); background: white;">
+                    <h2 style="margin-top: 0; margin-bottom: 1.5rem; font-size: 1.25rem; font-weight: 700; color: #7C3AED; display: flex; align-items: center; gap: 8px;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-circle"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+                        Lên Lịch Họp Định Kỳ
+                    </h2>
+                    
+                    <form id="create-meeting-form" onsubmit="handleCreateMeeting(event)">
+                        <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem;">
+                            <div>
+                                <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Tiêu đề cuộc họp</label>
+                                <input type="text" id="meeting-title" class="filter-input" placeholder="Ví dụ: Họp định kỳ tháng 6" required style="padding: 8px 12px; font-size: 0.9rem;">
+                            </div>
+                            
+                            <div>
+                                <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Bộ phận tham gia</label>
+                                <select id="meeting-dept" class="table-select" required style="padding: 8px 12px; font-size: 0.9rem; height: 38px;">
+                                    <option value="TG TA">Trợ Giảng Tiếng Anh (TG TA)</option>
+                                    <option value="TG T-TV">Trợ Giảng Toán - T-TV (TG T-TV)</option>
+                                    <option value="TOÁN TƯ DUY">Toán Tư Duy</option>
+                                    <option value="TIẾP TÂN">Tiếp Tân</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Ngày họp</label>
+                                <input type="date" id="meeting-date" class="filter-input" required style="padding: 8px 12px; font-size: 0.9rem; height: 38px;">
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div>
+                                    <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Giờ họp bắt đầu</label>
+                                    <input type="time" id="meeting-start" class="filter-input" required style="padding: 8px 12px; font-size: 0.9rem; height: 38px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Giờ họp kết thúc</label>
+                                    <input type="time" id="meeting-end" class="filter-input" required style="padding: 8px 12px; font-size: 0.9rem; height: 38px;">
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; border-top: 1px dashed var(--border-color); padding-top: 1rem;">
+                                <div>
+                                    <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem; color: #059669;">Bắt đầu điểm danh</label>
+                                    <input type="time" id="meeting-ci-start" class="filter-input" required style="padding: 8px 12px; font-size: 0.9rem; border-color: #A7F3D0; height: 38px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem; color: #EF4444;">Đóng điểm danh (Trễ)</label>
+                                    <input type="time" id="meeting-ci-close" class="filter-input" required style="padding: 8px 12px; font-size: 0.9rem; border-color: #FCA5A5; height: 38px;">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem;">
+                            <button type="button" class="btn" style="flex: 1; background: #E5E7EB; color: #374151; font-weight: 600;" onclick="closeCreateMeetingModal()">Hủy</button>
+                            <button type="submit" class="btn btn-primary" style="flex: 1; font-weight: 600; background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); border: none;">Tạo Cuộc Họp</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </main>
@@ -366,79 +518,6 @@
         let currentDate = new Date(); // Month context
         let employeesList = []; // Holds list of active users
 
-        const TTV_NAMES = [
-            'NGUYỄN THỊ NGỌC GIÀU',
-            'ĐẬU THỊ THUỶ HẰNG',
-            'ĐẬU THỊ THỦY HẰNG',
-            'PHẠM KIM KHÁNH QUỲNH',
-            'NGUYỄN NGỌC MỸ SANG',
-            'NGUYỄN THÚY NGÂN',
-            'NGUYỄN THUÝ NGÂN',
-            'LÊ VÕ THANH NGÂN',
-            'NGUYỄN PHAN THANH NHÂN',
-            'PHẠM THỊ TRÚC MY',
-            'PHẠM THỊ TRÚC MỸ',
-            'ĐOÀN THỊ THU THÙY',
-            'ĐOÀN THỊ THU THUÝ',
-            'ĐOÀN THỊ THU THUY',
-            'TRẦN VÂN KHÁNH',
-            'VÕ MINH TRƯỜNG',
-            'ĐẬU THỊ THÚY NA',
-            'ĐẬU THỊ THUÝ NA',
-            'HÀ HUY DŨNG',
-            'VÕ QUANG MỸ',
-            'VÕ QUANG MY',
-            'PHÙNG THỊ THANH THẢO',
-            'ĐẶNG THỊ NHƯ NGỌC',
-            'LÊ NGỌC ANH'
-        ];
-
-        const TA_NAMES = [
-            'TRẦN GIA BẢO',
-            'TRẦN THỊ TRANG ANH',
-            'QUANG HUY',
-            'NGUYỄN HUỲNH UYÊN VY',
-            'NGUYỄN THỊ NGỌC GIÀU',
-            'PHẠM QUANG TIẾN',
-            'PHAN MẠNH PHÁT',
-            'NGUYỄN HOÀNG NGUYÊN',
-            'NGUYỄN NGỌC MỸ SANG',
-            'LÊ ĐĂNG KHOA',
-            'PHẠM KHIẾT LINH',
-            'VŨ LÊ ANH QUÂN',
-            'VỦ LÊ ANH QUÂN',
-            'LÊ MAI THANH NHÂN',
-            'NGUYỄN NGỌC CÔNG',
-            'THÁI NGUYỄN KIỀU MY',
-            'THÁI NGUYỄN KIỀU MỸ',
-            'PHẠM NGỌC SƠN',
-            'ĐOÀN THỊ THU THÙY',
-            'ĐOÀN THỊ THU THUY',
-            'VŨ THỊ MAI LINH',
-            'LÊ THỊ THANH TRÚC',
-            'VÕ MINH TRƯỜNG',
-            'NGUYỄN NGỌC MỸ YẾN',
-            'NGUYỄN NGỌC MỸ YEN',
-            'NGUYỄN TRÍ HẢI',
-            'HÀ HUY DŨNG',
-            'NGUYỄN LÊ MAI LINH',
-            'LÊ THỊ PHƯƠNG THÙY',
-            'LÊ THỊ PHƯƠNG THUY',
-            'PHẠM THỊ PHƯƠNG THẢO',
-            'PHÙNG THỊ THANH THẢO',
-            'TRƯƠNG XUÂN NHI',
-            'ĐINH THANH THẢO',
-            'NGUYỄN THỊ TÂM ANH',
-            'NGUYỄN THỊ TUYẾT MINH',
-            'NGUYỄN THỊ THU PHƯƠNG',
-            'TRẦN LÊ ANH',
-            'NGUYỄN HOÀNG DIỄM MY',
-            'DƯƠNG LÊ BẢO NGỌC',
-            'NGUYỄN THỊ BÌNH PHƯƠNG',
-            'TRẦN TIỂU NHI',
-            'BÙI NHƯ QUỲNH',
-            'NGUYỄN THỊ NHƯ QUỲNH'
-        ];
 
         function updateMonthDisplay() {
             const monthsVN = [
@@ -609,6 +688,30 @@
             }
         }
 
+        let monthlyMeetingsList = [];
+        let monthlyAttendanceMap = {};
+
+        async function loadMonthlyAutoMeetingsData() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+            
+            try {
+                monthlyMeetingsList = await DBService.getMeetingsForMonth(monthStr);
+                monthlyAttendanceMap = {};
+                
+                if (monthlyMeetingsList.length > 0) {
+                    const promises = monthlyMeetingsList.map(async (m) => {
+                        const logs = await DBService.getMeetingAttendance(m.id);
+                        monthlyAttendanceMap[m.id] = logs;
+                    });
+                    await Promise.all(promises);
+                }
+            } catch(e) {
+                console.error("Error loading monthly auto meetings data:", e);
+            }
+        }
+
         async function renderMeetingsGrid() {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
@@ -620,6 +723,9 @@
             } catch (e) {
                 console.error("Could not fetch meetings logs:", e);
             }
+
+            // Load automated attendance data first
+            await loadMonthlyAutoMeetingsData();
 
             const tbody = document.getElementById('meetings-tbody');
             tbody.innerHTML = '';
@@ -634,39 +740,49 @@
                 const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
                 const savedRecord = (loggedMeetings.records && loggedMeetings.records[userId]) ? loggedMeetings.records[userId] : {};
                 
-                // Mapped code / MS NV format (display extracted number, or if none, index + 1)
                 const msnvDisplay = user.msnvStr || (index + 1);
 
-                // Split name parts to isolate first name (TÊN in red uppercase)
                 const nameParts = (user.name || '').trim().split(' ');
                 const firstName = nameParts[nameParts.length - 1] || user.username || '';
                 
-                // Format Expertise / Chuyên Môn (retrieve saved custom specialty if exists)
                 const specLabel = savedRecord.chuyen_mon !== undefined ? savedRecord.chuyen_mon : formatUserSpecialty(user);
 
-                // Fetch numeric values with fallback to 0
                 const cs1_val = savedRecord.so_to_cs1 !== undefined ? savedRecord.so_to_cs1 : 0;
                 const cs2_val = savedRecord.so_to_cs2 !== undefined ? savedRecord.so_to_cs2 : 0;
                 const cs3_val = savedRecord.so_to_cs3 !== undefined ? savedRecord.so_to_cs3 : 0;
 
-                // Smart default for meetings attendance based on active specialty
-                let default_hop_ta = "Không họp";
-                let default_hop_ttv = "Không họp";
-                let default_hop_ttd = "Không họp";
-                let default_hop_tt = "Không họp";
+                // Helper to resolve auto attendance status
+                function resolveAutoStatus(dept, defaultVal) {
+                    const deptMeetings = monthlyMeetingsList.filter(m => m.department === dept);
+                    if (deptMeetings.length === 0) {
+                        return defaultVal;
+                    }
+                    
+                    const meeting = deptMeetings[0];
+                    const logs = monthlyAttendanceMap[meeting.id] || [];
+                    const userLog = logs.find(l => l.userId === userId);
+                    
+                    if (userLog) {
+                        return userLog.status;
+                    } else {
+                        const now = new Date();
+                        const [_y, _m, _d] = meeting.date.split('-').map(Number);
+                        const [eH, eM] = meeting.endTime.split(':').map(Number);
+                        const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+                        
+                        if (now > mEnd) {
+                            return "Vắng không phép";
+                        } else {
+                            return defaultVal;
+                        }
+                    }
+                }
 
-                if (specLabel.includes('TG TA')) {
-                    default_hop_ta = "Có";
-                }
-                if (specLabel.includes('TG T-TV')) {
-                    default_hop_ttv = "Có";
-                }
-                if (specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD')) {
-                    default_hop_ttd = "Có";
-                }
-                if (specLabel.includes('TIẾP TÂN') || specLabel.includes('TT')) {
-                    default_hop_tt = "Có";
-                }
+                // Smart default for meetings attendance based on active specialty + auto attendance logs
+                const default_hop_ta = resolveAutoStatus('TG TA', specLabel.includes('TG TA') ? "Có" : "Không họp");
+                const default_hop_ttv = resolveAutoStatus('TG T-TV', specLabel.includes('TG T-TV') ? "Có" : "Không họp");
+                const default_hop_ttd = resolveAutoStatus('TOÁN TƯ DUY', (specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD')) ? "Có" : "Không họp");
+                const default_hop_tt = resolveAutoStatus('TIẾP TÂN', (specLabel.includes('TIẾP TÂN') || specLabel.includes('TT')) ? "Có" : "Không họp");
 
                 const hop_ta_selected = savedRecord.hop_tg_tieng_anh !== undefined ? savedRecord.hop_tg_tieng_anh : default_hop_ta;
                 const hop_ttv_selected = savedRecord.hop_tg_t_tv !== undefined ? savedRecord.hop_tg_t_tv : default_hop_ttv;
@@ -698,6 +814,7 @@
                     <td>
                         <select class="table-select hop-ta-select">
                             <option value="Có" ${hop_ta_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Trễ" ${hop_ta_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_ta_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
                             <option value="Vắng đột xuất" ${hop_ta_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
                             <option value="Vắng không phép" ${hop_ta_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
@@ -707,6 +824,7 @@
                     <td>
                         <select class="table-select hop-ttv-select">
                             <option value="Có" ${hop_ttv_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Trễ" ${hop_ttv_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_ttv_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
                             <option value="Vắng đột xuất" ${hop_ttv_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
                             <option value="Vắng không phép" ${hop_ttv_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
@@ -716,6 +834,7 @@
                     <td>
                         <select class="table-select hop-ttd-select">
                             <option value="Có" ${hop_ttd_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Trễ" ${hop_ttd_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_ttd_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
                             <option value="Vắng đột xuất" ${hop_ttd_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
                             <option value="Vắng không phép" ${hop_ttd_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
@@ -725,6 +844,7 @@
                     <td>
                         <select class="table-select hop-tt-select">
                             <option value="Có" ${hop_tt_selected === 'Có' ? 'selected' : ''}>Có</option>
+                            <option value="Trễ" ${hop_tt_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_tt_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
                             <option value="Vắng đột xuất" ${hop_tt_selected === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
                             <option value="Vắng không phép" ${hop_tt_selected === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
@@ -737,10 +857,7 @@
                 updateRowMeetingSelectStates(tr);
             });
 
-            // Populate Chuyen Mon (Role) filter dynamically with monthly values
             populateChuyenMonFilter(employeesList, loggedMeetings);
-
-            // Re-apply any existing active filter values
             applyFilters();
         }
 
@@ -936,6 +1053,520 @@
         window.openSpecialtyModal = openSpecialtyModal;
         window.closeSpecialtyModal = closeSpecialtyModal;
         window.confirmSpecialtySelection = confirmSpecialtySelection;
+
+        // ================= PERIODIC MEETING ADMIN FUNCTIONS =================
+
+        // 1. Modal control
+        function openCreateMeetingModal() {
+            document.getElementById('create-meeting-form').reset();
+            // Preset date to today
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+            document.getElementById('meeting-date').value = todayStr;
+            
+            document.getElementById('create-meeting-modal').style.display = 'flex';
+        }
+
+        function closeCreateMeetingModal() {
+            document.getElementById('create-meeting-modal').style.display = 'none';
+        }
+
+        async function handleCreateMeeting(e) {
+            e.preventDefault();
+            
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Đang tạo...";
+
+            const title = document.getElementById('meeting-title').value.trim();
+            const department = document.getElementById('meeting-dept').value;
+            const date = document.getElementById('meeting-date').value;
+            const startTime = document.getElementById('meeting-start').value;
+            const endTime = document.getElementById('meeting-end').value;
+            const checkInStart = document.getElementById('meeting-ci-start').value;
+            const checkInClose = document.getElementById('meeting-ci-close').value;
+
+            try {
+                if (checkInStart >= checkInClose) {
+                    throw new Error("Giờ bắt đầu điểm danh phải trước giờ đóng điểm danh!");
+                }
+                if (checkInClose > endTime) {
+                    throw new Error("Giờ đóng điểm danh phải trước giờ kết thúc họp!");
+                }
+                if (startTime >= endTime) {
+                    throw new Error("Giờ bắt đầu họp phải trước giờ kết thúc họp!");
+                }
+
+                const meetingData = {
+                    title,
+                    department,
+                    date,
+                    startTime,
+                    endTime,
+                    checkInStart,
+                    checkInClose
+                };
+
+                await DBService.createMeeting(meetingData);
+                
+                UIService.toast("Tạo cuộc họp thành công!", "success");
+                closeCreateMeetingModal();
+                
+                // Refresh main grid
+                await renderMeetingsGrid();
+                
+                // If stats page is open, refresh it too
+                if (document.getElementById('meetings-stats-view').style.display === 'block') {
+                    await loadMeetingsStats();
+                }
+            } catch (err) {
+                alert("Lỗi: " + err.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Tạo Cuộc Họp";
+            }
+        }
+
+        // 2. View Toggle
+        function showMeetingsStats() {
+            document.getElementById('main-grid-view').style.display = 'none';
+            document.getElementById('meetings-stats-view').style.display = 'block';
+            loadMeetingsStats();
+        }
+
+        function hideMeetingsStats() {
+            document.getElementById('meetings-stats-view').style.display = 'none';
+            document.getElementById('main-grid-view').style.display = 'block';
+        }
+
+        // 3. Stats logic
+        let selectedMeetingId = null;
+        let activeMeetingsInStats = [];
+        let activeAttendanceMap = {};
+
+        async function loadMeetingsStats() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+            const listContainer = document.getElementById('stats-meetings-list');
+            listContainer.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:1rem;">Đang tải danh sách họp...</div>';
+            document.getElementById('stats-meeting-details-tbody').innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Vui lòng chọn một cuộc họp để xem chi tiết.</td></tr>';
+            document.getElementById('btn-delete-meeting').style.display = 'none';
+
+            try {
+                activeMeetingsInStats = await DBService.getMeetingsForMonth(monthStr);
+                
+                document.getElementById('stats-total-meetings').innerText = activeMeetingsInStats.length;
+
+                if (activeMeetingsInStats.length === 0) {
+                    listContainer.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:1rem;">Không có cuộc họp nào trong tháng này.</div>';
+                    document.getElementById('stats-meeting-details-tbody').innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Không có dữ liệu cuộc họp.</td></tr>';
+                    document.getElementById('stats-attendance-rate').innerText = '0%';
+                    document.getElementById('stats-total-late').innerText = '0';
+                    document.getElementById('stats-total-absent').innerText = '0';
+                    return;
+                }
+
+                activeAttendanceMap = {};
+                let totalLate = 0;
+                let totalAbsent = 0;
+                let totalPresent = 0;
+                let totalRequiredAttendees = 0;
+
+                const promises = activeMeetingsInStats.map(async (m) => {
+                    const logs = await DBService.getMeetingAttendance(m.id);
+                    activeAttendanceMap[m.id] = logs;
+
+                    const requiredCount = employeesList.filter(user => {
+                        const userSpecs = formatUserSpecialty(user).toUpperCase();
+                        const deptKey = m.department.toUpperCase();
+                        if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
+                        if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
+                        if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
+                        if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return userSpecs.includes('TIẾP TÂN') || userSpecs.includes('TT');
+                        return false;
+                    }).length;
+
+                    totalRequiredAttendees += requiredCount;
+
+                    logs.forEach(log => {
+                        if (log.status === 'Có') totalPresent++;
+                        else if (log.status === 'Trễ') {
+                            totalPresent++;
+                            totalLate++;
+                        } else if (log.status === 'Vắng không phép' || log.status === 'Vắng phép' || log.status === 'Vắng đột xuất') {
+                            totalAbsent++;
+                        }
+                    });
+
+                    const now = new Date();
+                    const [_y, _m, _d] = m.date.split('-').map(Number);
+                    const [eH, eM] = m.endTime.split(':').map(Number);
+                    const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+
+                    if (now > mEnd) {
+                        const checkedInUserIds = new Set(logs.map(l => l.userId));
+                        const missingCount = requiredCount - checkedInUserIds.size;
+                        if (missingCount > 0) {
+                            totalAbsent += missingCount;
+                        }
+                    }
+                });
+
+                await Promise.all(promises);
+
+                const rate = totalRequiredAttendees > 0 ? Math.round((totalPresent / totalRequiredAttendees) * 100) : 0;
+                document.getElementById('stats-attendance-rate').innerText = `${rate}%`;
+                document.getElementById('stats-total-late').innerText = totalLate;
+                document.getElementById('stats-total-absent').innerText = totalAbsent;
+
+                listContainer.innerHTML = '';
+                activeMeetingsInStats.forEach((m, idx) => {
+                    const card = document.createElement('div');
+                    card.style.cssText = `
+                        padding: 0.85rem;
+                        background: #F9FAFB;
+                        border: 1px solid var(--border-color);
+                        border-radius: 8px;
+                        cursor: pointer;
+                        transition: var(--transition-base);
+                    `;
+                    card.className = 'meeting-stats-card';
+                    card.dataset.meetingId = m.id;
+                    card.onclick = () => selectMeetingForStats(m.id);
+
+                    const logs = activeAttendanceMap[m.id] || [];
+                    const presentCount = logs.filter(l => l.status === 'Có' || l.status === 'Trễ').length;
+
+                    card.innerHTML = `
+                        <div style="font-weight: 700; color: #1F2937; margin-bottom: 0.25rem; font-size: 0.92rem;">${m.title || 'Họp định kỳ'}</div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); display:flex; flex-direction:column; gap:2px;">
+                            <span>📅 Ngày: ${m.date}</span>
+                            <span>🕒 Giờ: ${m.startTime} - ${m.endTime}</span>
+                            <span>👥 Bộ phận: <strong>${m.department}</strong></span>
+                            <span style="color: #7C3AED; font-weight: 600;">✅ Đã điểm danh: ${presentCount} người</span>
+                        </div>
+                    `;
+
+                    listContainer.appendChild(card);
+                    
+                    if (idx === 0) {
+                        selectMeetingForStats(m.id);
+                    }
+                });
+
+                if (window.lucide) window.lucide.createIcons();
+
+            } catch (err) {
+                console.error("Error loading meetings stats:", err);
+                listContainer.innerHTML = '<div style="color:#EF4444; text-align:center; padding:1rem;">Lỗi tải dữ liệu.</div>';
+            }
+        }
+
+        async function selectMeetingForStats(meetingId) {
+            selectedMeetingId = meetingId;
+            
+            document.querySelectorAll('.meeting-stats-card').forEach(card => {
+                if (card.dataset.meetingId === meetingId) {
+                    card.style.borderColor = '#7C3AED';
+                    card.style.background = '#F5F3FF';
+                } else {
+                    card.style.borderColor = 'var(--border-color)';
+                    card.style.background = '#F9FAFB';
+                }
+            });
+
+            const meeting = activeMeetingsInStats.find(m => m.id === meetingId);
+            if (!meeting) return;
+
+            document.getElementById('stats-meeting-detail-title').innerText = `Chi tiết: ${meeting.title} (${meeting.date})`;
+            
+            const deleteBtn = document.getElementById('btn-delete-meeting');
+            deleteBtn.style.display = 'block';
+            deleteBtn.onclick = () => handleDeleteMeeting(meetingId);
+
+            const tbody = document.getElementById('stats-meeting-details-tbody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Đang tải danh sách điểm danh...</td></tr>';
+
+            try {
+                const logs = activeAttendanceMap[meetingId] || [];
+                const logsMap = {};
+                logs.forEach(l => {
+                    logsMap[l.userId] = l;
+                });
+
+                const dept = meeting.department;
+                const requiredUsers = employeesList.filter(user => {
+                    const userSpecs = formatUserSpecialty(user).toUpperCase();
+                    const deptKey = dept.toUpperCase();
+                    if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
+                    if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
+                    if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
+                    if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return userSpecs.includes('TIẾP TÂN') || userSpecs.includes('TT');
+                    return false;
+                });
+
+                tbody.innerHTML = '';
+
+                if (requiredUsers.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Không có nhân sự nào thuộc bộ phận này được xếp tham dự.</td></tr>';
+                    return;
+                }
+
+                requiredUsers.forEach((user, idx) => {
+                    const userId = user.id;
+                    const msnvDisplay = user.msnvStr || (idx + 1);
+                    const userLog = logsMap[userId];
+
+                    let status = 'Vắng không phép';
+                    let ciTimeStr = '---';
+
+                    const now = new Date();
+                    const [_y, _m, _d] = meeting.date.split('-').map(Number);
+                    const [eH, eM] = meeting.endTime.split(':').map(Number);
+                    const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+
+                    if (userLog) {
+                        status = userLog.status;
+                        ciTimeStr = userLog.checkInTime ? new Date(userLog.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '---';
+                    } else {
+                        if (now < mEnd) {
+                            status = 'Chưa điểm danh';
+                        }
+                    }
+
+                    const tr = document.createElement('tr');
+                    
+                    tr.innerHTML = `
+                        <td style="font-weight: 600; font-family: monospace; color: var(--text-muted);">${msnvDisplay}</td>
+                        <td style="font-weight: 600; color: var(--text-main);">${user.name || ''}</td>
+                        <td><span style="font-size:0.8rem; background:#F3F4F6; padding:2px 8px; border-radius:12px;">${formatUserSpecialty(user)}</span></td>
+                        <td style="text-align: center; font-weight: 600; font-family: monospace; color: #4B5563;">${ciTimeStr}</td>
+                        <td>
+                            <select class="table-select" onchange="overrideAttendeeStatus('${meetingId}', '${userId}', '${(user.name || '').replace(/'/g, "\\'")}', this)" style="
+                                font-weight: 700;
+                                color: ${status === 'Có' ? '#059669' : (status === 'Trễ' ? '#D97706' : (status === 'Chưa điểm danh' ? '#6B7280' : '#EF4444'))};
+                                border-color: ${status === 'Có' ? '#A7F3D0' : (status === 'Trễ' ? '#FDE68A' : 'var(--border-color)')};
+                                background-color: ${status === 'Có' ? '#ECFDF5' : (status === 'Trễ' ? '#FFFBEB' : 'white')};
+                            ">
+                                <option value="Có" ${status === 'Có' ? 'selected' : ''}>Có (Đúng giờ)</option>
+                                <option value="Trễ" ${status === 'Trễ' ? 'selected' : ''}>Trễ</option>
+                                <option value="Vắng phép" ${status === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
+                                <option value="Vắng đột xuất" ${status === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
+                                <option value="Vắng không phép" ${status === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
+                                <option value="Chưa điểm danh" ${status === 'Chưa điểm danh' ? 'selected' : ''} disabled>Chưa điểm danh</option>
+                            </select>
+                        </td>
+                    `;
+
+                    tbody.appendChild(tr);
+                });
+
+            } catch (err) {
+                console.error("Error loading meeting details:", err);
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #EF4444;">Lỗi khi tải chi tiết cuộc họp.</td></tr>';
+            }
+        }
+
+        async function overrideAttendeeStatus(meetingId, userId, userName, select) {
+            const status = select.value;
+            select.disabled = true;
+
+            try {
+                await DBService.updateMeetingAttendanceStatus(meetingId, userId, userName, status);
+                UIService.toast(`Đã cập nhật trạng thái của ${userName} thành "${status}"`, "success");
+                
+                select.style.color = status === 'Có' ? '#059669' : (status === 'Trễ' ? '#D97706' : '#EF4444');
+                select.style.borderColor = status === 'Có' ? '#A7F3D0' : (status === 'Trễ' ? '#FDE68A' : 'var(--border-color)');
+                select.style.backgroundColor = status === 'Có' ? '#ECFDF5' : (status === 'Trễ' ? '#FFFBEB' : 'white');
+                
+                const logs = activeAttendanceMap[meetingId] || [];
+                const idx = logs.findIndex(l => l.userId === userId);
+                if (idx !== -1) {
+                    logs[idx].status = status;
+                } else {
+                    logs.push({
+                        meetingId,
+                        userId,
+                        userName,
+                        status,
+                        checkInTime: null
+                    });
+                }
+                
+                await renderMeetingsGrid();
+            } catch (err) {
+                alert("Lỗi: " + err.message);
+            } finally {
+                select.disabled = false;
+            }
+        }
+
+        async function handleDeleteMeeting(meetingId) {
+            if (!confirm("CẢNH BÁO: Bạn có thực sự muốn xóa cuộc họp này và toàn bộ dữ liệu điểm danh liên quan không?")) return;
+            
+            try {
+                await DBService.deleteMeeting(meetingId);
+                UIService.toast("Đã xóa cuộc họp thành công!", "info");
+                
+                await loadMeetingsStats();
+                await renderMeetingsGrid();
+            } catch (err) {
+                alert("Lỗi khi xóa: " + err.message);
+            }
+        }
+
+        // 4. Export Reports
+        function exportMeetingsStatsCSV() {
+            if (activeMeetingsInStats.length === 0) {
+                alert("Không có cuộc họp nào để xuất báo cáo!");
+                return;
+            }
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+            const headersSummary = ["Họ Tên", "Chuyên Môn", "Số Cuộc Họp Bắt Buộc", "Có (Đúng Giờ)", "Trễ", "Vắng Phép / Đột Xuất", "Vắng Không Phép", "Tỷ Lệ Tham Dự (%)"];
+            const rowsSummary = employeesList.map(user => {
+                const userId = user.id;
+                const specLabel = formatUserSpecialty(user);
+                
+                let requiredCount = 0;
+                let presentCount = 0;
+                let lateCount = 0;
+                let excusedCount = 0;
+                let unexcusedCount = 0;
+
+                activeMeetingsInStats.forEach(m => {
+                    const userSpecs = specLabel.toUpperCase();
+                    const deptKey = m.department.toUpperCase();
+                    
+                    let isRequired = false;
+                    if (deptKey === 'TG TA') isRequired = userSpecs.includes('TG TA');
+                    else if (deptKey === 'TG T-TV') isRequired = userSpecs.includes('TG T-TV');
+                    else if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') isRequired = userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
+                    else if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') isRequired = userSpecs.includes('TIẾP TÂN') || userSpecs.includes('TT');
+
+                    if (!isRequired) return;
+
+                    requiredCount++;
+
+                    const logs = activeAttendanceMap[m.id] || [];
+                    const userLog = logs.find(l => l.userId === userId);
+
+                    if (userLog) {
+                        if (userLog.status === 'Có') presentCount++;
+                        else if (userLog.status === 'Trễ') {
+                            presentCount++;
+                            lateCount++;
+                        } else if (userLog.status === 'Vắng phép' || userLog.status === 'Vắng đột xuất') {
+                            excusedCount++;
+                        } else if (userLog.status === 'Vắng không phép') {
+                            unexcusedCount++;
+                        }
+                    } else {
+                        const now = new Date();
+                        const [_y, _m, _d] = m.date.split('-').map(Number);
+                        const [eH, eM] = m.endTime.split(':').map(Number);
+                        const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+
+                        if (now > mEnd) {
+                            unexcusedCount++;
+                        }
+                    }
+                });
+
+                const rate = requiredCount > 0 ? Math.round((presentCount / requiredCount) * 100) : 0;
+
+                return [
+                    `"${user.name || ''}"`,
+                    `"${specLabel}"`,
+                    requiredCount,
+                    presentCount - lateCount,
+                    lateCount,
+                    excusedCount,
+                    unexcusedCount,
+                    `${rate}%`
+                ].join(",");
+            });
+
+            const headersDetails = ["\n\nCuộc Họp", "Ngày Họp", "Bộ Phận", "Nhân Viên", "Giờ Điểm Danh", "Trạng Thái"];
+            const rowsDetails = [];
+
+            activeMeetingsInStats.forEach(m => {
+                const logs = activeAttendanceMap[m.id] || [];
+                const logsMap = {};
+                logs.forEach(l => { logsMap[l.userId] = l; });
+
+                const dept = m.department;
+                const requiredUsers = employeesList.filter(user => {
+                    const userSpecs = formatUserSpecialty(user).toUpperCase();
+                    const deptKey = dept.toUpperCase();
+                    if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
+                    if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
+                    if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
+                    if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return userSpecs.includes('TIẾP TÂN') || userSpecs.includes('TT');
+                    return false;
+                });
+
+                requiredUsers.forEach(user => {
+                    const userId = user.id;
+                    const userLog = logsMap[userId];
+
+                    let status = 'Vắng không phép';
+                    let ciTimeStr = '---';
+
+                    const now = new Date();
+                    const [_y, _m, _d] = m.date.split('-').map(Number);
+                    const [eH, eM] = m.endTime.split(':').map(Number);
+                    const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+
+                    if (userLog) {
+                        status = userLog.status;
+                        ciTimeStr = userLog.checkInTime ? new Date(userLog.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '---';
+                    } else {
+                        if (now < mEnd) status = 'Chưa diễn ra';
+                    }
+
+                    rowsDetails.push([
+                        `"${m.title || 'Họp định kỳ'}"`,
+                        m.date,
+                        `"${m.department}"`,
+                        `"${user.name || ''}"`,
+                        ciTimeStr,
+                        status
+                    ].join(","));
+                });
+            });
+
+            const csvContent = "\uFEFF" + 
+                "THỐNG KÊ HỌP ĐỊNH KỲ - TỔNG HỢP THÁNG " + monthStr + "\n" +
+                headersSummary.join(",") + "\n" + 
+                rowsSummary.join("\n") + 
+                headersDetails.join(",") + "\n" + 
+                rowsDetails.join("\n");
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `ThongKe_HopDinhKy_${monthStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        window.openCreateMeetingModal = openCreateMeetingModal;
+        window.closeCreateMeetingModal = closeCreateMeetingModal;
+        window.handleCreateMeeting = handleCreateMeeting;
+        window.showMeetingsStats = showMeetingsStats;
+        window.hideMeetingsStats = hideMeetingsStats;
+        window.overrideAttendeeStatus = overrideAttendeeStatus;
+        window.exportMeetingsStatsCSV = exportMeetingsStatsCSV;
+        window.handleDeleteMeeting = handleDeleteMeeting;
+        window.selectMeetingForStats = selectMeetingForStats;
     </script>
 
     <script>
