@@ -43,16 +43,21 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+            <header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
                 <div>
                     <h1 style="font-size: 1.5rem; font-weight: 700;">Bảng Điều Khiển Cá Nhân</h1>
                     <p style="color: var(--text-muted);">Xin chào, <span id="user-display-name">Trợ giảng</span></p>
                 </div>
-                <!-- Button to switch back to admin, hidden by default -->
-                <button id="btn-back-admin" class="btn btn-primary" style="display: none; background-color: #4B5563;"
-                    onclick="switchRole()">
-                    Quay lại Admin
-                </button>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button id="btn-change-password" class="btn" style="background-color: var(--primary-color); color: white;" onclick="openChangePasswordModal()">
+                        <i data-lucide="key" style="margin-right: 0.5rem; width: 16px; height: 16px;"></i> Đổi mật khẩu
+                    </button>
+                    <!-- Button to switch back to admin, hidden by default -->
+                    <button id="btn-back-admin" class="btn btn-primary" style="display: none; background-color: #4B5563;"
+                        onclick="switchRole()">
+                        Quay lại Admin
+                    </button>
+                </div>
             </header>
 
             <!-- Meeting Banner Container -->
@@ -118,6 +123,53 @@
 
         </main>
     </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" class="custom-modal-backdrop" style="display: none;">
+        <div class="custom-modal-box" style="max-width: 450px; text-align: left; padding: 2rem; border-radius: var(--radius-lg); background: var(--bg-surface); position: relative;">
+            <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--primary-color); display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="key" style="color: var(--primary-color);"></i> Đổi Mật Khẩu
+            </h3>
+            
+            <form id="change-password-form" onsubmit="handleChangePassword(event)">
+                <div class="modern-form-group" style="margin-bottom: 1rem;">
+                    <label class="modern-label" for="pwd-current">Mật khẩu hiện tại</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="password" id="pwd-current" class="modern-input" required placeholder="Nhập mật khẩu hiện tại">
+                        <button type="button" style="position: absolute; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer;" onclick="togglePasswordVisibility('pwd-current', this)">
+                            <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="modern-form-group" style="margin-bottom: 1rem;">
+                    <label class="modern-label" for="pwd-new">Mật khẩu mới</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="password" id="pwd-new" class="modern-input" required placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự)">
+                        <button type="button" style="position: absolute; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer;" onclick="togglePasswordVisibility('pwd-new', this)">
+                            <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="modern-form-group" style="margin-bottom: 1.5rem;">
+                    <label class="modern-label" for="pwd-confirm">Xác nhận mật khẩu mới</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="password" id="pwd-confirm" class="modern-input" required placeholder="Nhập lại mật khẩu mới để xác nhận">
+                        <button type="button" style="position: absolute; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer;" onclick="togglePasswordVisibility('pwd-confirm', this)">
+                            <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="custom-modal-actions" style="margin-top: 2rem; justify-content: flex-end; gap: 0.75rem;">
+                    <button type="button" class="btn" style="background: #F3F4F6; color: #4B5563; border: 1px solid var(--border-color);" onclick="closeChangePasswordModal()">Hủy bỏ</button>
+                    <button type="submit" id="btn-submit-password" class="btn btn-primary">Cập nhật</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>

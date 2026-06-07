@@ -328,6 +328,13 @@ document.addEventListener('DOMContentLoaded', () => {
             setInterval(globalCheckAutoCheckout, 60 * 1000); // Then every 60s
             console.log('[Global] Auto-checkout interval started');
         }, 5000);
+
+        // Initialize PWA System Notifications
+        setTimeout(() => {
+            if (typeof initPWANotifications === 'function') {
+                initPWANotifications();
+            }
+        }, 3000);
     }
 });
 
@@ -1648,5 +1655,374 @@ window.checkInToMeeting = async function(meetingId, btn) {
     } catch(err) {
         alert("Lỗi điểm danh: " + err.message);
         if (btn) btn.disabled = false;
+    }
+};
+
+// ================= PASSWORD SELF-SERVICE =================
+
+window.togglePasswordVisibility = function(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) {
+            icon.setAttribute('data-lucide', 'eye-off');
+            if (window.lucide) window.lucide.createIcons({ root: btn });
+        }
+    } else {
+        input.type = 'password';
+        if (icon) {
+            icon.setAttribute('data-lucide', 'eye');
+            if (window.lucide) window.lucide.createIcons({ root: btn });
+        }
+    }
+};
+
+window.openChangePasswordModal = function() {
+    const modal = document.getElementById('change-password-modal');
+    if (!modal) return;
+    
+    // Clear old inputs
+    document.getElementById('pwd-current').value = '';
+    document.getElementById('pwd-new').value = '';
+    document.getElementById('pwd-confirm').value = '';
+    
+    // Reset inputs type to password and reset eye icons
+    ['pwd-current', 'pwd-new', 'pwd-confirm'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.type = 'password';
+    });
+    
+    modal.querySelectorAll('button[type="button"] i').forEach(icon => {
+        icon.setAttribute('data-lucide', 'eye');
+        if (window.lucide) window.lucide.createIcons({ root: icon.parentElement });
+    });
+    
+    modal.style.display = 'flex';
+};
+
+window.closeChangePasswordModal = function() {
+    const modal = document.getElementById('change-password-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.handleChangePassword = async function(event) {
+    if (event) event.preventDefault();
+    
+    const currentPassword = document.getElementById('pwd-current').value;
+    const newPassword = document.getElementById('pwd-new').value;
+    const confirmPassword = document.getElementById('pwd-confirm').value;
+    const btnSubmit = document.getElementById('btn-submit-password');
+    
+    if (newPassword.length < 6) {
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast("Mật khẩu mới phải có ít nhất 6 ký tự!", "error");
+        } else {
+            alert("Mật khẩu mới phải có ít nhất 6 ký tự!");
+        }
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast("Mật khẩu mới và xác nhận mật khẩu không khớp nhau!", "error");
+        } else {
+            alert("Mật khẩu mới và xác nhận mật khẩu không khớp nhau!");
+        }
+        return;
+    }
+    
+    const originalText = btnSubmit.innerText;
+    btnSubmit.innerText = 'Đang xử lý...';
+    btnSubmit.disabled = true;
+    
+    try {
+        const user = firebase.auth().currentUser;
+        if (!user) {
+            throw new Error("Không tìm thấy phiên đăng nhập. Vui lòng đăng nhập lại!");
+        }
+        
+        // Reauthenticate
+        const email = user.email;
+        const credential = firebase.auth.EmailAuthProvider.credential(email, currentPassword);
+        await user.reauthenticateWithCredential(credential);
+        
+        // Update Auth Password
+        await user.updatePassword(newPassword);
+        
+        // Update Firestore password
+        const currentUserId = localStorage.getItem('currentUserId');
+        if (currentUserId && typeof db !== 'undefined') {
+            await db.collection('users').doc(currentUserId).update({
+                password: newPassword,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast("Đổi mật khẩu thành công!", "success");
+        } else {
+            alert("Đổi mật khẩu thành công!");
+        }
+        window.closeChangePasswordModal();
+    } catch (error) {
+        console.error("Change Password Error:", error);
+        let errorMsg = error.message;
+        if (error.code === 'auth/wrong-password') {
+            errorMsg = "Mật khẩu hiện tại không chính xác!";
+        } else if (error.code === 'auth/weak-password') {
+            errorMsg = "Mật khẩu mới quá yếu!";
+        } else if (error.code === 'auth/requires-recent-login') {
+            errorMsg = "Vui lòng đăng nhập lại trước khi đổi mật khẩu!";
+        }
+        
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast("Lỗi: " + errorMsg, "error");
+        } else {
+            alert("Lỗi: " + errorMsg);
+        }
+    } finally {
+        btnSubmit.innerText = originalText;
+        btnSubmit.disabled = false;
+    }
+};
+
+// ================= PWA SYSTEM NOTIFICATIONS =================
+
+window.initPWANotifications = function() {
+    const currentUser = localStorage.getItem('currentUser');
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (!currentUser || !currentUserId) return;
+
+    // Request notification permission if not yet decided
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+            if (permission === 'granted' && typeof UIService !== 'undefined' && UIService.toast) {
+                UIService.toast("Đã bật nhận thông báo hệ thống!", "success");
+            }
+        });
+    }
+
+    // Set up real-time listener for new meetings
+    window.setupMeetingsNotificationListener();
+
+    // Start periodic check for shift and meeting start reminders
+    // First run after 5 seconds, then every 60 seconds
+    setTimeout(window.checkUpcomingMeetingsAndShifts, 5000);
+    setInterval(window.checkUpcomingMeetingsAndShifts, 60000);
+    console.log('[Notification] System initialized');
+};
+
+window.requestNotificationPermission = async function() {
+    if (!('Notification' in window)) {
+        console.warn("Trình duyệt này không hỗ trợ thông báo.");
+        return false;
+    }
+    if (Notification.permission === 'granted') {
+        return true;
+    }
+    if (Notification.permission !== 'denied') {
+        const permission = await Notification.requestPermission();
+        return permission === 'granted';
+    }
+    return false;
+};
+
+window.isUserMatchingMeeting = function(user, meeting) {
+    if (!meeting || !user) return false;
+    const specLabel = window.formatUserSpecialty(user) || '';
+    const userSpecs = specLabel.toUpperCase();
+    let deptKey = (meeting.department || '').toUpperCase();
+    if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
+    if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
+    if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
+    if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return userSpecs.includes('TIẾP TÂN') || userSpecs.includes('TT');
+    return false;
+};
+
+window.showLocalNotification = function(title, body, tag) {
+    if (Notification.permission === 'granted') {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.ready.then(registration => {
+                registration.showNotification(title, {
+                    body: body,
+                    icon: 'images/TUDUYTRE.jpg',
+                    badge: 'images/TUDUYTRE.jpg',
+                    tag: tag || undefined,
+                    renotify: true,
+                    vibrate: [200, 100, 200]
+                });
+            }).catch(err => {
+                console.warn("Service Worker notification failed, falling back to window Notification:", err);
+                new Notification(title, { body: body, icon: 'images/TUDUYTRE.jpg' });
+            });
+        } else {
+            new Notification(title, { body: body, icon: 'images/TUDUYTRE.jpg' });
+        }
+    }
+    
+    // Also show toast if the page is currently visible/active!
+    if (document.visibilityState === 'visible' && typeof UIService !== 'undefined' && UIService.toast) {
+        UIService.toast(body, 'info');
+    }
+};
+
+window.setupMeetingsNotificationListener = function() {
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (!currentUserId || typeof db === 'undefined') return;
+
+    db.collection('users').doc(currentUserId).get().then(userDoc => {
+        if (!userDoc.exists) return;
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        const now = new Date();
+        const todayStr = getLocalDateKeyFromDate(now);
+
+        let isInitialLoad = true;
+        
+        db.collection('meetings')
+            .where('date', '==', todayStr)
+            .onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const meeting = { id: change.doc.id, ...change.doc.data() };
+                        if (!isInitialLoad) {
+                            if (window.isUserMatchingMeeting(user, meeting)) {
+                                const notifiedKey = `notified_meeting_new_${meeting.id}`;
+                                if (!localStorage.getItem(notifiedKey)) {
+                                    window.showLocalNotification(
+                                        `Lịch họp mới: ${meeting.title || 'Họp định kỳ'}`,
+                                        `Cuộc họp diễn ra lúc ${meeting.startTime} hôm nay tại bộ phận ${meeting.department}.`,
+                                        `meeting_new_${meeting.id}`
+                                    );
+                                    localStorage.setItem(notifiedKey, 'true');
+                                }
+                            }
+                        }
+                    }
+                });
+                isInitialLoad = false;
+            }, err => {
+                console.warn("Error listening to meetings for notifications:", err);
+            });
+    }).catch(err => {
+        console.warn("Error fetching user for meetings listener:", err);
+    });
+};
+
+window.checkUpcomingMeetingsAndShifts = async function() {
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (!currentUserId || typeof db === 'undefined' || typeof DBService === 'undefined') return;
+
+    try {
+        const userDoc = await db.collection('users').doc(currentUserId).get();
+        if (!userDoc.exists) return;
+        const user = { id: userDoc.id, ...userDoc.data() };
+
+        const now = new Date();
+        const dateKey = getLocalDateKeyFromDate(now);
+
+        // 1. Check meeting reminders (for everyone matching)
+        const todayMeetings = await DBService.getTodayMeetings();
+        for (const meeting of todayMeetings) {
+            if (window.isUserMatchingMeeting(user, meeting)) {
+                const [mSH, mSM] = meeting.startTime.split(':').map(Number);
+                const [_y, _m, _d] = meeting.date.split('-').map(Number);
+                const meetingStart = new Date(_y, _m - 1, _d, mSH, mSM, 0, 0);
+
+                const diffMs = meetingStart.getTime() - now.getTime();
+                const diffMins = Math.ceil(diffMs / (60 * 1000));
+
+                if (diffMins > 0 && diffMins <= 10) {
+                    const notifiedKey = `notified_meeting_soon_${meeting.id}`;
+                    if (!localStorage.getItem(notifiedKey)) {
+                        const attendanceSnap = await db.collection('meeting_attendance')
+                            .doc(`${meeting.id}_${currentUserId}`).get();
+                        if (!attendanceSnap.exists) {
+                            window.showLocalNotification(
+                                `Sắp đến giờ họp: ${meeting.title || 'Họp định kỳ'}`,
+                                `Cuộc họp sẽ bắt đầu lúc ${meeting.startTime} (còn ${diffMins} phút). Vui lòng chuẩn bị vào họp!`,
+                                `meeting_soon_${meeting.id}`
+                            );
+                            localStorage.setItem(notifiedKey, 'true');
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Check shift check-in reminder (Receptionists only)
+        const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : ['staff']);
+        const isReceptionist = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+
+        if (isReceptionist) {
+            const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
+            const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+            const BRANCHES = ['cs1', 'cs2', 'cs3'];
+
+            const getMonday = (d) => {
+                const date = new Date(d);
+                const day = date.getDay();
+                const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+                date.setDate(diff);
+                date.setHours(0, 0, 0, 0);
+                return date;
+            };
+
+            const monday = getMonday(now);
+            const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+            const dayOfWeek = now.getDay();
+            const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const dayKey = DAY_KEYS_MAP[dayIdx];
+
+            for (const branch of BRANCHES) {
+                const compositeKey = `${branch}__${mondayKey}`;
+                const weekData = await DBService.getReceptionistSchedule(compositeKey);
+                if (!weekData) continue;
+
+                const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
+
+                for (const shiftKey of SHIFT_KEYS) {
+                    const shiftData = weekData[shiftKey];
+                    if (!shiftData || !shiftData[dayKey]) continue;
+
+                    const staffEntry = shiftData[dayKey].find(s => s.id === currentUserId);
+                    if (!staffEntry) continue;
+
+                    const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
+                    const startStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
+                    const endStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
+
+                    const [_acy, _acm, _acd] = dateKey.split('-').map(Number);
+                    const [_ssh, _ssm] = startStr.split(':').map(Number);
+                    const [_seh, _sem] = endStr.split(':').map(Number);
+                    const shiftStart = new Date(_acy, _acm - 1, _acd, _ssh, _ssm, 0, 0);
+                    const shiftEnd = new Date(_acy, _acm - 1, _acd, _seh, _sem, 0, 0);
+
+                    const timeDiffMins = (shiftStart.getTime() - now.getTime()) / (60 * 1000);
+
+                    // Trigger if shift starts in 15 mins OR started but <= 30 mins ago
+                    if (timeDiffMins <= 15 && timeDiffMins >= -30) {
+                        const notifiedKey = `notified_shift_checkin_${dateKey}_${shiftKey}`;
+                        if (!localStorage.getItem(notifiedKey)) {
+                            const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);
+                            const hasOpenSession = attendance && attendance.sessions && attendance.sessions.some(s => s.checkIn && !s.checkOut);
+
+                            if (!hasOpenSession) {
+                                window.showLocalNotification(
+                                    `Nhắc ca làm việc: ${shiftKey === 'morning' ? 'Ca Sáng' : shiftKey === 'afternoon' ? 'Ca Chiều' : 'Ca Tối'}`,
+                                    `Đã đến giờ trực ca của bạn (${startStr} - ${endStr}). Vui lòng Chấm Công để Vào ca!`,
+                                    `shift_checkin_${dateKey}_${shiftKey}`
+                                );
+                                localStorage.setItem(notifiedKey, 'true');
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.warn("Error in checkUpcomingMeetingsAndShifts:", err);
     }
 };
