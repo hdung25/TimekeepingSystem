@@ -394,6 +394,21 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
         return;
     }
 
+    // Validation: Only allow teachers/TAs to register classes
+    const currentRole = localStorage.getItem('currentRole');
+    let currentRoles = [];
+    try {
+        const parsed = JSON.parse(currentRole);
+        currentRoles = Array.isArray(parsed) ? parsed : [currentRole];
+    } catch (e) {
+        currentRoles = currentRole ? [currentRole] : [];
+    }
+    const isTeacherOrTA = currentRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+    if (!isTeacherOrTA) {
+        alert("Bạn không có chức danh Giáo viên hoặc Trợ giảng để nhận lớp này!");
+        return;
+    }
+
     // TIME VALIDATION — extract pure dateKey for Date parsing
     if (endTimeStr) {
         const pureDateKey = compositeKey.includes('__') ? compositeKey.split('__')[1] : compositeKey;
@@ -470,8 +485,6 @@ window.updateSubjectRow = async function (compositeKey, caType, index, subjectNa
     await DBService.saveSchedule(compositeKey, dayData);
 };
 
-// ================= MULTI-TEACHER PICKER =================
-
 window.openGVPicker = function (compositeKey, caType, index, fieldType) {
     const existing = document.getElementById('gv-picker-overlay');
     if (existing) existing.remove();
@@ -482,11 +495,17 @@ window.openGVPicker = function (compositeKey, caType, index, fieldType) {
         const currentList = getGVList(row, fieldType);
         const currentIds = new Set(currentList.map(g => g.id || g.name));
         const teachers = window._teacherList || [];
-        const isGVTT = fieldType === 'gvThayThe';
+        const isGVTT = fieldType === 'gvThayTe';
         const title = isGVTT ? 'GV Thay Thế' : 'GV Chính';
         const accent = isGVTT ? '#D97706' : '#059669';
 
-        const rows = teachers.map(t => {
+        // Filter: only show users with teaching roles
+        const filteredTeachers = teachers.filter(t => {
+            const roles = Array.isArray(t.roles) ? t.roles : [t.role || ''];
+            return roles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+        });
+
+        const rows = filteredTeachers.map(t => {
             const name = (t.name || t.username || '').replace(/"/g, '&quot;');
             const chk = currentIds.has(t.id) ? 'checked' : '';
             return `<label class="gv-picker-item${chk ? ' selected' : ''}">
@@ -530,6 +549,21 @@ window.saveGVPickerResult = async function (compositeKey, caType, index, fieldTy
     const newList = Array.from(checked).map(cb => ({ id: cb.value, name: cb.dataset.name }));
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+
+    // Validate selected users' roles
+    const teachers = window._teacherList || [];
+    for (const item of newList) {
+        const u = teachers.find(t => t.id === item.id);
+        if (u) {
+            const roles = Array.isArray(u.roles) ? u.roles : [u.role || ''];
+            const isTeacherOrTA = roles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+            if (!isTeacherOrTA) {
+                alert(`Không thể chọn nhân sự "${item.name}" vì không có chức danh Giáo viên hoặc Trợ giảng.`);
+                return;
+            }
+        }
+    }
+
     const listField = fieldType + 'List';
     dayData[caType][index][listField] = newList;
     // Backward compat: keep first as single field
