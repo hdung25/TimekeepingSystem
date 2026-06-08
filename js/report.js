@@ -2164,8 +2164,16 @@ function calculateSalary() {
         totalBonus += parseFormattedNumber(input.value) || 0;
     });
 
+    // Determine if selected staff is receptionist to show/calculate receptionist-specific bonuses
+    const staffUser = window.currentUserContext;
+    let isRecep = false;
+    if (staffUser) {
+        const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
+        isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+    }
+
     // Redistribution logic for Receptionist collective bonus pool
-    if (roleFilter === 'tiep-tan') {
+    if (isRecep) {
         const actualCenterRevenue = parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0');
         const actualCs2Revenue = parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0');
         
@@ -2201,8 +2209,13 @@ function calculateSalary() {
         if (outputTong) outputTong.value = formatNumberWithCommas(Math.round(myCenterBonus));
         if (outputCs2) outputCs2.value = formatNumberWithCommas(Math.round(myCs2Bonus));
         
-        // Read and populate read-only Phi tu van and Doanh thu CS3
-        const evaluation = window.currentLoadedSalarySettings?.evaluation || [];
+        // Read and populate read-only Phi tu van and Doanh thu CS3 from the receptionist settings
+        const monthlyAll = window.currentMonthlySalarySettingsAll || {};
+        const recepSettings = (window.currentLoadedSalarySettings === (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan']))
+            ? (window.currentLoadedSalarySettings || {})
+            : (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {});
+        
+        const evaluation = recepSettings.evaluation || [];
         const phiTuVanObj = evaluation.find(e => e.id === 1);
         const doanhThuCs3Obj = evaluation.find(e => e.id === 6);
         const phiTuVan = phiTuVanObj ? (Number(phiTuVanObj.amount) || 0) : 0;
