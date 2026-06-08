@@ -10,6 +10,19 @@ document.addEventListener('DOMContentLoaded', () => {
 let currentDate = new Date(); // Global View Date
 
 async function initReport() {
+    // Restore saved month if available
+    const savedMonthStr = localStorage.getItem('lastSelectedMonthStr');
+    if (savedMonthStr) {
+        const parsedDate = new Date(savedMonthStr);
+        if (!isNaN(parsedDate.getTime())) {
+            currentDate = parsedDate;
+        }
+    }
+    
+    // Restore saved staff ID if available
+    const urlParams = new URLSearchParams(window.location.search);
+    window.initialTargetStaffId = urlParams.get('staffId') || localStorage.getItem('lastSelectedStaffId') || '';
+
     // 0. Wait for Firebase Auth to restore session (critical for Firestore permissions)
     await new Promise((resolve) => {
         const unsubscribe = firebase.auth().onAuthStateChanged(() => {
@@ -283,6 +296,11 @@ function selectStaffFromDropdown(user) {
     const input = document.getElementById('staff-search-input');
     if (input) input.value = user.name || user.username;
 
+    // Save to localStorage
+    if (user && user.id) {
+        localStorage.setItem('lastSelectedStaffId', user.id);
+    }
+
     // 3. Close dropdown
     closeStaffDropdown();
 
@@ -331,10 +349,14 @@ window.filterStaffListByRole = function() {
     renderStaffDropdownItems(filteredUsers);
     
     // Check if current selected user is in the filtered list
-    const currentSelectedId = select ? select.value : '';
+    const currentSelectedId = select ? (select.value || window.initialTargetStaffId) : window.initialTargetStaffId;
     const isCurrentInFiltered = filteredUsers.some(u => u.id === currentSelectedId);
     
-    if (!isCurrentInFiltered && filteredUsers.length > 0) {
+    if (isCurrentInFiltered) {
+        const targetUser = filteredUsers.find(u => u.id === currentSelectedId);
+        selectStaffFromDropdown(targetUser);
+        window.initialTargetStaffId = '';
+    } else if (!isCurrentInFiltered && filteredUsers.length > 0) {
         // Automatically select the first user in the filtered list
         selectStaffFromDropdown(filteredUsers[0]);
     } else if (filteredUsers.length === 0) {
@@ -352,6 +374,7 @@ window.filterStaffListByRole = function() {
 
 function changeReportMonth(offset) {
     currentDate.setMonth(currentDate.getMonth() + offset);
+    localStorage.setItem('lastSelectedMonthStr', currentDate.toISOString());
     renderMonthReport(currentDate);
 }
 
