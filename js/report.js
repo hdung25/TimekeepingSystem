@@ -10,6 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
 let currentDate = new Date(); // Global View Date
 
 async function initReport() {
+    // Reset role filter select to default 'all'
+    const roleFilterEl = document.getElementById('salary-role-filter');
+    if (roleFilterEl) roleFilterEl.value = 'all';
+
     // Restore saved month if available
     const savedMonthStr = localStorage.getItem('lastSelectedMonthStr');
     if (savedMonthStr) {
@@ -329,7 +333,7 @@ window.filterStaffListByRole = function() {
     if (filterVal === 'tiep-tan') {
         filteredUsers = window._allStaffList.filter(u => {
             const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
-            return roles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+            return roles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
         });
     } else if (filterVal === 'giao-vien') {
         filteredUsers = window._allStaffList.filter(u => {
@@ -340,11 +344,11 @@ window.filterStaffListByRole = function() {
     
     window._filteredStaffList = filteredUsers;
     
-    // Update the hidden select (staff-select) options
+    // Update the hidden select (staff-select) options — always populate with all users to keep selection valid
     const select = document.getElementById('staff-select');
     if (select) {
         select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
-        filteredUsers.forEach(u => {
+        window._allStaffList.forEach(u => {
             const opt = document.createElement('option');
             opt.value = u.id;
             opt.textContent = u.name || u.username;
@@ -352,19 +356,20 @@ window.filterStaffListByRole = function() {
         });
     }
     
-    // Update the searchable dropdown items
+    // Update the searchable dropdown items (only show filtered users in search dropdown)
     renderStaffDropdownItems(filteredUsers);
     
-    // Check if current selected user is in the filtered list
+    // Check if current selected user is in the filtered list or all list
     const currentSelectedId = select ? (select.value || window.initialTargetStaffId) : window.initialTargetStaffId;
-    const isCurrentInFiltered = filteredUsers.some(u => u.id === currentSelectedId);
+    const allUsers = window._allStaffList || [];
+    const isCurrentInAll = allUsers.some(u => u.id === currentSelectedId);
     
-    if (isCurrentInFiltered) {
-        const targetUser = filteredUsers.find(u => u.id === currentSelectedId);
+    if (isCurrentInAll) {
+        const targetUser = allUsers.find(u => u.id === currentSelectedId);
         selectStaffFromDropdown(targetUser);
         window.initialTargetStaffId = '';
-    } else if (!isCurrentInFiltered && filteredUsers.length > 0) {
-        // Automatically select the first user in the filtered list
+    } else if (filteredUsers.length > 0) {
+        // Automatically select the first user in the filtered list if nothing was selected
         selectStaffFromDropdown(filteredUsers[0]);
     } else if (filteredUsers.length === 0) {
         // Clear selection
