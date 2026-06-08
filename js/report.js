@@ -299,6 +299,13 @@ function selectStaffFromDropdown(user) {
     // Save to localStorage
     if (user && user.id) {
         localStorage.setItem('lastSelectedStaffId', user.id);
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('staffId', user.id);
+            window.history.replaceState({}, '', url.toString());
+        } catch (e) {
+            console.warn('Failed to update URL param:', e);
+        }
     }
 
     // 3. Close dropdown
@@ -365,6 +372,16 @@ window.filterStaffListByRole = function() {
         const input = document.getElementById('staff-search-input');
         if (input) input.value = '';
         _cachedStaffId = null;
+        
+        localStorage.removeItem('lastSelectedStaffId');
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('staffId');
+            window.history.replaceState({}, '', url.toString());
+        } catch (e) {
+            console.warn('Failed to delete URL param:', e);
+        }
+        
         renderMonthReport(currentDate);
     } else {
         // If current is still in list, just refresh salary settings loading
