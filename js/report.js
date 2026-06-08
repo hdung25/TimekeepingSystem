@@ -1708,8 +1708,8 @@ function renderEvaluationTable(savedData = []) {
 
         trAmount += `
             <td style="padding: 0.25rem; border: 1px solid #e5e7eb;">
-                <input type="number" class="table-input eval-amount" 
-                    value="${amount}" step="1000" data-index="${criteriaIndex}" oninput="calculateSalary()"
+                <input type="text" class="table-input eval-amount money-input" 
+                    value="${formatNumberWithCommas(amount)}" data-index="${criteriaIndex}" oninput="calculateSalary()"
                     ${isReadOnlyAttr}>
             </td>`;
 
@@ -1736,6 +1736,7 @@ function renderEvaluationTable(savedData = []) {
     tbody.innerHTML = trAmount + trNote;
 
     updateBonusDisplay(totalBonus);
+    bindMoneyInputFormatters();
 }
 
 function updateBonusDisplay(amount) {
@@ -2137,7 +2138,7 @@ function calculateSalary() {
     }
 
     evalAmounts.forEach(input => {
-        totalBonus += parseFloat(input.value) || 0;
+        totalBonus += parseFormattedNumber(input.value) || 0;
     });
 
     // Redistribution logic for Receptionist collective bonus pool
@@ -2186,8 +2187,8 @@ function calculateSalary() {
 
         const phiTuVanDisplay = document.getElementById('pdf-phi-tu-van');
         const doanhThuCs3Display = document.getElementById('pdf-doanh-thu-cs3');
-        if (phiTuVanDisplay) phiTuVanDisplay.value = formatNumberWithCommas(phiTuVan);
-        if (doanhThuCs3Display) doanhThuCs3Display.value = formatNumberWithCommas(doanhThuCs3);
+        if (phiTuVanDisplay && document.activeElement !== phiTuVanDisplay) phiTuVanDisplay.value = formatNumberWithCommas(phiTuVan);
+        if (doanhThuCs3Display && document.activeElement !== doanhThuCs3Display) doanhThuCs3Display.value = formatNumberWithCommas(doanhThuCs3);
         
         // Sum collective bonuses (Phi tu van and CS3 are already inside totalBonus from evaluations)
         totalBonus += Math.round(myCenterBonus) + Math.round(myCs2Bonus);
@@ -2201,7 +2202,7 @@ function calculateSalary() {
     let adjustVKP = Number(loadedSettings.adjust_vkp || 0);
     let adjustLate = Number(loadedSettings.adjust_late || 0);
     const advanceInput = document.getElementById('salary-advance');
-    let advance = advanceInput ? (parseFloat(advanceInput.value) || 0) : 0;
+    let advance = advanceInput ? (parseFormattedNumber(advanceInput.value) || 0) : 0;
 
     // Support dual-role aggregation when filtering by "All"
     if (roleFilter === 'all') {
@@ -2330,7 +2331,7 @@ async function saveSalarySettings() {
     const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
 
     const rate = 0; // Legacy
-    const advance = parseFloat(document.getElementById('salary-advance').value) || 0;
+    const advance = parseFormattedNumber(document.getElementById('salary-advance').value) || 0;
     const evaluationData = [];
 
     document.querySelectorAll('.eval-note').forEach((noteInp) => {
@@ -2340,7 +2341,7 @@ async function saveSalarySettings() {
         evaluationData.push({
             id: criteriaIndex,
             note: noteInp.value,
-            amount: amountInp ? (parseFloat(amountInp.value) || 0) : 0
+            amount: amountInp ? (parseFormattedNumber(amountInp.value) || 0) : 0
         });
     });
 
@@ -2429,7 +2430,7 @@ async function loadSalarySettings() {
     }
 
     window.currentLoadedSalarySettings = settings;
-    document.getElementById('salary-advance').value = settings.advance || 0;
+    document.getElementById('salary-advance').value = formatNumberWithCommas(settings.advance || 0);
     
     // Load monthly actual revenues unconditionally for the header
     try {
@@ -2458,6 +2459,7 @@ async function loadSalarySettings() {
     
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
+    bindMoneyInputFormatters();
 }
 
 async function saveHeaderRevenues() {
@@ -3534,7 +3536,38 @@ function handleMoneyInput(e) {
     let newCursor = cursorPosition + (newLength - originalLength);
     this.setSelectionRange(newCursor, newCursor);
     
-    recalculateSalaryModal();
+    const isInModal = this.closest('#class-rate-modal') !== null;
+    if (isInModal) {
+        recalculateSalaryModal();
+    } else {
+        if (!window.currentLoadedSalarySettings) window.currentLoadedSalarySettings = {};
+        if (!window.currentLoadedSalarySettings.evaluation) window.currentLoadedSalarySettings.evaluation = [];
+        
+        if (this.id === 'pdf-phi-tu-van') {
+            const evalAmt = document.querySelector('.eval-amount[data-index="1"]');
+            if (evalAmt) {
+                evalAmt.value = formatted;
+            }
+            const found = window.currentLoadedSalarySettings.evaluation.find(e => e.id === 1);
+            if (found) {
+                found.amount = parseFormattedNumber(formatted);
+            } else {
+                window.currentLoadedSalarySettings.evaluation.push({ id: 1, amount: parseFormattedNumber(formatted), note: '' });
+            }
+        } else if (this.id === 'pdf-doanh-thu-cs3') {
+            const evalAmt = document.querySelector('.eval-amount[data-index="6"]');
+            if (evalAmt) {
+                evalAmt.value = formatted;
+            }
+            const found = window.currentLoadedSalarySettings.evaluation.find(e => e.id === 6);
+            if (found) {
+                found.amount = parseFormattedNumber(formatted);
+            } else {
+                window.currentLoadedSalarySettings.evaluation.push({ id: 6, amount: parseFormattedNumber(formatted), note: '' });
+            }
+        }
+        calculateSalary();
+    }
 }
 
 function getPerformanceFactorByRate(rate) {

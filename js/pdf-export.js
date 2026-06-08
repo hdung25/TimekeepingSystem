@@ -58,14 +58,14 @@ function exportSalaryPDF(overrides) {
 
     const advance = overrides && overrides.customAdvance !== undefined
         ? overrides.customAdvance
-        : (parseFloat(document.getElementById('salary-advance')?.value) || 0);
+        : (parseFormattedNumber(document.getElementById('salary-advance')?.value || '0'));
 
     if (overrides && overrides.customEvalItems) {
         evalItems = overrides.customEvalItems;
         totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
     } else {
         document.querySelectorAll('.eval-amount').forEach((inp) => {
-            const val = parseFloat(inp.value) || 0;
+            const val = parseFormattedNumber(inp.value) || 0;
             const criteriaIndex = parseInt(inp.dataset.index, 10);
             if (isNaN(criteriaIndex)) return;
             const noteInp = document.querySelector(`.eval-note[data-index="${criteriaIndex}"]`);
