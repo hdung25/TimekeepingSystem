@@ -344,8 +344,10 @@ window.filterStaffListByRole = function() {
     
     window._filteredStaffList = filteredUsers;
     
-    // Update the hidden select (staff-select) options — always populate with all users to keep selection valid
     const select = document.getElementById('staff-select');
+    const currentSelectedId = select ? (select.value || window.initialTargetStaffId) : window.initialTargetStaffId;
+    
+    // Update the hidden select (staff-select) options — always populate with all users to keep selection valid
     if (select) {
         select.innerHTML = '<option value="">-- Chọn nhân viên --</option>';
         window._allStaffList.forEach(u => {
@@ -354,22 +356,23 @@ window.filterStaffListByRole = function() {
             opt.textContent = u.name || u.username;
             select.appendChild(opt);
         });
+        if (currentSelectedId) {
+            select.value = currentSelectedId;
+        }
     }
     
     // Update the searchable dropdown items (only show filtered users in search dropdown)
     renderStaffDropdownItems(filteredUsers);
     
-    // Check if current selected user is in the filtered list or all list
-    const currentSelectedId = select ? (select.value || window.initialTargetStaffId) : window.initialTargetStaffId;
-    const allUsers = window._allStaffList || [];
-    const isCurrentInAll = allUsers.some(u => u.id === currentSelectedId);
+    // Check if current selected user is in the filtered list
+    const isCurrentInFiltered = filteredUsers.some(u => u.id === currentSelectedId);
     
-    if (isCurrentInAll) {
-        const targetUser = allUsers.find(u => u.id === currentSelectedId);
+    if (isCurrentInFiltered) {
+        const targetUser = filteredUsers.find(u => u.id === currentSelectedId);
         selectStaffFromDropdown(targetUser);
         window.initialTargetStaffId = '';
     } else if (filteredUsers.length > 0) {
-        // Automatically select the first user in the filtered list if nothing was selected
+        // Automatically select the first user in the filtered list if current is filtered out
         selectStaffFromDropdown(filteredUsers[0]);
     } else if (filteredUsers.length === 0) {
         // Clear selection

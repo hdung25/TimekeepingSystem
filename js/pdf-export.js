@@ -9,7 +9,7 @@ function togglePdfTieptanInputs() {
     let hasReceptionist = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
     }
     const box = document.getElementById('pdf-tieptan-inputs');
     if (box) box.style.display = hasReceptionist ? 'block' : 'none';
