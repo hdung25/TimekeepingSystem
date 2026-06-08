@@ -46,7 +46,7 @@ function exportSalaryPDF(overrides) {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         if (hasReceptionist && !hasTeaching) {

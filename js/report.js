@@ -116,7 +116,9 @@ async function initReport() {
     currentDate.setDate(1);
 
     // 3. Render
-    renderMonthReport(currentDate);
+    if (!isAdminLike) {
+        renderMonthReport(currentDate);
+    }
 
     // Cross-tab update: refresh report if another tab changes class registration
     window.addEventListener('storage', (event) => {
@@ -1719,7 +1721,7 @@ function renderEvaluationTable(savedData = []) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -2195,7 +2197,7 @@ function calculateSalary() {
     let isRecep = false;
     if (staffUser) {
         const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
-        isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
     }
 
     // Redistribution logic for Receptionist collective bonus pool
@@ -2242,7 +2244,7 @@ function calculateSalary() {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         const isPureRecep = hasReceptionist && !hasTeaching;
@@ -2477,7 +2479,7 @@ async function loadSalarySettings() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -2489,7 +2491,7 @@ async function loadSalarySettings() {
         // Load monthly settings first
         const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
         window.currentMonthlySalarySettingsAll = monthlySettings || {};
-        settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || monthlySettings['giao_vien'] || monthlySettings['giao-vien'] || monthlySettings['tiep_tan'] || monthlySettings['tiep-tan'] || {};
+        settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {};
         
         if (Object.keys(settings).length === 0) {
             // Fallback to general settings
