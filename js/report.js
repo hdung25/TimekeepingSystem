@@ -580,6 +580,8 @@ async function renderMonthReport(date, forceServer = false) {
         if (userDoc.exists) window.currentUserContext = userDoc.data();
     } catch (e) { console.error("Error fetching user context", e); }
     const currentUserContext = window.currentUserContext;
+    // Re-sync tieptan inputs box visibility now that currentUserContext is resolved
+    if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
 
     // --- NEW: Toggle btn-approve-all-bonus10 ---
     const viewerRole = localStorage.getItem('currentRole') || 'staff';
@@ -2397,7 +2399,7 @@ async function saveSalarySettings() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -5281,7 +5283,7 @@ async function saveRecepExtras() {
             let hasTeaching = false;
             if (user) {
                 const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-                hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+                hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
                 hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
             }
             const isPureRecep = hasReceptionist && !hasTeaching;
@@ -5332,7 +5334,7 @@ async function saveRecepExtras() {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
