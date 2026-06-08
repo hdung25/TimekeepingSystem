@@ -2385,10 +2385,10 @@ async function saveSalarySettings() {
             window.currentUserContext.salary_config.evaluation = evaluationData;
         }
 
-        alert('Đã lưu bảng lương!');
+        UIService.toast('Đã lưu bảng lương thành công!', 'success');
     } catch (e) {
         console.error('Error saving salary settings:', e);
-        alert('Lỗi khi lưu bảng lương. Vui lòng thử lại.');
+        UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
     }
 }
 
@@ -5173,4 +5173,98 @@ window.saveRecepBonusConfigUI = saveRecepBonusConfigUI;
 window.removeRecepCenterTier = removeRecepCenterTier;
 window.removeRecepCs2Tier = removeRecepCs2Tier;
 window.loadAndComputeAllReceptionists = loadAndComputeAllReceptionists;
+
+async function saveRecepExtras() {
+    const staffId = document.getElementById('staff-select').value;
+    if (!staffId || staffId === 'all') {
+        alert("Vui lòng chọn nhân viên Tiếp Tân!");
+        return;
+    }
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
+    const activeFilter = (hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
+    
+    const btn = document.querySelector('#pdf-tieptan-inputs button');
+    let btnOriginalHtml = '';
+    if (btn) {
+        btn.disabled = true;
+        btnOriginalHtml = btn.innerHTML;
+        btn.innerHTML = 'Đang lưu...';
+    }
+    
+    try {
+        // 1. Get the current monthly settings from DB to prevent wiping other data
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        let settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {};
+        if (Object.keys(settings).length === 0) {
+            settings = await DBService.getSalarySettings(staffId) || {};
+        }
+        
+        // 2. Read new values from inputs
+        const phiTuVanVal = parseFormattedNumber(document.getElementById('pdf-phi-tu-van')?.value || '0');
+        const doanhThuCs3Val = parseFormattedNumber(document.getElementById('pdf-doanh-thu-cs3')?.value || '0');
+        
+        // 3. Update or initialize the evaluation array
+        if (!settings.evaluation) {
+            settings.evaluation = [];
+        }
+        
+        // Find or create Phí tư vấn (id: 1)
+        let phiTuVanObj = settings.evaluation.find(e => e.id === 1);
+        if (phiTuVanObj) {
+            phiTuVanObj.amount = phiTuVanVal;
+        } else {
+            settings.evaluation.push({ id: 1, amount: phiTuVanVal, note: '' });
+        }
+        
+        // Find or create Thưởng DT CS3 (id: 6)
+        let doanhThuCs3Obj = settings.evaluation.find(e => e.id === 6);
+        if (doanhThuCs3Obj) {
+            doanhThuCs3Obj.amount = doanhThuCs3Val;
+        } else {
+            settings.evaluation.push({ id: 6, amount: doanhThuCs3Val, note: '' });
+        }
+        
+        // 4. Save back to Firestore
+        const firestorePayload = {};
+        firestorePayload[roleKey] = settings;
+        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
+        
+        // 5. Update local cache/state
+        window.currentMonthlySalarySettingsAll = monthlySettings;
+        window.currentLoadedSalarySettings = settings;
+        
+        // Update DOM inputs if they exist (in case admin is viewing and has the table rendered)
+        const phiTuVanEvalAmt = document.querySelector(`.eval-amount[data-index="1"]`);
+        if (phiTuVanEvalAmt) phiTuVanEvalAmt.value = formatNumberWithCommas(phiTuVanVal);
+        
+        const doanhThuCs3EvalAmt = document.querySelector(`.eval-amount[data-index="6"]`);
+        if (doanhThuCs3EvalAmt) doanhThuCs3EvalAmt.value = formatNumberWithCommas(doanhThuCs3Val);
+        
+        UIService.toast('Đã lưu thông tin bổ sung thành công!', 'success');
+        calculateSalary();
+    } catch (e) {
+        console.error('Error saving receptionist extras:', e);
+        UIService.toast('Lỗi khi lưu thông tin: ' + e.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = btnOriginalHtml || '<i data-lucide="save" style="width: 14px; height: 14px;"></i> Lưu Thông Tin';
+            if (window.lucide) window.lucide.createIcons();
+        }
+    }
+}
+window.saveRecepExtras = saveRecepExtras;
 
