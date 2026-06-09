@@ -1514,19 +1514,28 @@ const DBService = {
             console.warn('[DailyNotes] staffId is empty, skipping.');
             return {};
         }
-        try {
-            const doc = await db.collection('daily_notes').doc(staffId).get();
-            return doc.exists ? doc.data() : {};
-        } catch (e) {
-            console.error('[DailyNotes] Error getting:', e);
-            return {};
-        }
+        const cacheKey = `daily_notes_${staffId}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const doc = await db.collection('daily_notes').doc(staffId).get();
+                return doc.exists ? doc.data() : {};
+            } catch (e) {
+                console.error('[DailyNotes] Error getting:', e);
+                return {};
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     // Save daily notes for a staff member (full object: { "2026-03-01": "note text", ... })
     async saveDailyNotes(staffId, notesObj) {
         try {
             await db.collection('daily_notes').doc(staffId).set(notesObj);
+            DBService._invalidate(`daily_notes_${staffId}`);
             return true;
         } catch (e) {
             console.error('[DailyNotes] Error saving:', e);
@@ -1586,6 +1595,7 @@ const DBService = {
         try {
             const docId = `${monthStr}_${staffId}`;
             await db.collection('salary_settings_monthly').doc(docId).set(settingsObj, { merge: true });
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
             return true;
         } catch (e) {
             console.error('[MonthlySalarySettings] Error saving:', e);
@@ -1596,20 +1606,28 @@ const DBService = {
     // Get all monthly salary settings for a given month
     async getAllMonthlySalarySettings(monthStr) {
         if (!monthStr) return {};
-        try {
-            const snapshot = await db.collection('salary_settings_monthly').get();
-            const results = {};
-            snapshot.forEach(doc => {
-                if (doc.id.startsWith(monthStr + '_')) {
-                    const sId = doc.id.substring(monthStr.length + 1);
-                    results[sId] = doc.data();
-                }
-            });
-            return results;
-        } catch (e) {
-            console.error('[MonthlySalarySettings] Error getting all:', e);
-            return {};
-        }
+        const cacheKey = `all_monthly_salary_settings_${monthStr}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snapshot = await db.collection('salary_settings_monthly').get();
+                const results = {};
+                snapshot.forEach(doc => {
+                    if (doc.id.startsWith(monthStr + '_')) {
+                        const sId = doc.id.substring(monthStr.length + 1);
+                        results[sId] = doc.data();
+                    }
+                });
+                return results;
+            } catch (e) {
+                console.error('[MonthlySalarySettings] Error getting all:', e);
+                return {};
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     // Get receptionist collective bonus pool mốc configuration
@@ -1693,6 +1711,7 @@ const DBService = {
                 approvedBy: null,
                 approvedAt: null
             });
+            DBService._invalidate('overtime_requests_staff_');
             console.log('[OT] Request created:', docRef.id);
             return docRef.id;
         } catch (e) {
@@ -1725,6 +1744,7 @@ const DBService = {
                 approvedBy: adminName || 'Admin',
                 approvedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            DBService._invalidate('overtime_requests_staff_');
             console.log('[OT] Approved:', requestId);
         } catch (e) {
             console.error('[OT] Error approving:', e);
@@ -1740,6 +1760,7 @@ const DBService = {
                 approvedBy: adminName || 'Admin',
                 approvedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            DBService._invalidate('overtime_requests_staff_');
             console.log('[OT] Rejected:', requestId);
         } catch (e) {
             console.error('[OT] Error rejecting:', e);
@@ -1749,20 +1770,29 @@ const DBService = {
 
     // Get overtime requests for a specific staff member in a month ("YYYY-MM")
     getOvertimeRequestsForStaff: async (staffId, monthStr) => {
-        try {
-            const snap = await db.collection('overtime_requests')
-                .where('staffId', '==', staffId)
-                .limit(100)
-                .get();
-            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Filter by month client-side to avoid composite index
-            return monthStr
-                ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
-                : list;
-        } catch (e) {
-            console.warn('[OT] Error getting staff requests:', e);
-            return [];
-        }
+        if (!staffId || staffId.trim() === '') return [];
+        const cacheKey = `overtime_requests_staff_${staffId}_${monthStr || 'all'}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snap = await db.collection('overtime_requests')
+                    .where('staffId', '==', staffId)
+                    .limit(100)
+                    .get();
+                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // Filter by month client-side to avoid composite index
+                return monthStr
+                    ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
+                    : list;
+            } catch (e) {
+                console.warn('[OT] Error getting staff requests:', e);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     // 10. Fixed Shifts (Receptionist)
@@ -1771,14 +1801,22 @@ const DBService = {
             console.warn('[FixedShifts] userId is empty, skipping.');
             return [];
         }
-        try {
-            const docId = `${monthStr}_${userId}`;
-            const doc = await db.collection('fixed_shifts').doc(docId).get();
-            return doc.exists ? doc.data().shifts || [] : [];
-        } catch (error) {
-            console.error("Error getting fixed shifts:", error);
-            return [];
-        }
+        const cacheKey = `fixed_shifts_${monthStr}_${userId}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const docId = `${monthStr}_${userId}`;
+                const doc = await db.collection('fixed_shifts').doc(docId).get();
+                return doc.exists ? doc.data().shifts || [] : [];
+            } catch (error) {
+                console.error("Error getting fixed shifts:", error);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     saveFixedShifts: async (monthStr, userId, shiftsArr) => {
@@ -1790,6 +1828,7 @@ const DBService = {
                 shifts: shiftsArr,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+            DBService._invalidate(`fixed_shifts_${monthStr}_${userId}`);
             return true;
         } catch (error) {
             console.error("Error saving fixed shifts:", error);
@@ -1804,14 +1843,22 @@ const DBService = {
             console.warn('[CancelledShifts] staffId is empty, skipping.');
             return [];
         }
-        try {
-            const docId = `${monthStr}_${staffId}`;
-            const doc = await db.collection('cancelled_shifts').doc(docId).get();
-            return doc.exists ? doc.data().shifts || [] : [];
-        } catch (error) {
-            console.error("[CancelledShifts] Error getting:", error);
-            return [];
-        }
+        const cacheKey = `cancelled_shifts_${monthStr}_${staffId}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const docId = `${monthStr}_${staffId}`;
+                const doc = await db.collection('cancelled_shifts').doc(docId).get();
+                return doc.exists ? doc.data().shifts || [] : [];
+            } catch (error) {
+                console.error("[CancelledShifts] Error getting:", error);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     getAllCancelledShifts: async (monthStr) => {
@@ -1834,7 +1881,7 @@ const DBService = {
     cancelShift: async (monthStr, staffId, shiftKey) => {
         try {
             const docId = `${monthStr}_${staffId}`;
-            return await db.runTransaction(async (t) => {
+            const res = await db.runTransaction(async (t) => {
                 const docRef = db.collection('cancelled_shifts').doc(docId);
                 const doc = await t.get(docRef);
                 let shifts = [];
@@ -1854,6 +1901,8 @@ const DBService = {
                 }, { merge: true });
                 return true;
             });
+            DBService._invalidate(`cancelled_shifts_${monthStr}_${staffId}`);
+            return res;
         } catch (error) {
             console.error("[CancelledShifts] Error saving:", error);
             throw error;
@@ -1888,6 +1937,7 @@ const DBService = {
                 approvedBy: null,
                 approvedAt: null
             });
+            DBService._invalidate('bonus10_requests_staff_');
             console.log('[Bonus10] Request created:', docRef.id);
             return docRef.id;
         } catch (e) {
@@ -1901,19 +1951,27 @@ const DBService = {
             console.warn('[Bonus10] staffId is empty, skipping.');
             return [];
         }
-        try {
-            const snap = await db.collection('bonus10_requests')
-                .where('staffId', '==', staffId)
-                .limit(200)
-                .get();
-            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            return monthStr
-                ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
-                : list;
-        } catch (e) {
-            console.warn('[Bonus10] Error getting staff requests:', e);
-            return [];
-        }
+        const cacheKey = `bonus10_requests_staff_${staffId}_${monthStr || 'all'}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snap = await db.collection('bonus10_requests')
+                    .where('staffId', '==', staffId)
+                    .limit(200)
+                    .get();
+                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                return monthStr
+                    ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
+                    : list;
+            } catch (e) {
+                console.warn('[Bonus10] Error getting staff requests:', e);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     getPendingBonus10Requests: async () => {
@@ -1943,6 +2001,7 @@ const DBService = {
             if (staffId && dateKey && sessionId) {
                 await DBService.toggleSessionBonus10(staffId, dateKey, sessionId);
             }
+            DBService._invalidate('bonus10_requests_staff_');
             console.log('[Bonus10] Approved:', requestId);
         } catch (e) {
             console.error('[Bonus10] Error approving:', e);
@@ -1957,6 +2016,7 @@ const DBService = {
                 approvedBy: adminName || 'Admin',
                 approvedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            DBService._invalidate('bonus10_requests_staff_');
             console.log('[Bonus10] Rejected:', requestId);
         } catch (e) {
             console.error('[Bonus10] Error rejecting:', e);
@@ -1965,16 +2025,24 @@ const DBService = {
     },
 
     getMonthlyMeetings: async (monthStr) => {
-        try {
-            const doc = await db.collection('meetings_log').doc(monthStr).get();
-            if (doc.exists) {
-                return doc.data() || { month: monthStr, records: {} };
+        const cacheKey = `monthly_meetings_${monthStr}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const doc = await db.collection('meetings_log').doc(monthStr).get();
+                if (doc.exists) {
+                    return doc.data() || { month: monthStr, records: {} };
+                }
+                return { month: monthStr, records: {} };
+            } catch (error) {
+                console.error("[MeetingsLog] Error getting:", error);
+                return { month: monthStr, records: {} };
             }
-            return { month: monthStr, records: {} };
-        } catch (error) {
-            console.error("[MeetingsLog] Error getting:", error);
-            return { month: monthStr, records: {} };
-        }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     saveMonthlyMeetings: async (monthStr, records) => {
@@ -1985,6 +2053,7 @@ const DBService = {
                 records: records,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+            DBService._invalidate(`monthly_meetings_${monthStr}`);
             return true;
         } catch (error) {
             console.error("[MeetingsLog] Error saving:", error);
