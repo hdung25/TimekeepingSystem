@@ -2604,6 +2604,32 @@ async function saveSalarySettings() {
         });
     });
 
+    // Nếu là tiếp tân: override phí tư vấn (id=1) và DT CS3 (id=6) từ các ô riêng
+    // vì eval table của TT là readonly và có thể chưa sync với giá trị mới nhất
+    if (activeFilter === 'tiep-tan') {
+        const phiTuVanInput = document.getElementById('pdf-phi-tu-van');
+        const doanhThuCs3Input = document.getElementById('pdf-doanh-thu-cs3');
+        
+        if (phiTuVanInput) {
+            const phiTuVanVal = parseFormattedNumber(phiTuVanInput.value) || 0;
+            const existing = evaluationData.find(e => e.id === 1);
+            if (existing) {
+                existing.amount = phiTuVanVal;
+            } else {
+                evaluationData.push({ id: 1, note: '', amount: phiTuVanVal });
+            }
+        }
+        if (doanhThuCs3Input) {
+            const doanhThuCs3Val = parseFormattedNumber(doanhThuCs3Input.value) || 0;
+            const existingCs3 = evaluationData.find(e => e.id === 6);
+            if (existingCs3) {
+                existingCs3.amount = doanhThuCs3Val;
+            } else {
+                evaluationData.push({ id: 6, note: '', amount: doanhThuCs3Val });
+            }
+        }
+    }
+
     const loadedSettings = window.currentLoadedSalarySettings || {};
     const settingsObj = {
         rate,
@@ -6293,6 +6319,36 @@ function getCurrentCalculationPayload(role) {
     }
     
     totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
+    
+    // Với tiếp tân (active role): đảm bảo phí tư vấn và DT CS3 dùng giá trị từ DOM inputs
+    // vì eval table có thể hiển thị giá trị cũ chưa sync
+    if (role === 'tiep-tan' && isActiveRole) {
+        const phiTuVanInput = document.getElementById('pdf-phi-tu-van');
+        const doanhThuCs3Input = document.getElementById('pdf-doanh-thu-cs3');
+        
+        if (phiTuVanInput) {
+            const actualPhiTuVan = parseFormattedNumber(phiTuVanInput.value) || 0;
+            const existingItem = evalItems.find(e => e.id === 1);
+            if (existingItem) {
+                totalBonus += (actualPhiTuVan - existingItem.amount);
+                existingItem.amount = actualPhiTuVan;
+            } else {
+                evalItems.push({ id: 1, label: 'III', title: 'PHÍ TƯ VẤN', note: '', amount: actualPhiTuVan });
+                totalBonus += actualPhiTuVan;
+            }
+        }
+        if (doanhThuCs3Input) {
+            const actualDoanhThuCs3 = parseFormattedNumber(doanhThuCs3Input.value) || 0;
+            const existingCs3 = evalItems.find(e => e.id === 6);
+            if (existingCs3) {
+                totalBonus += (actualDoanhThuCs3 - existingCs3.amount);
+                existingCs3.amount = actualDoanhThuCs3;
+            } else {
+                evalItems.push({ id: 6, label: 'VII', title: 'THƯỞNG DT CS3', note: '', amount: actualDoanhThuCs3 });
+                totalBonus += actualDoanhThuCs3;
+            }
+        }
+    }
     
     // For receptionists, add center and cs2 bonuses
     let centerBonus = 0;
