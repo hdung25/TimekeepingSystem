@@ -2365,16 +2365,24 @@ function calculateSalary() {
         
         if (hasTeachingChips && hasReceptionistChips) {
             // Dual-role employee!
-            // Determine active loaded role vs other role
-            const isLoadedTiepTan = window.currentLoadedSalarySettings === (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan']);
-            const activeRole = isLoadedTiepTan ? 'tiep_tan' : 'giao_vien';
-            const otherRole = activeRole === 'tiep_tan' ? 'giao_vien' : 'tiep_tan';
+            // Use window.currentLoadedRoleKey (reliable flag) instead of object reference comparison
+            const loadedRoleKey = window.currentLoadedRoleKey || 'giao_vien';
+            const otherRole = loadedRoleKey === 'tiep_tan' ? 'giao_vien' : 'tiep_tan';
             
             const otherSettings = monthlyAll[otherRole] || monthlyAll[otherRole.replace('_', '-')] || {};
             
             // Add other role's evaluations, adjustments and advance
             const otherBonus = (otherSettings.evaluation || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
             totalBonus += otherBonus;
+            
+            // If the 'other' role is tiep_tan, also add myCenterBonus and myCs2Bonus if available
+            // (they are computed in the isRecep block above for the active user)
+            // But we only add those when the OTHER role is tiep_tan (loaded role is giao_vien)
+            if (otherRole === 'tiep_tan') {
+                // centerBonus/cs2Bonus may have been computed above if isRecep was true
+                // They are already added in the isRecep block (totalBonus += Math.round(myCenterBonus) + Math.round(myCs2Bonus))
+                // But isRecep check uses staffUser roles, so if recep, it's already included above
+            }
             
             adjustVDX += Number(otherSettings.adjust_vdx || 0);
             adjustVKP += Number(otherSettings.adjust_vkp || 0);
@@ -2616,18 +2624,35 @@ async function loadSalarySettings() {
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
     const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
     const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
+    // Track the currently loaded role key for reliable dual-role detection
+    window.currentLoadedRoleKey = roleKey;
 
     let settings = {};
     try {
         // Load monthly settings first
-        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
-        window.currentMonthlySalarySettingsAll = monthlySettings || {};
-        settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {};
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        window.currentMonthlySalarySettingsAll = monthlySettings;
         
-        if (Object.keys(settings).length === 0) {
-            // Fallback to general settings
-            settings = await DBService.getSalarySettings(staffId);
+        let gvSettings = monthlySettings['giao_vien'] || monthlySettings['giao-vien'];
+        let ttSettings = monthlySettings['tiep_tan'] || monthlySettings['tiep-tan'];
+        
+        // If teaching role is needed but not in monthly settings, fallback to general settings
+        if (hasTeaching && !gvSettings) {
+            gvSettings = await DBService.getSalarySettings(staffId) || {};
+            window.currentMonthlySalarySettingsAll['giao_vien'] = gvSettings;
         }
+        
+        // If receptionist role is needed but not in monthly settings, fallback to general settings
+        if (hasReceptionist && !ttSettings) {
+            ttSettings = await DBService.getSalarySettings(staffId) || {};
+            if (!ttSettings.evaluation) {
+                ttSettings.evaluation = [];
+            }
+            window.currentMonthlySalarySettingsAll['tiep_tan'] = ttSettings;
+        }
+        
+        settings = roleKey === 'tiep_tan' ? ttSettings : gvSettings;
+        if (!settings) settings = {};
     } catch (e) {
         console.error('Error loading salary settings:', e);
         // Fallback to localStorage
@@ -3780,32 +3805,50 @@ function handleMoneyInput(e) {
     if (isInModal) {
         recalculateSalaryModal();
     } else {
-        if (!window.currentLoadedSalarySettings) window.currentLoadedSalarySettings = {};
-        if (!window.currentLoadedSalarySettings.evaluation) window.currentLoadedSalarySettings.evaluation = [];
-        
-        if (this.id === 'pdf-phi-tu-van') {
-            const evalAmt = document.querySelector('.eval-amount[data-index="1"]');
-            if (evalAmt) {
-                evalAmt.value = formatted;
+        const user = window.currentUserContext;
+        let hasReceptionist = false;
+        let hasTeaching = false;
+        if (user) {
+            const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        }
+        const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+        const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+
+        if (!window.currentMonthlySalarySettingsAll) window.currentMonthlySalarySettingsAll = {};
+        let ttSettings = window.currentMonthlySalarySettingsAll['tiep_tan'] || window.currentMonthlySalarySettingsAll['tiep-tan'];
+        if (!ttSettings) {
+            ttSettings = { evaluation: [] };
+            window.currentMonthlySalarySettingsAll['tiep_tan'] = ttSettings;
+        }
+        if (!ttSettings.evaluation) ttSettings.evaluation = [];
+
+        if (this.id === 'pdf-phi-tu-van' || this.id === 'pdf-doanh-thu-cs3') {
+            const val = parseFormattedNumber(formatted);
+            const critId = this.id === 'pdf-phi-tu-van' ? 1 : 6;
+            
+            // Only update DOM if receptionist table is active
+            if (activeFilter === 'tiep-tan') {
+                const evalAmt = document.querySelector(`.eval-amount[data-index="${critId}"]`);
+                if (evalAmt) {
+                    evalAmt.value = formatted;
+                }
             }
-            const found = window.currentLoadedSalarySettings.evaluation.find(e => e.id === 1);
+            
+            let found = ttSettings.evaluation.find(e => e.id === critId);
             if (found) {
-                found.amount = parseFormattedNumber(formatted);
+                found.amount = val;
             } else {
-                window.currentLoadedSalarySettings.evaluation.push({ id: 1, amount: parseFormattedNumber(formatted), note: '' });
+                ttSettings.evaluation.push({ id: critId, amount: val, note: '' });
             }
-        } else if (this.id === 'pdf-doanh-thu-cs3') {
-            const evalAmt = document.querySelector('.eval-amount[data-index="6"]');
-            if (evalAmt) {
-                evalAmt.value = formatted;
-            }
-            const found = window.currentLoadedSalarySettings.evaluation.find(e => e.id === 6);
-            if (found) {
-                found.amount = parseFormattedNumber(formatted);
-            } else {
-                window.currentLoadedSalarySettings.evaluation.push({ id: 6, amount: parseFormattedNumber(formatted), note: '' });
+            
+            // Sync with window.currentLoadedSalarySettings if tiep-tan is active
+            if (activeFilter === 'tiep-tan') {
+                window.currentLoadedSalarySettings = ttSettings;
             }
         }
+        
         calculateSalary();
     }
 }
