@@ -3736,8 +3736,8 @@ function formatNumberWithCommas(value) {
 
 function parseFormattedNumber(value) {
     if (!value) return 0;
-    let clean = String(value).replace(/,/g, '');
-    return parseFloat(clean) || 0;
+    const clean = String(value).replace(/[^0-9-]/g, '');
+    return parseInt(clean, 10) || 0;
 }
 
 function classifyAbsentChip(chip, notesMap) {
