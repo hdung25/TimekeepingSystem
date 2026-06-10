@@ -122,6 +122,7 @@ service cloud.firestore {
     match /salary_settings_monthly/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdmin();
+      allow update: if isAuthenticated() && (request.auth.uid == docId.split('_')[1]);
     }
 
     // 10. Overtime Requests (Staff → Admin for approval)

@@ -1603,6 +1603,50 @@ const DBService = {
         }
     },
 
+    // Publish salary details to employee
+    async publishSalary(staffId, monthStr, payload) {
+        if (!staffId || !monthStr) {
+            throw new Error('[PublishSalary] staffId and monthStr are required.');
+        }
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            await db.collection('salary_settings_monthly').doc(docId).set({
+                published: {
+                    ...payload,
+                    status: 'published',
+                    publishedAt: new Date().toISOString()
+                }
+            }, { merge: true });
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            return true;
+        } catch (e) {
+            console.error('[PublishSalary] Error publishing:', e);
+            throw e;
+        }
+    },
+
+    // Employee confirms salary received
+    async confirmSalaryReceived(staffId, monthStr, confirmedBy = 'employee') {
+        if (!staffId || !monthStr) {
+            throw new Error('[ConfirmSalary] staffId and monthStr are required.');
+        }
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            await db.collection('salary_settings_monthly').doc(docId).set({
+                published: {
+                    status: 'received',
+                    receivedAt: new Date().toISOString(),
+                    confirmedBy: confirmedBy
+                }
+            }, { merge: true });
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            return true;
+        } catch (e) {
+            console.error('[ConfirmSalary] Error confirming receipt:', e);
+            throw e;
+        }
+    },
+
     // Get all monthly salary settings for a given month
     async getAllMonthlySalarySettings(monthStr) {
         if (!monthStr) return {};

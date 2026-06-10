@@ -79,6 +79,96 @@
                 </div>
             </div>
 
+            <!-- Personal Monthly Salary Panel -->
+            <div class="glass-panel" id="personal-salary-panel" style="padding: 1.5rem; margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                    <h2 style="font-size: 1.25rem; font-weight: 600; color: var(--text-color); display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                        <i data-lucide="banknote" style="color: var(--primary-color);"></i> Bảng Lương Cá Nhân
+                    </h2>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <button class="btn btn-sm" onclick="changePersonalSalaryMonth(-1)" style="padding: 4px 8px;">&lt;</button>
+                        <span style="font-weight: 700; min-width: 100px; text-align: center;" id="personal-salary-month-title">Tháng --, ----</span>
+                        <button class="btn btn-sm" onclick="changePersonalSalaryMonth(1)" style="padding: 4px 8px;">&gt;</button>
+                    </div>
+                </div>
+                
+                <!-- Inner Loading / No Salary State -->
+                <div id="personal-salary-status-container" style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">
+                    <i data-lucide="loader-2" class="animate-spin" style="width: 32px; height: 32px; color: var(--primary-color); margin: 0 auto 0.5rem;"></i>
+                    <p style="margin: 0; font-weight: 500;">Đang tải dữ liệu bảng lương...</p>
+                </div>
+
+                <!-- Salary Content (Hidden by default, shown when loaded) -->
+                <div id="personal-salary-content" style="display: none;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <!-- Left Side Details -->
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.95rem; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.4rem;">
+                                <span style="color: var(--text-muted);">Lương cơ bản (giờ):</span>
+                                <strong id="ps-base-salary" style="color: var(--text-color);">0đ</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.95rem; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.4rem;">
+                                <span style="color: var(--text-muted);">Tổng các khoản thưởng:</span>
+                                <strong id="ps-total-bonus" style="color: #10B981;">+0đ</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.95rem; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.4rem;">
+                                <span style="color: var(--text-muted);">Phạt chuyên cần/muộn:</span>
+                                <strong id="ps-total-penalties" style="color: #EF4444;">-0đ</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.95rem; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.4rem;">
+                                <span style="color: var(--text-muted);">Tạm ứng:</span>
+                                <strong id="ps-advance" style="color: #F59E0B;">-0đ</strong>
+                            </div>
+                        </div>
+
+                        <!-- Right Side Details (Stats & Final Pay) -->
+                        <div style="display: flex; flex-direction: column; justify-content: space-between; background: #F9FAFB; border-radius: 12px; padding: 1rem; border: 1px solid var(--border-color);">
+                            <div>
+                                <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Thực Lĩnh Tiền Mặt</div>
+                                <div id="ps-net-pay" style="font-size: 1.8rem; font-weight: 800; color: var(--primary-color); margin-top: 0.25rem;">0đ</div>
+                            </div>
+                            <div id="ps-status-badge-container" style="margin-top: 0.75rem;">
+                                <!-- Trạng thái nhận lương -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Breakdown Table (For Teachers) -->
+                    <div id="ps-breakdown-container" style="margin-bottom: 1.5rem; display: none;">
+                        <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--text-color); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 4px;">
+                            <i data-lucide="book-open" style="width: 14px; height: 14px; color: var(--primary-color);"></i> Chi tiết theo lớp / môn học
+                        </h4>
+                        <div style="overflow-x: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                                <thead>
+                                    <tr style="background: #F9FAFB; border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                        <th style="padding: 0.5rem;">Lớp / Môn Học</th>
+                                        <th style="padding: 0.5rem; text-align: center;">Số Giờ</th>
+                                        <th style="padding: 0.5rem; text-align: right;">Đơn Giá</th>
+                                        <th style="padding: 0.5rem; text-align: right;">Thành Tiền</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ps-breakdown-body">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Note from Admin -->
+                    <div id="ps-admin-message-container" style="background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 0.75rem; font-size: 0.88rem; color: #B45309; margin-bottom: 1.5rem; display: none;">
+                        <strong>Ghi chú từ Admin:</strong> <span id="ps-admin-message"></span>
+                    </div>
+
+                    <!-- Confirmation Button -->
+                    <div id="ps-action-container" style="display: flex; justify-content: flex-end;">
+                        <button id="btn-confirm-receipt" class="btn" style="background-color: var(--primary-color); color: white; display: flex; align-items: center; gap: 0.5rem; font-weight: 700;" onclick="confirmPersonalSalaryReceipt()">
+                            <i data-lucide="check-circle" style="width: 18px; height: 18px;"></i> Xác Nhận Đã Nhận Tiền Mặt
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div class="glass-panel" style="padding: 1.5rem;">
                 <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem;">Lịch sử chấm công gần đây</h2>
                 <table style="width: 100%; text-align: left; border-collapse: collapse;">

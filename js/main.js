@@ -289,6 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!roles.some(r => r === 'admin' || r === 'senior_assistant')) {
             loadStaffNotifications();
             loadStaffPersonalCharts();
+            loadStaffPersonalSalary();
         }
         // Senior assistant uses admin dashboard, no personal charts needed
 
@@ -2026,3 +2027,164 @@ window.checkUpcomingMeetingsAndShifts = async function() {
         console.warn("Error in checkUpcomingMeetingsAndShifts:", err);
     }
 };
+
+// ==========================================
+// PERSONAL SALARY VIEWER & CASH RECEIPT (Item 1 & 2)
+// ==========================================
+
+let currentPersonalSalaryDate = new Date();
+
+function formatNumberWithCommas(value) {
+    if (value === undefined || value === null || value === '') return '';
+    let clean = String(value).replace(/[^0-9-]/g, '');
+    if (clean === '' || clean === '-') return clean;
+    const num = parseInt(clean, 10);
+    if (isNaN(num)) return '';
+    return new Intl.NumberFormat('en-US').format(num);
+}
+
+function parseFormattedNumber(value) {
+    if (!value) return 0;
+    const clean = String(value).replace(/[^0-9-]/g, '');
+    return parseInt(clean, 10) || 0;
+}
+
+async function loadStaffPersonalSalary() {
+    const staffId = localStorage.getItem('currentUserId');
+    if (!staffId || typeof DBService === 'undefined') return;
+
+    const statusContainer = document.getElementById('personal-salary-status-container');
+    const contentContainer = document.getElementById('personal-salary-content');
+    const monthTitle = document.getElementById('personal-salary-month-title');
+
+    if (!statusContainer || !contentContainer || !monthTitle) return;
+
+    // Format month title
+    const year = currentPersonalSalaryDate.getFullYear();
+    const month = currentPersonalSalaryDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    monthTitle.innerText = `Tháng ${month + 1}, ${year}`;
+
+    // Show loading
+    statusContainer.style.display = 'block';
+    statusContainer.innerHTML = `
+        <i data-lucide="loader-2" class="animate-spin" style="width: 32px; height: 32px; color: var(--primary-color); margin: 0 auto 0.5rem; display: block;"></i>
+        <p style="margin: 0; font-weight: 500;">Đang tải dữ liệu bảng lương...</p>
+    `;
+    if (window.lucide) window.lucide.createIcons();
+    contentContainer.style.display = 'none';
+
+    try {
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
+        const published = monthlySettings?.published;
+
+        if (!published || published.status === 'uncalculated') {
+            statusContainer.innerHTML = `
+                <span style="display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size:1.5rem; margin-bottom:0.5rem;">
+                    ${window.getIconHtml('help-circle', {width: '32', height: '32'})}
+                </span>
+                <p style="margin: 0; font-weight: 500;">Bảng lương đang được tổng hợp.</p>
+            `;
+            return;
+        }
+
+        // Show content container and hide loading status
+        statusContainer.style.display = 'none';
+        contentContainer.style.display = 'block';
+
+        // Fill data
+        document.getElementById('ps-base-salary').innerText = formatNumberWithCommas(published.baseSalary || 0) + 'đ';
+        document.getElementById('ps-total-bonus').innerText = '+' + formatNumberWithCommas(published.totalBonus || 0) + 'đ';
+        
+        const penaltyVal = (published.penalties?.vdx || 0) + (published.penalties?.vkp || 0) + (published.penalties?.late || 0);
+        document.getElementById('ps-total-penalties').innerText = '-' + formatNumberWithCommas(penaltyVal) + 'đ';
+        document.getElementById('ps-advance').innerText = '-' + formatNumberWithCommas(published.advance || 0) + 'đ';
+        document.getElementById('ps-net-pay').innerText = formatNumberWithCommas(published.netPay || 0) + 'đ';
+
+        // Status badge
+        const badgeContainer = document.getElementById('ps-status-badge-container');
+        const confirmBtn = document.getElementById('btn-confirm-receipt');
+        if (badgeContainer) {
+            if (published.status === 'received') {
+                badgeContainer.innerHTML = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`;
+                if (confirmBtn) confirmBtn.style.display = 'none';
+            } else {
+                badgeContainer.innerHTML = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã công bố</span>`;
+                if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+            }
+        }
+
+        // Admin message
+        const msgContainer = document.getElementById('ps-admin-message-container');
+        const msgEl = document.getElementById('ps-admin-message');
+        if (msgContainer && msgEl) {
+            if (published.message) {
+                msgContainer.style.display = 'block';
+                msgEl.innerText = published.message;
+            } else {
+                msgContainer.style.display = 'none';
+            }
+        }
+
+        // Subject Breakdown table (For teachers)
+        const breakdownContainer = document.getElementById('ps-breakdown-container');
+        const breakdownBody = document.getElementById('ps-breakdown-body');
+        if (breakdownContainer && breakdownBody) {
+            const breakdown = published.breakdown || [];
+            if (breakdown.length > 0) {
+                breakdownContainer.style.display = 'block';
+                breakdownBody.innerHTML = breakdown.map(item => {
+                    return `
+                        <tr style="border-bottom:1px solid var(--border-color);">
+                            <td style="padding: 0.5rem; font-weight:600;">${item.name}</td>
+                            <td style="padding: 0.5rem; text-align:center;">${item.hours}h</td>
+                            <td style="padding: 0.5rem; text-align:right; color:var(--text-muted);">${formatNumberWithCommas(item.rate)}đ/h</td>
+                            <td style="padding: 0.5rem; text-align:right; font-weight:700; color:var(--primary-color);">${formatNumberWithCommas(item.amount)}đ</td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                breakdownContainer.style.display = 'none';
+            }
+        }
+
+    } catch (e) {
+        console.error("Error loading personal salary:", e);
+        statusContainer.innerHTML = `
+            <p style="margin: 0; color: #EF4444; font-weight: 500;">Lỗi khi tải bảng lương: ${e.message}</p>
+        `;
+    }
+}
+
+function changePersonalSalaryMonth(dir) {
+    currentPersonalSalaryDate.setMonth(currentPersonalSalaryDate.getMonth() + dir);
+    loadStaffPersonalSalary();
+}
+
+async function confirmPersonalSalaryReceipt() {
+    if (!confirm("Bạn có chắc chắn xác nhận đã nhận đủ số tiền mặt này từ trung tâm?")) return;
+
+    const staffId = localStorage.getItem('currentUserId');
+    const year = currentPersonalSalaryDate.getFullYear();
+    const month = currentPersonalSalaryDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    try {
+        const btn = document.getElementById('btn-confirm-receipt');
+        if (btn) btn.disabled = true;
+        
+        await DBService.confirmSalaryReceived(staffId, monthStr, 'employee');
+        alert("Xác nhận nhận lương thành công!");
+        await loadStaffPersonalSalary();
+    } catch (e) {
+        console.error("Error confirming salary receipt:", e);
+        alert("Có lỗi xảy ra: " + e.message);
+        const btn = document.getElementById('btn-confirm-receipt');
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Bind to window for global access
+window.loadStaffPersonalSalary = loadStaffPersonalSalary;
+window.changePersonalSalaryMonth = changePersonalSalaryMonth;
+window.confirmPersonalSalaryReceipt = confirmPersonalSalaryReceipt;

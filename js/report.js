@@ -52,6 +52,9 @@ async function initReport() {
     const isAdminLike = roles.some(r => r === 'admin' || r === 'senior_assistant');
 
     if (isAdminLike) {
+        const tabContainer = document.getElementById('admin-tab-container');
+        if (tabContainer) tabContainer.style.display = 'block';
+
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'flex';
         const headerRevs = document.getElementById('admin-header-revenues');
@@ -1109,7 +1112,13 @@ async function renderMonthReport(date, forceServer = false) {
 
         let filteredChips = chips;
         if (displayFilter !== 'all') {
-            filteredChips = chips.filter(chip => chip.chipFilterName === displayFilter);
+            if (displayFilter === 'ca-co-dinh') {
+                filteredChips = chips.filter(chip => chip.isFixedShift === true);
+            } else if (displayFilter === 'ca-binh-thuong') {
+                filteredChips = chips.filter(chip => chip.isFixedShift === false);
+            } else {
+                filteredChips = chips.filter(chip => chip.chipFilterName === displayFilter);
+            }
         }
 
         const currentRole = localStorage.getItem('currentRole') || 'staff';
@@ -1653,6 +1662,33 @@ async function renderMonthReport(date, forceServer = false) {
         defaultOpt.value = 'all';
         defaultOpt.textContent = 'Tất cả lớp / ca';
         displayFilterEl.appendChild(defaultOpt);
+
+        // Check if viewing a receptionist
+        const staffRoles = currentUserContext
+            ? (Array.isArray(currentUserContext.roles) && currentUserContext.roles.length > 0
+                ? currentUserContext.roles
+                : [currentUserContext.role || ''])
+            : [];
+        const isReceptionistStaff = currentUserContext && staffRoles.some(r =>
+            ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
+        );
+        const isTeachingStaff = currentUserContext && staffRoles.some(r =>
+            ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r)
+        );
+        const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+        const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && isReceptionistStaff && !isTeachingStaff) ? 'tiep-tan' : 'giao-vien';
+
+        if (activeFilter === 'tiep-tan') {
+            const optFixed = document.createElement('option');
+            optFixed.value = 'ca-co-dinh';
+            optFixed.textContent = 'Ca Cố Định (CĐ)';
+            displayFilterEl.appendChild(optFixed);
+
+            const optNormal = document.createElement('option');
+            optNormal.value = 'ca-binh-thuong';
+            optNormal.textContent = 'Ca Bình Thường (TT)';
+            displayFilterEl.appendChild(optNormal);
+        }
         
         // Find unique filter names from window.unfilteredAllMonthChips
         const uniqueFilterNames = [];
@@ -1671,7 +1707,11 @@ async function renderMonthReport(date, forceServer = false) {
         });
         
         // Restore selected value if valid, otherwise set to 'all'
-        if (uniqueFilterNames.includes(currentSelectedVal)) {
+        const validValues = [...uniqueFilterNames];
+        if (activeFilter === 'tiep-tan') {
+            validValues.push('ca-co-dinh', 'ca-binh-thuong');
+        }
+        if (validValues.includes(currentSelectedVal)) {
             displayFilterEl.value = currentSelectedVal;
         } else {
             displayFilterEl.value = 'all';
@@ -1912,6 +1952,7 @@ function calculateSalary() {
             // Cannot calculate salary accurately without chips if they are empty, but usually they are not empty if we are here.
             filteredSalary = 0;
         } else {
+            const subjectBreakdown = {};
             allChips.forEach(chip => {
                 const minutes = chip.paidMinutes || 0;
                 filteredMinutes += minutes;
@@ -1956,7 +1997,7 @@ function calculateSalary() {
                         }
                         
                         const normalizeFn = window.normalizeChipFilterName || (x => x);
-                        const segName = normalizeFn(seg.lop);
+                        const segName = normalizeFn(seg.lop) || "Khác";
                         
                         let segRate = 0;
                         if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
@@ -1964,11 +2005,27 @@ function calculateSalary() {
                         } else {
                             segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
                         }
-                        filteredSalary += (segMins / 60) * segRate;
+                        const amount = (segMins / 60) * segRate;
+                        filteredSalary += amount;
+
+                        if (!subjectBreakdown[segName]) {
+                            subjectBreakdown[segName] = { minutes: 0, rate: segRate, amount: 0 };
+                        }
+                        subjectBreakdown[segName].minutes += segMins;
+                        subjectBreakdown[segName].amount += amount;
                     });
                 } else {
                     if (hasClassRate) {
-                        filteredSalary += (minutes / 60) * rate;
+                        const amount = (minutes / 60) * rate;
+                        filteredSalary += amount;
+                        if (!isTiepTan) {
+                            const segName = chip.chipFilterName || "Chưa phân lớp";
+                            if (!subjectBreakdown[segName]) {
+                                subjectBreakdown[segName] = { minutes: 0, rate: rate, amount: 0 };
+                            }
+                            subjectBreakdown[segName].minutes += minutes;
+                            subjectBreakdown[segName].amount += amount;
+                        }
                     } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                         let chipSalary = 0;
                         let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
@@ -1987,9 +2044,26 @@ function calculateSalary() {
                         filteredSalary += chipSalary;
                     } else {
                         let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
-                        filteredSalary += (minutes / 60) * defaultRate;
+                        const amount = (minutes / 60) * defaultRate;
+                        filteredSalary += amount;
+                        if (!isTiepTan) {
+                            const segName = chip.chipFilterName || "Chưa phân lớp";
+                            if (!subjectBreakdown[segName]) {
+                                subjectBreakdown[segName] = { minutes: 0, rate: defaultRate, amount: 0 };
+                            }
+                            subjectBreakdown[segName].minutes += minutes;
+                            subjectBreakdown[segName].amount += amount;
+                        }
                     }
                 }
+            });
+            window.currentSubjectBreakdown = Object.keys(subjectBreakdown).map(subj => {
+                return {
+                    name: subj,
+                    hours: Number((subjectBreakdown[subj].minutes / 60).toFixed(2)),
+                    rate: subjectBreakdown[subj].rate,
+                    amount: Math.round(subjectBreakdown[subj].amount)
+                };
             });
         }
     } else {
@@ -2318,6 +2392,58 @@ function calculateSalary() {
         finalDisplay.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalSalary);
     }
     applySalaryVisibility();
+
+    // Update Subject Breakdown UI
+    const breakdownSection = document.getElementById('subject-breakdown-section');
+    const breakdownBody = document.getElementById('subject-breakdown-body');
+    if (breakdownSection && breakdownBody) {
+        breakdownBody.innerHTML = '';
+        const breakdown = window.currentSubjectBreakdown || [];
+        if (breakdown.length > 0) {
+            breakdownSection.style.display = 'block';
+            let grandMins = 0;
+            let grandAmount = 0;
+            breakdown.forEach(item => {
+                const totalMinutes = item.hours * 60;
+                const hrs = Math.floor(totalMinutes / 60);
+                const mins = Math.round(totalMinutes % 60);
+                const hoursStr = `${hrs}h${mins > 0 ? ' ' + mins + 'p' : ''}`;
+                
+                grandMins += totalMinutes;
+                grandAmount += item.amount;
+                
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid var(--border-color)';
+                tr.style.fontSize = '0.9rem';
+                tr.innerHTML = `
+                    <td style="padding: 0.75rem 0.5rem; font-weight: 600; color: var(--text-color);">${item.name}</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: center;">${hoursStr}</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: right; color: var(--text-muted);">${formatNumberWithCommas(item.rate)}đ/h</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: right; font-weight: 700; color: var(--primary-color);">${formatNumberWithCommas(item.amount)}đ</td>
+                `;
+                breakdownBody.appendChild(tr);
+            });
+            
+            // Total row
+            const trTotal = document.createElement('tr');
+            trTotal.style.fontWeight = '700';
+            trTotal.style.background = '#F9FAFB';
+            trTotal.style.fontSize = '0.95rem';
+            const totHrs = Math.floor(grandMins / 60);
+            const totMins = Math.round(grandMins % 60);
+            const totHoursStr = `${totHrs}h${totMins > 0 ? ' ' + totMins + 'p' : ''}`;
+            
+            trTotal.innerHTML = `
+                <td style="padding: 0.75rem 0.5rem;">Tổng cộng</td>
+                <td style="padding: 0.75rem 0.5rem; text-align: center;">${totHoursStr}</td>
+                <td style="padding: 0.75rem 0.5rem;"></td>
+                <td style="padding: 0.75rem 0.5rem; text-align: right; color: var(--secondary-color);">${formatNumberWithCommas(Math.round(grandAmount))}đ</td>
+            `;
+            breakdownBody.appendChild(trTotal);
+        } else {
+            breakdownSection.style.display = 'none';
+        }
+    }
 }
 
 function applySalaryVisibility() {
@@ -2537,6 +2663,34 @@ async function loadSalarySettings() {
     renderEvaluationTable(settings.evaluation || []);
     calculateSalary();
     bindMoneyInputFormatters();
+
+    // Update publish status badge and publish button
+    const publishBadge = document.getElementById('salary-publish-status-badge');
+    const publishBtn = document.getElementById('btn-publish-salary');
+    
+    if (publishBadge && publishBtn) {
+        const publishedObj = window.currentMonthlySalarySettingsAll?.published;
+        if (publishedObj) {
+            publishBadge.style.display = 'inline-block';
+            if (publishedObj.status === 'received') {
+                publishBadge.innerText = 'Đã Nhận Lương';
+                publishBadge.style.backgroundColor = '#D1FAE5';
+                publishBadge.style.color = '#065F46';
+                publishBadge.style.border = '1px solid #10B981';
+                publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Lại Bảng Lương`;
+            } else {
+                publishBadge.innerText = 'Đã Gửi Bảng Lương';
+                publishBadge.style.backgroundColor = '#DBEAFE';
+                publishBadge.style.color = '#1E40AF';
+                publishBadge.style.border = '1px solid #3B82F6';
+                publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Lại Bảng Lương`;
+            }
+        } else {
+            publishBadge.style.display = 'none';
+            publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Bảng Lương`;
+        }
+        publishBtn.style.display = 'inline-flex';
+    }
 }
 
 async function saveHeaderRevenues() {
@@ -5366,4 +5520,365 @@ async function saveRecepExtras() {
     }
 }
 window.saveRecepExtras = saveRecepExtras;
+
+// ==========================================
+// SALARY PUBLISHING & RECEIPTS DASHBOARD (Item 1 & 2)
+// ==========================================
+
+async function publishSalary() {
+    const staffId = document.getElementById('staff-select').value;
+    if (!staffId || staffId === 'all') return;
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    // Get netPay, advance, baseSalary, etc.
+    const netPayText = document.getElementById('final-salary-display')?.innerText || '0';
+    const netPay = parseFormattedNumber(netPayText);
+    const advance = parseFormattedNumber(document.getElementById('salary-advance')?.value || '0');
+    
+    // Base salary (window.currentMonthSalary has the calculated base salary)
+    const baseSalary = window.currentMonthSalary || 0;
+    
+    // Total bonus is the sum of evalAmounts
+    let totalBonus = 0;
+    document.querySelectorAll('.eval-amount').forEach(input => {
+        totalBonus += parseFormattedNumber(input.value) || 0;
+    });
+    
+    // Penalties (VDX, VKP, Late)
+    const loadedSettings = window.currentLoadedSalarySettings || {};
+    const penalties = {
+        vdx: Number(loadedSettings.adjust_vdx || 0),
+        vkp: Number(loadedSettings.adjust_vkp || 0),
+        late: Number(loadedSettings.adjust_late || 0)
+    };
+    
+    // Stats: workedShifts, lateCount, etc.
+    const stats = {
+        workedShifts: window.normalWorkedCount || 0,
+        fixedWorkedShifts: window.fixedWorkedCount || 0,
+        vdxShifts: window.fixedAbsentCount2 || 0,
+        vkpShifts: window.normalAbsentCount || 0
+    };
+    
+    // Breakdown: window.currentSubjectBreakdown (array of subjects)
+    const breakdown = window.currentSubjectBreakdown || [];
+    
+    // Message/Note
+    const message = document.getElementById('pdf-message')?.value || '';
+    
+    // Determine role
+    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
+    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    const role = activeFilter === 'tiep-tan' ? 'tiep-tan' : 'giao-vien';
+    
+    const payload = {
+        role: role,
+        netPay: netPay,
+        advance: advance,
+        baseSalary: baseSalary,
+        totalBonus: totalBonus,
+        penalties: penalties,
+        stats: stats,
+        breakdown: breakdown,
+        message: message,
+        receivedAt: null,
+        confirmedBy: null
+    };
+    
+    try {
+        UIService.showLoading();
+        await DBService.publishSalary(staffId, monthStr, payload);
+        UIService.toast('Gửi bảng lương thành công!', 'success');
+        
+        // Reload settings to update UI
+        await loadSalarySettings();
+    } catch (e) {
+        console.error('Error publishing salary:', e);
+        UIService.toast('Gửi bảng lương thất bại: ' + e.message, 'error');
+    } finally {
+        UIService.hideLoading();
+    }
+}
+
+async function loadSalaryDashboard() {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    try {
+        UIService.showLoading();
+        const allSettings = await DBService.getAllMonthlySalarySettings(monthStr);
+        window.currentMonthAllSettings = allSettings || {};
+        renderSalaryDashboardTable();
+    } catch (e) {
+        console.error("Error loading salary dashboard:", e);
+        UIService.toast("Lỗi khi tải dữ liệu dashboard: " + e.message, "error");
+    } finally {
+        UIService.hideLoading();
+    }
+}
+
+function renderSalaryDashboardTable() {
+    const tableBody = document.getElementById('dash-table-body');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    const staffList = window._allStaffList || [];
+    const allSettings = window.currentMonthAllSettings || {};
+    
+    let totalPayroll = 0;
+    let totalPaid = 0;
+    let totalUnpaid = 0;
+    
+    const searchText = (document.getElementById('dash-search')?.value || '').toLowerCase().trim();
+    const statusFilter = document.getElementById('dash-filter-status')?.value || 'all';
+    const roleFilter = document.getElementById('dash-filter-role')?.value || 'all';
+    
+    const rows = [];
+    
+    staffList.forEach(u => {
+        const name = (u.name || '').toLowerCase();
+        const username = (u.username || '').toLowerCase();
+        const msnv = (u.msnvStr || '').toLowerCase();
+        
+        if (searchText && !name.includes(searchText) && !username.includes(searchText) && !msnv.includes(searchText)) {
+            return;
+        }
+        
+        const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
+        const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        const isRecep = uRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        
+        let primaryRole = 'Staff';
+        if (isTeacher && isRecep) primaryRole = 'Dual (GV & TT)';
+        else if (isTeacher) primaryRole = 'Giáo Viên';
+        else if (isRecep) primaryRole = 'Tiếp Tân';
+        
+        if (roleFilter === 'giao-vien' && !isTeacher) return;
+        if (roleFilter === 'tiep-tan' && !isRecep) return;
+        
+        const docData = allSettings[u.id] || {};
+        const pub = docData.published;
+        
+        let status = 'uncalculated';
+        let baseSalary = 0;
+        let totalBonus = 0;
+        let advance = 0;
+        let netPay = 0;
+        let infoStr = '—';
+        let statusBadge = '';
+        
+        if (pub) {
+            status = pub.status || 'published';
+            baseSalary = pub.baseSalary || 0;
+            totalBonus = pub.totalBonus || 0;
+            advance = pub.advance || 0;
+            netPay = pub.netPay || 0;
+            
+            totalPayroll += netPay;
+            if (status === 'received') {
+                totalPaid += netPay;
+            } else {
+                totalUnpaid += netPay;
+            }
+            
+            if (status === 'received') {
+                const date = new Date(pub.receivedAt);
+                const dateStr = isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN');
+                const by = pub.confirmedBy === 'admin' ? 'Admin' : 'Nhân viên';
+                infoStr = `<div style="font-size:0.8rem;color:#059669;font-weight:600;">Nhận: ${dateStr}</div><div style="font-size:0.7rem;color:#6B7280;">Bởi: ${by}</div>`;
+                
+                statusBadge = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Đã nhận</span>`;
+            } else {
+                const date = new Date(pub.publishedAt);
+                const dateStr = isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN');
+                infoStr = `<div style="font-size:0.8rem;color:#1E40AF;font-weight:600;">Gửi: ${dateStr}</div>`;
+                
+                statusBadge = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Đã gửi</span>`;
+            }
+        } else {
+            statusBadge = `<span style="background:#F3F4F6;color:#4B5563;border:1px solid #D1D5DB;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Chưa gửi</span>`;
+        }
+        
+        if (statusFilter !== 'all' && status !== statusFilter) {
+            return;
+        }
+        
+        rows.push({
+            user: u,
+            primaryRole: primaryRole,
+            baseSalary: baseSalary,
+            totalBonus: totalBonus,
+            advance: advance,
+            netPay: netPay,
+            status: status,
+            statusBadge: statusBadge,
+            infoStr: infoStr
+        });
+    });
+    
+    document.getElementById('dash-total-payroll').innerText = formatNumberWithCommas(totalPayroll) + 'đ';
+    document.getElementById('dash-total-paid').innerText = formatNumberWithCommas(totalPaid) + 'đ';
+    document.getElementById('dash-total-unpaid').innerText = formatNumberWithCommas(totalUnpaid) + 'đ';
+    
+    if (rows.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="9" style="padding:2rem;text-align:center;color:#9CA3AF;">Không tìm thấy kết quả phù hợp</td></tr>`;
+        return;
+    }
+    
+    tableBody.innerHTML = rows.map(row => {
+        const u = row.user;
+        const color = u.scheduleColor || '#E5E7EB';
+        const initial = (u.name || u.username || '?').charAt(0).toUpperCase();
+        
+        let actionButtons = '';
+        if (row.status === 'published') {
+            actionButtons = `
+                <button class="btn btn-sm btn-primary" onclick="adminConfirmPaid('${u.id}')" style="background:#10B981;color:white;border:none;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
+                    Đã chi
+                </button>
+                <button class="btn btn-sm" onclick="viewPersonalReportFromDash('${u.id}')" style="background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;margin-left:4px;">
+                    Chi tiết
+                </button>
+            `;
+        } else if (row.status === 'received') {
+            actionButtons = `
+                <button class="btn btn-sm" onclick="viewPersonalReportFromDash('${u.id}')" style="background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
+                    Chi tiết
+                </button>
+            `;
+        } else {
+            actionButtons = `
+                <button class="btn btn-sm btn-primary" onclick="viewPersonalReportFromDash('${u.id}')" style="background:#3B82F6;color:white;border:none;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
+                    Tính & Gửi
+                </button>
+            `;
+        }
+        
+        return `
+            <tr style="border-bottom:1px solid var(--border-color);font-size:0.9rem;">
+                <td style="padding:0.75rem 0.75rem;display:flex;align-items:center;gap:0.5rem;">
+                    <div style="width:28px;height:28px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.75rem;color:white;">${initial}</div>
+                    <div>
+                        <div style="font-weight:600;color:var(--text-color);">${u.name || u.username}</div>
+                        <div style="font-size:0.7rem;color:#9CA3AF;">MSNV: ${u.username || '—'}</div>
+                    </div>
+                </td>
+                <td style="padding:0.75rem 0.75rem;color:#4B5563;font-weight:500;">${row.primaryRole}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.baseSalary > 0 ? formatNumberWithCommas(row.baseSalary) + 'đ' : '—'}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.totalBonus > 0 ? formatNumberWithCommas(row.totalBonus) + 'đ' : '—'}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:right;color:#EF4444;">${row.advance > 0 ? '-' + formatNumberWithCommas(row.advance) + 'đ' : '—'}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:right;font-weight:700;color:var(--primary-color);">${row.netPay > 0 ? formatNumberWithCommas(row.netPay) + 'đ' : '—'}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:center;">${row.statusBadge}</td>
+                <td style="padding:0.75rem 0.75rem;">${row.infoStr}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:center;">
+                    <div style="display:flex;justify-content:center;gap:4px;">
+                        ${actionButtons}
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function adminConfirmPaid(staffId) {
+    if (!confirm("Xác nhận chi tiền mặt cho nhân viên này?")) return;
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    try {
+        UIService.showLoading();
+        await DBService.confirmSalaryReceived(staffId, monthStr, 'admin');
+        UIService.toast('Xác nhận đã chi thành công!', 'success');
+        await loadSalaryDashboard();
+    } catch (e) {
+        console.error("Error confirming paid:", e);
+        UIService.toast("Lỗi khi xác nhận chi: " + e.message, "error");
+    } finally {
+        UIService.hideLoading();
+    }
+}
+
+function viewPersonalReportFromDash(staffId) {
+    const select = document.getElementById('staff-select');
+    if (select) {
+        select.value = staffId;
+        const targetUser = (window._allStaffList || []).find(u => u.id === staffId);
+        if (targetUser) {
+            selectStaffFromDropdown(targetUser);
+        }
+    }
+    switchAdminTab('personal');
+}
+
+function switchAdminTab(tab) {
+    const personalBtn = document.getElementById('tab-personal-report');
+    const dashBtn = document.getElementById('tab-salary-dashboard');
+    const personalView = document.getElementById('personal-report-view');
+    const dashView = document.getElementById('salary-dashboard-view');
+    const personalHeaderControls = document.getElementById('personal-specific-header-controls');
+    const totalHoursDisplay = document.getElementById('total-hours-display');
+    const pageTitle = document.getElementById('page-title');
+    
+    if (!personalBtn || !dashBtn || !personalView || !dashView) return;
+    
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    let roles = [];
+    try { roles = JSON.parse(roleRaw); if(!Array.isArray(roles)) roles = [roleRaw]; } catch(e) { roles = [roleRaw]; }
+    const isSalaryAdmin = roles.includes('admin');
+    
+    if (tab === 'personal') {
+        personalBtn.classList.add('active');
+        personalBtn.style.color = 'var(--primary-color)';
+        personalBtn.style.borderBottomColor = 'var(--primary-color)';
+        
+        dashBtn.classList.remove('active');
+        dashBtn.style.color = 'var(--text-muted)';
+        dashBtn.style.borderBottomColor = 'transparent';
+        
+        personalView.style.display = 'block';
+        dashView.style.display = 'none';
+        
+        if (personalHeaderControls) personalHeaderControls.style.display = 'inline-flex';
+        if (totalHoursDisplay) totalHoursDisplay.style.display = 'block';
+        if (pageTitle) pageTitle.innerText = isSalaryAdmin ? 'Tính Lương & Duyệt Công' : 'Duyệt Công Nhân Viên';
+    } else {
+        dashBtn.classList.add('active');
+        dashBtn.style.color = 'var(--primary-color)';
+        dashBtn.style.borderBottomColor = 'var(--primary-color)';
+        
+        personalBtn.classList.remove('active');
+        personalBtn.style.color = 'var(--text-muted)';
+        personalBtn.style.borderBottomColor = 'transparent';
+        
+        personalView.style.display = 'none';
+        dashView.style.display = 'block';
+        
+        if (personalHeaderControls) personalHeaderControls.style.display = 'none';
+        if (totalHoursDisplay) totalHoursDisplay.style.display = 'none';
+        if (pageTitle) pageTitle.innerText = 'Dashboard Nhận Lương';
+        
+        loadSalaryDashboard();
+    }
+}
+
+// Bind to window for global access
+window.publishSalary = publishSalary;
+window.loadSalaryDashboard = loadSalaryDashboard;
+window.adminConfirmPaid = adminConfirmPaid;
+window.viewPersonalReportFromDash = viewPersonalReportFromDash;
+window.switchAdminTab = switchAdminTab;
+window.filterDashboardTable = renderSalaryDashboardTable;
 
