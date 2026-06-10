@@ -2334,12 +2334,55 @@ function calculateSalary() {
         const phiTuVan = phiTuVanObj ? (Number(phiTuVanObj.amount) || 0) : 0;
         const doanhThuCs3 = doanhThuCs3Obj ? (Number(doanhThuCs3Obj.amount) || 0) : 0;
 
+        // Lấy giá trị phí tư vấn và doanh thu CS3 từ settings (đã lưu)
         const phiTuVanDisplay = document.getElementById('pdf-phi-tu-van');
         const doanhThuCs3Display = document.getElementById('pdf-doanh-thu-cs3');
-        if (phiTuVanDisplay && document.activeElement !== phiTuVanDisplay) phiTuVanDisplay.value = formatNumberWithCommas(phiTuVan);
-        if (doanhThuCs3Display && document.activeElement !== doanhThuCs3Display) doanhThuCs3Display.value = formatNumberWithCommas(doanhThuCs3);
         
-        // Sum collective bonuses (Phi tu van and CS3 are already inside totalBonus from evaluations)
+        // Đọc từ DOM input nếu user đang nhập, ngược lại dùng giá trị từ settings
+        const phiTuVanActual = phiTuVanDisplay
+            ? (parseFormattedNumber(phiTuVanDisplay.value) || phiTuVan)
+            : phiTuVan;
+        const doanhThuCs3Actual = doanhThuCs3Display
+            ? (parseFormattedNumber(doanhThuCs3Display.value) || doanhThuCs3)
+            : doanhThuCs3;
+        
+        // Cập nhật hiển thị nếu user không đang gõ vào input đó
+        if (phiTuVanDisplay && document.activeElement !== phiTuVanDisplay) phiTuVanDisplay.value = formatNumberWithCommas(phiTuVanActual);
+        if (doanhThuCs3Display && document.activeElement !== doanhThuCs3Display) doanhThuCs3Display.value = formatNumberWithCommas(doanhThuCs3Actual);
+        
+        // Kiểm tra xem eval table đang hiển thị criteria GV hay TT
+        // Nếu eval table đang render TT criteria: phí tư vấn ĐÃ có trong evalAmounts (readonly nhưng có value)
+        //   → KHÔNG cộng lại ở đây để tránh double-count
+        // Nếu eval table đang render GV criteria (dual-role, xem tab GV): phí tư vấn TT CHƯA có trong evalAmounts
+        //   → CẦN cộng trực tiếp vào totalBonus ở đây
+        const loadedRoleKey = window.currentLoadedRoleKey || 'giao_vien';
+        const evalTableShowingGV = (loadedRoleKey === 'giao_vien');
+        if (evalTableShowingGV) {
+            // Chỉ cộng phí tư vấn TT khi eval table đang hiện GV (tránh double-count)
+            totalBonus += phiTuVanActual + doanhThuCs3Actual;
+        } else {
+            // Eval table đang hiện TT criteria - phí tư vấn ĐÃ có trong evalAmounts
+            // Sync giá trị mới nhất vào eval inputs và điều chỉnh totalBonus theo hiệu số
+            const phiTuVanEvalInput = document.querySelector('.eval-amount[data-index="1"]');
+            if (phiTuVanEvalInput) {
+                const oldVal = parseFormattedNumber(phiTuVanEvalInput.value) || 0;
+                if (oldVal !== phiTuVanActual) {
+                    phiTuVanEvalInput.value = formatNumberWithCommas(phiTuVanActual);
+                    // evalAmounts.forEach đã cộng oldVal → điều chỉnh lại với giá trị mới
+                    totalBonus += (phiTuVanActual - oldVal);
+                }
+            }
+            const doanhThuCs3EvalInput = document.querySelector('.eval-amount[data-index="6"]');
+            if (doanhThuCs3EvalInput) {
+                const oldCs3Val = parseFormattedNumber(doanhThuCs3EvalInput.value) || 0;
+                if (oldCs3Val !== doanhThuCs3Actual) {
+                    doanhThuCs3EvalInput.value = formatNumberWithCommas(doanhThuCs3Actual);
+                    totalBonus += (doanhThuCs3Actual - oldCs3Val);
+                }
+            }
+        }
+        
+        // Cộng thêm bonus doanh thu tập thể (trung tâm + CS2)
         totalBonus += Math.round(myCenterBonus) + Math.round(myCs2Bonus);
     }
 
@@ -2372,7 +2415,13 @@ function calculateSalary() {
             const otherSettings = monthlyAll[otherRole] || monthlyAll[otherRole.replace('_', '-')] || {};
             
             // Add other role's evaluations, adjustments and advance
-            const otherBonus = (otherSettings.evaluation || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+            // Nếu otherRole là tiep_tan: phí tư vấn (id=1) và DT CS3 (id=6) đã được cộng
+            // trong block isRecep ở trên → loại chúng ra để tránh double-count
+            const evalIdsAlreadyCounted = otherRole === 'tiep_tan' ? [1, 6] : [];
+            const otherBonus = (otherSettings.evaluation || []).reduce((sum, e) => {
+                if (evalIdsAlreadyCounted.includes(e.id)) return sum; // đã tính trong isRecep block
+                return sum + (Number(e.amount) || 0);
+            }, 0);
             totalBonus += otherBonus;
             
             // If the 'other' role is tiep_tan, also add myCenterBonus and myCs2Bonus if available
