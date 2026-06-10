@@ -12,10 +12,12 @@ function getLocalDateKeyFromDate(date) {
 
 const DBService = {
     _cache: {},
+    _cacheTime: {},
     _invalidate(pattern) {
         Object.keys(this._cache).forEach(key => {
             if (key.includes(pattern)) {
                 delete this._cache[key];
+                delete this._cacheTime[key];
             }
         });
     },
@@ -197,12 +199,32 @@ const DBService = {
         return promise;
     },
 
+    getUser: async (userId) => {
+        if (!userId) return null;
+        const cacheKey = `user_${userId}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const doc = await db.collection('users').doc(userId).get();
+                return doc.exists ? { id: doc.id, ...doc.data() } : null;
+            } catch (error) {
+                console.error("Error getting user:", error);
+                return null;
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
+    },
+
     saveUser: async (user) => {
         try {
             // user.id determines update or create
             const ref = db.collection('users').doc(user.id);
             await ref.set(user, { merge: true });
             DBService._invalidate('users_all');
+            DBService._invalidate(`user_${user.id}`);
 
             // Sync role to user_roles collection if admin is modifying
             const currentRole = localStorage.getItem('currentRole');
@@ -238,6 +260,7 @@ const DBService = {
         try {
             await db.collection('users').doc(userId).delete();
             DBService._invalidate('users_all');
+            DBService._invalidate(`user_${userId}`);
             return true;
         } catch (error) {
             console.error("Error deleting user:", error);
@@ -2113,6 +2136,8 @@ const DBService = {
                 ...meetingData,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            DBService._invalidate('today_meetings_');
+            DBService._invalidate('meetings_month_');
             return docRef.id;
         } catch (error) {
             console.error("[Meetings] Error creating:", error);
@@ -2131,6 +2156,8 @@ const DBService = {
                 batch.delete(doc.ref);
             });
             await batch.commit();
+            DBService._invalidate('today_meetings_');
+            DBService._invalidate('meetings_month_');
             return true;
         } catch (error) {
             console.error("[Meetings] Error deleting:", error);
@@ -2139,21 +2166,29 @@ const DBService = {
     },
 
     getMeetingsForMonth: async (monthStr) => {
-        try {
-            const snapshot = await db.collection('meetings').get();
-            const meetings = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                if (data.date && data.date.startsWith(monthStr)) {
-                    meetings.push({ id: doc.id, ...data });
-                }
-            });
-            meetings.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
-            return meetings;
-        } catch (error) {
-            console.error("[Meetings] Error getting for month:", error);
-            return [];
-        }
+        const cacheKey = `meetings_month_${monthStr}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snapshot = await db.collection('meetings').get();
+                const meetings = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.date && data.date.startsWith(monthStr)) {
+                        meetings.push({ id: doc.id, ...data });
+                    }
+                });
+                meetings.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+                return meetings;
+            } catch (error) {
+                console.error("[Meetings] Error getting for month:", error);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     getTodayMeetings: async () => {
@@ -2164,14 +2199,26 @@ const DBService = {
             const day = String(d.getDate()).padStart(2, '0');
             const todayStr = `${year}-${month}-${day}`;
 
-            const snapshot = await db.collection('meetings')
-                .where('date', '==', todayStr)
-                .get();
-            const meetings = [];
-            snapshot.forEach(doc => {
-                meetings.push({ id: doc.id, ...doc.data() });
-            });
-            return meetings;
+            const cacheKey = `today_meetings_${todayStr}`;
+            const now = Date.now();
+            if (DBService._cache[cacheKey] && (now - (DBService._cacheTime[cacheKey] || 0) < 300000)) {
+                return DBService._cache[cacheKey];
+            }
+
+            const promise = (async () => {
+                const snapshot = await db.collection('meetings')
+                    .where('date', '==', todayStr)
+                    .get();
+                const meetings = [];
+                snapshot.forEach(doc => {
+                    meetings.push({ id: doc.id, ...doc.data() });
+                });
+                return meetings;
+            })();
+
+            DBService._cache[cacheKey] = promise;
+            DBService._cacheTime[cacheKey] = now;
+            return promise;
         } catch (error) {
             console.error("[Meetings] Error getting today meetings:", error);
             return [];

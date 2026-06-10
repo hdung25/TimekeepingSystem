@@ -1917,9 +1917,8 @@ window.checkUpcomingMeetingsAndShifts = async function() {
     if (!currentUserId || typeof db === 'undefined' || typeof DBService === 'undefined') return;
 
     try {
-        const userDoc = await db.collection('users').doc(currentUserId).get();
-        if (!userDoc.exists) return;
-        const user = { id: userDoc.id, ...userDoc.data() };
+        const user = await DBService.getUser(currentUserId);
+        if (!user) return;
 
         const now = new Date();
         const dateKey = getLocalDateKeyFromDate(now);
