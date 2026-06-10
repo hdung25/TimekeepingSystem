@@ -2587,6 +2587,9 @@ async function saveSalarySettings() {
             window.currentUserContext.salary_config.evaluation = evaluationData;
         }
 
+        // Auto-save calculated payroll as a draft
+        await saveCalculationDraftToDb(staffId, monthStr);
+
         UIService.toast('Đã lưu bảng lương thành công!', 'success');
     } catch (e) {
         console.error('Error saving salary settings:', e);
@@ -2670,7 +2673,7 @@ async function loadSalarySettings() {
     
     if (publishBadge && publishBtn) {
         const publishedObj = window.currentMonthlySalarySettingsAll?.published;
-        if (publishedObj) {
+        if (publishedObj && publishedObj.status) {
             publishBadge.style.display = 'inline-block';
             if (publishedObj.status === 'received') {
                 publishBadge.innerText = 'Đã Nhận Lương';
@@ -2678,12 +2681,18 @@ async function loadSalarySettings() {
                 publishBadge.style.color = '#065F46';
                 publishBadge.style.border = '1px solid #10B981';
                 publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Lại Bảng Lương`;
-            } else {
+            } else if (publishedObj.status === 'published') {
                 publishBadge.innerText = 'Đã Gửi Bảng Lương';
                 publishBadge.style.backgroundColor = '#DBEAFE';
                 publishBadge.style.color = '#1E40AF';
                 publishBadge.style.border = '1px solid #3B82F6';
                 publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Lại Bảng Lương`;
+            } else if (publishedObj.status === 'draft') {
+                publishBadge.innerText = 'Đã tính (Chưa gửi)';
+                publishBadge.style.backgroundColor = '#FEF3C7';
+                publishBadge.style.color = '#D97706';
+                publishBadge.style.border = '1px solid #FDE68A';
+                publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Bảng Lương`;
             }
         } else {
             publishBadge.style.display = 'none';
@@ -4520,6 +4529,7 @@ async function saveSalarySettingsFromModal() {
         UIService.toast('Đã lưu bảng lương và tính thành công!', 'success');
         closeClassRateModal();
         calculateSalary();
+        await saveCalculationDraftToDb(staffId, monthStr);
     } catch (e) {
         console.error('Error saving salary settings:', e);
         UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
@@ -5881,4 +5891,424 @@ window.adminConfirmPaid = adminConfirmPaid;
 window.viewPersonalReportFromDash = viewPersonalReportFromDash;
 window.switchAdminTab = switchAdminTab;
 window.filterDashboardTable = renderSalaryDashboardTable;
+
+// ==========================================
+// BULK PAYROLL PUBLISHING FUNCTIONS (NEW)
+// ==========================================
+
+function getCurrentCalculationPayload(role) {
+    const netPayText = document.getElementById('final-salary-display')?.innerText || '0';
+    const netPay = parseFormattedNumber(netPayText);
+    const advance = parseFormattedNumber(document.getElementById('salary-advance')?.value || '0');
+    const baseSalary = window.currentMonthSalary || 0;
+    
+    // Total bonus is the sum of evalAmounts
+    let totalBonus = 0;
+    document.querySelectorAll('.eval-amount').forEach(input => {
+        totalBonus += parseFormattedNumber(input.value) || 0;
+    });
+    
+    // For receptionists, add the redistributed center and cs2 bonuses if applicable
+    const staffUser = window.currentUserContext;
+    let isRecep = false;
+    if (staffUser) {
+        const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
+        isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+    }
+    if (isRecep && role === 'tiep-tan') {
+        const outputTong = document.getElementById('pdf-doanh-thu-tong');
+        const outputCs2 = document.getElementById('pdf-doanh-thu-cs2');
+        const centerBonus = outputTong ? (parseFormattedNumber(outputTong.value) || 0) : 0;
+        const cs2Bonus = outputCs2 ? (parseFormattedNumber(outputCs2.value) || 0) : 0;
+        totalBonus += Math.round(centerBonus) + Math.round(cs2Bonus);
+    }
+    
+    // Penalties (VDX, VKP, Late)
+    const loadedSettings = window.currentLoadedSalarySettings || {};
+    const penalties = {
+        vdx: Number(loadedSettings.adjust_vdx || 0),
+        vkp: Number(loadedSettings.adjust_vkp || 0),
+        late: Number(loadedSettings.adjust_late || 0)
+    };
+    
+    // Stats: workedShifts, lateCount, etc.
+    const stats = {
+        workedShifts: window.normalWorkedCount || 0,
+        fixedWorkedShifts: window.fixedWorkedCount || 0,
+        vdxShifts: window.fixedAbsentCount2 || 0,
+        vkpShifts: window.normalAbsentCount || 0
+    };
+    
+    // Breakdown: window.currentSubjectBreakdown (array of subjects)
+    const breakdown = window.currentSubjectBreakdown || [];
+    
+    // Message/Note
+    const message = document.getElementById('pdf-message')?.value || '';
+    
+    return {
+        role: role,
+        netPay: netPay,
+        advance: advance,
+        baseSalary: baseSalary,
+        totalBonus: totalBonus,
+        penalties: penalties,
+        stats: stats,
+        breakdown: breakdown,
+        message: message,
+        receivedAt: null,
+        confirmedBy: null
+    };
+}
+
+async function saveCalculationDraftToDb(staffId, monthStr) {
+    if (!staffId || !monthStr) return;
+    
+    // Determine active role
+    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
+    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    const role = activeFilter === 'tiep-tan' ? 'tiep-tan' : 'giao-vien';
+    
+    const payload = getCurrentCalculationPayload(role);
+    
+    try {
+        const docId = `${monthStr}_${staffId}`;
+        const docSnap = await firebase.firestore().collection('salary_settings_monthly').doc(docId).get();
+        let status = 'draft';
+        let publishedAt = null;
+        let receivedAt = null;
+        let confirmedBy = null;
+        
+        if (docSnap.exists) {
+            const data = docSnap.data();
+            if (data && data.published) {
+                const currentStatus = data.published.status;
+                if (currentStatus === 'published' || currentStatus === 'received') {
+                    status = currentStatus;
+                }
+                publishedAt = data.published.publishedAt || null;
+                receivedAt = data.published.receivedAt || null;
+                confirmedBy = data.published.confirmedBy || null;
+            }
+        }
+        
+        payload.status = status;
+        if (status === 'published' && publishedAt) {
+            payload.publishedAt = publishedAt;
+        } else if (status === 'published') {
+            payload.publishedAt = new Date().toISOString();
+        }
+        if (receivedAt) payload.receivedAt = receivedAt;
+        if (confirmedBy) payload.confirmedBy = confirmedBy;
+        
+        await firebase.firestore().collection('salary_settings_monthly').doc(docId).set({
+            published: payload
+        }, { merge: true });
+        
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+    } catch (e) {
+        console.error('Error saving salary draft:', e);
+    }
+}
+
+async function openBulkPublishModal() {
+    const modal = document.getElementById('bulk-publish-modal');
+    if (!modal) return;
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    try {
+        UIService.showLoading();
+        
+        // Invalidate cache first
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        const allSettings = await DBService.getAllMonthlySalarySettings(monthStr);
+        window.bulkPublishAllSettings = allSettings;
+        
+        const teachersList = [];
+        const recepsList = [];
+        
+        const staffList = window._allStaffList || [];
+        staffList.forEach(u => {
+            const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
+            const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            const isRecep = uRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            
+            const docData = allSettings[u.id] || {};
+            const pub = docData.published;
+            
+            let status = 'uncalculated';
+            let netPay = 0;
+            
+            if (pub && pub.status) {
+                status = pub.status;
+                netPay = pub.netPay || 0;
+            }
+            
+            const staffItem = {
+                id: u.id,
+                name: u.name || u.username,
+                msnv: u.msnvStr || '—',
+                status: status,
+                netPay: netPay
+            };
+            
+            if (isTeacher) {
+                teachersList.push(staffItem);
+            }
+            if (isRecep) {
+                recepsList.push(staffItem);
+            }
+        });
+        
+        // Render lists
+        const teachersContainer = document.getElementById('bulk-list-teachers');
+        if (teachersContainer) {
+            teachersContainer.innerHTML = '';
+            if (teachersList.length === 0) {
+                teachersContainer.innerHTML = '<div style="text-align: center; color: #9CA3AF; padding: 2rem; font-size: 0.9rem;">Không có giáo viên/trợ giảng</div>';
+            } else {
+                teachersList.forEach(item => {
+                    teachersContainer.appendChild(createBulkStaffRow(item, 'teachers'));
+                });
+            }
+        }
+        
+        const recepsContainer = document.getElementById('bulk-list-receps');
+        if (recepsContainer) {
+            recepsContainer.innerHTML = '';
+            if (recepsList.length === 0) {
+                recepsContainer.innerHTML = '<div style="text-align: center; color: #9CA3AF; padding: 2rem; font-size: 0.9rem;">Không có tiếp tân</div>';
+            } else {
+                recepsList.forEach(item => {
+                    recepsContainer.appendChild(createBulkStaffRow(item, 'receps'));
+                });
+            }
+        }
+        
+        // Clear message input
+        const messageInput = document.getElementById('bulk-message-input');
+        if (messageInput) messageInput.value = '';
+        
+        // Clear select all checkboxes
+        const selAllTeachers = document.getElementById('bulk-select-all-teachers');
+        if (selAllTeachers) selAllTeachers.checked = false;
+        
+        const selAllReceps = document.getElementById('bulk-select-all-receps');
+        if (selAllReceps) selAllReceps.checked = false;
+        
+        modal.style.display = 'flex';
+        updateBulkSelectedCount();
+        
+        if (window.lucide) window.lucide.createIcons();
+    } catch (e) {
+        console.error('Error loading bulk publish modal:', e);
+        UIService.toast('Lỗi khi tải dữ liệu: ' + e.message, 'error');
+    } finally {
+        UIService.hideLoading();
+    }
+}
+
+function closeBulkPublishModal() {
+    const modal = document.getElementById('bulk-publish-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function createBulkStaffRow(item, group) {
+    const row = document.createElement('div');
+    row.className = 'bulk-staff-row';
+    row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; background: #fff; transition: background 0.2s;';
+    
+    let isChecked = false;
+    let isDisabled = false;
+    let statusText = 'Chưa tính';
+    let badgeBg = '#F3F4F6';
+    let badgeColor = '#4B5563';
+    let badgeBorder = '#D1D5DB';
+    let netPayStr = '—';
+    let payColor = '#9CA3AF';
+    
+    if (item.status === 'draft') {
+        isChecked = true;
+        statusText = 'Chưa gửi';
+        badgeBg = '#FEF3C7';
+        badgeColor = '#D97706';
+        badgeBorder = '#FDE68A';
+        netPayStr = formatNumberWithCommas(item.netPay) + ' đ';
+        payColor = '#D97706';
+    } else if (item.status === 'published') {
+        statusText = 'Đã gửi';
+        badgeBg = '#DBEAFE';
+        badgeColor = '#1E40AF';
+        badgeBorder = '#3B82F6';
+        netPayStr = formatNumberWithCommas(item.netPay) + ' đ';
+        payColor = '#1E40AF';
+    } else if (item.status === 'received') {
+        statusText = 'Đã nhận';
+        badgeBg = '#D1FAE5';
+        badgeColor = '#065F46';
+        badgeBorder = '#10B981';
+        netPayStr = formatNumberWithCommas(item.netPay) + ' đ';
+        payColor = '#065F46';
+    } else {
+        isDisabled = true;
+    }
+    
+    row.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <input type="checkbox" class="bulk-staff-checkbox bulk-group-${group}" 
+                   data-id="${item.id}" 
+                   data-group="${group}"
+                   ${isChecked ? 'checked' : ''} 
+                   ${isDisabled ? 'disabled' : ''} 
+                   onchange="onBulkCheckboxChange('${item.id}', this.checked)"
+                   style="width: 18px; height: 18px; cursor: pointer; accent-color: ${group === 'teachers' ? '#3B82F6' : '#10B981'};" />
+            <div style="display: flex; flex-direction: column;">
+                <span style="font-weight: 600; color: #374151; font-size: 0.9rem;">${item.name}</span>
+                <span style="font-size: 0.75rem; color: #6B7280;">MSNV: ${item.msnv}</span>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; font-weight: 700; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">
+                ${statusText}
+            </span>
+            <span style="font-weight: 700; font-size: 0.9rem; color: ${payColor}; min-width: 90px; text-align: right;">
+                ${netPayStr}
+            </span>
+        </div>
+    `;
+    return row;
+}
+
+function onBulkCheckboxChange(staffId, isChecked) {
+    const checkboxes = document.querySelectorAll(`.bulk-staff-checkbox[data-id="${staffId}"]`);
+    checkboxes.forEach(cb => {
+        cb.checked = isChecked;
+    });
+    updateBulkSelectedCount();
+}
+
+function toggleSelectAllGroup(group) {
+    const headerCheckbox = document.getElementById(`bulk-select-all-${group}`);
+    if (!headerCheckbox) return;
+    
+    const isChecked = headerCheckbox.checked;
+    const checkboxes = document.querySelectorAll(`.bulk-staff-checkbox.bulk-group-${group}:not(:disabled)`);
+    checkboxes.forEach(cb => {
+        cb.checked = isChecked;
+        // Also sync if dual-role
+        const staffId = cb.dataset.id;
+        const otherCheckboxes = document.querySelectorAll(`.bulk-staff-checkbox[data-id="${staffId}"]`);
+        otherCheckboxes.forEach(ocb => {
+            ocb.checked = isChecked;
+        });
+    });
+    updateBulkSelectedCount();
+}
+
+function updateBulkSelectedCount() {
+    const checkedBoxes = document.querySelectorAll('.bulk-staff-checkbox:checked');
+    const selectedIds = new Set();
+    checkedBoxes.forEach(cb => {
+        selectedIds.add(cb.dataset.id);
+    });
+    
+    const countDisplay = document.getElementById('bulk-selected-count');
+    if (countDisplay) {
+        countDisplay.innerText = `Đã chọn: ${selectedIds.size} nhân viên`;
+    }
+}
+
+async function submitBulkPublish() {
+    const checkedBoxes = document.querySelectorAll('.bulk-staff-checkbox:checked');
+    const selectedIds = new Set();
+    checkedBoxes.forEach(cb => {
+        selectedIds.add(cb.dataset.id);
+    });
+    
+    if (selectedIds.size === 0) {
+        UIService.toast('Vui lòng chọn ít nhất 1 nhân viên để gửi!', 'warning');
+        return;
+    }
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    
+    const commonMessage = document.getElementById('bulk-message-input')?.value || '';
+    
+    try {
+        UIService.showLoading();
+        
+        const db = firebase.firestore();
+        const batch = db.batch();
+        
+        const allSettings = window.bulkPublishAllSettings || {};
+        
+        selectedIds.forEach(staffId => {
+            const docId = `${monthStr}_${staffId}`;
+            const docRef = db.collection('salary_settings_monthly').doc(docId);
+            
+            const docData = allSettings[staffId] || {};
+            const currentPublished = docData.published || {};
+            
+            // Rebuild published payload
+            const updatedPublished = {
+                ...currentPublished,
+                status: 'published',
+                publishedAt: new Date().toISOString()
+            };
+            
+            // If commonMessage is not empty, override
+            if (commonMessage.trim()) {
+                updatedPublished.message = commonMessage.trim();
+            }
+            
+            batch.set(docRef, {
+                published: updatedPublished
+            }, { merge: true });
+        });
+        
+        await batch.commit();
+        
+        // Invalidate cache
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        
+        UIService.toast(`Đã gửi bảng lương cho ${selectedIds.size} nhân viên thành công!`, 'success');
+        closeBulkPublishModal();
+        
+        // Refresh dashboard or view if they are open
+        const dashView = document.getElementById('salary-dashboard-view');
+        if (dashView && dashView.style.display === 'block') {
+            await loadSalaryDashboard();
+        } else {
+            await loadSalarySettings();
+        }
+    } catch (e) {
+        console.error('Error in bulk publishing:', e);
+        UIService.toast('Gửi bảng lương thất bại: ' + e.message, 'error');
+    } finally {
+        UIService.hideLoading();
+    }
+}
+
+// Bind new functions to window
+window.saveCalculationDraftToDb = saveCalculationDraftToDb;
+window.openBulkPublishModal = openBulkPublishModal;
+window.closeBulkPublishModal = closeBulkPublishModal;
+window.createBulkStaffRow = createBulkStaffRow;
+window.onBulkCheckboxChange = onBulkCheckboxChange;
+window.toggleSelectAllGroup = toggleSelectAllGroup;
+window.updateBulkSelectedCount = updateBulkSelectedCount;
+window.submitBulkPublish = submitBulkPublish;
+
 

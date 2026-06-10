@@ -33,6 +33,43 @@ const UIService = {
         }
     },
 
+    showLoading(message = 'Đang xử lý...') {
+        let overlay = document.getElementById('global-loading-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'global-loading-overlay';
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(4px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; transition: opacity 0.2s;';
+            document.body.appendChild(overlay);
+        }
+        
+        overlay.innerHTML = `
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.75rem; background: white; padding: 1.5rem 2.5rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid rgba(229, 231, 235, 0.5);">
+                <i data-lucide="loader-2" class="animate-spin" style="width: 36px; height: 36px; color: var(--primary-color);"></i>
+                <span style="font-weight: 600; color: #374151; font-size: 0.95rem;">${message}</span>
+            </div>
+        `;
+        
+        overlay.style.opacity = '0';
+        overlay.style.display = 'flex';
+        // Force reflow
+        overlay.offsetHeight;
+        overlay.style.opacity = '1';
+        
+        if (window.lucide) {
+            window.lucide.createIcons({ root: overlay });
+        }
+    },
+
+    hideLoading() {
+        const overlay = document.getElementById('global-loading-overlay');
+        if (overlay) {
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 200);
+        }
+    },
+
     toast(message, type = 'info') {
         this.init();
         const container = document.querySelector('.toast-container');
