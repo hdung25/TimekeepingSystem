@@ -2697,7 +2697,39 @@ async function loadSalarySettings() {
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    let activeFilter = 'giao-vien';
+    if (filterVal === 'tiep-tan') {
+        activeFilter = 'tiep-tan';
+    } else if (filterVal === 'giao-vien') {
+        activeFilter = 'giao-vien';
+    } else {
+        // filterVal === 'all'
+        if (hasReceptionist && !hasTeaching) {
+            activeFilter = 'tiep-tan';
+        } else if (hasTeaching && !hasReceptionist) {
+            activeFilter = 'giao-vien';
+        } else if (hasTeaching && hasReceptionist) {
+            // Dual-role employee: check actual shifts worked to default
+            let receptionistShiftCount = 0;
+            let teachingShiftCount = 0;
+            (window.unfilteredAllMonthChips || []).forEach(chip => {
+                if (chip.class === 'chip-future') return;
+                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                if (isTT) receptionistShiftCount++;
+                else teachingShiftCount++;
+            });
+            
+            if (receptionistShiftCount > 0 && teachingShiftCount === 0) {
+                activeFilter = 'tiep-tan';
+            } else if (teachingShiftCount > 0 && receptionistShiftCount === 0) {
+                activeFilter = 'giao-vien';
+            } else if (receptionistShiftCount > 0 && teachingShiftCount > 0) {
+                activeFilter = teachingShiftCount >= receptionistShiftCount ? 'giao-vien' : 'tiep-tan';
+            } else {
+                activeFilter = 'giao-vien';
+            }
+        }
+    }
     const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
     // Track the currently loaded role key for reliable dual-role detection
     window.currentLoadedRoleKey = roleKey;
@@ -4666,11 +4698,35 @@ async function saveSalarySettingsFromModal() {
             window.currentUserContext.salary_config.evaluation = evaluationData;
         }
         
+        window.currentLoadedRoleKey = roleKey;
         window.currentLoadedSalarySettings = settingsObj;
         if (!window.currentMonthlySalarySettingsAll) {
             window.currentMonthlySalarySettingsAll = {};
         }
         window.currentMonthlySalarySettingsAll[roleKey] = settingsObj;
+        
+        // Sync to background page elements
+        const backgroundAdvanceInp = document.getElementById('salary-advance');
+        if (backgroundAdvanceInp) {
+            backgroundAdvanceInp.value = formatNumberWithCommas(advance);
+        }
+        
+        if (roleKey === 'tiep_tan') {
+            const phiTuVanObj = evaluationData.find(e => e.id === 1);
+            const doanhThuCs3Obj = evaluationData.find(e => e.id === 6);
+            const backgroundPhiTuVanInp = document.getElementById('pdf-phi-tu-van');
+            const backgroundDoanhThuCs3Inp = document.getElementById('pdf-doanh-thu-cs3');
+            if (backgroundPhiTuVanInp && phiTuVanObj) {
+                backgroundPhiTuVanInp.value = formatNumberWithCommas(phiTuVanObj.amount || 0);
+            }
+            if (backgroundDoanhThuCs3Inp && doanhThuCs3Obj) {
+                backgroundDoanhThuCs3Inp.value = formatNumberWithCommas(doanhThuCs3Obj.amount || 0);
+            }
+        }
+        
+        if (typeof renderEvaluationTable === 'function') {
+            renderEvaluationTable(settingsObj.evaluation || []);
+        }
         
         UIService.toast('Đã lưu bảng lương và tính thành công!', 'success');
         closeClassRateModal();
