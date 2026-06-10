@@ -2324,7 +2324,7 @@ function calculateSalary() {
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         const isPureRecep = hasReceptionist && !hasTeaching;
-        const recepSettings = (isPureRecep || window.currentLoadedSalarySettings === (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan']))
+        const recepSettings = (window.currentLoadedRoleKey === 'tiep_tan')
             ? (window.currentLoadedSalarySettings || {})
             : (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {});
         
@@ -2338,12 +2338,12 @@ function calculateSalary() {
         const phiTuVanDisplay = document.getElementById('pdf-phi-tu-van');
         const doanhThuCs3Display = document.getElementById('pdf-doanh-thu-cs3');
         
-        // Đọc từ DOM input nếu user đang nhập, ngược lại dùng giá trị từ settings
+        // Đọc trực tiếp từ DOM input, nếu không tồn tại thì dùng settings/0 (vì DOM đã được loadSalarySettings khởi tạo đúng từ database)
         const phiTuVanActual = phiTuVanDisplay
-            ? (parseFormattedNumber(phiTuVanDisplay.value) || phiTuVan)
+            ? (parseFormattedNumber(phiTuVanDisplay.value) || 0)
             : phiTuVan;
         const doanhThuCs3Actual = doanhThuCs3Display
-            ? (parseFormattedNumber(doanhThuCs3Display.value) || doanhThuCs3)
+            ? (parseFormattedNumber(doanhThuCs3Display.value) || 0)
             : doanhThuCs3;
         
         // Cập nhật hiển thị nếu user không đang gõ vào input đó
@@ -2737,6 +2737,24 @@ async function loadSalarySettings() {
 
     window.currentLoadedSalarySettings = settings;
     document.getElementById('salary-advance').value = formatNumberWithCommas(settings.advance || 0);
+
+    // Reset/populate receptionist extra inputs from loaded database values to avoid carry-over
+    const phiTuVanInput = document.getElementById('pdf-phi-tu-van');
+    const doanhThuCs3Input = document.getElementById('pdf-doanh-thu-cs3');
+    if (phiTuVanInput || doanhThuCs3Input) {
+        const monthlyAll = window.currentMonthlySalarySettingsAll || {};
+        const ttSettings = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
+        const ttEvaluation = ttSettings.evaluation || [];
+        const dbPhiTuVan = ttEvaluation.find(e => e.id === 1)?.amount || 0;
+        const dbDoanhThuCs3 = ttEvaluation.find(e => e.id === 6)?.amount || 0;
+
+        if (phiTuVanInput) {
+            phiTuVanInput.value = formatNumberWithCommas(dbPhiTuVan);
+        }
+        if (doanhThuCs3Input) {
+            doanhThuCs3Input.value = formatNumberWithCommas(dbDoanhThuCs3);
+        }
+    }
     
     // Load monthly actual revenues unconditionally for the header
     try {
