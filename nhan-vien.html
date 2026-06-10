@@ -100,7 +100,8 @@
 
                 <!-- Salary Content (Hidden by default, shown when loaded) -->
                 <div id="personal-salary-content" style="display: none;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                    <!-- Basic Summary View (Fallback for older records) -->
+                    <div id="ps-basic-view" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
                         <!-- Left Side Details -->
                         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                             <div style="display: flex; justify-content: space-between; font-size: 0.95rem; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.4rem;">
@@ -132,6 +133,9 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Detailed Table View (Matches Admin Print Layout) -->
+                    <div id="ps-detailed-view" style="display: none; margin-bottom: 1.5rem;"></div>
 
                     <!-- Breakdown Table (For Teachers) -->
                     <div id="ps-breakdown-container" style="margin-bottom: 1.5rem; display: none;">

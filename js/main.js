@@ -2049,6 +2049,297 @@ function parseFormattedNumber(value) {
     return parseInt(clean, 10) || 0;
 }
 
+
+function renderDetailedSalaryTable(details) {
+    const fmt = (n) => n ? formatNumberWithCommas(Math.round(n)) + ' ₫' : '0 ₫';
+    const formatHoursDecimal = (mins) => {
+        const h = mins / 60;
+        if (Number.isInteger(h)) return h.toString() + ' giờ';
+        return h.toFixed(2).replace('.', ',') + ' giờ';
+    };
+    const formatLateHours = (mins) => {
+        if (!mins) return '0';
+        const hours = mins / 60;
+        const formatted = hours.toFixed(2).replace('.', ',');
+        return formatted.startsWith('0,') ? formatted.substring(1) : formatted;
+    };
+
+    let rowsHtml = '';
+    const styleLabelCell = 'padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #374151;';
+    const styleValueCell = 'padding: 0.75rem; border-bottom: 1px solid #E5E7EB; text-align: right; font-weight: 600; color: #111827;';
+    const styleHeaderCell = 'padding: 0.75rem; border-bottom: 2px solid #D1D5DB; background: #F3F4F6; font-weight: 700; color: #1F2937; text-transform: uppercase;';
+    const styleHeaderValCell = 'padding: 0.75rem; border-bottom: 2px solid #D1D5DB; background: #F3F4F6; text-align: right; font-weight: 700; color: #1F2937;';
+    
+    if (details.role === 'tiep-tan') {
+        const totalI = (details.baseSalary || 0) + (details.phiTuVan || 0) + (details.chamBaiPhatSinh || 0) + (details.troCapChucVu || 0) + (details.luongHieuSuat || 0) + (details.doanhThuTong || 0) + (details.doanhThuCs2 || 0) + (details.doanhThuCs3 || 0) + (details.phatSinh || 0) + (details.attendanceAdjustments || 0);
+        const finalNetTT = totalI - (details.advance || 0);
+        
+        rowsHtml = `
+            <tr style="background: #FFFBEB;">
+                <td colspan="2" style="${styleHeaderCell} color: #B45309;">TỔNG LƯƠNG (1)</td>
+                <td style="${styleHeaderValCell} color: #B45309; font-size: 1.05rem;">${fmt(totalI)}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">
+                    TỔNG SỐ GIỜ: ${details.filteredMinutes > 0 ? formatHoursDecimal(details.filteredMinutes) : '0 giờ'}
+                    <br>
+                    <span style="font-weight: normal; font-size: 0.8rem; color: #6B7280;">LƯƠNG CƠ BẢN:</span>
+                </td>
+                <td style="${styleValueCell} vertical-align: top; font-weight: 700;">${details.baseSalary > 0 ? fmt(details.baseSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">PHÍ TƯ VẤN:</td>
+                <td style="${styleValueCell}">${details.phiTuVan > 0 ? fmt(details.phiTuVan) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">CHẤM BÀI / DẠY VẼ / ĐĂNG BÀI / SỰ KIỆN / PHÁT SINH:${details.chamBaiNote ? ' <span style="font-weight:normal; font-style:italic; color:#6B7280;">(' + details.chamBaiNote + ')</span>' : ''}</td>
+                <td style="${styleValueCell}">${details.chamBaiPhatSinh > 0 ? fmt(details.chamBaiPhatSinh) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">TRỢ CẤP CHỨC VỤ:${details.troCapNote ? ' <span style="font-weight:normal; font-style:italic; color:#6B7280;">(' + details.troCapNote + ')</span>' : ''}</td>
+                <td style="${styleValueCell}">${details.troCapChucVu > 0 ? fmt(details.troCapChucVu) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">LƯƠNG HIỆU SUẤT:${details.luongHieuSuatNote ? ' <span style="font-weight:normal; font-style:italic; color:#6B7280;">(' + details.luongHieuSuatNote + ')</span>' : ''}</td>
+                <td style="${styleValueCell}">${details.luongHieuSuat > 0 ? fmt(details.luongHieuSuat) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">THU NHẬP TĂNG THÊM DOANH THU TỔNG:</td>
+                <td style="${styleValueCell}">${details.doanhThuTong > 0 ? fmt(details.doanhThuTong) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">THU NHẬP TĂNG THÊM DOANH THU CS2:</td>
+                <td style="${styleValueCell}">${details.doanhThuCs2 > 0 ? fmt(details.doanhThuCs2) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">THU NHẬP TĂNG THÊM DOANH THU CS3:</td>
+                <td style="${styleValueCell}">${details.doanhThuCs3 > 0 ? fmt(details.doanhThuCs3) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="${styleLabelCell}">PHÁT SINH (I) + (II)</td>
+                <td style="${styleValueCell}">${details.phatSinh > 0 ? fmt(details.phatSinh) : '—'}</td>
+            </tr>
+            ${details.attendanceAdjustments !== 0 ? `
+            <tr style="color: #DC2626; background: #FEF2F2;">
+                <td colspan="2" style="${styleLabelCell} color: #DC2626;">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td style="${styleValueCell} color: #DC2626; font-weight: 700;">${fmt(details.attendanceAdjustments)}</td>
+            </tr>
+            ` : ''}
+            
+            <!-- Criteria Section -->
+            <tr>
+                <td rowspan="2" style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; text-align: center; font-weight: 700; color: #4B5563; background: #F9FAFB; border-right: 1px solid #E5E7EB; font-size: 0.8rem;">TIÊU<br>CHÍ<br>XÉT</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">
+                    <strong style="color: #374151;">(I) HIỆU SUẤT</strong><br>
+                    Vắng phép: ${details.stats?.vpShifts || 0} &nbsp;&nbsp; Vắng đột xuất: ${details.stats?.vdxShifts || 0}<br>
+                    Vắng không phép: ${details.stats?.vkpShifts || 0} &nbsp;&nbsp; Trễ: ${formatLateHours(details.stats?.totalLateMinutes || 0)} giờ
+                </td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">
+                    ${details.criteriaI?.amount ? fmt(details.criteriaI.amount) : '—'}
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">
+                    <strong style="color: #374151;">(II) ĐÁNH GIÁ CỦA TỔ TRƯỞNG:</strong> ${details.criteriaV?.note || '—'}
+                </td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">
+                    ${details.criteriaV?.amount ? fmt(details.criteriaV.amount) : '—'}
+                </td>
+            </tr>
+            
+            <tr style="background: #FDF2F8;">
+                <td colspan="2" style="${styleLabelCell} color: #DB2777; font-weight: 700;">TẠM ỨNG (2)</td>
+                <td style="${styleValueCell} color: #DB2777; font-weight: 700;">${details.advance > 0 ? fmt(details.advance) : '—'}</td>
+            </tr>
+            <tr style="background: #ECFDF5; border-top: 2px solid #10B981;">
+                <td colspan="2" style="${styleHeaderCell} background: #ECFDF5; color: #065F46; font-size: 1.1rem;">THỰC LÃNH (1)-(2)</td>
+                <td style="${styleHeaderValCell} background: #ECFDF5; color: #065F46; font-size: 1.3rem; font-weight: 800;">${fmt(finalNetTT)}</td>
+            </tr>
+        `;
+    } else {
+        const initialTotal = (details.totalBaseSalary || 0) + (details.totalTinHocSalary || 0) + (details.totalExtraSalary || 0) + (details.totalPreschoolSalary || 0) + (details.totalAffiliateSalary || 0) + (details.totalTutoringSalary || 0) + (details.troCapChucVu || 0) + (details.totalBonus || 0) + (details.attendanceAdjustments || 0);
+        const finalNet = initialTotal - (details.advance || 0);
+        
+        const criteria0 = details.evalItems?.[0];
+        const criteria1 = details.evalItems?.[1];
+        const criteria2 = details.evalItems?.[2];
+        const criteria3 = details.evalItems?.[3];
+        const criteria4 = details.evalItems?.[4];
+        const criteria5 = details.evalItems?.[5];
+        const criteria6 = details.evalItems?.[6];
+        const criteria7 = details.evalItems?.[7];
+        const criteria8 = details.evalItems?.[8];
+        const criteria9 = details.evalItems?.[9];
+
+        rowsHtml = `
+            <tr style="background: #FFFBEB;">
+                <td colspan="3" style="${styleHeaderCell} color: #B45309;">TỔNG LƯƠNG (1)</td>
+                <td style="${styleHeaderValCell} color: #B45309; font-size: 1.05rem;">${fmt(initialTotal)}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">
+                    TỔNG SỐ GIỜ: ${details.totalBaseMins > 0 ? formatHoursDecimal(details.totalBaseMins) : '0 giờ'}
+                    <br>
+                    <span style="font-weight: normal; font-size: 0.8rem; color: #6B7280;">LƯƠNG CƠ BẢN:</span>
+                </td>
+                <td style="${styleValueCell} vertical-align: top; font-weight: 700;">${details.totalBaseSalary > 0 ? fmt(details.totalBaseSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">TỔNG SỐ GIỜ TIN HỌC: ${details.totalTinHocMins > 0 ? formatHoursDecimal(details.totalTinHocMins) : '0 giờ'}</td>
+                <td style="${styleValueCell}">${details.totalTinHocSalary > 0 ? fmt(details.totalTinHocSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">SOẠN BÀI / CHẤM BÀI / SỰ KIỆN / PHÁT SINH: ${details.totalExtraMins > 0 ? formatHoursDecimal(details.totalExtraMins) : '0 giờ'}</td>
+                <td style="${styleValueCell}">${details.totalExtraSalary > 0 ? fmt(details.totalExtraSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">TỔNG SỐ GIỜ MẦM NON: ${details.totalPreschoolMins > 0 ? formatHoursDecimal(details.totalPreschoolMins) : '0 giờ'}</td>
+                <td style="${styleValueCell}">${details.totalPreschoolSalary > 0 ? fmt(details.totalPreschoolSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">TỔNG SỐ GIỜ LIÊN KẾT: ${details.totalAffiliateMins > 0 ? formatHoursDecimal(details.totalAffiliateMins) : '0 giờ'}</td>
+                <td style="${styleValueCell}">${details.totalAffiliateSalary > 0 ? fmt(details.totalAffiliateSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">TỔNG SỐ GIỜ KÈM 1:1 (TẠI NHÀ): ${details.totalTutoringMins > 0 ? formatHoursDecimal(details.totalTutoringMins) : '0 giờ'}</td>
+                <td style="${styleValueCell}">${details.totalTutoringSalary > 0 ? fmt(details.totalTutoringSalary) : '—'}</td>
+            </tr>
+            <tr>
+                <td colspan="3" style="${styleLabelCell}">TRỢ CẤP CHỨC VỤ:${details.troCapNote ? ' <span style="font-weight:normal; font-style:italic; color:#6B7280;">(' + details.troCapNote + ')</span>' : ''}</td>
+                <td style="${styleValueCell}">${details.troCapChucVu > 0 ? fmt(details.troCapChucVu) : '—'}</td>
+            </tr>
+            ${details.attendanceAdjustments !== 0 ? `
+            <tr style="color: #DC2626; background: #FEF2F2;">
+                <td colspan="3" style="${styleLabelCell} color: #DC2626;">KHẤU TRỪ CHUYÊN CẦN:</td>
+                <td style="${styleValueCell} color: #DC2626; font-weight: 700;">${fmt(details.attendanceAdjustments)}</td>
+            </tr>
+            ` : ''}
+            <tr style="background: #F3F4F6;">
+                <td colspan="3" style="${styleLabelCell} font-weight: 700;">TỔNG THƯỞNG ĐÁNH GIÁ (I đến X):</td>
+                <td style="${styleValueCell} font-weight: 700; color: #10B981;">+${fmt(details.totalBonus)}</td>
+            </tr>
+            
+            <!-- Evaluation Details -->
+            <tr>
+                <td rowspan="10" style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; text-align: center; font-weight: 700; color: #4B5563; background: #F9FAFB; border-right: 1px solid #E5E7EB; font-size: 0.8rem;">TIÊU<br>CHÍ<br>ĐÁNH<br>GIÁ</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(I) CHUYÊN CẦN</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">
+                    Vắng phép: ${details.stats?.vpShifts || 0} &nbsp;&nbsp; Vắng đột xuất: ${details.stats?.vdxShifts || 0} &nbsp;&nbsp; Vắng KP: ${details.stats?.vkpShifts || 0}
+                </td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria0?.amount ? fmt(criteria0.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(II) ĐÚNG GIỜ</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">
+                    Trễ: ${details.stats?.totalLateMinutes ? (details.stats.totalLateMinutes / 60).toFixed(2).replace('.', ',') + ' giờ' : '0 giờ'} &nbsp;&nbsp; số lần trễ: ${details.stats?.lateCount || 0} lần
+                </td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria1?.amount ? fmt(criteria1.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(III) TẬP TRUNG</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria2?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria2?.amount ? fmt(criteria2.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(IV) NHIỆT TÌNH</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria3?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria3?.amount ? fmt(criteria3.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(V) TRÁCH NHIỆM</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria4?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria4?.amount ? fmt(criteria4.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(VI) SOẠN BÀI</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria5?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria5?.amount ? fmt(criteria5.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(VII) CHUYÊN MÔN</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria6?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria6?.amount ? fmt(criteria6.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(VIII) SƯ PHẠM</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria7?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria7?.amount ? fmt(criteria7.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(IX) SỐ GIỜ LÀM</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">
+                    Mốc xét thưởng: 50,65,80 ${criteria8?.note ? `<br style="margin-bottom:2px;">` + criteria8.note : ''}
+                </td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria8?.amount ? fmt(criteria8.amount) : '—'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; font-weight: 600; color: #4B5563; font-size: 0.8rem; border-right: 1px solid #E5E7EB;">(X) HỌP ĐỊNH KÌ</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid #E5E7EB; color: #4B5563; font-size: 0.8rem;">${criteria9?.note || '—'}</td>
+                <td style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria9?.amount ? fmt(criteria9.amount) : '—'}</td>
+            </tr>
+            
+            <tr style="background: #FDF2F8;">
+                <td colspan="3" style="${styleLabelCell} color: #DB2777; font-weight: 700;">TẠM ỨNG (2)</td>
+                <td style="${styleValueCell} color: #DB2777; font-weight: 700;">${details.advance > 0 ? fmt(details.advance) : '—'}</td>
+            </tr>
+            <tr style="background: #ECFDF5; border-top: 2px solid #10B981;">
+                <td colspan="3" style="${styleHeaderCell} background: #ECFDF5; color: #065F46; font-size: 1.1rem;">THỰC LÃNH (1)-(2)</td>
+                <td style="${styleHeaderValCell} background: #ECFDF5; color: #065F46; font-size: 1.3rem; font-weight: 800;">${fmt(finalNet)}</td>
+            </tr>
+        `;
+    }
+
+    return `
+        <div class="detailed-salary-card" style="background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border-radius: 16px; border: 1.5px solid #E5E7EB; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02); transition: transform 0.2s;">
+            <!-- Card Header -->
+            <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); padding: 1.15rem 1.5rem; color: white; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.5rem;">
+                        ${window.getIconHtml('file-text', {width: '20', height: '20'})}
+                        Bảng Lương Chi Tiết
+                    </h3>
+                    <p style="margin: 0.35rem 0 0 0; font-size: 0.8rem; opacity: 0.9; font-weight: 500;">
+                        Mã NV: <span style="font-weight:700;">${details.employeeId || '—'}</span> &nbsp;|&nbsp; Họ tên: <span style="font-weight:700;">${details.staffName?.toUpperCase() || '—'}</span>
+                    </p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div id="ps-detailed-status-badge"></div>
+                    <span style="background: rgba(255, 255, 255, 0.25); padding: 4px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                        ${details.role === 'tiep-tan' ? 'Tiếp Tân' : 'Giáo Viên'}
+                    </span>
+                </div>
+            </div>
+            
+            <!-- Table Container -->
+            <div style="overflow-x: auto; padding: 0.75rem;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden;">
+                    <colgroup>
+                        ${details.role === 'tiep-tan' ? `
+                            <col style="width: 12%;">
+                            <col style="width: 58%;">
+                            <col style="width: 30%;">
+                        ` : `
+                            <col style="width: 10%;">
+                            <col style="width: 25%;">
+                            <col style="width: 50%;">
+                            <col style="width: 15%;">
+                        `}
+                    </colgroup>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Note Section inside Card -->
+            <div style="padding: 1rem 1.5rem; background: #FAF9F6; border-top: 1.5px dashed #E5E7EB; font-size: 0.85rem; color: #4B5563; font-style: italic; line-height: 1.4;">
+                <div><strong>Lưu ý:</strong> Nếu bảng lương có sai sót vui lòng liên hệ chị Thủy (bộ phận nhân sự) vào sáng giờ hành chính (7h-11h)</div>
+                ${details.role === 'giao-vien' ? `<div style="color: #DC2626; font-weight: 600; margin-top: 4px;">*LƯU Ý: Lương chưa bao gồm phí soạn bài bên chị Tiên, phí soạn bài vui lòng liên hệ chị Tiên!</div>` : ''}
+            </div>
+        </div>
+    `;
+}
+
 async function loadStaffPersonalSalary() {
     const staffId = localStorage.getItem('currentUserId');
     if (!staffId || typeof DBService === 'undefined') return;
@@ -2092,25 +2383,75 @@ async function loadStaffPersonalSalary() {
         statusContainer.style.display = 'none';
         contentContainer.style.display = 'block';
 
-        // Fill data
-        document.getElementById('ps-base-salary').innerText = formatNumberWithCommas(published.baseSalary || 0) + 'đ';
-        document.getElementById('ps-total-bonus').innerText = '+' + formatNumberWithCommas(published.totalBonus || 0) + 'đ';
-        
-        const penaltyVal = (published.penalties?.vdx || 0) + (published.penalties?.vkp || 0) + (published.penalties?.late || 0);
-        document.getElementById('ps-total-penalties').innerText = '-' + formatNumberWithCommas(penaltyVal) + 'đ';
-        document.getElementById('ps-advance').innerText = '-' + formatNumberWithCommas(published.advance || 0) + 'đ';
-        document.getElementById('ps-net-pay').innerText = formatNumberWithCommas(published.netPay || 0) + 'đ';
-
-        // Status badge
-        const badgeContainer = document.getElementById('ps-status-badge-container');
+        const basicView = document.getElementById('ps-basic-view');
+        const detailedView = document.getElementById('ps-detailed-view');
+        const breakdownContainer = document.getElementById('ps-breakdown-container');
         const confirmBtn = document.getElementById('btn-confirm-receipt');
-        if (badgeContainer) {
-            if (published.status === 'received') {
-                badgeContainer.innerHTML = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`;
-                if (confirmBtn) confirmBtn.style.display = 'none';
-            } else {
-                badgeContainer.innerHTML = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã công bố</span>`;
-                if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+
+        if (published.details) {
+            // Show detailed table view
+            if (basicView) basicView.style.display = 'none';
+            if (breakdownContainer) breakdownContainer.style.display = 'none';
+            if (detailedView) {
+                detailedView.style.display = 'block';
+                detailedView.innerHTML = renderDetailedSalaryTable(published.details);
+            }
+
+            // Put status badge inside the detailed table header
+            const detailedBadge = document.getElementById('ps-detailed-status-badge');
+            if (detailedBadge) {
+                if (published.status === 'received') {
+                    detailedBadge.innerHTML = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`;
+                    if (confirmBtn) confirmBtn.style.display = 'none';
+                } else {
+                    detailedBadge.innerHTML = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã công bố</span>`;
+                    if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+                }
+            }
+        } else {
+            // Fallback to basic summary view
+            if (detailedView) detailedView.style.display = 'none';
+            if (basicView) basicView.style.display = 'grid';
+            
+            document.getElementById('ps-base-salary').innerText = formatNumberWithCommas(published.baseSalary || 0) + 'đ';
+            document.getElementById('ps-total-bonus').innerText = '+' + formatNumberWithCommas(published.totalBonus || 0) + 'đ';
+            
+            const penaltyVal = (published.penalties?.vdx || 0) + (published.penalties?.vkp || 0) + (published.penalties?.late || 0);
+            document.getElementById('ps-total-penalties').innerText = '-' + formatNumberWithCommas(penaltyVal) + 'đ';
+            document.getElementById('ps-advance').innerText = '-' + formatNumberWithCommas(published.advance || 0) + 'đ';
+            document.getElementById('ps-net-pay').innerText = formatNumberWithCommas(published.netPay || 0) + 'đ';
+
+            // Status badge in basic card
+            const badgeContainer = document.getElementById('ps-status-badge-container');
+            if (badgeContainer) {
+                if (published.status === 'received') {
+                    badgeContainer.innerHTML = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`;
+                    if (confirmBtn) confirmBtn.style.display = 'none';
+                } else {
+                    badgeContainer.innerHTML = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã công bố</span>`;
+                    if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+                }
+            }
+
+            // Subject Breakdown table (For teachers)
+            if (breakdownContainer) {
+                const breakdown = published.breakdown || [];
+                const breakdownBody = document.getElementById('ps-breakdown-body');
+                if (breakdown.length > 0 && breakdownBody) {
+                    breakdownContainer.style.display = 'block';
+                    breakdownBody.innerHTML = breakdown.map(item => {
+                        return `
+                            <tr style="border-bottom:1px solid var(--border-color);">
+                                <td style="padding: 0.5rem; font-weight:600;">${item.name}</td>
+                                <td style="padding: 0.5rem; text-align:center;">${item.hours}h</td>
+                                <td style="padding: 0.5rem; text-align:right; color:var(--text-muted);">${formatNumberWithCommas(item.rate)}đ/h</td>
+                                <td style="padding: 0.5rem; text-align:right; font-weight:700; color:var(--primary-color);">${formatNumberWithCommas(item.amount)}đ</td>
+                            </tr>
+                        `;
+                    }).join('');
+                } else {
+                    breakdownContainer.style.display = 'none';
+                }
             }
         }
 
@@ -2123,28 +2464,6 @@ async function loadStaffPersonalSalary() {
                 msgEl.innerText = published.message;
             } else {
                 msgContainer.style.display = 'none';
-            }
-        }
-
-        // Subject Breakdown table (For teachers)
-        const breakdownContainer = document.getElementById('ps-breakdown-container');
-        const breakdownBody = document.getElementById('ps-breakdown-body');
-        if (breakdownContainer && breakdownBody) {
-            const breakdown = published.breakdown || [];
-            if (breakdown.length > 0) {
-                breakdownContainer.style.display = 'block';
-                breakdownBody.innerHTML = breakdown.map(item => {
-                    return `
-                        <tr style="border-bottom:1px solid var(--border-color);">
-                            <td style="padding: 0.5rem; font-weight:600;">${item.name}</td>
-                            <td style="padding: 0.5rem; text-align:center;">${item.hours}h</td>
-                            <td style="padding: 0.5rem; text-align:right; color:var(--text-muted);">${formatNumberWithCommas(item.rate)}đ/h</td>
-                            <td style="padding: 0.5rem; text-align:right; font-weight:700; color:var(--primary-color);">${formatNumberWithCommas(item.amount)}đ</td>
-                        </tr>
-                    `;
-                }).join('');
-            } else {
-                breakdownContainer.style.display = 'none';
             }
         }
 

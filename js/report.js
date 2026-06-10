@@ -5902,11 +5902,32 @@ function getCurrentCalculationPayload(role) {
     const advance = parseFormattedNumber(document.getElementById('salary-advance')?.value || '0');
     const baseSalary = window.currentMonthSalary || 0;
     
-    // Total bonus is the sum of evalAmounts
+    // Total bonus and evalItems
     let totalBonus = 0;
-    document.querySelectorAll('.eval-amount').forEach(input => {
-        totalBonus += parseFormattedNumber(input.value) || 0;
+    const evalItems = [];
+    const activeCriteria = role === 'tiep-tan' 
+        ? RECEP_EVALUATION_CRITERIA 
+        : (typeof EVALUATION_CRITERIA !== 'undefined' ? EVALUATION_CRITERIA : window.EVALUATION_CRITERIA);
+    
+    document.querySelectorAll('.eval-amount').forEach(inp => {
+        const val = parseFormattedNumber(inp.value) || 0;
+        const criteriaIndex = parseInt(inp.dataset.index, 10);
+        if (isNaN(criteriaIndex)) return;
+        const noteInp = document.querySelector(`.eval-note[data-index="${criteriaIndex}"]`);
+        
+        const item = activeCriteria.find(e => (role === 'tiep-tan' ? e.index === criteriaIndex : activeCriteria.indexOf(e) === criteriaIndex)) || { label: '', tooltip: 'Đánh giá' };
+        const displayNote = noteInp ? noteInp.value : '';
+        
+        evalItems.push({
+            id: criteriaIndex,
+            label: item.label,
+            title: item.tooltip,
+            note: displayNote,
+            amount: val
+        });
     });
+    
+    totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
     
     // For receptionists, add the redistributed center and cs2 bonuses if applicable
     const staffUser = window.currentUserContext;
@@ -5915,29 +5936,333 @@ function getCurrentCalculationPayload(role) {
         const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
         isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
     }
+    
+    let centerBonus = 0;
+    let cs2Bonus = 0;
     if (isRecep && role === 'tiep-tan') {
         const outputTong = document.getElementById('pdf-doanh-thu-tong');
         const outputCs2 = document.getElementById('pdf-doanh-thu-cs2');
-        const centerBonus = outputTong ? (parseFormattedNumber(outputTong.value) || 0) : 0;
-        const cs2Bonus = outputCs2 ? (parseFormattedNumber(outputCs2.value) || 0) : 0;
+        centerBonus = outputTong ? (parseFormattedNumber(outputTong.value) || 0) : 0;
+        cs2Bonus = outputCs2 ? (parseFormattedNumber(outputCs2.value) || 0) : 0;
         totalBonus += Math.round(centerBonus) + Math.round(cs2Bonus);
     }
     
     // Penalties (VDX, VKP, Late)
     const loadedSettings = window.currentLoadedSalarySettings || {};
+    const penaltyVDX = Number(loadedSettings.adjust_vdx || 0);
+    const penaltyVKP = Number(loadedSettings.adjust_vkp || 0);
+    const penaltyLate = Number(loadedSettings.adjust_late || 0);
     const penalties = {
-        vdx: Number(loadedSettings.adjust_vdx || 0),
-        vkp: Number(loadedSettings.adjust_vkp || 0),
-        late: Number(loadedSettings.adjust_late || 0)
+        vdx: penaltyVDX,
+        vkp: penaltyVKP,
+        late: penaltyLate
     };
     
-    // Stats: workedShifts, lateCount, etc.
+    const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
+    
+    // Calculate Attendance Stats dynamically from unfilteredAllMonthChips
+    let workedShifts = 0;
+    let vpShifts = 0;
+    let vdxShifts = 0;
+    let vkpShifts = 0;
+    let lateCount = 0;
+    let totalLateMinutes = 0;
+    
+    const unfilteredChips = window.unfilteredAllMonthChips || [];
+    const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
+    unfilteredChips.forEach(chip => {
+        if (chip.class === 'chip-future') return;
+        
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (role === 'tiep-tan' && !isTT) return;
+        if (role === 'giao-vien' && isTT) return;
+        
+        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+            const type = classifyAbsentChip(chip, notesMap);
+            if (type === 'VP') vpShifts++;
+            else if (type === 'VDX') vdxShifts++;
+            else vkpShifts++;
+        } else {
+            workedShifts++;
+        }
+        
+        const match = chip.text.match(/\(T(\d+)p\)/);
+        if (match) {
+            lateCount++;
+            totalLateMinutes += parseInt(match[1], 10);
+        }
+    });
+    
     const stats = {
-        workedShifts: window.normalWorkedCount || 0,
-        fixedWorkedShifts: window.fixedWorkedCount || 0,
-        vdxShifts: window.fixedAbsentCount2 || 0,
-        vkpShifts: window.normalAbsentCount || 0
+        workedShifts: workedShifts,
+        vpShifts: vpShifts,
+        vdxShifts: vdxShifts,
+        vkpShifts: vkpShifts,
+        lateCount: lateCount,
+        totalLateMinutes: totalLateMinutes
     };
+    
+    // Calculate hours categories
+    const chips = window.currentMonthChips || [];
+    let normalMinutes = 0;
+    let fixedMinutes = 0;
+    let normalSalary = 0;
+    let fixedSalary = 0;
+
+    let totalBaseMins = 0;
+    let totalBaseSalary = 0;
+    let totalTinHocMins = 0;
+    let totalTinHocSalary = 0;
+    let totalPreschoolMins = 0;
+    let totalPreschoolSalary = 0;
+    let totalAffiliateMins = 0;
+    let totalAffiliateSalary = 0;
+    let totalTutoringMins = 0;
+    let totalTutoringSalary = 0;
+    let totalExtraMins = 0;
+    let totalExtraSalary = 0;
+
+    chips.forEach(chip => {
+        const isReceptionistChip = chip.isReceptionist === true;
+        if (!chip.sessionData && !isReceptionistChip) return;
+        let include = false;
+        
+        if (role === 'giao-vien') {
+            const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
+            const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
+            const name = removeVietnameseTones(nameRaw);
+            const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+            if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+                include = false;
+            } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
+                include = true;
+            }
+        } else if (role === 'tiep-tan') {
+            if (isReceptionistChip) {
+                include = true;
+            } else {
+                const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
+                const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
+                const name = removeVietnameseTones(nameRaw);
+                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+                if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+                    include = true;
+                }
+            }
+        }
+
+        if (include) {
+            const minutes = chip.paidMinutes || 0;
+            let rate = 0;
+            let hasClassRate = false;
+            
+            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const monthlyAll = window.currentMonthlySalarySettingsAll || {};
+            const cfg = window.currentUserContext?.salary_config || {};
+            
+            let classRates = {};
+            if (isTiepTan) {
+                const ttMonthly = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
+                classRates = ttMonthly.class_rates || cfg.class_rates || {};
+            } else {
+                const gvMonthly = monthlyAll['giao_vien'] || monthlyAll['giao-vien'] || {};
+                classRates = gvMonthly.class_rates || cfg.class_rates || {};
+            }
+            
+            if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                rate = Number(classRates[chip.chipFilterName]);
+                hasClassRate = true;
+            }
+
+            if (isTiepTan) {
+                let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
+                let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                
+                if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                    chip.mergedSegments.forEach(seg => {
+                        const segMinutes = seg.schedMinutes || 0;
+                        const segRate = seg.isFixedShift ? fixedRate : normalRate;
+                        const segSalary = (segMinutes / 60) * segRate;
+                        
+                        if (seg.isFixedShift) {
+                            fixedMinutes += segMinutes;
+                            fixedSalary += segSalary;
+                        } else {
+                            normalMinutes += segMinutes;
+                            normalSalary += segSalary;
+                        }
+                    });
+                } else {
+                    const segRate = chip.isFixedShift ? fixedRate : normalRate;
+                    const salary = (minutes / 60) * segRate;
+                    if (chip.isFixedShift) {
+                        fixedMinutes += minutes;
+                        fixedSalary += salary;
+                    } else {
+                        normalMinutes += minutes;
+                        normalSalary += salary;
+                    }
+                }
+            } else {
+                if (chip.mergedSegments && chip.mergedSegments.length > 0) {
+                    let remainingMinutes = minutes;
+                    const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                    
+                    chip.mergedSegments.forEach((seg, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round(minutes / chip.mergedSegments.length);
+                        } else {
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                  segMins = remainingMinutes;
+                            } else {
+                                  segMins = Math.round(minutes * ((seg.schedMinutes || 0) / totalSched));
+                                  remainingMinutes -= segMins;
+                            }
+                        }
+                        
+                        const normalizeFn = window.normalizeChipFilterName || (x => x);
+                        const segName = normalizeFn(seg.lop);
+                        
+                        let segRate = 0;
+                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                            segRate = Number(classRates[segName]);
+                        } else {
+                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        }
+                        const salary = (segMins / 60) * segRate;
+                        normalMinutes += segMins;
+                        normalSalary += salary;
+                        
+                        const filterNameRaw = (segName || '').toLowerCase();
+                        const filterNameNorm = removeVietnameseTones(filterNameRaw);
+                        if (filterNameNorm.includes('tin hoc')) {
+                            totalTinHocMins += segMins;
+                            totalTinHocSalary += salary;
+                        } else if (filterNameNorm.includes('mam non')) {
+                            totalPreschoolMins += segMins;
+                            totalPreschoolSalary += salary;
+                        } else if (filterNameNorm.includes('lien ket')) {
+                            totalAffiliateMins += segMins;
+                            totalAffiliateSalary += salary;
+                        } else if (filterNameNorm.includes('kem 1:1') || filterNameNorm.includes('kem 1-1') || filterNameNorm.includes('tai nha')) {
+                            totalTutoringMins += segMins;
+                            totalTutoringSalary += salary;
+                        } else if (filterNameNorm.includes('soan') || filterNameNorm.includes('cham') || filterNameNorm.includes('su kien') || filterNameNorm.includes('phat sinh')) {
+                            totalExtraMins += segMins;
+                            totalExtraSalary += salary;
+                        } else {
+                            totalBaseMins += segMins;
+                            totalBaseSalary += salary;
+                        }
+                    });
+                } else {
+                    if (hasClassRate) {
+                        const salary = (minutes / 60) * rate;
+                        normalMinutes += minutes;
+                        normalSalary += salary;
+                        
+                        const filterNameRaw = (chip.chipFilterName || '').toLowerCase();
+                        const filterNameNorm = removeVietnameseTones(filterNameRaw);
+                        if (filterNameNorm.includes('tin hoc')) {
+                            totalTinHocMins += minutes;
+                            totalTinHocSalary += salary;
+                        } else if (filterNameNorm.includes('mam non')) {
+                            totalPreschoolMins += minutes;
+                            totalPreschoolSalary += salary;
+                        } else if (filterNameNorm.includes('lien ket')) {
+                            totalAffiliateMins += minutes;
+                            totalAffiliateSalary += salary;
+                        } else if (filterNameNorm.includes('kem 1:1') || filterNameNorm.includes('kem 1-1') || filterNameNorm.includes('tai nha')) {
+                            totalTutoringMins += minutes;
+                            totalTutoringSalary += salary;
+                        } else if (filterNameNorm.includes('soan') || filterNameNorm.includes('cham') || filterNameNorm.includes('su kien') || filterNameNorm.includes('phat sinh')) {
+                            totalExtraMins += minutes;
+                            totalExtraSalary += salary;
+                        } else {
+                            totalBaseMins += minutes;
+                            totalBaseSalary += salary;
+                        }
+                    } else {
+                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        const salary = (minutes / 60) * defaultRate;
+                        normalMinutes += minutes;
+                        normalSalary += salary;
+                        
+                        totalBaseMins += minutes;
+                        totalBaseSalary += salary;
+                    }
+                }
+            }
+        }
+    });
+
+    const filteredMinutes = normalMinutes + fixedMinutes;
+    
+    // Build Details Object
+    const staffSelect = document.getElementById('staff-select');
+    const staffName = staffSelect ? staffSelect.options[staffSelect.selectedIndex]?.text?.split('(')[0]?.trim() : (window.currentUserContext?.name || '');
+    const details = {
+        role: role,
+        staffName: staffName,
+        employeeId: (window.currentUserContext?.username || '').toUpperCase(),
+        baseSalary: baseSalary,
+        advance: advance,
+        netPay: netPay,
+        totalBonus: totalBonus,
+        attendanceAdjustments: attendanceAdjustments,
+        stats: stats
+    };
+    
+    if (role === 'tiep-tan') {
+        const phiTuVan = evalItems.find(item => item.id === 1)?.amount || 0;
+        const chamBaiPhatSinh = evalItems.find(item => item.id === 2)?.amount || 0;
+        const chamBaiNote = evalItems.find(item => item.id === 2)?.note || '';
+        const troCapChucVu = evalItems.find(item => item.id === 3)?.amount || 0;
+        const troCapNote = evalItems.find(item => item.id === 3)?.note || '';
+        const luongHieuSuat = evalItems.find(item => item.id === 5)?.amount || 0;
+        const luongHieuSuatNote = evalItems.find(item => item.id === 5)?.note || '';
+        const doanhThuCs3 = evalItems.find(item => item.id === 6)?.amount || 0;
+        const criteriaI = evalItems.find(item => item.id === 0);
+        const criteriaV = evalItems.find(item => item.id === 4);
+        const phatSinh = (criteriaI?.amount || 0) + (criteriaV?.amount || 0);
+
+        details.filteredMinutes = filteredMinutes;
+        details.normalMinutes = normalMinutes;
+        details.fixedMinutes = fixedMinutes;
+        details.phiTuVan = phiTuVan;
+        details.chamBaiPhatSinh = chamBaiPhatSinh;
+        details.chamBaiNote = chamBaiNote;
+        details.troCapChucVu = troCapChucVu;
+        details.troCapNote = troCapNote;
+        details.luongHieuSuat = luongHieuSuat;
+        details.luongHieuSuatNote = luongHieuSuatNote;
+        details.doanhThuTong = centerBonus;
+        details.doanhThuCs2 = cs2Bonus;
+        details.doanhThuCs3 = doanhThuCs3;
+        details.phatSinh = phatSinh;
+        details.criteriaI = { amount: criteriaI?.amount || 0, note: criteriaI?.note || '' };
+        details.criteriaV = { amount: criteriaV?.amount || 0, note: criteriaV?.note || '' };
+    } else {
+        const troCapChucVu = evalItems.find(item => item.id === 3)?.amount || 0;
+        const troCapNote = evalItems.find(item => item.id === 3)?.note || '';
+        
+        details.totalBaseMins = totalBaseMins;
+        details.totalBaseSalary = totalBaseSalary;
+        details.totalTinHocMins = totalTinHocMins;
+        details.totalTinHocSalary = totalTinHocSalary;
+        details.totalExtraMins = totalExtraMins;
+        details.totalExtraSalary = totalExtraSalary;
+        details.totalPreschoolMins = totalPreschoolMins;
+        details.totalPreschoolSalary = totalPreschoolSalary;
+        details.totalAffiliateMins = totalAffiliateMins;
+        details.totalAffiliateSalary = totalAffiliateSalary;
+        details.totalTutoringMins = totalTutoringMins;
+        details.totalTutoringSalary = totalTutoringSalary;
+        details.troCapChucVu = troCapChucVu;
+        details.troCapNote = troCapNote;
+        details.evalItems = evalItems;
+    }
     
     // Breakdown: window.currentSubjectBreakdown (array of subjects)
     const breakdown = window.currentSubjectBreakdown || [];
@@ -5956,7 +6281,8 @@ function getCurrentCalculationPayload(role) {
         breakdown: breakdown,
         message: message,
         receivedAt: null,
-        confirmedBy: null
+        confirmedBy: null,
+        details: details
     };
 }
 
