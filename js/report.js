@@ -3845,6 +3845,15 @@ window._deduplicateBonus10Requests = async function () {
 
 function formatNumberWithCommas(value) {
     if (value === undefined || value === null || value === '') return '';
+    if (typeof value === 'number') {
+        value = Math.round(value);
+    } else {
+        const cleanedStr = String(value).replace(/,/g, '');
+        const parsedFloat = parseFloat(cleanedStr);
+        if (!isNaN(parsedFloat)) {
+            value = Math.round(parsedFloat);
+        }
+    }
     let clean = String(value).replace(/[^0-9-]/g, '');
     if (clean === '' || clean === '-') return clean;
     const num = parseInt(clean, 10);
@@ -3854,8 +3863,9 @@ function formatNumberWithCommas(value) {
 
 function parseFormattedNumber(value) {
     if (!value) return 0;
-    const clean = String(value).replace(/[^0-9-]/g, '');
-    return parseInt(clean, 10) || 0;
+    const cleaned = String(value).replace(/,/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : Math.round(num);
 }
 
 function classifyAbsentChip(chip, notesMap) {
@@ -6407,9 +6417,10 @@ function getCurrentCalculationPayload(role) {
     }
     
     // Penalties (VDX, VKP, Late)
-    const penaltyVDX = Number(roleSettings.adjust_vdx || 0);
-    const penaltyVKP = Number(roleSettings.adjust_vkp || 0);
-    const penaltyLate = Number(roleSettings.adjust_late || 0);
+    // Penalties (VDX, VKP, Late)
+    const penaltyVDX = Math.round(Number(roleSettings.adjust_vdx || 0));
+    const penaltyVKP = Math.round(Number(roleSettings.adjust_vkp || 0));
+    const penaltyLate = Math.round(Number(roleSettings.adjust_late || 0));
     const penalties = {
         vdx: penaltyVDX,
         vkp: penaltyVKP,
@@ -6417,7 +6428,12 @@ function getCurrentCalculationPayload(role) {
     };
     
     const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
-    const netPay = baseSalary + totalBonus + attendanceAdjustments - advance;
+    
+    const roundedBaseSalary = Math.round(baseSalary);
+    const roundedTotalBonus = Math.round(totalBonus);
+    const roundedAttendanceAdjustments = Math.round(attendanceAdjustments);
+    const roundedAdvance = Math.round(advance);
+    const roundedNetPay = roundedBaseSalary + roundedTotalBonus + roundedAttendanceAdjustments - roundedAdvance;
     
     // Stats
     let workedShifts = 0;
@@ -6468,11 +6484,11 @@ function getCurrentCalculationPayload(role) {
         role: role,
         staffName: staffName,
         employeeId: (window.currentUserContext?.username || '').toUpperCase(),
-        baseSalary: baseSalary,
-        advance: advance,
-        netPay: netPay,
-        totalBonus: totalBonus,
-        attendanceAdjustments: attendanceAdjustments,
+        baseSalary: roundedBaseSalary,
+        advance: roundedAdvance,
+        netPay: roundedNetPay,
+        totalBonus: roundedTotalBonus,
+        attendanceAdjustments: roundedAttendanceAdjustments,
         stats: stats
     };
     
@@ -6492,38 +6508,41 @@ function getCurrentCalculationPayload(role) {
         details.filteredMinutes = filteredMinutes;
         details.normalMinutes = normalMinutes;
         details.fixedMinutes = fixedMinutes;
-        details.phiTuVan = phiTuVan;
-        details.chamBaiPhatSinh = chamBaiPhatSinh;
+        details.phiTuVan = Math.round(phiTuVan);
+        details.chamBaiPhatSinh = Math.round(chamBaiPhatSinh);
         details.chamBaiNote = chamBaiNote;
-        details.troCapChucVu = troCapChucVu;
+        details.troCapChucVu = Math.round(troCapChucVu);
         details.troCapNote = troCapNote;
-        details.luongHieuSuat = luongHieuSuat;
+        details.luongHieuSuat = Math.round(luongHieuSuat);
         details.luongHieuSuatNote = luongHieuSuatNote;
-        details.doanhThuTong = centerBonus;
-        details.doanhThuCs2 = cs2Bonus;
-        details.doanhThuCs3 = doanhThuCs3;
-        details.phatSinh = phatSinh;
-        details.criteriaI = { amount: criteriaI?.amount || 0, note: criteriaI?.note || '' };
-        details.criteriaV = { amount: criteriaV?.amount || 0, note: criteriaV?.note || '' };
+        details.doanhThuTong = Math.round(centerBonus);
+        details.doanhThuCs2 = Math.round(cs2Bonus);
+        details.doanhThuCs3 = Math.round(doanhThuCs3);
+        details.phatSinh = Math.round(phatSinh);
+        details.criteriaI = { amount: Math.round(criteriaI?.amount || 0), note: criteriaI?.note || '' };
+        details.criteriaV = { amount: Math.round(criteriaV?.amount || 0), note: criteriaV?.note || '' };
     } else {
         const troCapChucVu = evalItems.find(item => item.id === 3)?.amount || 0;
         const troCapNote = evalItems.find(item => item.id === 3)?.note || '';
         
         details.totalBaseMins = totalBaseMins;
-        details.totalBaseSalary = totalBaseSalary;
+        details.totalBaseSalary = Math.round(totalBaseSalary);
         details.totalTinHocMins = totalTinHocMins;
-        details.totalTinHocSalary = totalTinHocSalary;
+        details.totalTinHocSalary = Math.round(totalTinHocSalary);
         details.totalExtraMins = totalExtraMins;
-        details.totalExtraSalary = totalExtraSalary;
+        details.totalExtraSalary = Math.round(totalExtraSalary);
         details.totalPreschoolMins = totalPreschoolMins;
-        details.totalPreschoolSalary = totalPreschoolSalary;
+        details.totalPreschoolSalary = Math.round(totalPreschoolSalary);
         details.totalAffiliateMins = totalAffiliateMins;
-        details.totalAffiliateSalary = totalAffiliateSalary;
+        details.totalAffiliateSalary = Math.round(totalAffiliateSalary);
         details.totalTutoringMins = totalTutoringMins;
-        details.totalTutoringSalary = totalTutoringSalary;
-        details.troCapChucVu = troCapChucVu;
+        details.totalTutoringSalary = Math.round(totalTutoringSalary);
+        details.troCapChucVu = Math.round(troCapChucVu);
         details.troCapNote = troCapNote;
-        details.evalItems = evalItems;
+        details.evalItems = evalItems.map(item => ({
+            ...item,
+            amount: Math.round(item.amount)
+        }));
     }
     
     const breakdown = role === 'giao-vien' ? Object.keys(subjectBreakdown).map(subj => {
@@ -6542,10 +6561,10 @@ function getCurrentCalculationPayload(role) {
     
     return {
         role: role,
-        netPay: netPay,
-        advance: advance,
-        baseSalary: baseSalary,
-        totalBonus: totalBonus,
+        netPay: roundedNetPay,
+        advance: roundedAdvance,
+        baseSalary: roundedBaseSalary,
+        totalBonus: roundedTotalBonus,
         penalties: penalties,
         stats: stats,
         breakdown: breakdown,

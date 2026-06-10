@@ -2036,6 +2036,15 @@ let currentPersonalSalaryDate = new Date();
 
 function formatNumberWithCommas(value) {
     if (value === undefined || value === null || value === '') return '';
+    if (typeof value === 'number') {
+        value = Math.round(value);
+    } else {
+        const cleanedStr = String(value).replace(/,/g, '');
+        const parsedFloat = parseFloat(cleanedStr);
+        if (!isNaN(parsedFloat)) {
+            value = Math.round(parsedFloat);
+        }
+    }
     let clean = String(value).replace(/[^0-9-]/g, '');
     if (clean === '' || clean === '-') return clean;
     const num = parseInt(clean, 10);
@@ -2045,8 +2054,9 @@ function formatNumberWithCommas(value) {
 
 function parseFormattedNumber(value) {
     if (!value) return 0;
-    const clean = String(value).replace(/[^0-9-]/g, '');
-    return parseInt(clean, 10) || 0;
+    const cleaned = String(value).replace(/,/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : Math.round(num);
 }
 
 
