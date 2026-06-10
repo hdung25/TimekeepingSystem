@@ -5518,6 +5518,7 @@ async function saveRecepExtras() {
         
         UIService.toast('Đã lưu thông tin bổ sung thành công!', 'success');
         calculateSalary();
+        await saveCalculationDraftToDb(staffId, monthStr);
     } catch (e) {
         console.error('Error saving receptionist extras:', e);
         UIService.toast('Lỗi khi lưu thông tin: ' + e.message, 'error');
@@ -5897,118 +5898,58 @@ window.filterDashboardTable = renderSalaryDashboardTable;
 // ==========================================
 
 function getCurrentCalculationPayload(role) {
-    const netPayText = document.getElementById('final-salary-display')?.innerText || '0';
-    const netPay = parseFormattedNumber(netPayText);
-    const advance = parseFormattedNumber(document.getElementById('salary-advance')?.value || '0');
-    const baseSalary = window.currentMonthSalary || 0;
+    const user = window.currentUserContext;
+    let hasReceptionist = false;
+    let hasTeaching = false;
+    if (user) {
+        const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    }
     
-    // Total bonus and evalItems
+    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    const isActiveRole = (role === activeFilter);
+    
+    const monthlyAll = window.currentMonthlySalarySettingsAll || {};
+    const roleKey = role === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
+    const roleSettings = monthlyAll[roleKey] || monthlyAll[roleKey.replace('_', '-')] || {};
+    
+    // 1. Advance
+    let advance = 0;
+    if (isActiveRole) {
+        advance = parseFormattedNumber(document.getElementById('salary-advance')?.value || '0');
+    } else {
+        advance = Number(roleSettings.advance || 0);
+    }
+    
+    // 2. Evaluation Items & totalBonus
     let totalBonus = 0;
     const evalItems = [];
     const activeCriteria = role === 'tiep-tan' 
         ? RECEP_EVALUATION_CRITERIA 
         : (typeof EVALUATION_CRITERIA !== 'undefined' ? EVALUATION_CRITERIA : window.EVALUATION_CRITERIA);
     
-    document.querySelectorAll('.eval-amount').forEach(inp => {
-        const val = parseFormattedNumber(inp.value) || 0;
-        const criteriaIndex = parseInt(inp.dataset.index, 10);
-        if (isNaN(criteriaIndex)) return;
-        const noteInp = document.querySelector(`.eval-note[data-index="${criteriaIndex}"]`);
-        
-        const item = activeCriteria.find(e => (role === 'tiep-tan' ? e.index === criteriaIndex : activeCriteria.indexOf(e) === criteriaIndex)) || { label: '', tooltip: 'Đánh giá' };
-        const displayNote = noteInp ? noteInp.value : '';
-        
-        evalItems.push({
-            id: criteriaIndex,
-            label: item.label,
-            title: item.tooltip,
-            note: displayNote,
-            amount: val
-        });
-    });
-    
-    totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
-    
-    // For receptionists, add the redistributed center and cs2 bonuses if applicable
-    const staffUser = window.currentUserContext;
-    let isRecep = false;
-    if (staffUser) {
-        const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
-        isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
-    }
-    
-    let centerBonus = 0;
-    let cs2Bonus = 0;
-    if (isRecep && role === 'tiep-tan') {
-        const outputTong = document.getElementById('pdf-doanh-thu-tong');
-        const outputCs2 = document.getElementById('pdf-doanh-thu-cs2');
-        centerBonus = outputTong ? (parseFormattedNumber(outputTong.value) || 0) : 0;
-        cs2Bonus = outputCs2 ? (parseFormattedNumber(outputCs2.value) || 0) : 0;
-        totalBonus += Math.round(centerBonus) + Math.round(cs2Bonus);
-    }
-    
-    // Penalties (VDX, VKP, Late)
-    const loadedSettings = window.currentLoadedSalarySettings || {};
-    const penaltyVDX = Number(loadedSettings.adjust_vdx || 0);
-    const penaltyVKP = Number(loadedSettings.adjust_vkp || 0);
-    const penaltyLate = Number(loadedSettings.adjust_late || 0);
-    const penalties = {
-        vdx: penaltyVDX,
-        vkp: penaltyVKP,
-        late: penaltyLate
+    // Helper to calculate receptionist attendance rate dynamically
+    const getRecepAttBonus = (mins) => {
+        const cfg = window.currentUserContext?.salary_config || {};
+        const attRate = Number(cfg.attendance_rate || 0);
+        return Math.round((mins / 60) * attRate);
     };
-    
-    const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
-    
-    // Calculate Attendance Stats dynamically from unfilteredAllMonthChips
-    let workedShifts = 0;
-    let vpShifts = 0;
-    let vdxShifts = 0;
-    let vkpShifts = 0;
-    let lateCount = 0;
-    let totalLateMinutes = 0;
-    
-    const unfilteredChips = window.unfilteredAllMonthChips || [];
-    const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
-    unfilteredChips.forEach(chip => {
-        if (chip.class === 'chip-future') return;
-        
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
-        if (role === 'tiep-tan' && !isTT) return;
-        if (role === 'giao-vien' && isTT) return;
-        
-        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
-            const type = classifyAbsentChip(chip, notesMap);
-            if (type === 'VP') vpShifts++;
-            else if (type === 'VDX') vdxShifts++;
-            else vkpShifts++;
-        } else {
-            workedShifts++;
-        }
-        
-        const match = chip.text.match(/\(T(\d+)p\)/);
-        if (match) {
-            lateCount++;
-            totalLateMinutes += parseInt(match[1], 10);
-        }
-    });
-    
-    const stats = {
-        workedShifts: workedShifts,
-        vpShifts: vpShifts,
-        vdxShifts: vdxShifts,
-        vkpShifts: vkpShifts,
-        lateCount: lateCount,
-        totalLateMinutes: totalLateMinutes
+
+    const getRecepAttNote = (mins) => {
+        const cfg = window.currentUserContext?.salary_config || {};
+        const attRate = Number(cfg.attendance_rate || 0);
+        return `Thưởng chuyên cần: ${attRate.toLocaleString()}đ/h x ${(mins / 60).toFixed(1)}h`;
     };
-    
-    // Calculate hours categories
+
+    // First calculate hours and salaries programmatically
     const chips = window.currentMonthChips || [];
     let normalMinutes = 0;
     let fixedMinutes = 0;
     let normalSalary = 0;
     let fixedSalary = 0;
-
+    
     let totalBaseMins = 0;
     let totalBaseSalary = 0;
     let totalTinHocMins = 0;
@@ -6021,6 +5962,7 @@ function getCurrentCalculationPayload(role) {
     let totalTutoringSalary = 0;
     let totalExtraMins = 0;
     let totalExtraSalary = 0;
+    const subjectBreakdown = {};
 
     chips.forEach(chip => {
         const isReceptionistChip = chip.isReceptionist === true;
@@ -6057,10 +5999,9 @@ function getCurrentCalculationPayload(role) {
             let hasClassRate = false;
             
             const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
-            const monthlyAll = window.currentMonthlySalarySettingsAll || {};
-            const cfg = window.currentUserContext?.salary_config || {};
             
             let classRates = {};
+            const cfg = window.currentUserContext?.salary_config || {};
             if (isTiepTan) {
                 const ttMonthly = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
                 classRates = ttMonthly.class_rates || cfg.class_rates || {};
@@ -6131,8 +6072,12 @@ function getCurrentCalculationPayload(role) {
                             segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
                         }
                         const salary = (segMins / 60) * segRate;
-                        normalMinutes += segMins;
-                        normalSalary += salary;
+                        
+                        if (!subjectBreakdown[segName]) {
+                            subjectBreakdown[segName] = { minutes: 0, rate: segRate, amount: 0 };
+                        }
+                        subjectBreakdown[segName].minutes += segMins;
+                        subjectBreakdown[segName].amount += salary;
                         
                         const filterNameRaw = (segName || '').toLowerCase();
                         const filterNameNorm = removeVietnameseTones(filterNameRaw);
@@ -6159,9 +6104,6 @@ function getCurrentCalculationPayload(role) {
                 } else {
                     if (hasClassRate) {
                         const salary = (minutes / 60) * rate;
-                        normalMinutes += minutes;
-                        normalSalary += salary;
-                        
                         const filterNameRaw = (chip.chipFilterName || '').toLowerCase();
                         const filterNameNorm = removeVietnameseTones(filterNameRaw);
                         if (filterNameNorm.includes('tin hoc')) {
@@ -6183,14 +6125,25 @@ function getCurrentCalculationPayload(role) {
                             totalBaseMins += minutes;
                             totalBaseSalary += salary;
                         }
+                        
+                        const segName = chip.chipFilterName || "Chưa phân lớp";
+                        if (!subjectBreakdown[segName]) {
+                            subjectBreakdown[segName] = { minutes: 0, rate: rate, amount: 0 };
+                        }
+                        subjectBreakdown[segName].minutes += minutes;
+                        subjectBreakdown[segName].amount += salary;
                     } else {
                         let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
                         const salary = (minutes / 60) * defaultRate;
-                        normalMinutes += minutes;
-                        normalSalary += salary;
-                        
                         totalBaseMins += minutes;
                         totalBaseSalary += salary;
+                        
+                        const segName = chip.chipFilterName || "Chưa phân lớp";
+                        if (!subjectBreakdown[segName]) {
+                            subjectBreakdown[segName] = { minutes: 0, rate: defaultRate, amount: 0 };
+                        }
+                        subjectBreakdown[segName].minutes += minutes;
+                        subjectBreakdown[segName].amount += salary;
                     }
                 }
             }
@@ -6198,10 +6151,153 @@ function getCurrentCalculationPayload(role) {
     });
 
     const filteredMinutes = normalMinutes + fixedMinutes;
+    const baseSalary = role === 'tiep-tan' ? (normalSalary + fixedSalary) : (totalBaseSalary + totalTinHocSalary + totalPreschoolSalary + totalAffiliateSalary + totalTutoringSalary + totalExtraSalary);
+
+    if (isActiveRole) {
+        // Read directly from DOM
+        document.querySelectorAll('.eval-amount').forEach(inp => {
+            const val = parseFormattedNumber(inp.value) || 0;
+            const criteriaIndex = parseInt(inp.dataset.index, 10);
+            if (isNaN(criteriaIndex)) return;
+            const noteInp = document.querySelector(`.eval-note[data-index="${criteriaIndex}"]`);
+            
+            const item = activeCriteria.find(e => (role === 'tiep-tan' ? e.index === criteriaIndex : activeCriteria.indexOf(e) === criteriaIndex)) || { label: '', tooltip: 'Đánh giá' };
+            const displayNote = noteInp ? noteInp.value : '';
+            
+            evalItems.push({
+                id: criteriaIndex,
+                label: item.label,
+                title: item.tooltip,
+                note: displayNote,
+                amount: val
+            });
+        });
+    } else {
+        // Programmatic calculation from roleSettings (from DB)
+        const savedEval = roleSettings.evaluation || [];
+        activeCriteria.forEach((item, index) => {
+            const criteriaIndex = role === 'tiep-tan' ? item.index : index;
+            const rowData = savedEval.find(e => e.id === criteriaIndex) || {};
+            let amount = rowData.amount !== undefined ? rowData.amount : (item.default || 0);
+            let note = rowData.note || '';
+            
+            // Special auto-calculated receptionist attendance bonus (HIỆU SUẤT / index: 0)
+            if (role === 'tiep-tan' && criteriaIndex === 0) {
+                amount = getRecepAttBonus(filteredMinutes);
+                const autoNotePrefix = "Thưởng chuyên cần:";
+                if (!note || note.startsWith(autoNotePrefix)) {
+                    note = getRecepAttNote(filteredMinutes);
+                }
+            }
+            
+            evalItems.push({
+                id: criteriaIndex,
+                label: item.label,
+                title: item.tooltip,
+                note: note,
+                amount: amount
+            });
+        });
+    }
     
-    // Build Details Object
+    totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
+    
+    // For receptionists, add center and cs2 bonuses
+    let centerBonus = 0;
+    let cs2Bonus = 0;
+    if (role === 'tiep-tan') {
+        const outputTong = document.getElementById('pdf-doanh-thu-tong');
+        const outputCs2 = document.getElementById('pdf-doanh-thu-cs2');
+        if (isActiveRole && outputTong && outputCs2) {
+            centerBonus = parseFormattedNumber(outputTong.value) || 0;
+            cs2Bonus = parseFormattedNumber(outputCs2.value) || 0;
+        } else {
+            // Programmatically compute from header revenues
+            const actualCenterRevenue = parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0');
+            const actualCs2Revenue = parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0');
+            let P_tong = 0;
+            let P_cs2 = 0;
+            if (actualCenterRevenue >= 525000000) P_tong = 7000000;
+            else if (actualCenterRevenue >= 500000000) P_tong = 4000000;
+            else if (actualCenterRevenue >= 475000000) P_tong = 1500000;
+            if (actualCs2Revenue >= 65000000) P_cs2 = 500000;
+            
+            const staffId = document.getElementById('staff-select').value;
+            const currentRecepData = (window.allReceptionistsData || []).find(r => r.id === staffId);
+            if (currentRecepData) {
+                const sumC = (window.allReceptionistsData || []).reduce((sum, r) => sum + r.C_j, 0);
+                if (sumC > 0) {
+                    centerBonus = P_tong * (currentRecepData.C_j / sumC);
+                }
+                const sumC_cs2 = (window.allReceptionistsData || []).filter(r => r.hasCs2Shift).reduce((sum, r) => sum + r.C_j_cs2, 0);
+                if (sumC_cs2 > 0 && currentRecepData.hasCs2Shift) {
+                    cs2Bonus = P_cs2 * (currentRecepData.C_j_cs2 / sumC_cs2);
+                }
+            }
+            centerBonus = Math.round(centerBonus);
+            cs2Bonus = Math.round(cs2Bonus);
+        }
+        totalBonus += centerBonus + cs2Bonus;
+    }
+    
+    // Penalties (VDX, VKP, Late)
+    const penaltyVDX = Number(roleSettings.adjust_vdx || 0);
+    const penaltyVKP = Number(roleSettings.adjust_vkp || 0);
+    const penaltyLate = Number(roleSettings.adjust_late || 0);
+    const penalties = {
+        vdx: penaltyVDX,
+        vkp: penaltyVKP,
+        late: penaltyLate
+    };
+    
+    const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
+    const netPay = baseSalary + totalBonus + attendanceAdjustments - advance;
+    
+    // Stats
+    let workedShifts = 0;
+    let vpShifts = 0;
+    let vdxShifts = 0;
+    let vkpShifts = 0;
+    let lateCount = 0;
+    let totalLateMinutes = 0;
+    
+    const unfilteredChips = window.unfilteredAllMonthChips || [];
+    const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
+    unfilteredChips.forEach(chip => {
+        if (chip.class === 'chip-future') return;
+        
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        if (role === 'tiep-tan' && !isTT) return;
+        if (role === 'giao-vien' && isTT) return;
+        
+        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+            const type = classifyAbsentChip(chip, notesMap);
+            if (type === 'VP') vpShifts++;
+            else if (type === 'VDX') vdxShifts++;
+            else vkpShifts++;
+        } else {
+            workedShifts++;
+        }
+        
+        const match = chip.text.match(/\(T(\d+)p\)/);
+        if (match) {
+            lateCount++;
+            totalLateMinutes += parseInt(match[1], 10);
+        }
+    });
+    
+    const stats = {
+        workedShifts: workedShifts,
+        vpShifts: vpShifts,
+        vdxShifts: vdxShifts,
+        vkpShifts: vkpShifts,
+        lateCount: lateCount,
+        totalLateMinutes: totalLateMinutes
+    };
+    
     const staffSelect = document.getElementById('staff-select');
     const staffName = staffSelect ? staffSelect.options[staffSelect.selectedIndex]?.text?.split('(')[0]?.trim() : (window.currentUserContext?.name || '');
+    
     const details = {
         role: role,
         staffName: staffName,
@@ -6264,10 +6360,18 @@ function getCurrentCalculationPayload(role) {
         details.evalItems = evalItems;
     }
     
-    // Breakdown: window.currentSubjectBreakdown (array of subjects)
-    const breakdown = window.currentSubjectBreakdown || [];
+    const breakdown = role === 'giao-vien' ? Object.keys(subjectBreakdown).map(subj => {
+        return {
+            name: subj,
+            hours: Number((subjectBreakdown[subj].minutes / 60).toFixed(2)),
+            rate: subjectBreakdown[subj].rate,
+            amount: Math.round(subjectBreakdown[subj].amount)
+        };
+    }) : [];
+    if (role === 'giao-vien' && isActiveRole) {
+        window.currentSubjectBreakdown = breakdown;
+    }
     
-    // Message/Note
     const message = document.getElementById('pdf-message')?.value || '';
     
     return {
@@ -6289,8 +6393,6 @@ function getCurrentCalculationPayload(role) {
 async function saveCalculationDraftToDb(staffId, monthStr) {
     if (!staffId || !monthStr) return;
     
-    // Determine active role
-    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
     const user = window.currentUserContext;
     let hasReceptionist = false;
     let hasTeaching = false;
@@ -6299,10 +6401,16 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
         hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
-    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
-    const role = activeFilter === 'tiep-tan' ? 'tiep-tan' : 'giao-vien';
     
-    const payload = getCurrentCalculationPayload(role);
+    let payloadGV = null;
+    let payloadTT = null;
+    
+    if (hasTeaching) {
+        payloadGV = getCurrentCalculationPayload('giao-vien');
+    }
+    if (hasReceptionist) {
+        payloadTT = getCurrentCalculationPayload('tiep-tan');
+    }
     
     try {
         const docId = `${monthStr}_${staffId}`;
@@ -6311,31 +6419,99 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
         let publishedAt = null;
         let receivedAt = null;
         let confirmedBy = null;
+        let existingPublished = {};
         
         if (docSnap.exists) {
             const data = docSnap.data();
             if (data && data.published) {
-                const currentStatus = data.published.status;
+                existingPublished = data.published;
+                const currentStatus = existingPublished.status;
                 if (currentStatus === 'published' || currentStatus === 'received') {
                     status = currentStatus;
                 }
-                publishedAt = data.published.publishedAt || null;
-                receivedAt = data.published.receivedAt || null;
-                confirmedBy = data.published.confirmedBy || null;
+                publishedAt = existingPublished.publishedAt || null;
+                receivedAt = existingPublished.receivedAt || null;
+                confirmedBy = existingPublished.confirmedBy || null;
             }
         }
         
-        payload.status = status;
+        // Build updatedPublished payload
+        const updatedPublished = {
+            ...existingPublished,
+            status: status
+        };
+        
         if (status === 'published' && publishedAt) {
-            payload.publishedAt = publishedAt;
+            updatedPublished.publishedAt = publishedAt;
         } else if (status === 'published') {
-            payload.publishedAt = new Date().toISOString();
+            updatedPublished.publishedAt = new Date().toISOString();
         }
-        if (receivedAt) payload.receivedAt = receivedAt;
-        if (confirmedBy) payload.confirmedBy = confirmedBy;
+        if (receivedAt) updatedPublished.receivedAt = receivedAt;
+        if (confirmedBy) updatedPublished.confirmedBy = confirmedBy;
+        
+        if (hasTeaching && hasReceptionist) {
+            // Dual role
+            updatedPublished.role = 'dual';
+            updatedPublished.netPay = (payloadGV?.netPay || 0) + (payloadTT?.netPay || 0);
+            updatedPublished.baseSalary = (payloadGV?.baseSalary || 0) + (payloadTT?.baseSalary || 0);
+            updatedPublished.totalBonus = (payloadGV?.totalBonus || 0) + (payloadTT?.totalBonus || 0);
+            updatedPublished.advance = (payloadGV?.advance || 0) + (payloadTT?.advance || 0);
+            updatedPublished.penalties = {
+                vdx: (payloadGV?.penalties?.vdx || 0) + (payloadTT?.penalties?.vdx || 0),
+                vkp: (payloadGV?.penalties?.vkp || 0) + (payloadTT?.penalties?.vkp || 0),
+                late: (payloadGV?.penalties?.late || 0) + (payloadTT?.penalties?.late || 0)
+            };
+            updatedPublished.stats = {
+                workedShifts: (payloadGV?.stats?.workedShifts || 0) + (payloadTT?.stats?.workedShifts || 0),
+                vpShifts: (payloadGV?.stats?.vpShifts || 0) + (payloadTT?.stats?.vpShifts || 0),
+                vdxShifts: (payloadGV?.stats?.vdxShifts || 0) + (payloadTT?.stats?.vdxShifts || 0),
+                vkpShifts: (payloadGV?.stats?.vkpShifts || 0) + (payloadTT?.stats?.vkpShifts || 0),
+                lateCount: (payloadGV?.stats?.lateCount || 0) + (payloadTT?.stats?.lateCount || 0),
+                totalLateMinutes: (payloadGV?.stats?.totalLateMinutes || 0) + (payloadTT?.stats?.totalLateMinutes || 0)
+            };
+            updatedPublished.breakdown = payloadGV?.breakdown || [];
+            updatedPublished.details_gv = payloadGV?.details || null;
+            updatedPublished.details_tt = payloadTT?.details || null;
+            
+            // For backward compatibility: details is set to payload GV
+            updatedPublished.details = payloadGV?.details || null;
+        } else if (hasReceptionist) {
+            // Receptionist only
+            updatedPublished.role = 'tiep-tan';
+            updatedPublished.netPay = payloadTT.netPay;
+            updatedPublished.baseSalary = payloadTT.baseSalary;
+            updatedPublished.totalBonus = payloadTT.totalBonus;
+            updatedPublished.advance = payloadTT.advance;
+            updatedPublished.penalties = payloadTT.penalties;
+            updatedPublished.stats = payloadTT.stats;
+            updatedPublished.breakdown = [];
+            updatedPublished.details_tt = payloadTT.details;
+            updatedPublished.details = payloadTT.details;
+            if (updatedPublished.details_gv) delete updatedPublished.details_gv;
+        } else {
+            // Teacher only
+            updatedPublished.role = 'giao-vien';
+            updatedPublished.netPay = payloadGV.netPay;
+            updatedPublished.baseSalary = payloadGV.baseSalary;
+            updatedPublished.totalBonus = payloadGV.totalBonus;
+            updatedPublished.advance = payloadGV.advance;
+            updatedPublished.penalties = payloadGV.penalties;
+            updatedPublished.stats = payloadGV.stats;
+            updatedPublished.breakdown = payloadGV.breakdown;
+            updatedPublished.details_gv = payloadGV.details;
+            updatedPublished.details = payloadGV.details;
+            if (updatedPublished.details_tt) delete updatedPublished.details_tt;
+        }
+        
+        const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+        const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+        const activePayload = activeFilter === 'tiep-tan' ? payloadTT : payloadGV;
+        if (activePayload && activePayload.message) {
+            updatedPublished.message = activePayload.message;
+        }
         
         await firebase.firestore().collection('salary_settings_monthly').doc(docId).set({
-            published: payload
+            published: updatedPublished
         }, { merge: true });
         
         DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);

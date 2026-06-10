@@ -2050,7 +2050,7 @@ function parseFormattedNumber(value) {
 }
 
 
-function renderDetailedSalaryTable(details) {
+function renderDetailedSalaryTable(details, status) {
     const fmt = (n) => n ? formatNumberWithCommas(Math.round(n)) + ' ₫' : '0 ₫';
     const formatHoursDecimal = (mins) => {
         const h = mins / 60;
@@ -2303,7 +2303,10 @@ function renderDetailedSalaryTable(details) {
                     </p>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <div id="ps-detailed-status-badge"></div>
+                    ${status === 'received' 
+                        ? `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`
+                        : `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã công bố</span>`
+                    }
                     <span style="background: rgba(255, 255, 255, 0.25); padding: 4px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
                         ${details.role === 'tiep-tan' ? 'Tiếp Tân' : 'Giáo Viên'}
                     </span>
@@ -2369,7 +2372,7 @@ async function loadStaffPersonalSalary() {
         const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
         const published = monthlySettings?.published;
 
-        if (!published || published.status === 'uncalculated') {
+        if (!published || published.status === 'uncalculated' || published.status === 'draft') {
             statusContainer.innerHTML = `
                 <span style="display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size:1.5rem; margin-bottom:0.5rem;">
                     ${window.getIconHtml('help-circle', {width: '32', height: '32'})}
@@ -2388,25 +2391,30 @@ async function loadStaffPersonalSalary() {
         const breakdownContainer = document.getElementById('ps-breakdown-container');
         const confirmBtn = document.getElementById('btn-confirm-receipt');
 
-        if (published.details) {
+        if (published.details_gv || published.details_tt || published.details) {
             // Show detailed table view
             if (basicView) basicView.style.display = 'none';
             if (breakdownContainer) breakdownContainer.style.display = 'none';
             if (detailedView) {
                 detailedView.style.display = 'block';
-                detailedView.innerHTML = renderDetailedSalaryTable(published.details);
+                let html = '';
+                if (published.details_gv) {
+                    html += renderDetailedSalaryTable(published.details_gv, published.status);
+                }
+                if (published.details_tt) {
+                    if (html) html += '<div style="height: 20px;"></div>';
+                    html += renderDetailedSalaryTable(published.details_tt, published.status);
+                }
+                if (!published.details_gv && !published.details_tt && published.details) {
+                    html += renderDetailedSalaryTable(published.details, published.status);
+                }
+                detailedView.innerHTML = html;
             }
 
-            // Put status badge inside the detailed table header
-            const detailedBadge = document.getElementById('ps-detailed-status-badge');
-            if (detailedBadge) {
-                if (published.status === 'received') {
-                    detailedBadge.innerHTML = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`;
-                    if (confirmBtn) confirmBtn.style.display = 'none';
-                } else {
-                    detailedBadge.innerHTML = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã công bố</span>`;
-                    if (confirmBtn) confirmBtn.style.display = 'inline-flex';
-                }
+            if (published.status === 'received') {
+                if (confirmBtn) confirmBtn.style.display = 'none';
+            } else {
+                if (confirmBtn) confirmBtn.style.display = 'inline-flex';
             }
         } else {
             // Fallback to basic summary view
