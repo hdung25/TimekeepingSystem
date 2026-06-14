@@ -1480,6 +1480,9 @@ window.checkAndRenderMeetingBanner = async function() {
         const userSpecs = specLabel.toUpperCase();
         
         const matchingMeetings = todayMeetings.filter(m => {
+            if (m.attendees && Array.isArray(m.attendees)) {
+                return m.attendees.includes(currentUserId);
+            }
             let deptKey = m.department.toUpperCase();
             if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
             if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
@@ -1514,7 +1517,7 @@ window.checkAndRenderMeetingBanner = async function() {
 
             container.style.display = 'block';
             
-            const deptLabel = meeting.department;
+            const deptLabel = meeting.department === 'CUSTOM' ? 'Tự chọn thành viên' : meeting.department;
             const timeRange = `${meeting.startTime} - ${meeting.endTime}`;
             const ciRange = `${meeting.checkInStart} - ${meeting.checkInClose}`;
 
@@ -1862,6 +1865,9 @@ window.requestNotificationPermission = async function() {
 
 window.isUserMatchingMeeting = function(user, meeting) {
     if (!meeting || !user) return false;
+    if (meeting.attendees && Array.isArray(meeting.attendees)) {
+        return meeting.attendees.includes(user.id);
+    }
     const specLabel = window.formatUserSpecialty(user) || '';
     const userSpecs = specLabel.toUpperCase();
     let deptKey = (meeting.department || '').toUpperCase();
@@ -1924,7 +1930,7 @@ window.setupMeetingsNotificationListener = function() {
                                 if (!localStorage.getItem(notifiedKey)) {
                                     window.showLocalNotification(
                                         `Lịch họp mới: ${meeting.title || 'Họp định kỳ'}`,
-                                        `Cuộc họp diễn ra lúc ${meeting.startTime} hôm nay tại bộ phận ${meeting.department}.`,
+                                        `Cuộc họp diễn ra lúc ${meeting.startTime} hôm nay tại bộ phận ${meeting.department === 'CUSTOM' ? 'Tự chọn' : meeting.department}.`,
                                         `meeting_new_${meeting.id}`
                                     );
                                     localStorage.setItem(notifiedKey, 'true');
