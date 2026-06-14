@@ -284,14 +284,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             const roleRaw = localStorage.getItem('currentRole') || 'staff';
             const rolesArr = parseRoles(roleRaw);
             
-            if (!docSnap.exists || !docSnap.data().username) {
+            if (!docSnap.exists || !docSnap.data().username || !docSnap.data().userId) {
                 await roleRef.set({
+                    userId: currentUserId,
                     role: rolesArr[0] || 'staff',
                     roles: rolesArr,
                     username: currentUser,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
-                console.log("[Security] Backup auto-synced user role to user_roles collection.");
+                console.log("[Security] Backup auto-synced user role and userId to user_roles collection.");
             }
         } catch (e) {
             console.warn("[Security] Backup role sync failed (non-critical, user may already have it):", e);

@@ -97,6 +97,7 @@ const DBService = {
                     : [userData.role || 'staff'];
                 const roleRef = window.db.collection('user_roles').doc(authUser.uid);
                 await roleRef.set({
+                    userId: userData.id,
                     role: userData.role || 'staff', // Backward compat (single role)
                     roles: rolesArr,                // NEW: multi-role array for accurate RBAC
                     username: userData.username,
@@ -237,6 +238,7 @@ const DBService = {
                             ? user.roles
                             : [user.role || 'staff'];
                         await roleDoc.ref.update({
+                            userId: user.id,
                             role: user.role,
                             roles: rolesArr, // NEW: keep array in sync so RBAC rules can see all roles
                             updatedByAdmin: true,
