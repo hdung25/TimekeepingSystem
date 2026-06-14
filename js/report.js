@@ -6985,6 +6985,13 @@ async function openBulkPublishModal() {
         const messageInput = document.getElementById('bulk-message-input');
         if (messageInput) messageInput.value = '';
         
+        // Clear search input and show all rows
+        const searchInput = document.getElementById('bulk-search-input');
+        if (searchInput) {
+            searchInput.value = '';
+            filterBulkPublishList('');
+        }
+        
         // Clear select all checkboxes
         const selAllTeachers = document.getElementById('bulk-select-all-teachers');
         if (selAllTeachers) selAllTeachers.checked = false;
@@ -7009,9 +7016,24 @@ function closeBulkPublishModal() {
     if (modal) modal.style.display = 'none';
 }
 
+function filterBulkPublishList(query) {
+    const cleanQuery = query.trim().toLowerCase();
+    const rows = document.querySelectorAll('.bulk-staff-row');
+    rows.forEach(row => {
+        const name = row.dataset.name || '';
+        if (name.includes(cleanQuery)) {
+            row.style.display = 'flex';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+window.filterBulkPublishList = filterBulkPublishList;
+
 function createBulkStaffRow(item, group) {
     const row = document.createElement('div');
     row.className = 'bulk-staff-row';
+    row.dataset.name = (item.name || '').toLowerCase();
     row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; background: #fff; transition: background 0.2s;';
     
     let isChecked = false;

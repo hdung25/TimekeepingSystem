@@ -417,10 +417,13 @@
                                 </select>
                             </div>
                             
-                            <div id="custom-attendees-container" style="display: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: #F9FAFB;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.25rem;">
+                            <div id="custom-attendees-container" style="display: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: #F9FAFB; display: flex; flex-direction: column; gap: 0.5rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.25rem;">
                                     <label style="font-weight: 700; font-size: 0.85rem; color: #7C3AED;">Danh sách nhân sự:</label>
                                     <button type="button" id="btn-toggle-select-all" onclick="toggleSelectAllAttendees()" style="background: none; border: none; color: #4338CA; font-weight: 600; font-size: 0.78rem; cursor: pointer; padding: 0;">Chọn tất cả</button>
+                                </div>
+                                <div style="position: relative;">
+                                    <input type="text" id="attendee-search-input" placeholder="Tìm tên nhân viên..." oninput="filterAttendeesList(this.value)" style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; box-sizing: border-box;">
                                 </div>
                                 <div id="custom-attendees-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; padding-right: 4px;">
                                     <!-- Dynamic list of employees -->
@@ -1105,6 +1108,8 @@
             
             employeesList.forEach(user => {
                 const label = document.createElement('label');
+                label.className = 'custom-attendee-item';
+                label.dataset.name = (user.name || user.username || '').toLowerCase();
                 label.style.cssText = `
                     display: flex;
                     align-items: center;
@@ -1131,7 +1136,28 @@
                 `;
                 listDiv.appendChild(label);
             });
+
+            // Clear search field on render
+            const searchInput = document.getElementById('attendee-search-input');
+            if (searchInput) {
+                searchInput.value = '';
+                filterAttendeesList('');
+            }
         }
+
+        function filterAttendeesList(query) {
+            const cleanQuery = query.trim().toLowerCase();
+            const items = document.querySelectorAll('.custom-attendee-item');
+            items.forEach(item => {
+                const name = item.dataset.name || '';
+                if (name.includes(cleanQuery)) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+        window.filterAttendeesList = filterAttendeesList;
 
         function openCreateMeetingModal() {
             document.getElementById('create-meeting-form').reset();
