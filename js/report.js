@@ -233,7 +233,7 @@ function renderStaffDropdownItems(users) {
             <div
                 class="staff-dropdown-item"
                 data-id="${u.id}"
-                onclick="selectStaffFromDropdown(${JSON.stringify(u).replace(/"/g, '&quot;')})"
+                onclick="selectStaffFromDropdownById('${u.id}')"
                 style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1rem;cursor:pointer;transition:background 0.15s;"
                 onmouseover="this.style.background='#F0FDF4'"
                 onmouseout="this.style.background=''"
@@ -295,6 +295,15 @@ function filterStaffDropdown(query) {
     const list = document.getElementById('staff-dropdown-list');
     if (list) list.style.display = 'block';
 }
+
+window.selectStaffFromDropdownById = function(id) {
+    const user = (window._allStaffList || []).find(u => u.id === id);
+    if (user) {
+        selectStaffFromDropdown(user);
+    } else {
+        console.warn("Could not find staff user with ID:", id);
+    }
+};
 
 function selectStaffFromDropdown(user) {
     // 1. Set hidden select value (giữ compat với getTargetStaffId)
@@ -1121,12 +1130,11 @@ async function renderMonthReport(date, forceServer = false) {
             }
         }
 
-        const currentRole = localStorage.getItem('currentRole') || 'staff';
         const currentRoleRaw2 = localStorage.getItem('currentRole') || 'staff';
         let currentRolesArr = [];
         try { const _cp = JSON.parse(currentRoleRaw2); currentRolesArr = Array.isArray(_cp) ? _cp : [currentRoleRaw2]; } catch (e) { currentRolesArr = [currentRoleRaw2]; }
-        const canRequestBonus10 = ['teaching_assistant', 'admin', 'senior_assistant'].includes(currentRole);
-        const isAdminRoleLoop = ['admin', 'senior_assistant'].includes(currentRole);
+        const canRequestBonus10 = currentRolesArr.some(r => ['teaching_assistant', 'admin', 'senior_assistant'].includes(r));
+        const isAdminRoleLoop = currentRolesArr.some(r => ['admin', 'senior_assistant'].includes(r));
         // Có quyền xác nhận vắng cho tiếp tân
         const canConfirmAbsent = currentRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'receptionist_assistant'].includes(r));
 
@@ -1753,8 +1761,15 @@ function renderEvaluationTable(savedData = []) {
     const section = document.getElementById('evaluation-section');
     if (!section) return;
 
-    const role = localStorage.getItem('currentRole');
-    const showEval = (role === 'admin'); // Only admin sees evaluation table
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    let roles = [];
+    try {
+        const parsed = JSON.parse(roleRaw);
+        roles = Array.isArray(parsed) ? parsed : [roleRaw];
+    } catch (e) {
+        roles = [roleRaw];
+    }
+    const showEval = roles.some(r => ['admin', 'senior_assistant'].includes(r)); // Allow admin and senior_assistant to see evaluation table
     section.style.display = showEval ? 'block' : 'none';
     if (!showEval) return;
 
@@ -4143,21 +4158,49 @@ async function populateModalCurrentTab() {
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
-    let monthlySettingsAll = {};
+    let monthlySettingsAll = window.currentMonthlySalarySettingsAll || {};
     let meetingsLog = null;
     try {
-        const res = await Promise.all([
-            DBService.getMonthlySalarySettings(staffId, monthStr),
-            DBService.getMonthlyMeetings(monthStr)
-        ]);
-        monthlySettingsAll = res[0] || {};
-        meetingsLog = res[1] || null;
+        meetingsLog = await DBService.getMonthlyMeetings(monthStr);
     } catch (err) {
-        console.error("Error fetching modal settings in parallel:", err);
-        monthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        console.error("Error fetching monthly meetings:", err);
     }
+
+    if (!monthlySettingsAll || Object.keys(monthlySettingsAll).length === 0) {
+        try {
+            monthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        } catch (err) {
+            console.error("Error fetching monthly salary settings:", err);
+            monthlySettingsAll = {};
+        }
+    }
+
+    // Fallback to general settings if missing in monthlySettingsAll
+    const user = window.currentUserContext || {};
+    const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
+    const hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+    const hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     
-    const roleSettings = monthlySettingsAll[window.modalActiveRole] || monthlySettingsAll[window.modalActiveRole.replace('-', '_')] || {};
+    let gvSettings = monthlySettingsAll['giao_vien'] || monthlySettingsAll['giao-vien'];
+    let ttSettings = monthlySettingsAll['tiep_tan'] || monthlySettingsAll['tiep-tan'];
+    
+    if (hasTeaching && !gvSettings) {
+        gvSettings = await DBService.getSalarySettings(staffId) || {};
+        monthlySettingsAll['giao_vien'] = gvSettings;
+    }
+    if (hasReceptionist && !ttSettings) {
+        ttSettings = await DBService.getSalarySettings(staffId) || {};
+        if (!ttSettings.evaluation) {
+            ttSettings.evaluation = [];
+        }
+        monthlySettingsAll['tiep_tan'] = ttSettings;
+    }
+
+    // Keep cache updated
+    window.currentMonthlySalarySettingsAll = monthlySettingsAll;
+    
+    const activeRoleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
+    const roleSettings = monthlySettingsAll[activeRoleKey] || {};
     
     // 1. Calculate Attendance Stats
     let workedShifts = 0;
@@ -4212,7 +4255,6 @@ async function populateModalCurrentTab() {
     if (adjustLateInp) adjustLateInp.value = formatNumberWithCommas(roleSettings.adjust_late !== undefined ? roleSettings.adjust_late : 0);
     
     // 2. Populate Class Rates Table
-    const user = window.currentUserContext || {};
     const cfg = user.salary_config || {};
     const classRates = roleSettings.class_rates || cfg.class_rates || {};
     
@@ -5071,8 +5113,12 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         
         let criteriaPay = 0;
         let criteriaRowsHtml = '';
-        EVALUATION_CRITERIA.forEach((item, index) => {
-            const saved = (prevRoleSettings.evaluation || []).find(e => e.id === index) || {};
+        const isRecep = (window.modalActiveRole === 'tiep-tan');
+        const activeCriteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+        
+        activeCriteriaList.forEach((item, index) => {
+            const criteriaIndex = isRecep ? item.index : index;
+            const saved = (prevRoleSettings.evaluation || []).find(e => e.id === criteriaIndex) || {};
             const amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             const noteVal = saved.note || '';
             criteriaPay += amountVal;
@@ -5782,8 +5828,7 @@ async function publishSalary() {
     // Message/Note
     const message = document.getElementById('pdf-message')?.value || '';
     
-    // Determine role
-    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    // Determine role & build full detailed payloads
     const user = window.currentUserContext;
     let hasReceptionist = false;
     let hasTeaching = false;
@@ -5792,22 +5837,88 @@ async function publishSalary() {
         hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
-    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
-    const role = activeFilter === 'tiep-tan' ? 'tiep-tan' : 'giao-vien';
     
+    let payloadGV = null;
+    let payloadTT = null;
+    if (hasTeaching) {
+        payloadGV = getCurrentCalculationPayload('giao-vien');
+    }
+    if (hasReceptionist) {
+        payloadTT = getCurrentCalculationPayload('tiep-tan');
+    }
+
     const payload = {
-        role: role,
-        netPay: netPay,
-        advance: advance,
-        baseSalary: baseSalary,
-        totalBonus: totalBonus,
-        penalties: penalties,
-        stats: stats,
-        breakdown: breakdown,
-        message: message,
+        role: hasTeaching && hasReceptionist ? 'dual' : (hasReceptionist ? 'tiep-tan' : 'giao-vien'),
         receivedAt: null,
         confirmedBy: null
     };
+
+    if (hasTeaching && hasReceptionist) {
+        const hasRecepWork = payloadTT && (payloadTT.details.filteredMinutes > 0 || payloadTT.netPay > 0);
+        const hasTeachingWork = payloadGV && (payloadGV.details.totalBaseMins > 0 || payloadGV.details.totalTinHocMins > 0 || payloadGV.details.totalExtraMins > 0 || payloadGV.details.totalPreschoolMins > 0 || payloadGV.details.totalAffiliateMins > 0 || payloadGV.details.totalTutoringMins > 0 || payloadGV.netPay > 0);
+
+        payload.details_gv = hasTeachingWork ? { ...payloadGV.details, netPay: payloadGV.netPay } : null;
+        payload.details_tt = hasRecepWork ? { ...payloadTT.details, netPay: payloadTT.netPay } : null;
+        
+        // Default fallback if both are empty
+        if (!payload.details_gv && !payload.details_tt) {
+            const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+            const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+            if (activeFilter === 'tiep-tan') {
+                payload.details_tt = payloadTT ? { ...payloadTT.details, netPay: payloadTT.netPay } : null;
+            } else {
+                payload.details_gv = payloadGV ? { ...payloadGV.details, netPay: payloadGV.netPay } : null;
+            }
+        }
+
+        payload.netPay = (payload.details_gv ? payloadGV.netPay : 0) + (payload.details_tt ? payloadTT.netPay : 0);
+        payload.baseSalary = (payload.details_gv ? payloadGV.baseSalary : 0) + (payload.details_tt ? payloadTT.baseSalary : 0);
+        payload.totalBonus = (payload.details_gv ? payloadGV.totalBonus : 0) + (payload.details_tt ? payloadTT.totalBonus : 0);
+        payload.advance = (payload.details_gv ? payloadGV.advance : 0) + (payload.details_tt ? payloadTT.advance : 0);
+
+        payload.penalties = {
+            vdx: (hasTeachingWork ? (payloadGV?.penalties?.vdx || 0) : 0) + (hasRecepWork ? (payloadTT?.penalties?.vdx || 0) : 0),
+            vkp: (hasTeachingWork ? (payloadGV?.penalties?.vkp || 0) : 0) + (hasRecepWork ? (payloadTT?.penalties?.vkp || 0) : 0),
+            late: (hasTeachingWork ? (payloadGV?.penalties?.late || 0) : 0) + (hasRecepWork ? (payloadTT?.penalties?.late || 0) : 0)
+        };
+        payload.stats = {
+            workedShifts: (hasTeachingWork ? (payloadGV?.stats?.workedShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.workedShifts || 0) : 0),
+            vpShifts: (hasTeachingWork ? (payloadGV?.stats?.vpShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.vpShifts || 0) : 0),
+            vdxShifts: (hasTeachingWork ? (payloadGV?.stats?.vdxShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.vdxShifts || 0) : 0),
+            vkpShifts: (hasTeachingWork ? (payloadGV?.stats?.vkpShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.vkpShifts || 0) : 0),
+            lateCount: (hasTeachingWork ? (payloadGV?.stats?.lateCount || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.lateCount || 0) : 0),
+            totalLateMinutes: (hasTeachingWork ? (payloadGV?.stats?.totalLateMinutes || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.totalLateMinutes || 0) : 0)
+        };
+        payload.breakdown = payloadGV?.breakdown || [];
+        payload.details = payload.details_gv || payload.details_tt || null;
+    } else if (hasReceptionist) {
+        payload.netPay = payloadTT.netPay;
+        payload.baseSalary = payloadTT.baseSalary;
+        payload.totalBonus = payloadTT.totalBonus;
+        payload.advance = payloadTT.advance;
+        payload.penalties = payloadTT.penalties;
+        payload.stats = payloadTT.stats;
+        payload.breakdown = [];
+        payload.details_tt = { ...payloadTT.details, netPay: payloadTT.netPay };
+        payload.details = { ...payloadTT.details, netPay: payloadTT.netPay };
+    } else {
+        payload.netPay = payloadGV.netPay;
+        payload.baseSalary = payloadGV.baseSalary;
+        payload.totalBonus = payloadGV.totalBonus;
+        payload.advance = payloadGV.advance;
+        payload.penalties = payloadGV.penalties;
+        payload.stats = payloadGV.stats;
+        payload.breakdown = payloadGV.breakdown;
+        payload.details_gv = { ...payloadGV.details, netPay: payloadGV.netPay };
+        payload.details = { ...payloadGV.details, netPay: payloadGV.netPay };
+    }
+
+    const activePayload = (hasReceptionist && !hasTeaching) ? payloadTT : payloadGV;
+    if (activePayload && activePayload.message) {
+        payload.message = activePayload.message;
+    } else {
+        payload.message = message;
+    }
     
     try {
         UIService.showLoading();
@@ -6693,29 +6804,45 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
         if (hasTeaching && hasReceptionist) {
             // Dual role
             updatedPublished.role = 'dual';
-            updatedPublished.netPay = (payloadGV?.netPay || 0) + (payloadTT?.netPay || 0);
-            updatedPublished.baseSalary = (payloadGV?.baseSalary || 0) + (payloadTT?.baseSalary || 0);
-            updatedPublished.totalBonus = (payloadGV?.totalBonus || 0) + (payloadTT?.totalBonus || 0);
-            updatedPublished.advance = (payloadGV?.advance || 0) + (payloadTT?.advance || 0);
+            
+            const hasRecepWork = payloadTT && (payloadTT.details.filteredMinutes > 0 || payloadTT.netPay > 0);
+            const hasTeachingWork = payloadGV && (payloadGV.details.totalBaseMins > 0 || payloadGV.details.totalTinHocMins > 0 || payloadGV.details.totalExtraMins > 0 || payloadGV.details.totalPreschoolMins > 0 || payloadGV.details.totalAffiliateMins > 0 || payloadGV.details.totalTutoringMins > 0 || payloadGV.netPay > 0);
+
+            updatedPublished.details_gv = hasTeachingWork ? { ...payloadGV.details, netPay: payloadGV.netPay } : null;
+            updatedPublished.details_tt = hasRecepWork ? { ...payloadTT.details, netPay: payloadTT.netPay } : null;
+            
+            // If both are empty, default to active filter role
+            if (!updatedPublished.details_gv && !updatedPublished.details_tt) {
+                const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+                const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+                if (activeFilter === 'tiep-tan') {
+                    updatedPublished.details_tt = payloadTT ? { ...payloadTT.details, netPay: payloadTT.netPay } : null;
+                } else {
+                    updatedPublished.details_gv = payloadGV ? { ...payloadGV.details, netPay: payloadGV.netPay } : null;
+                }
+            }
+
+            // Combined summary fields
+            updatedPublished.netPay = (updatedPublished.details_gv ? payloadGV.netPay : 0) + (updatedPublished.details_tt ? payloadTT.netPay : 0);
+            updatedPublished.baseSalary = (updatedPublished.details_gv ? payloadGV.baseSalary : 0) + (updatedPublished.details_tt ? payloadTT.baseSalary : 0);
+            updatedPublished.totalBonus = (updatedPublished.details_gv ? payloadGV.totalBonus : 0) + (updatedPublished.details_tt ? payloadTT.totalBonus : 0);
+            updatedPublished.advance = (updatedPublished.details_gv ? payloadGV.advance : 0) + (updatedPublished.details_tt ? payloadTT.advance : 0);
+
             updatedPublished.penalties = {
-                vdx: (payloadGV?.penalties?.vdx || 0) + (payloadTT?.penalties?.vdx || 0),
-                vkp: (payloadGV?.penalties?.vkp || 0) + (payloadTT?.penalties?.vkp || 0),
-                late: (payloadGV?.penalties?.late || 0) + (payloadTT?.penalties?.late || 0)
+                vdx: (hasTeachingWork ? (payloadGV?.penalties?.vdx || 0) : 0) + (hasRecepWork ? (payloadTT?.penalties?.vdx || 0) : 0),
+                vkp: (hasTeachingWork ? (payloadGV?.penalties?.vkp || 0) : 0) + (hasRecepWork ? (payloadTT?.penalties?.vkp || 0) : 0),
+                late: (hasTeachingWork ? (payloadGV?.penalties?.late || 0) : 0) + (hasRecepWork ? (payloadTT?.penalties?.late || 0) : 0)
             };
             updatedPublished.stats = {
-                workedShifts: (payloadGV?.stats?.workedShifts || 0) + (payloadTT?.stats?.workedShifts || 0),
-                vpShifts: (payloadGV?.stats?.vpShifts || 0) + (payloadTT?.stats?.vpShifts || 0),
-                vdxShifts: (payloadGV?.stats?.vdxShifts || 0) + (payloadTT?.stats?.vdxShifts || 0),
-                vkpShifts: (payloadGV?.stats?.vkpShifts || 0) + (payloadTT?.stats?.vkpShifts || 0),
-                lateCount: (payloadGV?.stats?.lateCount || 0) + (payloadTT?.stats?.lateCount || 0),
-                totalLateMinutes: (payloadGV?.stats?.totalLateMinutes || 0) + (payloadTT?.stats?.totalLateMinutes || 0)
+                workedShifts: (hasTeachingWork ? (payloadGV?.stats?.workedShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.workedShifts || 0) : 0),
+                vpShifts: (hasTeachingWork ? (payloadGV?.stats?.vpShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.vpShifts || 0) : 0),
+                vdxShifts: (hasTeachingWork ? (payloadGV?.stats?.vdxShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.vdxShifts || 0) : 0),
+                vkpShifts: (hasTeachingWork ? (payloadGV?.stats?.vkpShifts || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.vkpShifts || 0) : 0),
+                lateCount: (hasTeachingWork ? (payloadGV?.stats?.lateCount || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.lateCount || 0) : 0),
+                totalLateMinutes: (hasTeachingWork ? (payloadGV?.stats?.totalLateMinutes || 0) : 0) + (hasRecepWork ? (payloadTT?.stats?.totalLateMinutes || 0) : 0)
             };
             updatedPublished.breakdown = payloadGV?.breakdown || [];
-            updatedPublished.details_gv = payloadGV?.details || null;
-            updatedPublished.details_tt = payloadTT?.details || null;
-            
-            // For backward compatibility: details is set to payload GV
-            updatedPublished.details = payloadGV?.details || null;
+            updatedPublished.details = updatedPublished.details_gv || updatedPublished.details_tt || null;
         } else if (hasReceptionist) {
             // Receptionist only
             updatedPublished.role = 'tiep-tan';
@@ -6726,8 +6853,8 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
             updatedPublished.penalties = payloadTT.penalties;
             updatedPublished.stats = payloadTT.stats;
             updatedPublished.breakdown = [];
-            updatedPublished.details_tt = payloadTT.details;
-            updatedPublished.details = payloadTT.details;
+            updatedPublished.details_tt = { ...payloadTT.details, netPay: payloadTT.netPay };
+            updatedPublished.details = { ...payloadTT.details, netPay: payloadTT.netPay };
             if (updatedPublished.details_gv) delete updatedPublished.details_gv;
         } else {
             // Teacher only
@@ -6739,8 +6866,8 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
             updatedPublished.penalties = payloadGV.penalties;
             updatedPublished.stats = payloadGV.stats;
             updatedPublished.breakdown = payloadGV.breakdown;
-            updatedPublished.details_gv = payloadGV.details;
-            updatedPublished.details = payloadGV.details;
+            updatedPublished.details_gv = { ...payloadGV.details, netPay: payloadGV.netPay };
+            updatedPublished.details = { ...payloadGV.details, netPay: payloadGV.netPay };
             if (updatedPublished.details_tt) delete updatedPublished.details_tt;
         }
         
@@ -6790,26 +6917,42 @@ async function openBulkPublishModal() {
             const pub = docData.published;
             
             let status = 'uncalculated';
-            let netPay = 0;
+            let teacherNetPay = 0;
+            let recepNetPay = 0;
             
             if (pub && pub.status) {
                 status = pub.status;
-                netPay = pub.netPay || 0;
+                if (pub.role === 'dual') {
+                    teacherNetPay = pub.details_gv?.netPay || 0;
+                    recepNetPay = pub.details_tt?.netPay || 0;
+                } else if (pub.role === 'tiep-tan') {
+                    recepNetPay = pub.netPay || 0;
+                } else {
+                    teacherNetPay = pub.netPay || 0;
+                }
             }
             
-            const staffItem = {
-                id: u.id,
-                name: u.name || u.username,
-                msnv: u.msnvStr || '—',
-                status: status,
-                netPay: netPay
-            };
+            const isDual = isTeacher && isRecep;
+            const showInTeacherList = isTeacher && (!isDual || !pub || pub.details_gv !== null);
+            const showInRecepList = isRecep && (!isDual || !pub || pub.details_tt !== null);
             
-            if (isTeacher) {
-                teachersList.push(staffItem);
+            if (showInTeacherList) {
+                teachersList.push({
+                    id: u.id,
+                    name: u.name || u.username,
+                    msnv: u.msnvStr || '—',
+                    status: status,
+                    netPay: teacherNetPay
+                });
             }
-            if (isRecep) {
-                recepsList.push(staffItem);
+            if (showInRecepList) {
+                recepsList.push({
+                    id: u.id,
+                    name: u.name || u.username,
+                    msnv: u.msnvStr || '—',
+                    status: status,
+                    netPay: recepNetPay
+                });
             }
         });
         

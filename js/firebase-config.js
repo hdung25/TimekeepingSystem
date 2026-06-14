@@ -51,3 +51,47 @@ if (typeof firebase !== 'undefined') {
     });
 }
 
+// Global helper to wait for Firebase Auth to restore session
+window.waitAuth = function() {
+    return new Promise((resolve) => {
+        if (typeof firebase === 'undefined' || !firebase.auth) {
+            resolve(null);
+            return;
+        }
+
+        // Show loading overlay if UIService is loaded
+        if (window.UIService && typeof window.UIService.showLoading === 'function') {
+            window.UIService.showLoading("Đang kết nối hệ thống...");
+        }
+
+        let resolved = false;
+        const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+            if (resolved) return;
+            resolved = true;
+            unsubscribe();
+            if (window.UIService && typeof window.UIService.hideLoading === 'function') {
+                window.UIService.hideLoading();
+            }
+            resolve(user);
+        });
+
+        // Timeout fallback: 3 seconds
+        setTimeout(() => {
+            if (resolved) return;
+            resolved = true;
+            unsubscribe();
+            if (window.UIService && typeof window.UIService.hideLoading === 'function') {
+                window.UIService.hideLoading();
+            }
+            const currentUser = firebase.auth().currentUser;
+            if (!currentUser) {
+                console.warn("Auth check timed out without active session.");
+                if (window.UIService && typeof window.UIService.toast === 'function') {
+                    window.UIService.toast("Kết nối chậm. Vui lòng tải lại trang hoặc kiểm tra mạng!", "error");
+                }
+            }
+            resolve(currentUser);
+        }, 3000);
+    });
+};
+

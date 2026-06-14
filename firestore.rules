@@ -17,6 +17,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data;
     }
 
+    function getUsername() {
+      return userDocExists() ? getUserDoc().get('username', '') : '';
+    }
+
     // Returns the user's single `role` field, or '' if doc missing.
     function singleRole() {
       return userDocExists() ? getUserDoc().get('role', '') : '';
@@ -33,6 +37,7 @@ service cloud.firestore {
       return singleRole() == r || rolesArr().hasAny([r]);
     }
 
+    // Check if user has admin access
     function isAdmin() {
       return hasRole('admin') || hasRole('senior_assistant');
     }
@@ -122,7 +127,7 @@ service cloud.firestore {
     match /salary_settings_monthly/{docId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdmin();
-      allow update: if isAuthenticated() && (request.auth.uid == docId.split('_')[1]);
+      allow update: if isAuthenticated() && (getUsername() == docId.split('_')[1] || isAdmin());
     }
 
     // 10. Overtime Requests (Staff → Admin for approval)

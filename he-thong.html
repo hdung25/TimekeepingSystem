@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 
 <head>
@@ -142,6 +142,9 @@
             <!-- Validation Script for Settings -->
             <script>
                 document.addEventListener('DOMContentLoaded', async () => {
+                    if (window.waitAuth) {
+                        await window.waitAuth();
+                    }
                     // Load Settings
                     try {
                         const settings = await DBService.getSystemSettings();
@@ -188,6 +191,9 @@
     <script>
         // System Settings Logic
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.waitAuth) {
+                await window.waitAuth();
+            }
             await loadSystemSettings();
         });
 

@@ -1,6 +1,9 @@
 // Timekeeping Logic
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.waitAuth) {
+        await window.waitAuth();
+    }
     // Only initialize if we are on the timekeeping page
     if (document.getElementById('timekeeping-container')) {
         initTimekeeping();

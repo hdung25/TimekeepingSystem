@@ -7,12 +7,50 @@
 function togglePdfTieptanInputs() {
     const user = window.currentUserContext;
     let hasReceptionist = false;
+    let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
         hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
+    
+    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    
+    let activeFilter = 'giao-vien';
+    if (filterVal === 'tiep-tan') {
+        activeFilter = 'tiep-tan';
+    } else if (filterVal === 'giao-vien') {
+        activeFilter = 'giao-vien';
+    } else {
+        if (hasReceptionist && !hasTeaching) {
+            activeFilter = 'tiep-tan';
+        } else if (hasTeaching && !hasReceptionist) {
+            activeFilter = 'giao-vien';
+        } else if (hasTeaching && hasReceptionist) {
+            let receptionistShiftCount = 0;
+            let teachingShiftCount = 0;
+            (window.unfilteredAllMonthChips || []).forEach(chip => {
+                if (chip.class === 'chip-future') return;
+                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                if (isTT) receptionistShiftCount++;
+                else teachingShiftCount++;
+            });
+            if (receptionistShiftCount > 0 && teachingShiftCount === 0) {
+                activeFilter = 'tiep-tan';
+            } else if (teachingShiftCount > 0 && receptionistShiftCount === 0) {
+                activeFilter = 'giao-vien';
+            } else if (receptionistShiftCount > 0 && teachingShiftCount > 0) {
+                activeFilter = teachingShiftCount >= receptionistShiftCount ? 'giao-vien' : 'tiep-tan';
+            } else {
+                activeFilter = 'giao-vien';
+            }
+        }
+    }
+
     const box = document.getElementById('pdf-tieptan-inputs');
-    if (box) box.style.display = hasReceptionist ? 'block' : 'none';
+    if (box) {
+        box.style.display = (hasReceptionist && activeFilter === 'tiep-tan') ? 'block' : 'none';
+    }
 }
 window.togglePdfTieptanInputs = togglePdfTieptanInputs;
 function exportSalaryPDF(overrides) {
@@ -533,16 +571,16 @@ function exportSalaryPDF(overrides) {
                </tr>`
             : '';
 
-        const criteria0 = evalItems[0];
-        const criteria1 = evalItems[1];
-        const criteria2 = evalItems[2];
-        const criteria3 = evalItems[3];
-        const criteria4 = evalItems[4];
-        const criteria5 = evalItems[5];
-        const criteria6 = evalItems[6];
-        const criteria7 = evalItems[7];
-        const criteria8 = evalItems[8];
-        const criteria9 = evalItems[9];
+        const criteria0 = evalItems.find(item => item.id === 0);
+        const criteria1 = evalItems.find(item => item.id === 1);
+        const criteria2 = evalItems.find(item => item.id === 2);
+        const criteria3 = evalItems.find(item => item.id === 3);
+        const criteria4 = evalItems.find(item => item.id === 4);
+        const criteria5 = evalItems.find(item => item.id === 5);
+        const criteria6 = evalItems.find(item => item.id === 6);
+        const criteria7 = evalItems.find(item => item.id === 7);
+        const criteria8 = evalItems.find(item => item.id === 8);
+        const criteria9 = evalItems.find(item => item.id === 9);
 
         const employeeId = (window.currentUserContext?.username || staffId).toUpperCase();
         const headerTitle = "TRUNG TÂM NGOẠI NGỮ TƯ DUY TRẺ";

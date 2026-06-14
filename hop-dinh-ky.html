@@ -495,6 +495,10 @@
     <script>
         // Check Auth permissions (must be admin or senior_assistant)
         document.addEventListener('DOMContentLoaded', async () => {
+            if (window.waitAuth) {
+                await window.waitAuth();
+            }
+
             const currentUser = localStorage.getItem('currentUser');
             const roleRaw = localStorage.getItem('currentRole') || 'staff';
             const roles = parseRoles(roleRaw);

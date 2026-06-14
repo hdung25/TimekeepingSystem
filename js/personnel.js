@@ -1,6 +1,9 @@
 // Personnel Management Logic
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.waitAuth) {
+        await window.waitAuth();
+    }
     renderStaffTable();
 
     // Live color preview

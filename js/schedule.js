@@ -1,6 +1,9 @@
 // Schedule Management Logic
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.waitAuth) {
+        await window.waitAuth();
+    }
     // Only initialize if we are on the page with schedule elements
     if (document.getElementById('schedule-table')) {
         initSchedule();

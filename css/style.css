@@ -718,6 +718,24 @@ button {
         border-radius: var(--radius-md) var(--radius-md) 0 0;
     }
 
+    /* ===== Staff selector & dropdown on mobile ===== */
+    #staff-selector-row {
+        position: relative !important;
+        width: 100% !important;
+    }
+
+    #staff-search-wrapper {
+        position: static !important; /* Break out to let dropdown use parent row's full width */
+    }
+
+    #staff-dropdown-list {
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        box-sizing: border-box;
+        z-index: 1010 !important;
+    }
+
     .control-header {
         flex-direction: column;
         align-items: flex-start;

@@ -251,24 +251,53 @@ window._deduplicateOvertimeRequests = async function () {
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    // ... (Startup logic)
-    console.log('Timekeeping System Loaded');
-
+document.addEventListener('DOMContentLoaded', async () => {
     // Login Handling
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
+        console.log('Timekeeping System Loaded (Login Page)');
         loginForm.addEventListener('submit', handleLogin);
-        // ... animation ...
     } else {
-        // AUTH GUARD: Require login for ALL internal pages
+        // Wait for Firebase Auth to restore session (critical for Firestore permissions)
+        if (window.waitAuth) {
+            await window.waitAuth();
+        }
+
         const currentUser = localStorage.getItem('currentUser');
         const currentUserId = localStorage.getItem('currentUserId');
-        if (!currentUser || !currentUserId) {
-            // Not logged in → redirect to login page
+        const firebaseUser = firebase.auth().currentUser;
+
+        // AUTH GUARD: Require login for ALL internal pages
+        if (!currentUser || !currentUserId || !firebaseUser) {
+            console.warn("Auth session missing or mismatched. Redirecting to login.");
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('currentUserId');
+            localStorage.removeItem('currentRole');
             window.location.href = 'index.html';
             return;
         }
+
+        // Backup security role sync: ensures user_roles collection has a valid document mapping Auth UID to their role
+        try {
+            const roleRef = window.db.collection('user_roles').doc(firebaseUser.uid);
+            const docSnap = await roleRef.get();
+            const roleRaw = localStorage.getItem('currentRole') || 'staff';
+            const rolesArr = parseRoles(roleRaw);
+            
+            if (!docSnap.exists || !docSnap.data().username) {
+                await roleRef.set({
+                    role: rolesArr[0] || 'staff',
+                    roles: rolesArr,
+                    username: currentUser,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                console.log("[Security] Backup auto-synced user role to user_roles collection.");
+            }
+        } catch (e) {
+            console.warn("[Security] Backup role sync failed (non-critical, user may already have it):", e);
+        }
+
+        console.log('Timekeeping System Loaded');
 
         // We are inside the app, render sidebar
         renderSidebar();
@@ -827,7 +856,7 @@ function renderSidebar() {
         { name: 'Tổng Quan', link: 'admin.html', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>', roles: ['admin', 'senior_assistant'] },
         { name: 'Nhân Sự', link: 'nhan-su.html', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>', roles: ['admin', 'senior_assistant'] },
         { name: 'Họp Định Kỳ', link: 'hop-dinh-ky.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M9 16l2 2 4-4"></path>', roles: ['admin', 'senior_assistant'] },
-        { name: 'Bảng Cá Nhân', link: 'nhan-vien.html', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant'] },
+        { name: 'Bảng Cá Nhân', link: 'nhan-vien.html', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant', 'senior_assistant', 'admin'] },
         // Chấm Công: Visible for Staff, Assistant, Receptionist
         { name: 'Chấm Công', link: 'cham-cong.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'teaching_assistant'] },
         { name: scheduleName, link: 'lich-lam.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant'] },
@@ -2169,16 +2198,16 @@ function renderDetailedSalaryTable(details, status) {
         const initialTotal = (details.totalBaseSalary || 0) + (details.totalTinHocSalary || 0) + (details.totalExtraSalary || 0) + (details.totalPreschoolSalary || 0) + (details.totalAffiliateSalary || 0) + (details.totalTutoringSalary || 0) + (details.troCapChucVu || 0) + (details.totalBonus || 0) + (details.attendanceAdjustments || 0);
         const finalNet = initialTotal - (details.advance || 0);
         
-        const criteria0 = details.evalItems?.[0];
-        const criteria1 = details.evalItems?.[1];
-        const criteria2 = details.evalItems?.[2];
-        const criteria3 = details.evalItems?.[3];
-        const criteria4 = details.evalItems?.[4];
-        const criteria5 = details.evalItems?.[5];
-        const criteria6 = details.evalItems?.[6];
-        const criteria7 = details.evalItems?.[7];
-        const criteria8 = details.evalItems?.[8];
-        const criteria9 = details.evalItems?.[9];
+        const criteria0 = details.evalItems?.find(item => item.id === 0);
+        const criteria1 = details.evalItems?.find(item => item.id === 1);
+        const criteria2 = details.evalItems?.find(item => item.id === 2);
+        const criteria3 = details.evalItems?.find(item => item.id === 3);
+        const criteria4 = details.evalItems?.find(item => item.id === 4);
+        const criteria5 = details.evalItems?.find(item => item.id === 5);
+        const criteria6 = details.evalItems?.find(item => item.id === 6);
+        const criteria7 = details.evalItems?.find(item => item.id === 7);
+        const criteria8 = details.evalItems?.find(item => item.id === 8);
+        const criteria9 = details.evalItems?.find(item => item.id === 9);
 
         rowsHtml = `
             <tr style="background: #FFFBEB;">

@@ -66,6 +66,9 @@ const SHIFTS = ['morning', 'afternoon', 'evening'];
 
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', async () => {
+    if (window.waitAuth) {
+        await window.waitAuth();
+    }
     if (isEditor) {
         const saveArea = document.getElementById('save-area');
         if (saveArea) saveArea.style.display = 'flex';
