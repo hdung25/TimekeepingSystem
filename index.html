@@ -11,8 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260620-season-mobile">
-    <link rel="stylesheet" href="css/login.css?v=20260620-season-mobile">
+    <link rel="stylesheet" href="css/login.css?v=20260621-lotus">
 
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -24,53 +23,39 @@
 </head>
 
 <body>
+    <!-- TOP BANNER -->
+    <div class="login-banner">✨ Chào mùa hè 2026 rực rỡ! ☀️</div>
+
     <main class="login-wrapper" aria-label="Đăng nhập hệ thống">
-        <div class="season-sky" aria-hidden="true">
-            <span class="season-shape shape-1"></span>
-            <span class="season-shape shape-2"></span>
-            <span class="season-shape shape-3"></span>
-            <span class="season-shape shape-4"></span>
-            <span class="season-line line-1"></span>
-            <span class="season-line line-2"></span>
-        </div>
+        <!-- Full screen background -->
+        <div class="login-bg" aria-hidden="true"></div>
 
-        <section class="season-panel" aria-hidden="true">
-            <div class="season-label" id="season-label">Mùa học tập</div>
-            <h2 id="season-title">Mỗi ngày tiến bộ một chút</h2>
-            <p id="season-copy">Kiến thức vững vàng bắt đầu từ sự chăm chỉ hôm nay.</p>
-            <div class="season-mini-board">
-                <span></span>
-                <span></span>
-                <span></span>
-            </div>
-        </section>
-
+        <!-- Login Card -->
         <section class="login-card">
             <div class="login-header">
                 <img src="images/TUDUYTRE.jpg" alt="Logo Ngoại Ngữ & Toán Tư Duy Trẻ" class="login-logo">
                 <p class="login-kicker">Ngoại Ngữ & Toán Tư Duy Trẻ</p>
-                <h1>Chào mừng trở lại</h1>
-                <p>Hệ thống chấm công và tính lương tự động</p>
-                <blockquote id="season-quote">Hôm nay học chắc, ngày mai bước xa.</blockquote>
+                <h1>CHÀO MỪNG TRỞ LẠI!</h1>
+                <p>Hệ thống Chấm công & Tính lương Tự động</p>
             </div>
 
             <form id="login-form">
                 <div class="form-group">
                     <label for="username">Tên đăng nhập</label>
-                    <input type="text" id="username" class="form-input" placeholder="Nhập tên đăng nhập" required>
+                    <input type="text" id="username" class="form-input" placeholder="admin" required autocomplete="username">
                 </div>
 
                 <div class="form-group">
                     <label for="password">Mật khẩu</label>
                     <div class="password-field">
-                        <input type="password" id="password" class="form-input" placeholder="Nhập mật khẩu" required>
+                        <input type="password" id="password" class="form-input" placeholder="password" required autocomplete="current-password">
                         <button type="button" id="toggle-password" aria-label="Hiện mật khẩu" title="Hiện mật khẩu">
                             <i data-lucide="eye"></i>
                         </button>
                     </div>
                 </div>
 
-                <button type="submit" class="login-btn">Đăng nhập</button>
+                <button type="submit" class="login-btn">Đăng Nhập</button>
 
                 <div id="login-error" class="login-error" style="display: none;"></div>
 
@@ -82,8 +67,7 @@
     </main>
 
     <script src="js/ui-service.js?v=secure1"></script>
-    <script src="js/main.js?v=20260620-season-mobile"></script>
-    <script src="js/login-theme.js?v=20260620-season-mobile"></script>
+    <script src="js/main.js?v=20260621-lotus"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 </body>
 
