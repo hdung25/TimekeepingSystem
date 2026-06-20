@@ -1,5 +1,5 @@
-// Service Worker v12 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v12-season-mobile';
+// Service Worker v13 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v13-lotus';
 
 const STATIC_ASSETS = [
     '/',
@@ -12,10 +12,9 @@ const STATIC_ASSETS = [
     '/lich-tiep-tan.html',
     '/nhan-su.html',
     '/he-thong.html',
-    '/css/style.css?v=20260620-season-mobile',
-    '/css/login.css?v=20260620-season-mobile',
-    '/js/main.js?v=20260620-season-mobile',
-    '/js/login-theme.js?v=20260620-season-mobile',
+    '/css/style.css?v=20260621-lotus',
+    '/css/login.css?v=20260621-lotus',
+    '/js/main.js?v=20260621-lotus',
     '/js/firebase-config.js',
     '/js/db-service.js',
     '/js/ui-service.js',
@@ -25,6 +24,7 @@ const STATIC_ASSETS = [
     '/js/schedule.js',
     '/js/receptionist-schedule.js',
     '/images/TUDUYTRE.jpg',
+    '/images/lotus_bg.png',
     '/manifest.json'
 ];
 

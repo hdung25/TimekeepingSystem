@@ -1,4 +1,4 @@
-﻿const APP_VERSION = '20260620-season-mobile';
+﻿const APP_VERSION = '20260621-lotus';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
