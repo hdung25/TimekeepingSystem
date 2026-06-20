@@ -1,5 +1,5 @@
-// Service Worker v13 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v13-lotus';
+// Service Worker v14 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v14-font';
 
 const STATIC_ASSETS = [
     '/',
@@ -13,7 +13,7 @@ const STATIC_ASSETS = [
     '/nhan-su.html',
     '/he-thong.html',
     '/css/style.css?v=20260621-lotus',
-    '/css/login.css?v=20260621-lotus',
+    '/css/login.css?v=20260621-font',
     '/js/main.js?v=20260621-lotus',
     '/js/firebase-config.js',
     '/js/db-service.js',
