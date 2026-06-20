@@ -27,6 +27,56 @@ function normalizeChipFilterName(rawName) {
 }
 window.normalizeChipFilterName = normalizeChipFilterName;
 
+function getClassRate(cls, currentUserContext) {
+    if (!cls || !cls.lop) return 0;
+    const normalizedName = normalizeChipFilterName(cls.lop);
+    const cfg = currentUserContext?.salary_config || {};
+    
+    if (cfg.class_rates && cfg.class_rates[normalizedName] !== undefined) {
+        const r = Number(cfg.class_rates[normalizedName]);
+        if (r > 0) return r;
+    }
+    
+    if (cfg.roles && Array.isArray(cfg.roles)) {
+        let matchedRole = cfg.roles.find(r => normalizeChipFilterName(r.id) === normalizedName || normalizeChipFilterName(r.name) === normalizedName);
+        if (matchedRole && Number(matchedRole.rate) > 0) {
+            return Number(matchedRole.rate);
+        }
+        
+        const normalizedNameLower = normalizedName.toLowerCase();
+        matchedRole = cfg.roles.find(r => {
+            const roleIdLower = String(r.id).toLowerCase();
+            const roleNameLower = String(r.name).toLowerCase();
+            return normalizedNameLower.includes(roleIdLower) || normalizedNameLower.includes(roleNameLower) ||
+                   roleIdLower.includes(normalizedNameLower) || roleNameLower.includes(normalizedNameLower);
+        });
+        if (matchedRole && Number(matchedRole.rate) > 0) {
+            return Number(matchedRole.rate);
+        }
+    }
+    
+    return Number(cfg.attendance_rate || 0);
+}
+window.getClassRate = getClassRate;
+
+function isCenterClosed(dateStr, shiftKey, centerClosures) {
+    if (!centerClosures || !centerClosures[dateStr]) return false;
+    const closures = centerClosures[dateStr];
+    if (closures.includes('all')) return true;
+    if (closures.includes(shiftKey)) return true;
+    
+    if (shiftKey === 'morning' && (closures.includes('morning1') || closures.includes('morning2'))) return true;
+    if (shiftKey === 'afternoon' && (closures.includes('afternoon1') || closures.includes('afternoon2'))) return true;
+    if (shiftKey === 'evening' && (closures.includes('evening1') || closures.includes('evening2'))) return true;
+    
+    if ((shiftKey === 'morning1' || shiftKey === 'morning2') && closures.includes('morning')) return true;
+    if ((shiftKey === 'afternoon1' || shiftKey === 'afternoon2') && closures.includes('afternoon')) return true;
+    if ((shiftKey === 'evening1' || shiftKey === 'evening2') && closures.includes('evening')) return true;
+
+    return false;
+}
+window.isCenterClosed = isCenterClosed;
+
 // ================= EVALUATION CRITERIA (10 Tiêu Chí) =================
 
 const EVALUATION_CRITERIA = [
@@ -125,6 +175,85 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         : [];
     const hasReceptionistRole = staffRoles.some(r => ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r));
     const hasTeachingRole = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+
+    // DEDUPLICATE OVERLAPPING CLASSES (Keep highest paying one)
+    let processedSchedule = { ...schedule };
+    if (hasTeachingRole) {
+        const rawRegisteredClasses = [];
+        sections.forEach(sk => {
+            (schedule[sk] || []).forEach((c, i) => {
+                if (!c.start || !c.end) return;
+                const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
+                const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+                const _isReg = _isSubstitute ||
+                    (!_isOriginalVDX && (
+                        (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId)
+                    ));
+                if (_isReg) {
+                    rawRegisteredClasses.push({
+                        ...c,
+                        _sectionKey: sk,
+                        _origIndex: i,
+                        _isSubstitute,
+                        _isOriginalVDX
+                    });
+                }
+            });
+        });
+
+        const teachingClasses = rawRegisteredClasses.filter(c => !c._isOriginalVDX);
+        const vdxClasses = rawRegisteredClasses.filter(c => c._isOriginalVDX);
+
+        teachingClasses.forEach(c => {
+            c._rate = getClassRate(c, currentUserContext);
+        });
+        teachingClasses.sort((a, b) => b._rate - a._rate);
+
+        const selectedClasses = [];
+        teachingClasses.forEach(c => {
+            const hasOverlap = selectedClasses.some(sel => {
+                const [sH1, sM1] = c.start.split(':').map(Number);
+                const [eH1, eM1] = c.end.split(':').map(Number);
+                const start1 = sH1 * 60 + sM1;
+                const end1 = eH1 * 60 + eM1;
+
+                const [sH2, sM2] = sel.start.split(':').map(Number);
+                const [eH2, eM2] = sel.end.split(':').map(Number);
+                const start2 = sH2 * 60 + sM2;
+                const end2 = eH2 * 60 + eM2;
+
+                return start1 < end2 && start2 < end1;
+            });
+            if (!hasOverlap) {
+                selectedClasses.push(c);
+            }
+        });
+
+        const localSchedule = {};
+        sections.forEach(sk => {
+            localSchedule[sk] = [];
+            (schedule[sk] || []).forEach((c, i) => {
+                const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
+                const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+                const _isReg = _isSubstitute ||
+                    (!_isOriginalVDX && (
+                        (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId)
+                    ));
+
+                if (!_isReg) {
+                    localSchedule[sk].push(c);
+                } else {
+                    const isKept = selectedClasses.some(sc => sc._sectionKey === sk && sc._origIndex === i) ||
+                                   vdxClasses.some(vc => vc._sectionKey === sk && vc._origIndex === i);
+                    if (isKept) {
+                        localSchedule[sk].push(c);
+                    }
+                }
+            });
+        });
+        processedSchedule = localSchedule;
+    }
+    schedule = processedSchedule;
 
     // PRE-PROCESS: xây dựng mergeInfo cho các ca liên tiếp (end ca A = start ca B)
     // Không check cùng branch → hỗ trợ merge ca khác cơ sở
@@ -561,6 +690,26 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             } else {
                 // --- CASE B: NO ATTENDANCE ---
+                if (isCenterClosed(dateStr, secKey, window.centerClosures)) {
+                    chips.push({
+                        text: `${cls.lop || 'ca dạy'} (Nghỉ)`,
+                        class: 'chip-gray',
+                        paidMinutes: 0,
+                        tooltip: 'Trung tâm cho nghỉ (tắt lớp)',
+                        sessionId: null,
+                        isClickable: false,
+                        isCenterOff: true,
+                        isTeaching: true,
+                        chipFilterName: normalizeChipFilterName(cls.lop),
+                        classStart: cls.start,
+                        classEnd: cls.end,
+                        classCompositeKey: cls._compositeKey || null,
+                        classSectionKey: secKey,
+                        classIndex: idx
+                    });
+                    return;
+                }
+
                 // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
                 const todayStrClass = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
                 const nowTimeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
@@ -912,68 +1061,86 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         } else {
             // === NO ATTENDANCE FOR THIS SHIFT ===
-            // Check if this shift was explicitly cancelled (marked absent on receptionist schedule)
-            const isShiftCancelled = cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`);
-
-            if (isShiftCancelled) {
+            if (isCenterClosed(dateStr, rs.shift, window.centerClosures)) {
                 chips.push({
-                    text: label + ' (V)',
+                    text: label + ' (Nghỉ)',
                     class: 'chip-gray',
                     paidMinutes: 0,
-                    tooltip: 'Ca tiếp tân - Vắng (Đã báo vắng)',
+                    tooltip: 'Trung tâm cho nghỉ (tắt ca)',
                     sessionId: null,
-                    schedData: { start: rs.start, end: rs.end },
-                    isClickable: true,
-                    isWarning: false, // Excused absence
+                    isClickable: false,
+                    isCenterOff: true,
                     isReceptionist: true,
                     chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
                     classIndex: dayKeyLocal,
-                    isFixedShift: rs.isFixedShift,
-                    isCancelled: true
+                    isFixedShift: rs.isFixedShift
                 });
             } else {
-                // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
-                const todayStrShift = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
-                const nowTimeStrShift = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-                const isFutureDateShift = dateStr > todayStrShift;
-                const isTodayFutureTimeShift = (dateStr === todayStrShift) && (rs.start > nowTimeStrShift);
+                // Check if this shift was explicitly cancelled (marked absent on receptionist schedule)
+                const isShiftCancelled = cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`);
 
-                if (isFutureDateShift || isTodayFutureTimeShift) {
-                    // Ca chưa diễn ra → hiện (ST) để tiếp tân thấy lịch sắp tới
-                    chips.push({
-                        text: label + ' (ST)',
-                        class: 'chip-future',
-                        paidMinutes: 0,
-                        tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
-                        sessionId: null,
-                        schedData: { start: rs.start, end: rs.end },
-                        isClickable: false,
-                        isReceptionist: true,
-                        chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
-                        classCompositeKey: compositeKeyLocal,
-                        classSectionKey: rs.shift,
-                        classIndex: dayKeyLocal,
-                        isFixedShift: rs.isFixedShift
-                    });
-                } else {
+                if (isShiftCancelled) {
                     chips.push({
                         text: label + ' (V)',
                         class: 'chip-gray',
                         paidMinutes: 0,
-                        tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công (Vắng)',
+                        tooltip: 'Ca tiếp tân - Vắng (Đã báo vắng)',
                         sessionId: null,
                         schedData: { start: rs.start, end: rs.end },
                         isClickable: true,
-                        isWarning: true,
+                        isWarning: false, // Excused absence
                         isReceptionist: true,
                         chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                         classCompositeKey: compositeKeyLocal,
                         classSectionKey: rs.shift,
                         classIndex: dayKeyLocal,
-                        isFixedShift: rs.isFixedShift
+                        isFixedShift: rs.isFixedShift,
+                        isCancelled: true
                     });
+                } else {
+                    // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
+                    const todayStrShift = typeof getLocalDateKey === 'function' ? getLocalDateKey(now) : now.toISOString().split('T')[0];
+                    const nowTimeStrShift = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                    const isFutureDateShift = dateStr > todayStrShift;
+                    const isTodayFutureTimeShift = (dateStr === todayStrShift) && (rs.start > nowTimeStrShift);
+
+                    if (isFutureDateShift || isTodayFutureTimeShift) {
+                        // Ca chưa diễn ra → hiện (ST) để tiếp tân thấy lịch sắp tới
+                        chips.push({
+                            text: label + ' (ST)',
+                            class: 'chip-future',
+                            paidMinutes: 0,
+                            tooltip: `Ca tiếp tân sắp tới - ${rs.label} (${rs.start}–${rs.end})`,
+                            sessionId: null,
+                            schedData: { start: rs.start, end: rs.end },
+                            isClickable: false,
+                            isReceptionist: true,
+                            chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
+                            classCompositeKey: compositeKeyLocal,
+                            classSectionKey: rs.shift,
+                            classIndex: dayKeyLocal,
+                            isFixedShift: rs.isFixedShift
+                        });
+                    } else {
+                        chips.push({
+                            text: label + ' (V)',
+                            class: 'chip-gray',
+                            paidMinutes: 0,
+                            tooltip: 'Ca tiếp tân - Không có dữ liệu chấm công (Vắng)',
+                            sessionId: null,
+                            schedData: { start: rs.start, end: rs.end },
+                            isClickable: true,
+                            isWarning: true,
+                            isReceptionist: true,
+                            chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
+                            classCompositeKey: compositeKeyLocal,
+                            classSectionKey: rs.shift,
+                            classIndex: dayKeyLocal,
+                            isFixedShift: rs.isFixedShift
+                        });
+                    }
                 }
             }
         }

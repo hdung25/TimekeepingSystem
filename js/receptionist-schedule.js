@@ -140,11 +140,19 @@ async function loadShiftConfig() {
                 }
             });
         }
+        window.centerClosures = settings?.centerClosures || {};
     } catch (e) {
         console.warn('Using default shift config');
     }
     renderShiftConfigToUI();
 }
+
+function isCenterClosed(dateStr, shiftKey, centerClosures) {
+    if (!centerClosures || !centerClosures[dateStr]) return false;
+    const closures = centerClosures[dateStr];
+    return closures.includes('all') || closures.includes(shiftKey);
+}
+
 
 function renderShiftConfigToUI() {
     SHIFTS.forEach(shift => {
@@ -255,22 +263,30 @@ async function loadAndRender() {
         }
     } else {
         // No data for this week — try to inherit from previous weeks (up to 4)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(currentWeekStart);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+
         let found = false;
-        for (let i = 1; i <= 4; i++) {
-            const prevMonday = new Date(currentWeekStart);
-            prevMonday.setDate(prevMonday.getDate() - i * 7);
-            const y = prevMonday.getFullYear();
-            const m = String(prevMonday.getMonth() + 1).padStart(2, '0');
-            const d = String(prevMonday.getDate()).padStart(2, '0');
-            const prevKey = `${currentBranch}__${y}-${m}-${d}`;
-            const prevData = await DBService.getReceptionistSchedule(prevKey);
-            if (prevData) {
-                // Found a template! Deep clone to avoid mutating original
-                weekData = JSON.parse(JSON.stringify(prevData));
-                isInheritedTemplate = true;
-                inheritedFromDate = `${d}/${m}/${y}`;
-                found = true;
-                break;
+        // Only inherit if the week hasn't ended yet
+        if (weekEnd >= today) {
+            for (let i = 1; i <= 4; i++) {
+                const prevMonday = new Date(currentWeekStart);
+                prevMonday.setDate(prevMonday.getDate() - i * 7);
+                const y = prevMonday.getFullYear();
+                const m = String(prevMonday.getMonth() + 1).padStart(2, '0');
+                const d = String(prevMonday.getDate()).padStart(2, '0');
+                const prevKey = `${currentBranch}__${y}-${m}-${d}`;
+                const prevData = await DBService.getReceptionistSchedule(prevKey);
+                if (prevData) {
+                    // Found a template! Deep clone to avoid mutating original
+                    weekData = JSON.parse(JSON.stringify(prevData));
+                    isInheritedTemplate = true;
+                    inheritedFromDate = `${d}/${m}/${y}`;
+                    found = true;
+                    break;
+                }
             }
         }
         if (!found) {
@@ -374,6 +390,15 @@ function renderTable() {
 
             // Composite key (branch__YYYY-MM-DD of Monday)
             const mondayKey = getWeekCompositeKey(); // e.g. cs1__2026-04-27
+
+            const isClosed = isCenterClosed(dayDateStr, shift, window.centerClosures);
+
+            if (isClosed) {
+                td.style.cssText = 'background: repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 10px, #e5e7eb 10px, #e5e7eb 20px); color: #6b7280; font-size: 0.8rem; font-weight: bold; text-align: center; vertical-align: middle; padding: 0.75rem 0.25rem;';
+                td.textContent = 'Lịch nghỉ trung tâm';
+                tr.appendChild(td);
+                return;
+            }
 
             if (staffList.length === 0 && !note) {
                 td.innerHTML = `<span class="empty-cell">—</span>`;
@@ -726,6 +751,11 @@ function getLocalDateStr(date) {
 }
 
 async function saveFullWeek() {
+    if (isInheritedTemplate) {
+        const confirmSave = await UIService.confirm('Lịch hiện tại đang là lịch kế thừa từ tuần trước. Bạn có chắc chắn muốn LƯU và ÁP DỤNG toàn bộ lịch này cho tuần hiện tại không?');
+        if (!confirmSave) return;
+    }
+
     // 1. Fetch CURRENT global config from DB BEFORE we overwrite it, to use as fallback for past days
     let oldShiftConfig = {
         morning: { start: '07:00', end: '11:30' },

@@ -25,6 +25,45 @@
     <script src='js/db-service.js'></script>
     <script src='js/migration-tool.js'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            align-items: start;
+            max-width: 1200px;
+            width: 100%;
+        }
+        @media (min-width: 1024px) {
+            .settings-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .closure-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background: #F3F4F6;
+            border-radius: var(--radius-md);
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .closure-item .btn-delete {
+            background: #EF4444;
+            color: white;
+            padding: 0.35rem 0.85rem;
+            border-radius: var(--radius-md);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: var(--transition-base);
+        }
+        .closure-item .btn-delete:hover {
+            background: #DC2626;
+        }
+    </style>
 </head>
 
 <body>
@@ -97,145 +136,258 @@
                 <h1 style="font-size: 1.5rem; font-weight: 700;">Cấu Hình Hệ Thống</h1>
             </header>
 
-            <div class="glass-panel" style="padding: 2rem; max-width: 600px;">
-                <form id="system-settings-form">
-                    <div class="form-group">
-                        <label for="company-name">Tên Công Ty</label>
-                        <input type="text" id="company-name" class="form-input"
-                            value="TRUNG TÂM NGOẠI NGỮ VÀ TOÁN TƯ DUY TRẺ" required>
-                    </div>
+            <div class="settings-grid">
+                <!-- PANEL 1: CẤU HÌNH DDNS & IP -->
+                <div class="glass-panel" style="padding: 2rem;">
+                    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--primary-color);">Kết Nối & Bảo Mật</h2>
+                    <form id="system-settings-form">
+                        <div class="form-group">
+                            <label for="company-name">Tên Công Ty</label>
+                            <input type="text" id="company-name" class="form-input" required>
+                        </div>
 
-                    <div class="form-group" style="margin-top: 1.5rem;">
-                        <label for="allowed-ip" style="display: flex; justify-content: space-between;">
-                            <span>Địa Chỉ IP Cho Phép Chấm Công</span>
-                            <a href="https://www.google.com/search?q=what+is+my+ip" target="_blank"
-                                style="font-size: 0.8rem; color: var(--primary-color);">Xem IP Của Tôi</a>
-                        </label>
-                        <textarea id="allowed-ip" class="form-input" rows="3"
-                            placeholder="Ví dụ: 14.161.22.100, 113.20.10.5 (Để trống nếu muốn tắt giới hạn)"></textarea>
-                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
-                            ⚠️ Chỉ những máy kết nối Wifi có IP trong danh sách trên mới chấm công được.
-                            <br>Nhập nhiều IP cách nhau bằng dấu phẩy.
-                        </p>
-                    </div>
+                        <div class="form-group" style="margin-top: 1.25rem;">
+                            <label for="ddns-cs1">Tên miền DDNS Cơ sở 1</label>
+                            <input type="text" id="ddns-cs1" class="form-input" placeholder="Ví dụ: tuduytrecs1.ddns.net">
+                        </div>
 
-                    <div class="form-group" style="margin-top: 1.25rem;">
-                        <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="enable-ip-check"
-                                style="width: 1.1rem; height: 1.1rem; cursor: pointer; accent-color: var(--primary-color);">
-                            <span style="font-weight: 600;">Bật kiểm tra IP mạng khi chấm công</span>
-                        </label>
-                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; margin-left: 1.85rem;">
-                            Mặc định <strong>tắt</strong> — GV dạy tại nhà vẫn chấm công từ bất kỳ đâu.
-                            Bật lên để chỉ cho phép chấm công trong mạng nội bộ.
-                        </p>
-                    </div>
+                        <div class="form-group" style="margin-top: 1.25rem;">
+                            <label for="ddns-cs2">Tên miền DDNS Cơ sở 2</label>
+                            <input type="text" id="ddns-cs2" class="form-input" placeholder="Ví dụ: tuduytrecs2.ddns.net">
+                        </div>
 
-                    <div style="margin-top: 2rem; text-align: right;">
-                        <button type="submit" class="btn btn-primary" id="btn-save-settings">
-                            Lưu Cấu Hình
-                        </button>
+                        <div class="form-group" style="margin-top: 1.25rem;">
+                            <label for="ddns-cs3">Tên miền DDNS Cơ sở 3</label>
+                            <input type="text" id="ddns-cs3" class="form-input" placeholder="Ví dụ: tuduytrecs3.ddns.net">
+                        </div>
+
+                        <div class="form-group" style="margin-top: 1.25rem;">
+                            <label for="allowed-ip" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Địa Chỉ IP Tĩnh Dự Phòng (Tùy chọn)</span>
+                                <button type="button" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: #E5E7EB; color: #374151; border-radius: 4px;" onclick="getCurrentIP()">Lấy IP hiện tại</button>
+                            </label>
+                            <textarea id="allowed-ip" class="form-input" rows="2" placeholder="Ví dụ: 14.161.22.100, 113.20.10.5 (Dùng nếu không có DDNS)"></textarea>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem;">
+                                Lưu ý: Chỉ những máy kết nối Wifi cơ sở hoặc có IP trong danh sách mới chấm công được. Nhập nhiều IP cách nhau bằng dấu phẩy.
+                            </p>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 1.25rem;">
+                            <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="enable-ip-check" style="width: 1.1rem; height: 1.1rem; cursor: pointer; accent-color: var(--primary-color);">
+                                <span style="font-weight: 600;">Bật kiểm tra IP mạng khi chấm công</span>
+                            </label>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; margin-left: 1.85rem;">
+                                Mặc định tắt - Giáo viên dạy tại nhà vẫn chấm công từ bất kỳ đâu. Bật lên để chỉ cho phép chấm công trong mạng nội bộ.
+                            </p>
+                        </div>
+
+                        <div style="margin-top: 2rem; text-align: right;">
+                            <button type="submit" class="btn btn-primary" id="btn-save-settings">
+                                Lưu Cấu Hình
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- PANEL 2: QUẢN LÝ TẮT LỚP (NGHỈ TRUNG TÂM) -->
+                <div class="glass-panel" style="padding: 2rem;">
+                    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--primary-color);">Quản Lý Tắt Lớp (Nghỉ Trung Tâm)</h2>
+                    
+                    <form id="add-closure-form" style="margin-bottom: 2rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="closure-date">Chọn Ngày Nghỉ</label>
+                                <input type="date" id="closure-date" class="form-input" required style="height: 42px;">
+                            </div>
+                            <div class="form-group">
+                                <label for="closure-shift">Chọn Ca Nghỉ</label>
+                                <select id="closure-shift" class="form-input" required style="height: 42px;">
+                                    <option value="all">Cả ngày</option>
+                                    <option value="morning1">Ca Sáng 1</option>
+                                    <option value="morning2">Ca Sáng 2</option>
+                                    <option value="afternoon1">Ca Chiều 1</option>
+                                    <option value="afternoon2">Ca Chiều 2</option>
+                                    <option value="evening1">Ca Tối 1</option>
+                                    <option value="evening2">Ca Tối 2</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="margin-top: 1rem; text-align: right;">
+                            <button type="submit" class="btn btn-primary" style="padding: 0.6rem 1.5rem; font-size: 0.9rem;">Thêm Ngày Nghỉ</button>
+                        </div>
+                    </form>
+
+                    <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">Danh Sách Ngày Nghỉ Hiện Tại</h3>
+                    <div id="closures-list" style="max-height: 380px; overflow-y: auto;">
+                        <!-- Dynamically populated -->
                     </div>
-                </form>
+                </div>
             </div>
-
-            <!-- Validation Script for Settings -->
-            <script>
-                document.addEventListener('DOMContentLoaded', async () => {
-                    if (window.waitAuth) {
-                        await window.waitAuth();
-                    }
-                    // Load Settings
-                    try {
-                        const settings = await DBService.getSystemSettings();
-                        if (settings.companyName) document.getElementById('company-name').value = settings.companyName;
-                        if (settings.allowedIP) document.getElementById('allowed-ip').value = settings.allowedIP;
-                        document.getElementById('enable-ip-check').checked = settings.enableIPCheck === true;
-                    } catch (e) {
-                        console.error(e);
-                    }
-
-                    // Save Settings
-                    document.getElementById('system-settings-form').addEventListener('submit', async (e) => {
-                        e.preventDefault();
-                        const btn = document.getElementById('btn-save-settings');
-                        const originalText = btn.innerText;
-                        btn.innerText = 'Đang lưu...';
-                        btn.disabled = true;
-
-                        try {
-                            const data = {
-                                companyName: document.getElementById('company-name').value.trim(),
-                                allowedIP: document.getElementById('allowed-ip').value.trim(),
-                                enableIPCheck: document.getElementById('enable-ip-check').checked
-                            };
-                            await DBService.saveSystemSettings(data);
-                            alert('Đã lưu cấu hình thành công!');
-                        } catch (e) {
-                            alert('Lỗi: ' + e.message);
-                        } finally {
-                            btn.innerText = originalText;
-                            btn.disabled = false;
-                        }
-                    });
-                });
-            </script>
-        </main>
-
-        <!-- Migration Panel Removed as per user request (System already on Cloud) -->
-
         </main>
     </div>
+
     <script src="js/ui-service.js"></script>
     <script src="js/main.js"></script>
     <script>
-        // System Settings Logic
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.waitAuth) {
                 await window.waitAuth();
             }
-            await loadSystemSettings();
+            await initSettingsPage();
         });
 
-        async function loadSystemSettings() {
+        let cachedSettings = {};
+
+        async function initSettingsPage() {
+            await loadSettings();
+            setupFormListeners();
+        }
+
+        async function loadSettings() {
             try {
                 const settings = await DBService.getSystemSettings();
-                if (settings) {
-                    if (settings.companyName) document.getElementById('company-name').value = settings.companyName;
-                    if (settings.adminEmail) { const el = document.getElementById('admin-email'); if (el) el.value = settings.adminEmail; }
-                    if (settings.allowedIP) document.getElementById('allowed-ip').value = settings.allowedIP;
-                    document.getElementById('enable-ip-check').checked = settings.enableIPCheck === true;
-                }
+                cachedSettings = settings || {};
+                
+                if (settings.companyName) document.getElementById('company-name').value = settings.companyName;
+                if (settings.ddnsCS1) document.getElementById('ddns-cs1').value = settings.ddnsCS1;
+                if (settings.ddnsCS2) document.getElementById('ddns-cs2').value = settings.ddnsCS2;
+                if (settings.ddnsCS3) document.getElementById('ddns-cs3').value = settings.ddnsCS3;
+                if (settings.allowedIP) document.getElementById('allowed-ip').value = settings.allowedIP;
+                document.getElementById('enable-ip-check').checked = settings.enableIPCheck === true;
+
+                renderClosuresList();
             } catch (e) {
                 console.error("Error loading settings:", e);
             }
         }
 
-        async function saveSystemSettings(e) {
-            e.preventDefault(); // Prevent form submit refresh
-            const companyName = document.getElementById('company-name').value;
-            const adminEmailEl = document.getElementById('admin-email');
-            const adminEmail = adminEmailEl ? adminEmailEl.value : '';
-            const allowedIP = document.getElementById('allowed-ip').value.trim();
-            const enableIPCheck = document.getElementById('enable-ip-check').checked;
+        function setupFormListeners() {
+            document.getElementById('system-settings-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('btn-save-settings');
+                const originalText = btn.innerText;
+                btn.innerText = 'Đang lưu...';
+                btn.disabled = true;
 
-            try {
-                await DBService.saveSystemSettings({
-                    companyName,
-                    adminEmail,
-                    allowedIP,
-                    enableIPCheck
-                });
-                alert('Đã lưu cấu hình hệ thống!');
-            } catch (error) {
-                alert('Lỗi lưu cấu hình: ' + error.message);
-            }
+                try {
+                    const updated = {
+                        ...cachedSettings,
+                        companyName: document.getElementById('company-name').value.trim(),
+                        ddnsCS1: document.getElementById('ddns-cs1').value.trim(),
+                        ddnsCS2: document.getElementById('ddns-cs2').value.trim(),
+                        ddnsCS3: document.getElementById('ddns-cs3').value.trim(),
+                        allowedIP: document.getElementById('allowed-ip').value.trim(),
+                        enableIPCheck: document.getElementById('enable-ip-check').checked
+                    };
+                    await DBService.saveSystemSettings(updated);
+                    cachedSettings = updated;
+                    alert('Đã lưu cấu hình thành công!');
+                } catch (err) {
+                    alert('Lỗi: ' + err.message);
+                } finally {
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                }
+            };
+
+            document.getElementById('add-closure-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const dateStr = document.getElementById('closure-date').value;
+                const shiftVal = document.getElementById('closure-shift').value;
+                if (!dateStr) return;
+
+                const btn = e.target.querySelector('button[type="submit"]');
+                const origText = btn.innerText;
+                btn.innerText = 'Đang thêm...';
+                btn.disabled = true;
+
+                try {
+                    if (!cachedSettings.centerClosures) {
+                        cachedSettings.centerClosures = {};
+                    }
+                    if (!cachedSettings.centerClosures[dateStr]) {
+                        cachedSettings.centerClosures[dateStr] = [];
+                    }
+                    if (!cachedSettings.centerClosures[dateStr].includes(shiftVal)) {
+                        cachedSettings.centerClosures[dateStr].push(shiftVal);
+                    }
+
+                    await DBService.saveSystemSettings(cachedSettings);
+                    renderClosuresList();
+                    document.getElementById('closure-date').value = '';
+                    alert('Đã thêm ngày nghỉ thành công!');
+                } catch (err) {
+                    alert('Lỗi thêm ngày nghỉ: ' + err.message);
+                } finally {
+                    btn.innerText = origText;
+                    btn.disabled = false;
+                }
+            };
         }
 
-        // Attach save handler
-        document.querySelector('form').onsubmit = saveSystemSettings;
+        const shiftLabels = {
+            'all': 'Cả ngày',
+            'morning1': 'Ca Sáng 1',
+            'morning2': 'Ca Sáng 2',
+            'afternoon1': 'Ca Chiều 1',
+            'afternoon2': 'Ca Chiều 2',
+            'evening1': 'Ca Tối 1',
+            'evening2': 'Ca Tối 2'
+        };
 
-        async function getCurrentIP() {
+        function renderClosuresList() {
+            const listEl = document.getElementById('closures-list');
+            if (!listEl) return;
+
+            const closures = cachedSettings.centerClosures || {};
+            const dates = Object.keys(closures).sort((a, b) => b.localeCompare(a));
+
+            if (dates.length === 0) {
+                listEl.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem; font-style: italic; text-align: center; padding: 2rem;">Chưa có cấu hình ngày nghỉ nào.</p>';
+                return;
+            }
+
+            let html = '';
+            dates.forEach(dateStr => {
+                const shifts = closures[dateStr] || [];
+                shifts.forEach(shift => {
+                    const label = shiftLabels[shift] || shift;
+                    const dateParts = dateStr.split('-');
+                    const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : dateStr;
+                    html += `
+                        <div class="closure-item">
+                            <div>
+                                <strong>Ngày: ${formattedDate}</strong>
+                                <span style="margin-left: 0.75rem; color: #DC2626; font-weight: 500;">(${label})</span>
+                            </div>
+                            <button class="btn-delete" onclick="deleteClosure('${dateStr}', '${shift}')">Xóa</button>
+                        </div>
+                    `;
+                });
+            });
+            listEl.innerHTML = html;
+        }
+
+        window.deleteClosure = async function(dateStr, shiftVal) {
+            if (!confirm(`Bạn có chắc chắn muốn xóa lịch nghỉ ngày ${dateStr} (${shiftLabels[shiftVal] || shiftVal}) không?`)) return;
+
+            try {
+                if (cachedSettings.centerClosures && cachedSettings.centerClosures[dateStr]) {
+                    cachedSettings.centerClosures[dateStr] = cachedSettings.centerClosures[dateStr].filter(s => s !== shiftVal);
+                    if (cachedSettings.centerClosures[dateStr].length === 0) {
+                        delete cachedSettings.centerClosures[dateStr];
+                    }
+                }
+                await DBService.saveSystemSettings(cachedSettings);
+                renderClosuresList();
+                alert('Đã xóa ngày nghỉ thành công!');
+            } catch (err) {
+                alert('Lỗi xóa ngày nghỉ: ' + err.message);
+            }
+        };
+
+        window.getCurrentIP = async function() {
             const btn = document.querySelector('button[onclick="getCurrentIP()"]');
             const originalText = btn.innerText;
             btn.innerText = 'Đang lấy...';
@@ -251,7 +403,7 @@
                 btn.innerText = originalText;
                 btn.disabled = false;
             }
-        }
+        };
     </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}</script>
 

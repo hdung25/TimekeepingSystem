@@ -37,6 +37,14 @@ async function initReport() {
         setTimeout(resolve, 3000);
     });
 
+    try {
+        const settings = await DBService.getSystemSettings();
+        window.centerClosures = settings?.centerClosures || {};
+    } catch (e) {
+        console.warn("Error loading system settings in report:", e);
+        window.centerClosures = {};
+    }
+
     // 1. Title & Admin Controls
     const roleRaw = localStorage.getItem('currentRole') || 'staff';
     // parseRoles có thể chưa load — dùng fallback an toàn
@@ -1902,7 +1910,7 @@ function calculateSalary() {
     // Dùng allMonthChips để bao gồm cả chip-gray (vắng, paidMinutes=0)
     const allChipsForStats = window.allMonthChips || allChips;
     allChipsForStats.forEach(chip => {
-        if (chip.class === 'chip-future') return; // Bỏ ca tương lai
+        if (chip.class === 'chip-future' || chip.isCenterOff) return; // Bỏ ca tương lai và ca nghỉ trung tâm
         const isTiepTan = chip.isReceptionist || (chip.sessionData &&
             ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (!isTiepTan) return; // Chỉ tính tiếp tân
@@ -2728,7 +2736,7 @@ async function loadSalarySettings() {
             let receptionistShiftCount = 0;
             let teachingShiftCount = 0;
             (window.unfilteredAllMonthChips || []).forEach(chip => {
-                if (chip.class === 'chip-future') return;
+                if (chip.class === 'chip-future' || chip.isCenterOff) return;
                 const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
                 if (isTT) receptionistShiftCount++;
                 else teachingShiftCount++;
@@ -4020,7 +4028,7 @@ function getRecepDynamicFixedFactor(chips) {
     (chips || []).forEach(chip => {
         const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (!isTiepTan) return;
-        if (chip.class === 'chip-future') return;
+        if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
         if (chip.mergedSegments && chip.mergedSegments.length > 0) {
             chip.mergedSegments.forEach(seg => {
@@ -4084,7 +4092,7 @@ async function openClassRateModal() {
     let receptionistShiftCount = 0;
     let teachingShiftCount = 0;
     (window.unfilteredAllMonthChips || []).forEach(chip => {
-        if (chip.class === 'chip-future') return;
+        if (chip.class === 'chip-future' || chip.isCenterOff) return;
         const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (isTT) receptionistShiftCount++;
         else teachingShiftCount++;
@@ -4212,7 +4220,7 @@ async function populateModalCurrentTab() {
     let grandTotalMinutes = 0; // High-scope to access in evaluations auto-fill
     
     (window.unfilteredAllMonthChips || []).forEach(chip => {
-        if (chip.class === 'chip-future') return;
+        if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
         const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
@@ -4950,7 +4958,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         let totalLateMinutes = 0;
         
         prevChips.forEach(chip => {
-            if (chip.class === 'chip-future') return;
+            if (chip.class === 'chip-future' || chip.isCenterOff) return;
             
             const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
             if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
@@ -5562,7 +5570,7 @@ async function loadAndComputeAllReceptionists(monthStr) {
 
             const chips = calculateDailyChips(dailySchedule, dailyAttendance, rId, dateStr, u, dailyReceptionistShifts, {}, cancelledShifts, {});
             chips.forEach(c => {
-                if (c.class !== 'chip-future') {
+                if (c.class !== 'chip-future' && !c.isCenterOff) {
                     allChips.push(c);
                 }
             });
@@ -6613,7 +6621,7 @@ function getCurrentCalculationPayload(role) {
     const unfilteredChips = window.unfilteredAllMonthChips || [];
     const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
     unfilteredChips.forEach(chip => {
-        if (chip.class === 'chip-future') return;
+        if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
         const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
         if (role === 'tiep-tan' && !isTT) return;

@@ -12,7 +12,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-function initTimekeeping() {
+async function initTimekeeping() {
+    try {
+        const settings = await DBService.getSystemSettings();
+        window.centerClosures = settings?.centerClosures || {};
+    } catch (e) {
+        console.warn("Error loading system settings:", e);
+        window.centerClosures = {};
+    }
     renderGlobalCheckIn();
     renderTodayChips();  // NEW: Show chip status for today's classes
     renderTodayClasses();
@@ -28,6 +35,12 @@ function getLocalDateKey(date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+}
+
+function isCenterClosed(dateStr, shiftKey, centerClosures) {
+    if (!centerClosures || !centerClosures[dateStr]) return false;
+    const closures = centerClosures[dateStr];
+    return closures.includes('all') || closures.includes(shiftKey);
 }
 
 // 1. Global Check-in Rendering
@@ -188,7 +201,8 @@ function renderTodayClasses() {
                             index: idx,
                             id: `${dateKey}-${sec}-${idx}`,
                             _branch: branch,
-                            _compositeKey: compositeKey
+                            _compositeKey: compositeKey,
+                            _dateKey: dateKey
                         });
                     });
                 }
@@ -220,10 +234,17 @@ function createClassCard(cls, compositeKey) {
     el.className = 'glass-panel class-card';
     el.style.marginBottom = '1.5rem';
     el.style.padding = '1.5rem';
-    el.style.borderLeft = '5px solid var(--primary-color)';
     el.style.display = 'flex';
     el.style.justifyContent = 'space-between';
     el.style.alignItems = 'center';
+
+    const isClosed = isCenterClosed(cls._dateKey, cls.section, window.centerClosures);
+    if (isClosed) {
+        el.style.borderLeft = '5px solid #9CA3AF';
+        el.style.backgroundColor = '#F9FAFB';
+    } else {
+        el.style.borderLeft = '5px solid var(--primary-color)';
+    }
 
     const currentUserId = localStorage.getItem('currentUserId');
     const registeredTeachers = cls.registeredTeachers || [];
@@ -240,7 +261,10 @@ function createClassCard(cls, compositeKey) {
     let statusBadge = '<span style="color: var(--text-muted);">Chưa nhận</span>';
     let actionBtn = `<button class="btn btn-primary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Nhận Lớp</button>`;
 
-    if (isRegistered) {
+    if (isClosed) {
+        statusBadge = '<span style="color: #9CA3AF; font-weight: bold;">Lịch nghỉ trung tâm</span>';
+        actionBtn = '<span style="color: #9CA3AF; font-size: 0.875rem;">Lớp đã bị tắt do trung tâm nghỉ</span>';
+    } else if (isRegistered) {
         statusBadge = '<span style="color: var(--secondary-color); font-weight: bold;">Đã nhận lớp</span>';
         actionBtn = `<button class="btn btn-secondary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;
     }

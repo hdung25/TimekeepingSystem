@@ -6,9 +6,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     // Only initialize if we are on the page with schedule elements
     if (document.getElementById('schedule-table')) {
+        try {
+            const settings = await DBService.getSystemSettings();
+            window.centerClosures = settings?.centerClosures || {};
+        } catch (e) {
+            console.warn("Error loading system settings:", e);
+            window.centerClosures = {};
+        }
         initSchedule();
     }
 });
+
+function isCenterClosed(dateStr, shiftKey, centerClosures) {
+    if (!centerClosures || !centerClosures[dateStr]) return false;
+    const closures = centerClosures[dateStr];
+    return closures.includes('all') || closures.includes(shiftKey);
+}
+
 
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
@@ -107,10 +121,18 @@ function renderDayTabs() {
             if (index !== selectedDayIndex) btn.style.backgroundColor = '#FEF2F2';
         }
 
+        const isClosedDay = isCenterClosed(dateKey, 'all', window.centerClosures);
+        let closureHtml = '';
+        if (isClosedDay) {
+            closureHtml = `<div style="font-size: 0.65rem; color: #DC2626; font-weight: bold; margin-top: 2px;">[Nghỉ]</div>`;
+            if (index !== selectedDayIndex) btn.style.backgroundColor = '#F3F4F6';
+        }
+
         btn.innerHTML = `
             <div>${dayName}</div>
             <div style="font-size: 0.75rem; color: ${index === selectedDayIndex ? 'white' : 'var(--text-muted)'}">${formatDateDayOnly(tabDate)}</div>
             ${holidayHtml}
+            ${closureHtml}
         `;
         btn.onclick = () => {
             selectedDayIndex = index;
@@ -200,10 +222,17 @@ async function renderTable() {
     const totalCols = isAdmin ? 10 : 9;
 
     SECTIONS.forEach(section => {
-        const rows = dayData[section.key] || [];
+        const isClosed = isCenterClosed(dateKey, section.key, window.centerClosures);
 
         // Section Header
         html += `<tr><td colspan="${totalCols}" class="section-header">${section.label}</td></tr>`;
+
+        if (isClosed) {
+            html += `<tr><td colspan="${totalCols}" style="text-align:center; background-color:#F3F4F6; color: #9CA3AF; font-size: 0.875rem; padding: 1rem; font-weight: bold; font-style: italic;">[LỊCH NGHỈ TRUNG TÂM - ĐÃ TẮT LỚP]</td></tr>`;
+            return;
+        }
+
+        const rows = dayData[section.key] || [];
 
         if (rows.length === 0 && !isAdmin) {
             html += `<tr><td colspan="${totalCols}" style="text-align:center; color: var(--text-muted); font-size: 0.875rem; padding: 0.5rem;">không có lớp</td></tr>`;
@@ -238,7 +267,7 @@ function getGVList(row, fieldType) {
 }
 
 // Render compact multi-teacher cell
-function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday) {
+function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday, dateKey) {
     const isGV = fieldType === 'gv';
     const accentColor = isGV ? 'inherit' : '#D97706';
     const gvList = getGVList(row, fieldType);
@@ -250,12 +279,30 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             ? `<span style="color:#9CA3AF;font-size:0.78rem;">+ Thêm GV</span>`
             : `<span style="color:#9CA3AF;">—</span>`;
     } else {
-        const absent = isPastOrToday ? gvList.filter(g => g.id && !presentUserIds.has(g.id)) : [];
+        let isShiftPastOrStarted = false;
+        if (isPastOrToday && dateKey) {
+            const todayRealKey = getLocalDateKey(new Date());
+            if (dateKey < todayRealKey) {
+                isShiftPastOrStarted = true;
+            } else if (dateKey === todayRealKey) {
+                const now = new Date();
+                const currentMinutes = now.getHours() * 60 + now.getMinutes();
+                if (row.start) {
+                    const [sH, sM] = row.start.split(':').map(Number);
+                    const shiftStartMinutes = sH * 60 + sM;
+                    if (currentMinutes >= shiftStartMinutes) {
+                        isShiftPastOrStarted = true;
+                    }
+                }
+            }
+        }
+
+        const absent = isShiftPastOrStarted ? gvList.filter(g => g.id && !presentUserIds.has(g.id)) : [];
         const f = gvList[0];
         const fStyle = absent.some(a => a.id === f.id) ? absentStyle : '';
         nameHtml = `<span style="${fStyle}color:${accentColor};">${f.name}</span>`;
         if (gvList.length > 1) nameHtml += ` <span style="background:#E5E7EB;color:#374151;border-radius:10px;padding:1px 5px;font-size:0.68rem;font-weight:700;">+${gvList.length - 1}</span>`;
-        if (absent.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#EF4444;">⚠ ${absent.length} vắng</div>`;
+        if (absent.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#EF4444;">Vắng: ${absent.length}</div>`;
     }
 
     const safeList = encodeURIComponent(JSON.stringify(gvList));
@@ -275,7 +322,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     // === GV FIELD (multi-teacher) ===
     const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
-    const gvCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday);
+    const gvCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey);
 
 
     // === SỐ HS FIELD ===
@@ -322,7 +369,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
-    const gvTTCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday);
+    const gvTTCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday, dateKey);
 
     return `
         <tr>
@@ -664,14 +711,19 @@ window.executeCopyWeek = async function () {
 
             const srcData = await DBService.getSchedule(srcComposite);
             if (srcData && Object.keys(srcData).length > 0) {
-                // Strip registeredTeachers to avoid copying old registrations
+                // Strip registeredTeachers and substitute teachers to avoid copying support/temp schedules
                 const cleanData = {};
                 const sections = ['morning1','morning2','afternoon1','afternoon2','evening1','evening2'];
                 sections.forEach(sec => {
                     if (srcData[sec]) {
                         cleanData[sec] = srcData[sec].map(row => {
-                            const { registeredTeachers, ...rest } = row;
-                            return rest;
+                            const { registeredTeachers, gvThayThe, gvThayTheId, gvThayTheList, ...rest } = row;
+                            return {
+                                ...rest,
+                                gvThayThe: '',
+                                gvThayTheId: '',
+                                gvThayTheList: []
+                            };
                         });
                     }
                 });

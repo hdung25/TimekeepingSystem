@@ -10,6 +10,25 @@ function getLocalDateKeyFromDate(date) {
     return `${year}-${month}-${day}`;
 }
 
+async function resolveDDNS(domain) {
+    if (!domain || domain.trim() === '') return null;
+    try {
+        const url = `https://dns.google/resolve?name=${encodeURIComponent(domain.trim())}&type=A`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && data.Answer) {
+            const aRecords = data.Answer.filter(ans => ans.type === 1);
+            if (aRecords.length > 0) {
+                return aRecords[0].data; // Returns IP string
+            }
+        }
+    } catch (e) {
+        console.error(`Error resolving DDNS ${domain}:`, e);
+    }
+    return null;
+}
+
 const DBService = {
     _cache: {},
     _cacheTime: {},
@@ -778,30 +797,43 @@ const DBService = {
             const settingsDoc = await db.collection('settings').doc('system').get();
             if (settingsDoc.exists) {
                 const settings = settingsDoc.data();
-                const allowedIP = settings.allowedIP;
+                const allowedIP = settings.allowedIP || '';
+                const ddnsCS1 = settings.ddnsCS1 || '';
+                const ddnsCS2 = settings.ddnsCS2 || '';
+                const ddnsCS3 = settings.ddnsCS3 || '';
                 const enableIPCheck = settings.enableIPCheck === true;
 
-                if (enableIPCheck && allowedIP && allowedIP.trim() !== '') {
+                if (enableIPCheck) {
                     // Fetch client IP
                     const response = await fetch('https://api.ipify.org?format=json');
                     const data = await response.json();
                     const clientIP = data.ip;
 
-                    // Support multiple IPs (comma separated)
-                    const allowedList = allowedIP.split(',').map(ip => ip.trim());
+                    const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
+                    const ddnsDomains = [ddnsCS1, ddnsCS2, ddnsCS3].filter(d => d && d.trim() !== '');
+                    const resolvedIPs = [];
 
-                    if (!allowedList.includes(clientIP)) {
-                        throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi công ty!`);
+                    for (const domain of ddnsDomains) {
+                        const resolved = await resolveDDNS(domain);
+                        if (resolved) {
+                            resolvedIPs.push(resolved);
+                        }
+                    }
+
+                    const allAllowedIPs = [...allowedList, ...resolvedIPs];
+
+                    if (allAllowedIPs.length > 0) {
+                        if (!allAllowedIPs.includes(clientIP)) {
+                            throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
+                        }
                     }
                 }
             }
         } catch (e) {
-            // Rethrow specific errors, ignore fetch errors if offline (policy decision: strict or loose?)
-            // If strictly enforcing, we should throw. If we want to allow offline workaround, we ignore.
+            // Rethrow specific errors, ignore fetch errors if offline
             // User requirement: "đúng ip mạng mới được chấm công" -> STRICT.
-            if (e.message.includes('IP')) throw e;
+            if (e.message.includes('IP') || e.message.includes('Mạng')) throw e;
             console.warn("Skipping IP check due to network/fetch error:", e);
-            // Optionally: throw new Error("Không thể kiểm tra IP mạng. Vui lòng kiểm tra kết nối internet.");
         }
 
         const now = new Date();
