@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
@@ -7,7 +7,7 @@
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20260620-season-mobile">
     <style>
         .page-layout {
             display: grid;
@@ -386,7 +386,7 @@
 </div>
 
 <script src="js/ui-service.js"></script>
-<script src="js/main.js"></script>
+<script src="js/main.js?v=20260620-season-mobile"></script>
 <script>
 let _subjects = [];
 
@@ -520,7 +520,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     previewColorPill();
 });
 </script>
-<script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+<script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {

@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20260620-season-mobile">
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
@@ -629,10 +629,10 @@
     <script src="js/ui-service.js"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/analytics.js"></script> <!-- Charts -->
-    <script src="js/main.js"></script>
+    <script src="js/main.js?v=20260620-season-mobile"></script>
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>
-    <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js") }</script>
+    <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {

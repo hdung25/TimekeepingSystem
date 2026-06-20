@@ -1,4 +1,4 @@
-// Schedule Management Logic
+﻿// Schedule Management Logic
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (window.waitAuth) {
@@ -310,7 +310,8 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
         ? `openGVPicker('${compositeKey}','${caType}',${index},'${fieldType}',this)`
         : `showGVPopup(this,'${safeList}')`;
 
-    return `<td><div class="gv-multi-btn" onclick="${clickFn}">
+    const label = fieldType === 'gvThayThe' ? 'GV thay the' : 'GV chinh';
+    return `<td data-label="${label}"><div class="gv-multi-btn" onclick="${clickFn}">
         <div class="gv-name-display">${nameHtml}</div>
         ${isAdmin ? '<span class="gv-edit-icon">✏</span>' : ''}
     </div></td>`;
@@ -328,13 +329,13 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     // === SỐ HS FIELD ===
     let soHSCell = '';
     if (isAdmin) {
-        soHSCell = `<td><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
+        soHSCell = `<td data-label="So HS"><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
             style="width:60px;text-align:center;"
             onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', parseInt(this.value)||0)"></td>`;
     } else {
         const hs = data.soHS || '';
         const hsStyle = hs > 10 ? 'color:var(--primary-color);font-weight:700;' : 'color:var(--text-muted);';
-        soHSCell = `<td style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${hs || '—'}</span></td>`;
+        soHSCell = `<td data-label="So HS" style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${hs || '—'}</span></td>`;
     }
 
     // === ACTION CELL ===
@@ -365,7 +366,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     } else {
         const subjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
         const dotHtml = subjectColor ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${subjectColor};margin-right:4px;"></span>` : '';
-        lopCell = `<td style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
+        lopCell = `<td data-label="Mon / Lop" style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
@@ -373,9 +374,9 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     return `
         <tr>
-            <td style="text-align: center;">${index + 1}</td>
-            <td><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'start', this.value)"></td>
-            <td><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>
+            <td data-label="SS" style="text-align: center;">${index + 1}</td>
+            <td data-label="Bat dau"><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'start', this.value)"></td>
+            <td data-label="Ket thuc"><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>
             ${lopCell}
             <td><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
             ${gvCell}

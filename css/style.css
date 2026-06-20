@@ -948,3 +948,408 @@ button {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
     border-color: var(--primary-color) !important;
 }
+
+/* ================== MOBILE APP POLISH ==================
+   CSS-only overrides. Keep business logic and stored data untouched. */
+@media (max-width: 768px) {
+    body {
+        font-size: 15px;
+        line-height: 1.45;
+        overflow-x: hidden;
+    }
+
+    .mobile-header {
+        min-height: 64px;
+        padding: 0.55rem 0.85rem !important;
+        gap: 0.65rem !important;
+    }
+
+    .mobile-header .hamburger-btn {
+        width: 42px !important;
+        height: 42px !important;
+        font-size: 1.35rem !important;
+        flex: 0 0 42px;
+    }
+
+    .mobile-header .mobile-logo {
+        min-width: 0;
+        flex: 1;
+        gap: 0.6rem !important;
+        font-size: 0.82rem !important;
+        line-height: 1.15;
+        letter-spacing: 0.01em;
+    }
+
+    .mobile-header .mobile-logo img {
+        width: 36px !important;
+        height: 36px !important;
+        object-fit: cover;
+        flex: 0 0 36px;
+    }
+
+    .mobile-header .mobile-logo span {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+    }
+
+    .main-content {
+        width: 100%;
+        padding: 1rem 0.9rem calc(1.5rem + env(safe-area-inset-bottom)) !important;
+    }
+
+    .main-content > header,
+    .page-header {
+        margin-bottom: 1.1rem !important;
+        align-items: stretch !important;
+    }
+
+    .main-content h1,
+    .page-header h1 {
+        font-size: 1.55rem !important;
+        line-height: 1.18 !important;
+        letter-spacing: 0 !important;
+    }
+
+    .main-content h2,
+    .glass-panel h2 {
+        font-size: 1.15rem !important;
+        line-height: 1.25 !important;
+    }
+
+    .main-content p {
+        font-size: 0.98rem;
+    }
+
+    .btn {
+        min-height: 46px;
+        border-radius: 10px;
+        padding: 0.7rem 1rem;
+        font-weight: 700;
+    }
+
+    #btn-change-password,
+    #btn-back-admin {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .main-content > header > div:last-child {
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: 1fr;
+        gap: 0.6rem !important;
+    }
+
+    .stats-grid {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.6rem;
+        margin-bottom: 1.1rem !important;
+    }
+
+    .stat-card {
+        background: rgba(255, 255, 255, 0.84);
+        border: 1px solid rgba(5, 150, 105, 0.12);
+        border-radius: 12px;
+        box-shadow: var(--shadow-sm);
+        padding: 0.75rem 0.55rem;
+        min-width: 0;
+    }
+
+    .stat-card h3 {
+        font-size: 0.72rem !important;
+        line-height: 1.2;
+        color: var(--text-muted);
+        font-weight: 700;
+        min-height: 2.2em;
+    }
+
+    .stat-number {
+        margin-top: 0.35rem;
+        font-size: 1rem !important;
+        font-weight: 800;
+        line-height: 1;
+    }
+
+    .glass-panel {
+        box-shadow: var(--shadow-md);
+    }
+
+    #personal-salary-panel,
+    .main-content > .glass-panel {
+        padding: 1rem !important;
+        margin-bottom: 1rem !important;
+    }
+
+    #personal-salary-panel > div:first-child {
+        display: grid !important;
+        grid-template-columns: 1fr;
+        align-items: stretch !important;
+        gap: 0.8rem !important;
+        margin-bottom: 1rem !important;
+    }
+
+    #personal-salary-panel > div:first-child > div {
+        display: grid !important;
+        grid-template-columns: 46px 1fr 46px;
+        gap: 0.5rem !important;
+        width: 100%;
+    }
+
+    #personal-salary-panel .btn-sm,
+    .page-header .btn-sm {
+        min-width: 46px;
+        min-height: 46px;
+        padding: 0 !important;
+        font-size: 1rem !important;
+    }
+
+    #personal-salary-month-title,
+    #report-month-title {
+        min-width: 0 !important;
+        padding: 0 !important;
+        align-self: center;
+        text-align: center;
+        font-size: 1rem;
+    }
+
+    #personal-salary-status-container {
+        padding: 1.4rem 0.5rem !important;
+    }
+
+    #personal-history-tbody {
+        font-size: 0.86rem;
+    }
+
+    .toast-container {
+        left: 0.75rem;
+        right: 0.75rem;
+        top: calc(0.75rem + env(safe-area-inset-top));
+    }
+
+    .toast {
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+    }
+}
+
+@media (max-width: 700px) {
+    .schedule-table-container {
+        margin-inline: 0;
+        padding: 0 !important;
+        border-radius: 12px;
+        overflow: visible;
+        -webkit-overflow-scrolling: touch;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    .schedule-table-container .schedule-table {
+        width: 100% !important;
+        min-width: 0 !important;
+        border-collapse: separate !important;
+        border-spacing: 0 0.75rem !important;
+    }
+
+    .schedule-table-container .schedule-table thead {
+        display: none !important;
+    }
+
+    .schedule-table-container .schedule-table tbody,
+    .schedule-table-container .schedule-table tr,
+    .schedule-table-container .schedule-table th,
+    .schedule-table-container .schedule-table td {
+        display: block;
+        width: 100% !important;
+    }
+
+    .schedule-table-container .schedule-table tr {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(5, 150, 105, 0.12);
+        border-radius: 14px;
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+        padding: 0.55rem;
+    }
+
+    .schedule-table-container .schedule-table tr:has(.section-header) {
+        padding: 0;
+        border: none;
+        box-shadow: none;
+        background: transparent;
+    }
+
+    .schedule-table-container .section-header {
+        background: #D1FAE5 !important;
+        border-radius: 12px;
+        color: var(--primary-color);
+        font-size: 1rem !important;
+        padding: 0.75rem !important;
+        text-align: center !important;
+    }
+
+    .schedule-table-container .schedule-table td {
+        border: none !important;
+        padding: 0.5rem 0.35rem !important;
+        font-size: 0.9rem !important;
+        line-height: 1.35;
+        text-align: left !important;
+    }
+
+    .schedule-table-container .schedule-table td[data-label] {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .schedule-table-container .schedule-table td[data-label]::before {
+        content: attr(data-label);
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .schedule-table-container .schedule-table td:nth-child(2),
+    .schedule-table-container .schedule-table td:nth-child(3),
+    .schedule-table-container .schedule-table td:nth-child(8) {
+        display: none !important;
+    }
+
+    .schedule-table-container .table-input {
+        min-height: 42px;
+        padding: 0.55rem 0.65rem !important;
+        border: 1px solid var(--border-color);
+        border-radius: 9px;
+        background: #fff;
+        font-size: 16px;
+        overflow: visible;
+        text-overflow: clip;
+    }
+
+    .schedule-table-container .table-input:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+    }
+
+    .schedule-table-container .gv-multi-btn {
+        min-height: 42px;
+        padding: 0.5rem 0.65rem;
+        border: 1px solid var(--border-color);
+        background: #fff;
+    }
+
+    .schedule-table-container .gv-name-display {
+        font-size: 0.82rem !important;
+        line-height: 1.28;
+        word-break: normal;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 600px) {
+    .glass-panel[style*="overflow-x: auto"] > div[style*="min-width: 850px"] {
+        min-width: 0 !important;
+        width: 100% !important;
+        display: block !important;
+    }
+
+    .calendar-header {
+        display: none !important;
+    }
+
+    #calendar-grid {
+        min-width: 0 !important;
+        width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.65rem !important;
+        padding-bottom: 0 !important;
+    }
+
+    .calendar-cell {
+        min-height: 118px !important;
+        padding: 0.65rem !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+    }
+
+    .calendar-cell.disabled {
+        display: none !important;
+    }
+
+    .calendar-cell > div:first-child {
+        margin-bottom: 0.35rem !important;
+    }
+
+    .calendar-cell .action-btn {
+        width: 30px;
+        height: 30px;
+        min-height: 30px;
+    }
+
+    .schedule-chip {
+        font-size: 0.72rem !important;
+        line-height: 1.25;
+        padding: 0.3rem 0.4rem !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+    }
+
+    #personal-specific-header-controls {
+        width: 100%;
+        display: grid !important;
+        grid-column: 1 / -1;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.55rem !important;
+    }
+
+    #display-role-filter {
+        width: 100%;
+        min-height: 46px;
+        font-size: 16px !important;
+        padding: 0.55rem 0.75rem !important;
+    }
+
+    #btn-manual-bonus,
+    #btn-select-bonus10-mode,
+    #btn-approve-selected-bonus10,
+    #btn-approve-all-bonus10 {
+        width: 100%;
+        margin-left: 0 !important;
+        min-height: 44px;
+        white-space: normal;
+        padding-inline: 0.75rem !important;
+    }
+
+    .page-header > div:last-child > div:has(#report-month-title) {
+        justify-content: stretch !important;
+        display: grid !important;
+        grid-template-columns: 46px 1fr 46px;
+        gap: 0.55rem !important;
+        align-items: center !important;
+        width: 100%;
+    }
+
+    .page-header > div:last-child {
+        text-align: left !important;
+        width: 100%;
+    }
+
+    #total-hours-display {
+        font-size: 1.15rem !important;
+        line-height: 1.25 !important;
+        margin-top: 0.35rem;
+    }
+
+    #report-month-title {
+        font-size: 1.05rem !important;
+        line-height: 1.2;
+        word-break: keep-all;
+    }
+}

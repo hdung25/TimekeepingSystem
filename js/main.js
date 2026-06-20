@@ -1,3 +1,35 @@
+﻿const APP_VERSION = '20260620-season-mobile';
+
+(function setupAppAutoUpdate() {
+    if (!('serviceWorker' in navigator)) return;
+
+    let refreshing = false;
+    const reloadOnceForVersion = () => {
+        if (refreshing) return;
+        const reloadKey = 'tdt-app-reloaded-version';
+        if (sessionStorage.getItem(reloadKey) === APP_VERSION) return;
+
+        refreshing = true;
+        sessionStorage.setItem(reloadKey, APP_VERSION);
+        window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', reloadOnceForVersion);
+    navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'APP_UPDATED') {
+            reloadOnceForVersion();
+        }
+    });
+
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.getRegistration()
+            .then(registration => {
+                if (registration) registration.update();
+            })
+            .catch(err => console.warn('Service worker update check failed:', err));
+    });
+})();
+
 // Main Logic for Timekeeping System
 
 function parseRoles(roleStr) {

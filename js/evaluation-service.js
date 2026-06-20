@@ -405,16 +405,32 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             // 2. Check for Attendance Match
             // Priority 1: Exact match by linkedClassStart (set when admin edits a session)
-            // Priority 2: Proximity match within 60 min of class start
+            // Priority 2: A longer session overlaps/covers the class window
+            // Priority 3: Proximity match within 60 min of class start
             // FIX: dùng local time thay vì ISO string (tránh UTC parse gây lệch 7h)
             const [_sy, _sm, _sd] = dateStr.split('-').map(Number);
             const [_sH, _sM] = cls.start.split(':').map(Number);
             const schedStart = new Date(_sy, _sm - 1, _sd, _sH, _sM, 0, 0);
+            const _effectiveEndStr = _mergedEnd || cls.end;
+            const [_eH, _eM] = _effectiveEndStr.split(':').map(Number);
+            const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
 
             let matchedSession = attendanceSessions.find(s => {
                 if (usedSessionIdsTeaching.has(s.id)) return false;
                 return s.linkedClassStart === cls.start; // Exact link preserved after admin edit
             });
+
+            if (!matchedSession) {
+                matchedSession = attendanceSessions.find(s => {
+                    if (usedSessionIdsTeaching.has(s.id)) return false;
+                    if (s.linkedClassStart) return false; // Already linked to another class
+                    const checkIn = safeDate(s.checkIn || s.start);
+                    if (!checkIn) return false;
+                    const checkOut = safeDate(s.checkOut);
+                    if (!checkOut) return false;
+                    return checkIn < schedEnd && checkOut > schedStart;
+                });
+            }
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
@@ -438,7 +454,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // Branch tag — abbreviated (no brackets)
             const branchTag = cls._branch ? ` [${cls._branch.toUpperCase()}]` : '';
             const branchShort = cls._branch ? ` ${cls._branch.toUpperCase()}` : '';
-            const _effectiveEndStr = _mergedEnd || cls.end;
             const _isCrossBranch = (_mergeInfo[_mk] && _mergeInfo[_mk].crossBranch) || false;
             const _chainBranches = (_mergeInfo[_mk] && _mergeInfo[_mk].chainBranches) || null;
             // Cross-branch: hiện "CS1/CS3" theo thứ tự ca (ca trước/ca sau)
@@ -456,8 +471,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
             if (_mergedEnd) tooltip += _isCrossBranch ? ` (2 ca gộp – ${(_chainBranches || []).map(b => b.toUpperCase()).join('/')})` : ` (2 ca gộp)`;
 
-            const [_eH, _eM] = _effectiveEndStr.split(':').map(Number);
-            const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
             const schedDuration = (schedEnd - schedStart) / 60000;
             const now = new Date();
 
