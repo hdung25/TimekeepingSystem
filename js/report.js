@@ -1,4 +1,4 @@
-// Report & Salary Logic
+﻿// Report & Salary Logic
 
 document.addEventListener('DOMContentLoaded', () => {
     // Check if on report page (has calendar grid)
@@ -1016,6 +1016,24 @@ async function renderMonthReport(date, forceServer = false) {
     window.allMonthChips = [];    // Store ALL chips including absent (chip-gray) for stats
     window.unfilteredAllMonthChips = []; // Track ALL chips without filter applied
     grid.innerHTML = '';
+    
+    // Populate Day Select Dropdown
+    const daySelect = document.getElementById('select-calendar-day');
+    if (daySelect) {
+        daySelect.innerHTML = '<option value="">Chọn Ngày</option>';
+        for (let dNum = 1; dNum <= daysInMonth; dNum++) {
+            const opt = document.createElement('option');
+            opt.value = dNum;
+            opt.textContent = `Ngày ${dNum}`;
+            daySelect.appendChild(opt);
+        }
+    }
+    
+    // Reset Week Select Dropdown
+    const weekSelect = document.getElementById('select-calendar-week');
+    if (weekSelect) {
+        weekSelect.value = '';
+    }
 
     const firstDayIndex = new Date(year, month, 1).getDay(); // 0=Sun
 
@@ -1047,6 +1065,7 @@ async function renderMonthReport(date, forceServer = false) {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const cell = document.createElement('div');
         cell.className = 'calendar-cell';
+        cell.id = 'calendar-cell-' + dateStr;
 
         // Header
         const dateHeader = document.createElement('div');
@@ -7228,3 +7247,55 @@ window.updateBulkSelectedCount = updateBulkSelectedCount;
 window.submitBulkPublish = submitBulkPublish;
 
 
+
+// ================= MOBILE CALENDAR SCROLL HELPERS =================
+window.scrollToCalendarDay = function(dayNum) {
+    if (!dayNum) return;
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(dayNum).padStart(2, '0');
+    const dateKey = `${year}-${month}-${day}`;
+    const cell = document.getElementById(`calendar-cell-${dateKey}`);
+    if (cell) {
+        // Clear previous highlights
+        document.querySelectorAll('.calendar-cell').forEach(c => {
+            c.style.boxShadow = 'none';
+            c.style.transform = 'none';
+        });
+        
+        // Highlight cell
+        cell.style.boxShadow = '0 0 0 3px var(--primary-color)';
+        cell.style.transform = 'scale(1.02)';
+        cell.style.transition = 'all 0.3s';
+        
+        // Scroll to cell
+        cell.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
+};
+
+window.scrollToCalendarWeek = function(weekIdx) {
+    if (weekIdx === '') return;
+    const grid = document.getElementById('calendar-grid');
+    if (!grid) return;
+    
+    const idx = parseInt(weekIdx, 10);
+    const targetCellIdx = idx * 7;
+    const cell = grid.children[targetCellIdx];
+    if (cell) {
+        // Clear previous highlights
+        document.querySelectorAll('.calendar-cell').forEach(c => {
+            c.style.boxShadow = 'none';
+        });
+        
+        // Highlight row cells
+        for (let i = 0; i < 7; i++) {
+            const rowCell = grid.children[targetCellIdx + i];
+            if (rowCell && !rowCell.classList.contains('disabled')) {
+                rowCell.style.boxShadow = 'inset 0 0 0 2px rgba(5, 150, 105, 0.4)';
+            }
+        }
+        
+        // Scroll to row
+        cell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+    }
+};

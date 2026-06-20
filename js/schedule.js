@@ -1,4 +1,4 @@
-﻿// Schedule Management Logic
+// Schedule Management Logic
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (window.waitAuth) {
@@ -27,6 +27,7 @@ function isCenterClosed(dateStr, shiftKey, centerClosures) {
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
 let currentBranch = 'cs1'; // Multi-branch support
+let currentShiftFilter = 'all'; // Filter for shifts (all, morning, afternoon, evening)
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 
 const SECTIONS = [
@@ -222,6 +223,12 @@ async function renderTable() {
     const totalCols = isAdmin ? 10 : 9;
 
     SECTIONS.forEach(section => {
+        if (currentShiftFilter !== 'all') {
+            if (currentShiftFilter === 'morning' && !section.key.startsWith('morning')) return;
+            if (currentShiftFilter === 'afternoon' && !section.key.startsWith('afternoon')) return;
+            if (currentShiftFilter === 'evening' && !section.key.startsWith('evening')) return;
+        }
+
         const isClosed = isCenterClosed(dateKey, section.key, window.centerClosures);
 
         // Section Header
@@ -255,6 +262,7 @@ async function renderTable() {
     });
 
     tbody.innerHTML = html;
+    syncDatePickerValue();
 }
 
 // Helper: get array of {id,name} from row data (backward compat)
@@ -754,3 +762,45 @@ function formatDateDayOnly(date) {
 function formatDateFull(date) {
     return `Ngày ${date.getDate()} tháng ${date.getMonth() + 1} năm ${date.getFullYear()}`;
 }
+
+function syncDatePickerValue() {
+    const dateInput = document.getElementById('schedule-date-picker');
+    if (dateInput) {
+        const currentDate = new Date(currentWeekStart);
+        currentDate.setDate(currentDate.getDate() + selectedDayIndex);
+        const y = currentDate.getFullYear();
+        const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const d = String(currentDate.getDate()).padStart(2, '0');
+        dateInput.value = `${y}-${m}-${d}`;
+    }
+}
+
+window.goToDatePickerDate = function(dateVal) {
+    if (!dateVal) return;
+    const selectedDate = new Date(dateVal);
+    if (isNaN(selectedDate.getTime())) return;
+    
+    // Find its Monday (start of the week)
+    const day = selectedDate.getDay();
+    const diff = selectedDate.getDate() - day + (day === 0 ? -6 : 1);
+    
+    currentWeekStart = new Date(selectedDate);
+    currentWeekStart.setDate(diff);
+    currentWeekStart.setHours(0, 0, 0, 0);
+    
+    // Find selectedDayIndex (0 = Mon, 6 = Sun)
+    selectedDayIndex = day === 0 ? 6 : day - 1;
+    
+    // Sync the input value
+    const dateInput = document.getElementById('schedule-date-picker');
+    if (dateInput) dateInput.value = dateVal;
+    
+    renderWeekPicker();
+    renderDayTabs();
+    renderTable();
+};
+
+window.filterScheduleShifts = function(filterVal) {
+    currentShiftFilter = filterVal;
+    renderTable();
+};
