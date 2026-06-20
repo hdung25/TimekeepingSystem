@@ -1252,6 +1252,120 @@ button {
     }
 }
 
+/* ========= CALENDAR NAVIGATION BAR ========= */
+.cal-nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 4px 16px rgba(5, 150, 105, 0.1), 0 1px 4px rgba(0,0,0,0.06);
+    padding: 0.65rem 1.25rem;
+    margin-bottom: 1.25rem;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.cal-nav-month {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.cal-nav-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: white;
+    border: 1.5px solid var(--border-color);
+    color: var(--primary-color);
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.cal-nav-btn:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+    transform: scale(1.08);
+}
+
+.cal-nav-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    min-width: 150px;
+    text-align: center;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+
+.cal-nav-jumps {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.cal-nav-select-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: #F0FDF4;
+    border: 1.5px solid #A7F3D0;
+    border-radius: 50px;
+    padding: 0.3rem 0.75rem;
+    transition: all 0.2s;
+    color: #047857;
+}
+
+.cal-nav-select-wrap:hover {
+    border-color: var(--primary-color);
+    background: #ECFDF5;
+    box-shadow: 0 1px 6px rgba(5, 150, 105, 0.15);
+}
+
+.cal-nav-select-wrap svg {
+    flex-shrink: 0;
+    color: #059669;
+    pointer-events: none;
+}
+
+.cal-nav-select {
+    border: none;
+    background: transparent;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #065F46;
+    cursor: pointer;
+    outline: none;
+    padding: 0;
+    min-width: 80px;
+    -webkit-appearance: none;
+    appearance: none;
+    font-family: inherit;
+}
+
+.cal-nav-select option {
+    background: white;
+    color: #111827;
+    font-weight: 500;
+}
+
+
 @media (max-width: 600px) {
     .glass-panel[style*="overflow-x: auto"] > div[style*="min-width: 850px"] {
         min-width: 0 !important;
@@ -1327,29 +1441,63 @@ button {
         padding-inline: 0.75rem !important;
     }
 
-    .page-header > div:last-child > div:has(#report-month-title) {
-        justify-content: stretch !important;
-        display: grid !important;
-        grid-template-columns: 46px 1fr 46px;
-        gap: 0.55rem !important;
-        align-items: center !important;
-        width: 100%;
-    }
-
-    .page-header > div:last-child {
-        text-align: left !important;
-        width: 100%;
-    }
-
     #total-hours-display {
-        font-size: 1.15rem !important;
+        font-size: 1.1rem !important;
         line-height: 1.25 !important;
         margin-top: 0.35rem;
     }
 
-    #report-month-title {
+    /* Calendar Navigation Bar mobile adjustments */
+    .cal-nav-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.65rem;
+        padding: 0.75rem 1rem;
+        border-radius: var(--radius-lg);
+        position: sticky;
+        top: 0;
+    }
+
+    .cal-nav-month {
+        justify-content: center;
+    }
+
+    .cal-nav-title {
         font-size: 1.05rem !important;
-        line-height: 1.2;
-        word-break: keep-all;
+        min-width: 120px;
+    }
+
+    .cal-nav-jumps {
+        justify-content: center;
+        gap: 0.4rem;
+    }
+
+    .cal-nav-select-wrap {
+        flex: 1;
+        min-width: 100px;
+        justify-content: center;
+    }
+
+    .cal-nav-select {
+        font-size: 0.82rem;
+        min-width: 70px;
+        max-width: 100%;
+    }
+
+    #personal-specific-header-controls {
+        width: 100%;
+        display: flex !important;
+        flex-wrap: wrap;
+        gap: 0.4rem !important;
+        justify-content: flex-end;
+    }
+
+    #btn-manual-bonus,
+    #btn-select-bonus10-mode,
+    #btn-approve-selected-bonus10,
+    #btn-approve-all-bonus10 {
+        min-height: 40px;
+        white-space: normal;
+        padding-inline: 0.65rem !important;
     }
 }
