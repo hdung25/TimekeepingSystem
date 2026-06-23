@@ -1,4 +1,4 @@
-﻿const APP_VERSION = '20260621-lotus';
+const APP_VERSION = '20260623-gps-lock';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
@@ -85,6 +85,7 @@ async function loadDashboardStats() {
                     let statusColor = 'var(--text-color)';
                     if (act.status === 'Đúng giờ') statusColor = 'var(--secondary-color)';
                     if (act.status === 'Đang làm việc') statusColor = 'var(--primary-color)';
+                    if (act.status === 'Hết ca theo lịch') statusColor = '#059669';
 
                     return `
                         <tr style="border-bottom: 1px solid var(--border-color);">

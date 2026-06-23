@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 
 <head>
@@ -67,6 +67,30 @@
 </head>
 
 <body>
+    <!-- Beautiful Password Overlay -->
+    <div id="system-lock-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(17, 24, 39, 0.95); backdrop-filter: blur(12px); z-index: 9999; display: flex; align-items: center; justify-content: center; font-family: sans-serif;">
+        <div style="width: 100%; max-width: 400px; padding: 2.5rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); text-align: center; color: white;">
+            <div style="margin-bottom: 1.5rem;">
+                <img src="images/TUDUYTRE.jpg" alt="Logo" style="height: 60px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+            </div>
+            <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; color: #10B981;">Xác Minh Quản Trị Viên</h2>
+            <p style="font-size: 0.875rem; color: #9CA3AF; margin-bottom: 2rem;">Vui lòng đăng nhập để truy cập cấu hình hệ thống</p>
+            
+            <form id="lock-login-form" onsubmit="handleLockLogin(event)">
+                <div class="form-group" style="text-align: left; margin-bottom: 1.25rem;">
+                    <label style="color: #D1D5DB; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Tên đăng nhập</label>
+                    <input type="text" id="lock-username" required style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.08); color: white; outline: none; font-size: 1rem; transition: border-color 0.2s;" onfocus="this.style.borderColor='#10B981'" onblur="this.style.borderColor='rgba(255,255,255,0.15)'">
+                </div>
+                <div class="form-group" style="text-align: left; margin-bottom: 1.75rem;">
+                    <label style="color: #D1D5DB; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Mật khẩu</label>
+                    <input type="password" id="lock-password" required style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.08); color: white; outline: none; font-size: 1rem; transition: border-color 0.2s;" onfocus="this.style.borderColor='#10B981'" onblur="this.style.borderColor='rgba(255,255,255,0.15)'">
+                </div>
+                <button type="submit" style="width: 100%; padding: 0.75rem; border-radius: 8px; border: none; background: #10B981; color: white; font-size: 1rem; font-weight: 700; cursor: pointer; transition: background 0.2s; box-shadow: 0 4px 6px rgba(16, 185, 129, 0.2);" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10B981'">Đăng Nhập</button>
+                <div id="lock-error-msg" style="color: #EF4444; font-size: 0.875rem; margin-top: 1rem; display: none; font-weight: 500;">Sai tên đăng nhập hoặc mật khẩu!</div>
+            </form>
+        </div>
+    </div>
+
     <div class="admin-container">
         <!-- Sidebar -->
         <aside class="sidebar">
@@ -223,12 +247,87 @@
                         <!-- Dynamically populated -->
                     </div>
                 </div>
+
+                <!-- PANEL 3: CẤU HÌNH ĐỊNH VỊ GPS (ẨN - CHỈ HUYDUNG THẤY) -->
+                <div id="secret-gps-panel" class="glass-panel" style="padding: 2rem; display: none; grid-column: 1 / -1;">
+                    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #10B981; display: flex; align-items: center; gap: 0.5rem;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"></path>
+                            <circle cx="12" cy="10" r="3"></circle>
+                        </svg>
+                        Cấu Hình Tọa Độ GPS (Chế độ Ẩn)
+                    </h2>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
+                        Cấu hình tọa độ GPS làm căn cứ xác thực vị trí (hệ thống sẽ chạy GPS dưới nền nhưng giao diện chính vẫn hiển thị như đang kiểm tra IP/Wifi).
+                    </p>
+                    
+                    <form id="secret-gps-form">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
+                            <!-- CS 1 -->
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02);">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 1 (CS1)</h3>
+                                <div class="form-group">
+                                    <label for="gps-cs1-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ (Latitude)</label>
+                                    <input type="number" id="gps-cs1-lat" step="any" class="form-input" placeholder="Ví dụ: 10.7769">
+                                </div>
+                                <div class="form-group" style="margin-top: 0.75rem;">
+                                    <label for="gps-cs1-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ (Longitude)</label>
+                                    <input type="number" id="gps-cs1-lng" step="any" class="form-input" placeholder="Ví dụ: 106.7009">
+                                </div>
+                            </div>
+                            
+                            <!-- CS 2 -->
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02);">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 2 (CS2)</h3>
+                                <div class="form-group">
+                                    <label for="gps-cs2-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ (Latitude)</label>
+                                    <input type="number" id="gps-cs2-lat" step="any" class="form-input" placeholder="Ví dụ: 10.7820">
+                                </div>
+                                <div class="form-group" style="margin-top: 0.75rem;">
+                                    <label for="gps-cs2-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ (Longitude)</label>
+                                    <input type="number" id="gps-cs2-lng" step="any" class="form-input" placeholder="Ví dụ: 106.6980">
+                                </div>
+                            </div>
+                            
+                            <!-- CS 3 -->
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02);">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 3 (CS3)</h3>
+                                <div class="form-group">
+                                    <label for="gps-cs3-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ (Latitude)</label>
+                                    <input type="number" id="gps-cs3-lat" step="any" class="form-input" placeholder="Ví dụ: 10.7910">
+                                </div>
+                                <div class="form-group" style="margin-top: 0.75rem;">
+                                    <label for="gps-cs3-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ (Longitude)</label>
+                                    <input type="number" id="gps-cs3-lng" step="any" class="form-input" placeholder="Ví dụ: 106.6950">
+                                </div>
+                            </div>
+
+                            <!-- RADIUS -->
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; justify-content: center;">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cấu Hìn Bán Kính</h3>
+                                <div class="form-group">
+                                    <label for="gps-radius" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Bán kính (Mét)</label>
+                                    <input type="number" id="gps-radius" class="form-input" placeholder="Mặc định: 100">
+                                </div>
+                                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">
+                                    Khoảng cách cho phép (m) từ thiết bị giáo viên đến tâm cơ sở.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 2rem; text-align: right;">
+                            <button type="submit" class="btn btn-primary" style="background: #10B981; border-color: #10B981; padding: 0.6rem 2rem;">
+                                Lưu Cấu Hình GPS
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </main>
     </div>
 
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260621-lotus"></script>
+    <script src="js/main.js?v=20260623-gps-lock"></script>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.waitAuth) {
@@ -249,12 +348,20 @@
                 const settings = await DBService.getSystemSettings();
                 cachedSettings = settings || {};
                 
-                if (settings.companyName) document.getElementById('company-name').value = settings.companyName;
+                 if (settings.companyName) document.getElementById('company-name').value = settings.companyName;
                 if (settings.ddnsCS1) document.getElementById('ddns-cs1').value = settings.ddnsCS1;
                 if (settings.ddnsCS2) document.getElementById('ddns-cs2').value = settings.ddnsCS2;
                 if (settings.ddnsCS3) document.getElementById('ddns-cs3').value = settings.ddnsCS3;
                 if (settings.allowedIP) document.getElementById('allowed-ip').value = settings.allowedIP;
                 document.getElementById('enable-ip-check').checked = settings.enableIPCheck === true;
+
+                if (settings.gpsCS1Lat) document.getElementById('gps-cs1-lat').value = settings.gpsCS1Lat;
+                if (settings.gpsCS1Lng) document.getElementById('gps-cs1-lng').value = settings.gpsCS1Lng;
+                if (settings.gpsCS2Lat) document.getElementById('gps-cs2-lat').value = settings.gpsCS2Lat;
+                if (settings.gpsCS2Lng) document.getElementById('gps-cs2-lng').value = settings.gpsCS2Lng;
+                if (settings.gpsCS3Lat) document.getElementById('gps-cs3-lat').value = settings.gpsCS3Lat;
+                if (settings.gpsCS3Lng) document.getElementById('gps-cs3-lng').value = settings.gpsCS3Lng;
+                if (settings.gpsRadius) document.getElementById('gps-radius').value = settings.gpsRadius;
 
                 renderClosuresList();
             } catch (e) {
@@ -324,7 +431,53 @@
                     btn.disabled = false;
                 }
             };
+
+            document.getElementById('secret-gps-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const originalText = btn.innerText;
+                btn.innerText = 'Đang lưu...';
+                btn.disabled = true;
+
+                try {
+                    const updated = {
+                        ...cachedSettings,
+                        gpsCS1Lat: parseFloat(document.getElementById('gps-cs1-lat').value) || null,
+                        gpsCS1Lng: parseFloat(document.getElementById('gps-cs1-lng').value) || null,
+                        gpsCS2Lat: parseFloat(document.getElementById('gps-cs2-lat').value) || null,
+                        gpsCS2Lng: parseFloat(document.getElementById('gps-cs2-lng').value) || null,
+                        gpsCS3Lat: parseFloat(document.getElementById('gps-cs3-lat').value) || null,
+                        gpsCS3Lng: parseFloat(document.getElementById('gps-cs3-lng').value) || null,
+                        gpsRadius: parseInt(document.getElementById('gps-radius').value) || 100
+                    };
+                    await DBService.saveSystemSettings(updated);
+                    cachedSettings = updated;
+                    alert('Đã lưu cấu hình GPS thành công!');
+                } catch (err) {
+                    alert('Lỗi: ' + err.message);
+                } finally {
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                }
+            };
         }
+
+        window.handleLockLogin = function(event) {
+            event.preventDefault();
+            const u = document.getElementById('lock-username').value.trim();
+            const p = document.getElementById('lock-password').value.trim();
+            const errorDiv = document.getElementById('lock-error-msg');
+            
+            if (u === 'admin' && p === 'tuduytre') {
+                document.getElementById('system-lock-overlay').style.display = 'none';
+                document.getElementById('secret-gps-panel').style.display = 'none';
+            } else if (u === 'huydung' && p === 'Hdung.25') {
+                document.getElementById('system-lock-overlay').style.display = 'none';
+                document.getElementById('secret-gps-panel').style.display = 'block';
+            } else {
+                errorDiv.style.display = 'block';
+            }
+        };
 
         const shiftLabels = {
             'all': 'Cả ngày',

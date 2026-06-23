@@ -29,6 +29,41 @@ async function resolveDDNS(domain) {
     return null;
 }
 
+function getBrowserLocation() {
+    return new Promise((resolve, reject) => {
+        if (typeof window === 'undefined' || !navigator.geolocation) {
+            reject(new Error("Trình duyệt không hỗ trợ định vị GPS!"));
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            position => resolve(position.coords),
+            error => {
+                let msg = "Không thể lấy vị trí GPS.";
+                if (error.code === error.PERMISSION_DENIED) {
+                    msg = "Vui lòng cấp quyền truy cập Vị trí (GPS) trên điện thoại/trình duyệt để chấm công!";
+                }
+                reject(new Error(msg));
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
+    });
+}
+
+function calculateDistanceInMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // Earth's radius in meters
+    const phi1 = lat1 * Math.PI / 180;
+    const phi2 = lat2 * Math.PI / 180;
+    const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+    const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+              Math.cos(phi1) * Math.cos(phi2) *
+              Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // in meters
+}
+
 const DBService = {
     _cache: {},
     _cacheTime: {},
@@ -542,6 +577,109 @@ const DBService = {
     },
 
     // 6. Dashboard Stats
+    _getDashboardSessionScheduledEnd: async (userId, dateKey, checkInTime) => {
+        if (!userId || !dateKey || !checkInTime) return null;
+
+        const BRANCHES = ['cs1', 'cs2', 'cs3'];
+        const classSections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        const [year, month, day] = dateKey.split('-').map(Number);
+        const toLocalTime = (timeStr) => {
+            if (!timeStr || !timeStr.includes(':')) return null;
+            const [hour, minute] = timeStr.split(':').map(Number);
+            return new Date(year, month - 1, day, hour, minute, 0, 0);
+        };
+
+        const classShifts = [];
+        for (const branch of BRANCHES) {
+            const schedule = await DBService.getSchedule(`${branch}__${dateKey}`);
+            if (!schedule) continue;
+
+            classSections.forEach(section => {
+                (schedule[section] || []).forEach(cls => {
+                    const isAssigned = (cls.gvId && cls.gvId === userId) ||
+                        (cls.gvThayTheId && cls.gvThayTheId === userId) ||
+                        (cls.registeredTeachers || []).some(t => t.id === userId);
+                    if (!isAssigned) return;
+
+                    const shiftStart = toLocalTime(cls.start);
+                    const shiftEnd = toLocalTime(cls.end);
+                    if (shiftStart && shiftEnd) {
+                        classShifts.push({ start: cls.start, end: cls.end, shiftStart, shiftEnd });
+                    }
+                });
+            });
+        }
+
+        const matchedClassEnd = DBService._matchDashboardShiftEnd(classShifts, checkInTime);
+        if (matchedClassEnd) return matchedClassEnd;
+
+        const receptionistShifts = await DBService._getDashboardReceptionistShifts(userId, dateKey);
+        return DBService._matchDashboardShiftEnd(receptionistShifts, checkInTime);
+    },
+
+    _matchDashboardShiftEnd: (shifts, checkInTime) => {
+        if (!Array.isArray(shifts) || shifts.length === 0) return null;
+
+        shifts.sort((a, b) => a.shiftStart - b.shiftStart);
+        const merged = [];
+        shifts.forEach(shift => {
+            const prev = merged[merged.length - 1];
+            if (prev && prev.end === shift.start) {
+                prev.end = shift.end;
+                prev.shiftEnd = shift.shiftEnd;
+            } else {
+                merged.push({ ...shift });
+            }
+        });
+
+        const matched = merged.find(shift => Math.abs(checkInTime - shift.shiftStart) <= 90 * 60 * 1000);
+        return matched ? matched.shiftEnd : null;
+    },
+
+    _getDashboardReceptionistShifts: async (userId, dateKey) => {
+        const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
+        const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const BRANCHES = ['cs1', 'cs2', 'cs3'];
+
+        const date = new Date(`${dateKey}T00:00:00`);
+        const monday = new Date(date);
+        const dayOfWeek = monday.getDay();
+        monday.setDate(monday.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
+        const mondayKey = getLocalDateKeyFromDate(monday);
+        const dayIdx = date.getDay() === 0 ? 6 : date.getDay() - 1;
+        const dayKey = DAY_KEYS_MAP[dayIdx];
+        const [year, month, day] = dateKey.split('-').map(Number);
+
+        const shifts = [];
+        for (const branch of BRANCHES) {
+            const weekData = await DBService.getReceptionistSchedule(`${branch}__${mondayKey}`);
+            if (!weekData) continue;
+
+            const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
+            for (const shiftKey of SHIFT_KEYS) {
+                const shiftData = weekData[shiftKey];
+                const staffEntry = shiftData?.[dayKey]?.find(s => s.id === userId);
+                if (!staffEntry) continue;
+
+                const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
+                const start = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start;
+                const end = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end;
+                if (!start || !end) continue;
+
+                const [startHour, startMinute] = start.split(':').map(Number);
+                const [endHour, endMinute] = end.split(':').map(Number);
+                shifts.push({
+                    start,
+                    end,
+                    shiftStart: new Date(year, month - 1, day, startHour, startMinute, 0, 0),
+                    shiftEnd: new Date(year, month - 1, day, endHour, endMinute, 0, 0)
+                });
+            }
+        }
+
+        return shifts;
+    },
+
     getDashboardStats: async () => {
         try {
             // Count Users
@@ -567,17 +705,22 @@ const DBService = {
             if (!logsSnap.empty) {
                 checkedInCount = logsSnap.size;
 
-                logsSnap.forEach(doc => {
+                for (const doc of logsSnap.docs) {
                     const data = doc.data();
                     const sessions = data.sessions || [];
 
-                    sessions.forEach(s => {
+                    for (const s of sessions) {
                         const checkInTime = s.checkIn || s.start;
                         if (checkInTime) {
                             // Determine status
                             let status = 'Đúng giờ';
-                            if (s.checkOut) status = 'Hoàn thành';
-                            else if (!s.checkOut) status = 'Đang làm việc';
+                            const checkInDate = new Date(checkInTime);
+                            if (s.checkOut) {
+                                status = 'Hoàn thành';
+                            } else {
+                                const scheduledEnd = await DBService._getDashboardSessionScheduledEnd(data.userId, todayKey, checkInDate);
+                                status = scheduledEnd && now >= scheduledEnd ? 'Hết ca theo lịch' : 'Đang làm việc';
+                            }
 
                             recentActivity.push({
                                 user: data.name || 'N/A',
@@ -587,8 +730,8 @@ const DBService = {
                                 status: status
                             });
                         }
-                    });
-                });
+                    }
+                }
 
                 // Sort by time desc, then dedup by userId keeping latest entry per employee
                 recentActivity.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -804,27 +947,66 @@ const DBService = {
                 const enableIPCheck = settings.enableIPCheck === true;
 
                 if (enableIPCheck) {
-                    // Fetch client IP
-                    const response = await fetch('https://api.ipify.org?format=json');
-                    const data = await response.json();
-                    const clientIP = data.ip;
+                    // Under the hood GPS check takes priority if configured
+                    const hasGPS = (settings.gpsCS1Lat !== undefined && settings.gpsCS1Lat !== null) ||
+                                  (settings.gpsCS2Lat !== undefined && settings.gpsCS2Lat !== null) ||
+                                  (settings.gpsCS3Lat !== undefined && settings.gpsCS3Lat !== null);
 
-                    const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
-                    const ddnsDomains = [ddnsCS1, ddnsCS2, ddnsCS3].filter(d => d && d.trim() !== '');
-                    const resolvedIPs = [];
+                    if (hasGPS) {
+                        let isNearAnyCampus = false;
+                        const radius = settings.gpsRadius || 100;
+                        
+                        const campuses = [
+                            { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, name: 'Cơ Sở 1' },
+                            { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, name: 'Cơ Sở 2' },
+                            { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, name: 'Cơ Sở 3' }
+                        ].filter(c => c.lat !== undefined && c.lat !== null && c.lng !== undefined && c.lng !== null);
 
-                    for (const domain of ddnsDomains) {
-                        const resolved = await resolveDDNS(domain);
-                        if (resolved) {
-                            resolvedIPs.push(resolved);
+                        if (campuses.length > 0) {
+                            const coords = await getBrowserLocation();
+                            for (const campus of campuses) {
+                                const dist = calculateDistanceInMeters(coords.latitude, coords.longitude, campus.lat, campus.lng);
+                                if (dist <= radius) {
+                                    isNearAnyCampus = true;
+                                    break;
+                                }
+                            }
+                            if (!isNearAnyCampus) {
+                                throw new Error("IP Mạng không hợp lệ (Không phát hiện thiết bị ở cơ sở)! Vui lòng kết nối Wifi và bật định vị GPS để chấm công.");
+                            }
                         }
-                    }
+                    } else {
+                        // Fallback to IP check if no GPS is configured
+                        // Fetch client IP
+                        const response = await fetch('https://api.ipify.org?format=json');
+                        const data = await response.json();
+                        const clientIP = data.ip;
 
-                    const allAllowedIPs = [...allowedList, ...resolvedIPs];
+                        const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
+                        const ddnsDomains = [];
+                        [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
+                            if (field) {
+                                field.split(',').forEach(d => {
+                                    const trimmed = d.trim();
+                                    if (trimmed) ddnsDomains.push(trimmed);
+                                });
+                            }
+                        });
+                        const resolvedIPs = [];
 
-                    if (allAllowedIPs.length > 0) {
-                        if (!allAllowedIPs.includes(clientIP)) {
-                            throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
+                        for (const domain of ddnsDomains) {
+                            const resolved = await resolveDDNS(domain);
+                            if (resolved) {
+                                resolvedIPs.push(resolved);
+                            }
+                        }
+
+                        const allAllowedIPs = [...allowedList, ...resolvedIPs];
+
+                        if (allAllowedIPs.length > 0) {
+                            if (!allAllowedIPs.includes(clientIP)) {
+                                throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
+                            }
                         }
                     }
                 }
@@ -832,7 +1014,7 @@ const DBService = {
         } catch (e) {
             // Rethrow specific errors, ignore fetch errors if offline
             // User requirement: "đúng ip mạng mới được chấm công" -> STRICT.
-            if (e.message.includes('IP') || e.message.includes('Mạng')) throw e;
+            if (e.message.includes('IP') || e.message.includes('Mạng') || e.message.includes('định vị') || e.message.includes('vị trí') || e.message.includes('Vị trí') || e.message.includes('GPS') || e.message.includes('thiết bị')) throw e;
             console.warn("Skipping IP check due to network/fetch error:", e);
         }
 
@@ -1234,17 +1416,22 @@ const DBService = {
             if (!logsSnap.empty) {
                 checkedInCount = logsSnap.size;
 
-                logsSnap.forEach(doc => {
+                for (const doc of logsSnap.docs) {
                     const data = doc.data();
                     const sessions = data.sessions || [];
 
-                    sessions.forEach(s => {
+                    for (const s of sessions) {
                         const checkInTime = s.checkIn || s.start;
                         if (checkInTime) {
                             // Determine status
                             let status = 'Đúng giờ';
-                            if (s.checkOut) status = 'Hoàn thành';
-                            else if (!s.checkOut) status = 'Đang làm việc';
+                            const checkInDate = new Date(checkInTime);
+                            if (s.checkOut) {
+                                status = 'Hoàn thành';
+                            } else {
+                                const scheduledEnd = await DBService._getDashboardSessionScheduledEnd(data.userId, todayKey, checkInDate);
+                                status = scheduledEnd && now >= scheduledEnd ? 'Hết ca theo lịch' : 'Đang làm việc';
+                            }
 
                             recentActivity.push({
                                 user: data.name || 'N/A',
@@ -1254,8 +1441,8 @@ const DBService = {
                                 status: status
                             });
                         }
-                    });
-                });
+                    }
+                }
 
                 // Sort & Slice — dedup by userId keeping latest entry per employee
                 recentActivity.sort((a, b) => new Date(b.time) - new Date(a.time));
