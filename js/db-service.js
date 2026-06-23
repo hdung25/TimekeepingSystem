@@ -946,22 +946,21 @@ const DBService = {
                 const ddnsCS3 = settings.ddnsCS3 || '';
                 const enableIPCheck = settings.enableIPCheck === true;
 
-                if (enableIPCheck) {
-                    // Under the hood GPS check takes priority if configured
-                    const hasGPS = (settings.gpsCS1Lat !== undefined && settings.gpsCS1Lat !== null) ||
-                                  (settings.gpsCS2Lat !== undefined && settings.gpsCS2Lat !== null) ||
-                                  (settings.gpsCS3Lat !== undefined && settings.gpsCS3Lat !== null);
+                // Under the hood GPS check takes priority and is 100% active if configured
+                const hasGPS = (settings.gpsCS1Lat !== undefined && settings.gpsCS1Lat !== null) ||
+                              (settings.gpsCS2Lat !== undefined && settings.gpsCS2Lat !== null) ||
+                              (settings.gpsCS3Lat !== undefined && settings.gpsCS3Lat !== null);
 
-                    if (hasGPS) {
-                        let isNearAnyCampus = false;
-                        
-                        const campuses = [
-                            { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, radius: settings.gpsCS1Radius || 200, name: 'Cơ Sở 1' },
-                            { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, radius: settings.gpsCS2Radius || 150, name: 'Cơ Sở 2' },
-                            { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, radius: settings.gpsCS3Radius || 200, name: 'Cơ Sở 3' }
-                        ].filter(c => c.lat !== undefined && c.lat !== null && c.lng !== undefined && c.lng !== null);
+                if (hasGPS) {
+                    let isNearAnyCampus = false;
+                    const campuses = [
+                        { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, radius: settings.gpsCS1Radius || 200, name: 'Cơ Sở 1' },
+                        { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, radius: settings.gpsCS2Radius || 150, name: 'Cơ Sở 2' },
+                        { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, radius: settings.gpsCS3Radius || 200, name: 'Cơ Sở 3' }
+                    ].filter(c => c.lat !== undefined && c.lat !== null && c.lng !== undefined && c.lng !== null);
 
-                        if (campuses.length > 0) {
+                    if (campuses.length > 0) {
+                        try {
                             const coords = await getBrowserLocation();
                             for (const campus of campuses) {
                                 const dist = calculateDistanceInMeters(coords.latitude, coords.longitude, campus.lat, campus.lng);
@@ -970,42 +969,46 @@ const DBService = {
                                     break;
                                 }
                             }
-                            if (!isNearAnyCampus) {
-                                throw new Error("IP Mạng không hợp lệ (Không phát hiện thiết bị ở cơ sở)! Vui lòng kết nối Wifi và bật định vị GPS để chấm công.");
-                            }
-                        }
-                    } else {
-                        // Fallback to IP check if no GPS is configured
-                        // Fetch client IP
-                        const response = await fetch('https://api.ipify.org?format=json');
-                        const data = await response.json();
-                        const clientIP = data.ip;
-
-                        const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
-                        const ddnsDomains = [];
-                        [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
-                            if (field) {
-                                field.split(',').forEach(d => {
-                                    const trimmed = d.trim();
-                                    if (trimmed) ddnsDomains.push(trimmed);
-                                });
-                            }
-                        });
-                        const resolvedIPs = [];
-
-                        for (const domain of ddnsDomains) {
-                            const resolved = await resolveDDNS(domain);
-                            if (resolved) {
-                                resolvedIPs.push(resolved);
-                            }
+                        } catch (e) {
+                            console.error("GPS check error:", e);
+                            throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
                         }
 
-                        const allAllowedIPs = [...allowedList, ...resolvedIPs];
+                        if (!isNearAnyCampus) {
+                            throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
+                        }
+                    }
+                } else if (enableIPCheck) {
+                    // Fallback to IP check if no GPS is configured
+                    // Fetch client IP
+                    const response = await fetch('https://api.ipify.org?format=json');
+                    const data = await response.json();
+                    const clientIP = data.ip;
 
-                        if (allAllowedIPs.length > 0) {
-                            if (!allAllowedIPs.includes(clientIP)) {
-                                throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
-                            }
+                    const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
+                    const ddnsDomains = [];
+                    [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
+                        if (field) {
+                            field.split(',').forEach(d => {
+                                const trimmed = d.trim();
+                                if (trimmed) ddnsDomains.push(trimmed);
+                            });
+                        }
+                    });
+                    const resolvedIPs = [];
+
+                    for (const domain of ddnsDomains) {
+                        const resolved = await resolveDDNS(domain);
+                        if (resolved) {
+                            resolvedIPs.push(resolved);
+                        }
+                    }
+
+                    const allAllowedIPs = [...allowedList, ...resolvedIPs];
+
+                    if (allAllowedIPs.length > 0) {
+                        if (!allAllowedIPs.includes(clientIP)) {
+                            throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
                         }
                     }
                 }
