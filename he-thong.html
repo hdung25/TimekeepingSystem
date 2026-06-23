@@ -67,6 +67,9 @@
             overflow: auto !important;
         }
     </style>
+    <!-- Leaflet.js for Interactive Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 
 <body>
@@ -259,65 +262,68 @@
                             <circle cx="12" cy="10" r="3"></circle>
                         </svg>
                         Cấu Hình Tọa Độ GPS (Chế độ Ẩn)
-                    </h2>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">
-                        Cấu hình tọa độ GPS làm căn cứ xác thực vị trí (hệ thống sẽ chạy GPS dưới nền nhưng giao diện chính vẫn hiển thị như đang kiểm tra IP/Wifi).
-                    </p>
-                    
-                    <form id="secret-gps-form">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
+                           <form id="secret-gps-form">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
                             <!-- CS 1 -->
-                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02);">
-                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 1 (CS1)</h3>
-                                <div class="form-group">
-                                    <label for="gps-cs1-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ (Latitude)</label>
-                                    <input type="number" id="gps-cs1-lat" step="any" class="form-input" placeholder="Ví dụ: 10.7769">
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column;">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 1 (CS1) - Bùi Thị Xuân</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                                    <div class="form-group">
+                                        <label for="gps-cs1-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ</label>
+                                        <input type="number" id="gps-cs1-lat" step="any" class="form-input" placeholder="Vĩ độ">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="gps-cs1-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ</label>
+                                        <input type="number" id="gps-cs1-lng" step="any" class="form-input" placeholder="Kinh độ">
+                                    </div>
                                 </div>
                                 <div class="form-group" style="margin-top: 0.75rem;">
-                                    <label for="gps-cs1-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ (Longitude)</label>
-                                    <input type="number" id="gps-cs1-lng" step="any" class="form-input" placeholder="Ví dụ: 106.7009">
+                                    <label for="gps-cs1-radius" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Bán kính (Mét)</label>
+                                    <input type="number" id="gps-cs1-radius" class="form-input" placeholder="Mặc định: 200">
                                 </div>
+                                <div id="map-cs1" style="height: 200px; margin-top: 1rem; border-radius: 8px; border: 1px solid var(--border-color); z-index: 1;"></div>
                             </div>
                             
                             <!-- CS 2 -->
-                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02);">
-                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 2 (CS2)</h3>
-                                <div class="form-group">
-                                    <label for="gps-cs2-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ (Latitude)</label>
-                                    <input type="number" id="gps-cs2-lat" step="any" class="form-input" placeholder="Ví dụ: 10.7820">
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column;">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 2 (CS2) - Nguyễn Hữu Cảnh</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                                    <div class="form-group">
+                                        <label for="gps-cs2-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ</label>
+                                        <input type="number" id="gps-cs2-lat" step="any" class="form-input" placeholder="Vĩ độ">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="gps-cs2-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ</label>
+                                        <input type="number" id="gps-cs2-lng" step="any" class="form-input" placeholder="Kinh độ">
+                                    </div>
                                 </div>
                                 <div class="form-group" style="margin-top: 0.75rem;">
-                                    <label for="gps-cs2-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ (Longitude)</label>
-                                    <input type="number" id="gps-cs2-lng" step="any" class="form-input" placeholder="Ví dụ: 106.6980">
+                                    <label for="gps-cs2-radius" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Bán kính (Mét)</label>
+                                    <input type="number" id="gps-cs2-radius" class="form-input" placeholder="Mặc định: 150">
                                 </div>
+                                <div id="map-cs2" style="height: 200px; margin-top: 1rem; border-radius: 8px; border: 1px solid var(--border-color); z-index: 1;"></div>
                             </div>
                             
                             <!-- CS 3 -->
-                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02);">
-                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 3 (CS3)</h3>
-                                <div class="form-group">
-                                    <label for="gps-cs3-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ (Latitude)</label>
-                                    <input type="number" id="gps-cs3-lat" step="any" class="form-input" placeholder="Ví dụ: 10.7910">
+                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column;">
+                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cơ Sở 3 (CS3) - Chung CS1</h3>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                                    <div class="form-group">
+                                        <label for="gps-cs3-lat" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Vĩ độ</label>
+                                        <input type="number" id="gps-cs3-lat" step="any" class="form-input" placeholder="Vĩ độ">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="gps-cs3-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ</label>
+                                        <input type="number" id="gps-cs3-lng" step="any" class="form-input" placeholder="Kinh độ">
+                                    </div>
                                 </div>
                                 <div class="form-group" style="margin-top: 0.75rem;">
-                                    <label for="gps-cs3-lng" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Kinh độ (Longitude)</label>
-                                    <input type="number" id="gps-cs3-lng" step="any" class="form-input" placeholder="Ví dụ: 106.6950">
+                                    <label for="gps-cs3-radius" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Bán kính (Mét)</label>
+                                    <input type="number" id="gps-cs3-radius" class="form-input" placeholder="Mặc định: 200">
                                 </div>
-                            </div>
-
-                            <!-- RADIUS -->
-                            <div style="border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; justify-content: center;">
-                                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Cấu Hìn Bán Kính</h3>
-                                <div class="form-group">
-                                    <label for="gps-radius" style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Bán kính (Mét)</label>
-                                    <input type="number" id="gps-radius" class="form-input" placeholder="Mặc định: 100">
-                                </div>
-                                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">
-                                    Khoảng cách cho phép (m) từ thiết bị giáo viên đến tâm cơ sở.
-                                </p>
+                                <div id="map-cs3" style="height: 200px; margin-top: 1rem; border-radius: 8px; border: 1px solid var(--border-color); z-index: 1;"></div>
                             </div>
                         </div>
-
                         <div style="margin-top: 2rem; text-align: right;">
                             <button type="submit" class="btn btn-primary" style="background: #10B981; border-color: #10B981; padding: 0.6rem 2rem;">
                                 Lưu Cấu Hình GPS
@@ -360,11 +366,13 @@
 
                 if (settings.gpsCS1Lat) document.getElementById('gps-cs1-lat').value = settings.gpsCS1Lat;
                 if (settings.gpsCS1Lng) document.getElementById('gps-cs1-lng').value = settings.gpsCS1Lng;
+                if (settings.gpsCS1Radius) document.getElementById('gps-cs1-radius').value = settings.gpsCS1Radius;
                 if (settings.gpsCS2Lat) document.getElementById('gps-cs2-lat').value = settings.gpsCS2Lat;
                 if (settings.gpsCS2Lng) document.getElementById('gps-cs2-lng').value = settings.gpsCS2Lng;
+                if (settings.gpsCS2Radius) document.getElementById('gps-cs2-radius').value = settings.gpsCS2Radius;
                 if (settings.gpsCS3Lat) document.getElementById('gps-cs3-lat').value = settings.gpsCS3Lat;
                 if (settings.gpsCS3Lng) document.getElementById('gps-cs3-lng').value = settings.gpsCS3Lng;
-                if (settings.gpsRadius) document.getElementById('gps-radius').value = settings.gpsRadius;
+                if (settings.gpsCS3Radius) document.getElementById('gps-cs3-radius').value = settings.gpsCS3Radius;
 
                 renderClosuresList();
             } catch (e) {
@@ -447,11 +455,13 @@
                         ...cachedSettings,
                         gpsCS1Lat: parseFloat(document.getElementById('gps-cs1-lat').value) || null,
                         gpsCS1Lng: parseFloat(document.getElementById('gps-cs1-lng').value) || null,
+                        gpsCS1Radius: parseInt(document.getElementById('gps-cs1-radius').value) || 200,
                         gpsCS2Lat: parseFloat(document.getElementById('gps-cs2-lat').value) || null,
                         gpsCS2Lng: parseFloat(document.getElementById('gps-cs2-lng').value) || null,
+                        gpsCS2Radius: parseInt(document.getElementById('gps-cs2-radius').value) || 150,
                         gpsCS3Lat: parseFloat(document.getElementById('gps-cs3-lat').value) || null,
                         gpsCS3Lng: parseFloat(document.getElementById('gps-cs3-lng').value) || null,
-                        gpsRadius: parseInt(document.getElementById('gps-radius').value) || 100
+                        gpsCS3Radius: parseInt(document.getElementById('gps-cs3-radius').value) || 200
                     };
                     await DBService.saveSystemSettings(updated);
                     cachedSettings = updated;
@@ -477,6 +487,7 @@
             } else if (u === 'huydung' && p === 'Hdung.25') {
                 document.getElementById('system-lock-overlay').style.display = 'none';
                 document.getElementById('secret-gps-panel').style.display = 'block';
+                setTimeout(initAllMaps, 100);
             } else {
                 errorDiv.style.display = 'block';
             }
@@ -560,6 +571,88 @@
                 btn.disabled = false;
             }
         };
+
+        // Interactive Maps for CS1, CS2, CS3
+        const gpsMaps = {
+            cs1: { map: null, marker: null, circle: null },
+            cs2: { map: null, marker: null, circle: null },
+            cs3: { map: null, marker: null, circle: null }
+        };
+
+        function initMapForCampus(csKey, mapId, latInputId, lngInputId, radiusInputId, defaultLat, defaultLng, defaultRadius) {
+            if (gpsMaps[csKey].map) {
+                setTimeout(() => {
+                    gpsMaps[csKey].map.invalidateSize();
+                }, 100);
+                return;
+            }
+
+            let latVal = parseFloat(document.getElementById(latInputId).value);
+            let lngVal = parseFloat(document.getElementById(lngInputId).value);
+            let radVal = parseInt(document.getElementById(radiusInputId).value);
+
+            if (isNaN(latVal) || latVal === 0) latVal = defaultLat;
+            if (isNaN(lngVal) || lngVal === 0) lngVal = defaultLng;
+            if (isNaN(radVal) || radVal === 0) radVal = defaultRadius;
+
+            document.getElementById(latInputId).value = latVal;
+            document.getElementById(lngInputId).value = lngVal;
+            document.getElementById(radiusInputId).value = radVal;
+
+            const map = L.map(mapId).setView([latVal, lngVal], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            const marker = L.marker([latVal, lngVal], { draggable: true }).addTo(map);
+            const circle = L.circle([latVal, lngVal], {
+                radius: radVal,
+                color: '#10B981',
+                fillColor: '#10B981',
+                fillOpacity: 0.15
+            }).addTo(map);
+
+            gpsMaps[csKey].map = map;
+            gpsMaps[csKey].marker = marker;
+            gpsMaps[csKey].circle = circle;
+
+            // Draggable Marker Event
+            marker.on('dragend', function (e) {
+                const pos = marker.getLatLng();
+                document.getElementById(latInputId).value = pos.lat.toFixed(7);
+                document.getElementById(lngInputId).value = pos.lng.toFixed(7);
+                circle.setLatLng(pos);
+            });
+
+            // Input Change Events
+            const updateFromInputs = () => {
+                const lat = parseFloat(document.getElementById(latInputId).value) || defaultLat;
+                const lng = parseFloat(document.getElementById(lngInputId).value) || defaultLng;
+                const rad = parseInt(document.getElementById(radiusInputId).value) || defaultRadius;
+                
+                const newLatLng = new L.LatLng(lat, lng);
+                marker.setLatLng(newLatLng);
+                circle.setLatLng(newLatLng);
+                circle.setRadius(rad);
+                map.panTo(newLatLng);
+            };
+
+            document.getElementById(latInputId).addEventListener('input', updateFromInputs);
+            document.getElementById(lngInputId).addEventListener('input', updateFromInputs);
+            document.getElementById(radiusInputId).addEventListener('input', updateFromInputs);
+
+            // Wait a tiny bit then invalidate size to guarantee correct display
+            setTimeout(() => {
+                map.invalidateSize();
+            }, 100);
+        }
+
+        function initAllMaps() {
+            initMapForCampus('cs1', 'map-cs1', 'gps-cs1-lat', 'gps-cs1-lng', 'gps-cs1-radius', 10.9404764, 106.7643589, 200);
+            initMapForCampus('cs2', 'map-cs2', 'gps-cs2-lat', 'gps-cs2-lng', 'gps-cs2-radius', 10.900036, 106.7840727, 150);
+            initMapForCampus('cs3', 'map-cs3', 'gps-cs3-lat', 'gps-cs3-lng', 'gps-cs3-radius', 10.9404764, 106.7643589, 200);
+        }
     </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" })}</script>
 

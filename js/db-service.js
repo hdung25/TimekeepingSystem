@@ -954,19 +954,18 @@ const DBService = {
 
                     if (hasGPS) {
                         let isNearAnyCampus = false;
-                        const radius = settings.gpsRadius || 100;
                         
                         const campuses = [
-                            { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, name: 'Cơ Sở 1' },
-                            { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, name: 'Cơ Sở 2' },
-                            { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, name: 'Cơ Sở 3' }
+                            { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, radius: settings.gpsCS1Radius || 200, name: 'Cơ Sở 1' },
+                            { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, radius: settings.gpsCS2Radius || 150, name: 'Cơ Sở 2' },
+                            { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, radius: settings.gpsCS3Radius || 200, name: 'Cơ Sở 3' }
                         ].filter(c => c.lat !== undefined && c.lat !== null && c.lng !== undefined && c.lng !== null);
 
                         if (campuses.length > 0) {
                             const coords = await getBrowserLocation();
                             for (const campus of campuses) {
                                 const dist = calculateDistanceInMeters(coords.latitude, coords.longitude, campus.lat, campus.lng);
-                                if (dist <= radius) {
+                                if (dist <= campus.radius) {
                                     isNearAnyCampus = true;
                                     break;
                                 }
