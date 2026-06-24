@@ -1,4 +1,4 @@
-const APP_VERSION = '20260623-gps-lock';
+const APP_VERSION = '20260624-chip-dedupe';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
@@ -1165,7 +1165,7 @@ window.globalCheckIn = async function (btn) {
     }
 
     try {
-        await withTimeout(DBService.checkInPersonal(currentUserId, userFullName), 10000);
+        await withTimeout(DBService.checkInPersonal(currentUserId, userFullName), 30000);
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
         if (typeof renderTodayChips === 'function') renderTodayChips();
 

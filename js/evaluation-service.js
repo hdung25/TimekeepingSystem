@@ -1161,7 +1161,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
     // 4. Handle Unmatched Sessions
     attendanceSessions.forEach(s => {
-        if (!usedSessionIdsReceptionist.has(s.id)) {
+        const isUsedForTeaching = usedSessionIdsTeaching.has(s.id);
+        if (!usedSessionIdsReceptionist.has(s.id) && (!isUsedForTeaching || hasReceptionistRole)) {
             usedSessionIdsReceptionist.add(s.id);
             
             const chipSessionData = { ...s };
@@ -1229,7 +1230,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 });
             }
             // Dùng lịch gần nhất nếu trong vòng 90 phút
-            const USE_SCHED = !isAdminCreated && !s.isAdminEdited && nearestSchedStart && nearestDiff < 90 * 60 * 1000;
+            const USE_SCHED = !isUsedForTeaching && !isAdminCreated && !s.isAdminEdited && nearestSchedStart && nearestDiff < 90 * 60 * 1000;
 
             let b10DataU, b10StatusU;
 
@@ -1369,10 +1370,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 unmatchedChipFilterName = 'Ca Thêm';
             }
 
+            const paidMinutes = Math.max(0, Math.round(duration + otMinutesU));
+            if (isUsedForTeaching && paidMinutes <= 0 && !otPendingU) {
+                return;
+            }
+
             chips.push({
                 text: label,
                 class: cssClass,
-                paidMinutes: Math.max(0, Math.round(duration + otMinutesU)),
+                paidMinutes: paidMinutes,
                 tooltip: tooltip,
                 sessionId: s.id,
                 sessionData: chipSessionData, // Use cloned chipSessionData

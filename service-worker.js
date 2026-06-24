@@ -1,5 +1,5 @@
-// Service Worker v16 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v16-gps-lock';
+// Service Worker v19 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v19-chip-dedupe';
 
 const STATIC_ASSETS = [
     '/',
@@ -14,9 +14,10 @@ const STATIC_ASSETS = [
     '/he-thong.html',
     '/css/style.css?v=20260621-lotus',
     '/css/login.css?v=20260621-font',
-    '/js/main.js?v=20260623-gps-lock',
+    '/js/main.js?v=20260624-chip-dedupe',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260623-gps-lock',
+    '/js/db-service.js?v=20260624-gps-stable',
+    '/js/evaluation-service.js?v=20260624-chip-dedupe',
     '/js/ui-service.js',
     '/js/auth-guard.js',
     '/js/chart-service.js',

@@ -16,6 +16,11 @@ async function initTimekeeping() {
     try {
         const settings = await DBService.getSystemSettings();
         window.centerClosures = settings?.centerClosures || {};
+        if (typeof DBService.prepareAttendanceLocationPermission === 'function') {
+            DBService.prepareAttendanceLocationPermission().catch(e => {
+                console.warn("Attendance location permission is not ready:", e);
+            });
+        }
     } catch (e) {
         console.warn("Error loading system settings:", e);
         window.centerClosures = {};
