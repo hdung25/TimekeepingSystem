@@ -1142,7 +1142,7 @@ const DBService = {
                     const lastOut = lastSession.checkOut?.toDate?.() || new Date(lastSession.checkOut);
                     const diffSeconds = (Date.now() - lastOut.getTime()) / 1000;
                     if (diffSeconds < 60) {
-                        throw new Error('COOLDOWN');
+                        throw new Error('Vui lòng đợi 60 giây trước khi bắt đầu ca mới!');
                     }
                 }
             }
