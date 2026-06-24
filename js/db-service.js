@@ -120,7 +120,7 @@ async function assertAttendanceLocationAllowed(settings = {}) {
         coords = await getBrowserLocation();
     } catch (e) {
         console.error("GPS check error:", e);
-        throw new Error("Lỗi xác minh vị trí: " + e.message);
+        throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
     }
 
     const isNearAnyCampus = campuses.some(campus => {
@@ -130,7 +130,7 @@ async function assertAttendanceLocationAllowed(settings = {}) {
     });
 
     if (!isNearAnyCampus) {
-        throw new Error("Vị trí không hợp lệ! Bạn đang ở ngoài phạm vi cho phép của cơ sở (hoặc định vị GPS chưa chính xác).");
+        throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
     }
 
     return true;
