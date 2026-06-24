@@ -1014,7 +1014,7 @@ const DBService = {
     },
 
     checkInPersonal: async (userId, userFullName) => {
-        // IP CHECK LOGIC
+        // IP & GPS CHECK LOGIC
         try {
             const settingsDoc = await db.collection('settings').doc('system').get();
             if (settingsDoc.exists) {
@@ -1028,41 +1028,69 @@ const DBService = {
                 // Under the hood GPS check takes priority and is 100% active if configured
                 const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
 
+                let allowed = false;
+                let gpsError = null;
+
                 if (hasGPS) {
-                    await assertAttendanceLocationAllowed(settings);
-                } else if (enableIPCheck) {
-                    // Fallback to IP check if no GPS is configured
-                    // Fetch client IP
-                    const response = await fetch('https://api.ipify.org?format=json');
-                    const data = await response.json();
-                    const clientIP = data.ip;
-
-                    const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
-                    const ddnsDomains = [];
-                    [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
-                        if (field) {
-                            field.split(',').forEach(d => {
-                                const trimmed = d.trim();
-                                if (trimmed) ddnsDomains.push(trimmed);
-                            });
-                        }
-                    });
-                    const resolvedIPs = [];
-
-                    for (const domain of ddnsDomains) {
-                        const resolved = await resolveDDNS(domain);
-                        if (resolved) {
-                            resolvedIPs.push(resolved);
-                        }
+                    try {
+                        await assertAttendanceLocationAllowed(settings);
+                        allowed = true;
+                    } catch (e) {
+                        gpsError = e;
+                        console.warn("GPS check failed, trying IP fallback...", e);
                     }
+                }
 
-                    const allAllowedIPs = [...allowedList, ...resolvedIPs];
+                // If GPS check did not succeed, fallback to IP check
+                if (!allowed && (enableIPCheck || hasGPS)) {
+                    try {
+                        // Fetch client IP
+                        const response = await fetch('https://api.ipify.org?format=json');
+                        const data = await response.json();
+                        const clientIP = data.ip;
 
-                    if (allAllowedIPs.length > 0) {
-                        if (!allAllowedIPs.includes(clientIP)) {
-                            throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
+                        const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
+                        const ddnsDomains = [];
+                        [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
+                            if (field) {
+                                field.split(',').forEach(d => {
+                                    const trimmed = d.trim();
+                                    if (trimmed) ddnsDomains.push(trimmed);
+                                });
+                            }
+                        });
+                        const resolvedIPs = [];
+
+                        for (const domain of ddnsDomains) {
+                            const resolved = await resolveDDNS(domain);
+                            if (resolved) {
+                                resolvedIPs.push(resolved);
+                            }
                         }
+
+                        const allAllowedIPs = [...allowedList, ...resolvedIPs];
+
+                        if (allAllowedIPs.length > 0) {
+                            if (allAllowedIPs.includes(clientIP)) {
+                                allowed = true;
+                                console.log("IP check fallback allowed user to check in.");
+                            } else {
+                                throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
+                            }
+                        } else {
+                            if (hasGPS) throw gpsError || new Error("Không thể định vị vị trí.");
+                        }
+                    } catch (ipErr) {
+                        console.warn("IP Check failed:", ipErr);
+                        if (ipErr.message.includes('IP') || ipErr.message.includes('Mạng')) {
+                            throw ipErr;
+                        }
+                        throw gpsError || new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
                     }
+                }
+
+                if (!allowed) {
+                    throw gpsError || new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
                 }
             }
         } catch (e) {
