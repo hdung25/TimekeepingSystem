@@ -1028,69 +1028,66 @@ const DBService = {
                 // Under the hood GPS check takes priority and is 100% active if configured
                 const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
 
-                let allowed = false;
-                let gpsError = null;
+                // Fetch client IP first
+                let clientIP = '';
+                try {
+                    const response = await fetch('https://api.ipify.org?format=json');
+                    const data = await response.json();
+                    clientIP = data.ip;
+                } catch (ipFetchErr) {
+                    console.warn("Could not fetch client IP:", ipFetchErr);
+                }
 
+                const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
+                const ddnsDomains = [];
+                [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
+                    if (field) {
+                        field.split(',').forEach(d => {
+                            const trimmed = d.trim();
+                            if (trimmed) ddnsDomains.push(trimmed);
+                        });
+                    }
+                });
+                const resolvedIPs = [];
+
+                for (const domain of ddnsDomains) {
+                    const resolved = await resolveDDNS(domain);
+                    if (resolved) {
+                        resolvedIPs.push(resolved);
+                    }
+                }
+
+                const allAllowedIPs = [...allowedList, ...resolvedIPs];
+
+                // Check if they are on Wifi (IP matches allowed list)
+                let isWifiMatched = false;
+                if (allAllowedIPs.length > 0) {
+                    if (clientIP && allAllowedIPs.includes(clientIP)) {
+                        isWifiMatched = true;
+                    }
+                }
+
+                // Strictly enforce Wifi IP if IP restrictions are set
+                // If they are on 4G/5G, their clientIP won't match, so they get blocked immediately
+                if (allAllowedIPs.length > 0 && !isWifiMatched) {
+                    throw new Error(`IP Mạng không hợp lệ (${clientIP || 'không rõ'}). Vui lòng kết nối Wifi cơ sở!`);
+                }
+
+                // If they are on Wifi, or if no IP restriction is configured:
+                // We check GPS if GPS is configured.
                 if (hasGPS) {
                     try {
                         await assertAttendanceLocationAllowed(settings);
-                        allowed = true;
-                    } catch (e) {
-                        gpsError = e;
-                        console.warn("GPS check failed, trying IP fallback...", e);
-                    }
-                }
-
-                // If GPS check did not succeed, fallback to IP check
-                if (!allowed && (enableIPCheck || hasGPS)) {
-                    try {
-                        // Fetch client IP
-                        const response = await fetch('https://api.ipify.org?format=json');
-                        const data = await response.json();
-                        const clientIP = data.ip;
-
-                        const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
-                        const ddnsDomains = [];
-                        [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
-                            if (field) {
-                                field.split(',').forEach(d => {
-                                    const trimmed = d.trim();
-                                    if (trimmed) ddnsDomains.push(trimmed);
-                                });
-                            }
-                        });
-                        const resolvedIPs = [];
-
-                        for (const domain of ddnsDomains) {
-                            const resolved = await resolveDDNS(domain);
-                            if (resolved) {
-                                resolvedIPs.push(resolved);
-                            }
-                        }
-
-                        const allAllowedIPs = [...allowedList, ...resolvedIPs];
-
-                        if (allAllowedIPs.length > 0) {
-                            if (allAllowedIPs.includes(clientIP)) {
-                                allowed = true;
-                                console.log("IP check fallback allowed user to check in.");
-                            } else {
-                                throw new Error(`IP Mạng không hợp lệ (${clientIP}). Vui lòng kết nối Wifi cơ sở!`);
-                            }
+                    } catch (gpsErr) {
+                        console.warn("GPS check failed:", gpsErr);
+                        // Fallback: If they are on Wifi, allow it despite GPS failure
+                        if (isWifiMatched) {
+                            console.log("GPS check failed but user is verified on Wifi. Allowing check-in.");
                         } else {
-                            if (hasGPS) throw gpsError || new Error("Không thể định vị vị trí.");
+                            // If no Wifi restriction is configured, we must enforce GPS
+                            throw gpsErr;
                         }
-                    } catch (ipErr) {
-                        console.warn("IP Check failed:", ipErr);
-                        if (ipErr.message.includes('IP') || ipErr.message.includes('Mạng')) {
-                            throw ipErr;
-                        }
-                        throw gpsError || new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
                     }
-                }
-
-                if (!allowed) {
-                    throw gpsError || new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
                 }
             }
         } catch (e) {
