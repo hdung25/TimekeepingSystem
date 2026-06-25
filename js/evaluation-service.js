@@ -167,6 +167,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const teachingMinutesMap = {}; // sessionId -> total teaching minutes
     const teachingSessionsMap = {}; // sessionId -> array of teaching shifts {start, end, paidMinutes}
 
+    // Collect VĐX (Vắng đã xác nhận) slots for this staff on this day to hide overlapping receptionist absent chips
+    const vdxSlots = [];
+    sections.forEach(sk => {
+        (schedule[sk] || []).forEach(c => {
+            if (!c.start || !c.end) return;
+            const isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+            if (isOriginalVDX) {
+                vdxSlots.push({ start: c.start, end: c.end });
+            }
+        });
+    });
+
     // Extract staff roles to determine receptionist vs teaching status
     const staffRoles = currentUserContext
         ? (Array.isArray(currentUserContext.roles) && currentUserContext.roles.length > 0
@@ -497,7 +509,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     let isLate = false;
                     if (matchedSession.isAdminEdited) {
                         minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
-                        label += ` ${actualStartStr}–${actualEndStr} (Sửa tay)`;
+                        label += ` ${actualStartStr}–${actualEndStr}`;
                     } else {
                         // Lấy thời gian làm việc thực tế nằm trong khung giờ lịch
                         const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
@@ -908,7 +920,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (matchedSession.isAdminEdited) {
                     minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
                     label = `${labelShort} ${actualStartStr}–${actualEndStr}${branchShortR}`;
-                    tooltip += ` (Sửa tay)`;
                 } else {
                     // Ghi chú đi trễ
                     if (actualStart > schedStart) {
@@ -1074,6 +1085,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         } else {
             // === NO ATTENDANCE FOR THIS SHIFT ===
+            // Hide receptionist absent chip if it overlaps with a VĐX teaching shift
+            const hasOverlapWithVDX = vdxSlots.some(vdx => rs.start < vdx.end && rs.end > vdx.start);
+            if (hasOverlapWithVDX) {
+                return;
+            }
+
             if (isCenterClosed(dateStr, rs.shift, window.centerClosures)) {
                 chips.push({
                     text: label + ' (Nghỉ)',
@@ -1167,15 +1184,68 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             
             const chipSessionData = { ...s };
 
-            // Auto-assign role to 'tiep-tan' if role is not set and staff is pure receptionist
-            if (!chipSessionData.role && hasReceptionistRole && !hasTeachingRole) {
-                chipSessionData.role = 'tiep-tan';
-                chipSessionData.roleName = 'Tiếp Tân';
-                chipSessionData._autoAssignedRole = true;
-                
-                s.role = 'tiep-tan';
-                s.roleName = 'Tiếp Tân';
-                s._autoAssignedRole = true;
+            // Auto-assign role if role is not set
+            if (!chipSessionData.role) {
+                let autoRole = null;
+                let autoRoleName = null;
+                let autoRoleRate = 0;
+
+                const teachingRoles = currentUserContext?.salary_config?.roles || [];
+
+                if (hasReceptionistRole && !hasTeachingRole) {
+                    autoRole = 'tiep-tan';
+                    autoRoleName = 'Tiếp Tân';
+                } else if (chipSessionData.linkedReceptionistShift) {
+                    autoRole = 'tiep-tan';
+                    autoRoleName = 'Tiếp Tân';
+                } else if (chipSessionData.linkedClassStart) {
+                    // Try to find matching class in schedule to assign its subject role
+                    let matchedClass = null;
+                    sections.forEach(secKey => {
+                        (schedule[secKey] || []).forEach(cls => {
+                            if (cls.start === chipSessionData.linkedClassStart) {
+                                matchedClass = cls;
+                            }
+                        });
+                    });
+
+                    if (matchedClass) {
+                        const targetLopId = matchedClass.lopId;
+                        const matchedRole = teachingRoles.find(r => r.id === targetLopId);
+                        if (matchedRole) {
+                            autoRole = matchedRole.id;
+                            autoRoleName = matchedRole.name;
+                            autoRoleRate = Number(matchedRole.rate || 0);
+                        } else if (targetLopId) {
+                            autoRole = targetLopId;
+                            autoRoleName = matchedClass.lop || 'Môn học';
+                        }
+                    }
+                }
+
+                // Fallback to single configured teaching role if they only have one
+                if (!autoRole && teachingRoles.length === 1) {
+                    autoRole = teachingRoles[0].id;
+                    autoRoleName = teachingRoles[0].name;
+                    autoRoleRate = Number(teachingRoles[0].rate || 0);
+                }
+
+                if (autoRole) {
+                    if (autoRole === 'tiep-tan' || autoRole === 'receptionist') {
+                        if (currentUserContext?.salary_config?.receptionist_normal_rate) {
+                            autoRoleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
+                        }
+                    }
+                    chipSessionData.role = autoRole;
+                    chipSessionData.roleName = autoRoleName;
+                    chipSessionData.roleRate = autoRoleRate;
+                    chipSessionData._autoAssignedRole = true;
+
+                    s.role = autoRole;
+                    s.roleName = autoRoleName;
+                    s.roleRate = autoRoleRate;
+                    s._autoAssignedRole = true;
+                }
             }
 
             const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
@@ -1274,6 +1344,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             chipSessionData.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
                         }
                     } else {
+                        cssClass = 'chip-waiting';
                         label = `${schedStartStr}–${endStr}${lateSuffix} (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
@@ -1295,7 +1366,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             chipSessionData.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
                         }
                     } else {
-                        cssClass = isAdminCreated ? 'chip-waiting' : 'chip-orange';
+                        cssClass = 'chip-waiting';
                         label = `${startStr}–${endStr} (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
@@ -1321,19 +1392,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isPastDayU = dateStr < todayStrU;
 
                 if (isPastDayU) {
-                    const checkInTime = safeDate(s.checkIn || s.start) || new Date();
-                    const endOfDay = new Date(`${dateStr}T23:59:00`);
-                    duration = Math.min((endOfDay - checkInTime) / 60000, 120);
-
-                    // Subtract teaching minutes (Issue 1)
-                    const teachingMins = teachingMinutesMap[s.id] || 0;
-                    duration = Math.max(0, duration - teachingMins);
-
+                    duration = 0;
                     label = `${startStr}–???`;
-                    cssClass = 'chip-green';
-                    tooltip += ' - Tự ra ca (ngày đã qua)';
+                    cssClass = 'chip-orange';
+                    tooltip += ' - Quên check-out (ngày đã qua)';
                     isClickable = true;
-                    isUnmatchedWarning = false;
+                    isUnmatchedWarning = true;
                 } else {
                     label = `${startStr}–??? (Đang làm)`;
                     cssClass = 'chip-blue';

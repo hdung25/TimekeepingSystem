@@ -1067,17 +1067,7 @@ const DBService = {
                 throw new Error(`Bạn đang có ca làm việc chưa kết thúc (bắt đầu lúc ${startTime})! Vui lòng Check-out hoặc Xóa ca cũ.`);
             }
 
-            // Cooldown: Chặn check-in trong vòng 60 giây sau khi kết thúc ca trước
-            if (data.sessions.length > 0) {
-                const lastSession = data.sessions[data.sessions.length - 1];
-                if (lastSession.checkOut) {
-                    const lastOut = lastSession.checkOut?.toDate?.() || new Date(lastSession.checkOut);
-                    const diffSeconds = (Date.now() - lastOut.getTime()) / 1000;
-                    if (diffSeconds < 60) {
-                        throw new Error('Vui lòng đợi 60 giây trước khi bắt đầu ca mới!');
-                    }
-                }
-            }
+            // Cooldown check-in removed as requested
 
             // Add new session
             const newSession = {

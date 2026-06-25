@@ -1,4 +1,4 @@
-﻿// Report & Salary Logic
+// Report & Salary Logic
 
 document.addEventListener('DOMContentLoaded', () => {
     // Check if on report page (has calendar grid)
@@ -3254,6 +3254,10 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
         document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
         document.getElementById('edit-class-is-receptionist').value = isLinkable ? 'true' : '';
     }
+    const linkedEl = document.getElementById('edit-linked-class-start');
+    if (linkedEl) {
+        linkedEl.value = (!isLinkable && preFill) ? (preFill.start || '') : '';
+    }
 
     let startVal = '08:00';
     let endVal = '10:00';
@@ -3282,7 +3286,30 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     }
 
     const staffId = getTargetStaffId();
-    await populateRoleDropdown(staffId, 'edit-role');
+    let matchedRoleId = null;
+    if (isLinkable) {
+        matchedRoleId = 'tiep-tan';
+    } else {
+        try {
+            if (preFill && preFill.lop) {
+                const users = await DBService.getUsers();
+                const user = users.find(u => u.id === staffId);
+                if (user && user.salary_config && user.salary_config.roles) {
+                    const clean = s => s.toLowerCase().replace(/\s+/g, '');
+                    const classLopClean = clean(preFill.lop);
+                    const found = user.salary_config.roles.find(r => 
+                        clean(r.name) === classLopClean || 
+                        classLopClean.includes(clean(r.name)) || 
+                        clean(r.name).includes(classLopClean)
+                    );
+                    if (found) matchedRoleId = found.id;
+                }
+            }
+        } catch (err) {
+            console.warn("Failed to auto-select role:", err);
+        }
+    }
+    await populateRoleDropdown(staffId, 'edit-role', matchedRoleId);
 
     // Default shift type to normal
     const radios = document.getElementsByName('edit-shift-type');
@@ -3521,7 +3548,7 @@ async function deleteSessionFromModal() {
                     section: classSectionKey,
                     index: classIndex
                 };
-                await DBService.registerClass(classCompositeKey, null, rowMeta, mockUser);
+                await DBService.registerClass(classCompositeKey, classSectionKey, rowMeta, mockUser);
             }
         }
 
