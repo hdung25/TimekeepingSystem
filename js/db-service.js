@@ -1019,83 +1019,17 @@ const DBService = {
             const settingsDoc = await db.collection('settings').doc('system').get();
             if (settingsDoc.exists) {
                 const settings = settingsDoc.data();
-                const allowedIP = settings.allowedIP || '';
-                const ddnsCS1 = settings.ddnsCS1 || '';
-                const ddnsCS2 = settings.ddnsCS2 || '';
-                const ddnsCS3 = settings.ddnsCS3 || '';
-                const enableIPCheck = settings.enableIPCheck === true;
-
-                // Under the hood GPS check takes priority and is 100% active if configured
                 const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
 
-                // Fetch client IP first
-                let clientIP = '';
-                try {
-                    const response = await fetch('https://api.ipify.org?format=json');
-                    const data = await response.json();
-                    clientIP = data.ip;
-                } catch (ipFetchErr) {
-                    console.warn("Could not fetch client IP:", ipFetchErr);
-                }
-
-                const allowedList = allowedIP.split(',').map(ip => ip.trim()).filter(ip => ip !== '');
-                const ddnsDomains = [];
-                [ddnsCS1, ddnsCS2, ddnsCS3].forEach(field => {
-                    if (field) {
-                        field.split(',').forEach(d => {
-                            const trimmed = d.trim();
-                            if (trimmed) ddnsDomains.push(trimmed);
-                        });
-                    }
-                });
-                const resolvedIPs = [];
-
-                for (const domain of ddnsDomains) {
-                    const resolved = await resolveDDNS(domain);
-                    if (resolved) {
-                        resolvedIPs.push(resolved);
-                    }
-                }
-
-                const allAllowedIPs = [...allowedList, ...resolvedIPs];
-
-                // Check if they are on Wifi (IP matches allowed list)
-                let isWifiMatched = false;
-                if (allAllowedIPs.length > 0) {
-                    if (clientIP && allAllowedIPs.includes(clientIP)) {
-                        isWifiMatched = true;
-                    }
-                }
-
-                // Strictly enforce Wifi IP ONLY if enableIPCheck is enabled in system settings
-                // If they are on 4G/5G, their clientIP won't match, so they get blocked immediately
-                if (enableIPCheck && allAllowedIPs.length > 0 && !isWifiMatched) {
-                    throw new Error(`IP Mạng không hợp lệ (${clientIP || 'không rõ'}). Vui lòng kết nối Wifi cơ sở!`);
-                }
-
-                // If they are on Wifi, or if no IP restriction is configured/enabled:
-                // We check GPS if GPS is configured.
                 if (hasGPS) {
-                    try {
-                        await assertAttendanceLocationAllowed(settings);
-                    } catch (gpsErr) {
-                        console.warn("GPS check failed:", gpsErr);
-                        // Fallback: If they are on Wifi (even if IP check is disabled in settings, but they happen to match),
-                        // or if IP check is enabled (and they passed it), allow it despite GPS failure.
-                        if (isWifiMatched || enableIPCheck) {
-                            console.log("GPS check failed but user is verified on Wifi. Allowing check-in.");
-                        } else {
-                            // If no Wifi fallback matches, we enforce GPS
-                            throw gpsErr;
-                        }
-                    }
+                    await assertAttendanceLocationAllowed(settings);
                 }
             }
         } catch (e) {
             // Rethrow specific errors, ignore fetch errors if offline
             // User requirement: "đúng ip mạng mới được chấm công" -> STRICT.
             if (e.message.includes('IP') || e.message.includes('Mạng') || e.message.includes('định vị') || e.message.includes('vị trí') || e.message.includes('Vị trí') || e.message.includes('GPS') || e.message.includes('thiết bị')) throw e;
-            console.warn("Skipping IP check due to network/fetch error:", e);
+            console.warn("Skipping location check due to network/fetch error:", e);
         }
 
         const now = new Date();
