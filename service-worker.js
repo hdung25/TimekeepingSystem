@@ -1,5 +1,5 @@
 // Service Worker v19 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v19-chip-dedupe';
+const CACHE_NAME = 'tdt-chamcong-v20-pure-gps';
 
 const STATIC_ASSETS = [
     '/',
@@ -16,7 +16,7 @@ const STATIC_ASSETS = [
     '/css/login.css?v=20260621-font',
     '/js/main.js?v=20260624-chip-dedupe',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260624-gps-stable',
+    '/js/db-service.js?v=20260625-pure-gps',
     '/js/evaluation-service.js?v=20260624-chip-dedupe',
     '/js/ui-service.js',
     '/js/auth-guard.js',
