@@ -1067,24 +1067,25 @@ const DBService = {
                     }
                 }
 
-                // Strictly enforce Wifi IP if IP restrictions are set
+                // Strictly enforce Wifi IP ONLY if enableIPCheck is enabled in system settings
                 // If they are on 4G/5G, their clientIP won't match, so they get blocked immediately
-                if (allAllowedIPs.length > 0 && !isWifiMatched) {
+                if (enableIPCheck && allAllowedIPs.length > 0 && !isWifiMatched) {
                     throw new Error(`IP Mạng không hợp lệ (${clientIP || 'không rõ'}). Vui lòng kết nối Wifi cơ sở!`);
                 }
 
-                // If they are on Wifi, or if no IP restriction is configured:
+                // If they are on Wifi, or if no IP restriction is configured/enabled:
                 // We check GPS if GPS is configured.
                 if (hasGPS) {
                     try {
                         await assertAttendanceLocationAllowed(settings);
                     } catch (gpsErr) {
                         console.warn("GPS check failed:", gpsErr);
-                        // Fallback: If they are on Wifi, allow it despite GPS failure
-                        if (isWifiMatched) {
+                        // Fallback: If they are on Wifi (even if IP check is disabled in settings, but they happen to match),
+                        // or if IP check is enabled (and they passed it), allow it despite GPS failure.
+                        if (isWifiMatched || enableIPCheck) {
                             console.log("GPS check failed but user is verified on Wifi. Allowing check-in.");
                         } else {
-                            // If no Wifi restriction is configured, we must enforce GPS
+                            // If no Wifi fallback matches, we enforce GPS
                             throw gpsErr;
                         }
                     }
