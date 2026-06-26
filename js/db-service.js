@@ -1264,12 +1264,20 @@ const DBService = {
 
                 // Update fields
                 const session = data.sessions[index];
+
+                // Clear old role/link keys to prevent stale links
+                delete session.role;
+                delete session.roleName;
+                delete session.roleRate;
+                delete session.isFixedShift;
+                delete session.linkedClassStart;
+                delete session.linkedReceptionistShift;
+
+                // Merge new data
+                Object.assign(session, newData);
+
                 if (newData.checkIn) {
-                    session.checkIn = newData.checkIn;
                     session.start = newData.checkIn; // Sync legacy
-                }
-                if (newData.checkOut !== undefined) {
-                    session.checkOut = newData.checkOut; // Can be null
                 }
 
                 // Sync top level if this is the last session
