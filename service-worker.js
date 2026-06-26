@@ -1,5 +1,5 @@
-// Service Worker v22 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v22-location-meetings-fix';
+// Service Worker v23 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v23-modal-refinement';
 
 const STATIC_ASSETS = [
     '/',
@@ -17,6 +17,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260624-chip-dedupe',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260626-location-bypass-and-bulk-meetings',
+    '/js/report.js?v=20260626-modal-refinement',
     '/js/evaluation-service.js?v=20260626-vdx-fallback-role-fixes',
     '/js/ui-service.js',
     '/js/auth-guard.js',

@@ -3143,6 +3143,10 @@ window.selectRoleItem = function(val, text, rate) {
     if (shiftTypeContainer) {
         shiftTypeContainer.style.display = (val === 'tiep-tan') ? 'block' : 'none';
     }
+    const subjectsContainer = document.getElementById('edit-subjects-container');
+    if (subjectsContainer) {
+        subjectsContainer.style.display = (val === 'giao-vien') ? 'block' : 'none';
+    }
     
     const list = document.getElementById('role-dropdown-list');
     if (list) list.style.display = 'none';
@@ -3176,14 +3180,177 @@ window.renderRoleOptions = function() {
     });
 };
 
-// Global click listener to close role dropdown
+// Global click listener to close role and subject dropdowns
 document.addEventListener('click', function(e) {
     const wrapper = document.getElementById('role-search-wrapper');
     const list = document.getElementById('role-dropdown-list');
     if (wrapper && !wrapper.contains(e.target)) {
         if (list) list.style.display = 'none';
     }
+    const subWrapper = document.getElementById('subject-search-wrapper');
+    const subList = document.getElementById('subject-dropdown-list');
+    if (subWrapper && !subWrapper.contains(e.target)) {
+        if (subList) subList.style.display = 'none';
+    }
 });
+
+// Searchable Subject Multi-select Dropdown Helpers
+let editSelectedSubjectIds = [];
+let allAvailableSubjects = [];
+
+window.openSubjectDropdown = function() {
+    const list = document.getElementById('subject-dropdown-list');
+    if (list) {
+        list.style.display = 'block';
+    }
+};
+
+window.closeSubjectDropdown = function() {
+    setTimeout(() => {
+        const list = document.getElementById('subject-dropdown-list');
+        if (list) list.style.display = 'none';
+    }, 200);
+};
+
+window.filterSubjectDropdown = function(query) {
+    const term = query.toLowerCase().trim();
+    const items = document.querySelectorAll('.subject-dropdown-item');
+    items.forEach(item => {
+        const name = item.dataset.name.toLowerCase();
+        if (name.includes(term)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+};
+
+window.toggleSubjectSelection = function(subId, subName, subRate) {
+    const idx = editSelectedSubjectIds.indexOf(subId);
+    if (idx > -1) {
+        editSelectedSubjectIds.splice(idx, 1);
+    } else {
+        editSelectedSubjectIds.push(subId);
+    }
+    renderSelectedSubjectBadges();
+    
+    // Update checkbox visual state
+    const cb = document.getElementById(`subject-cb-${subId}`);
+    if (cb) cb.checked = idx === -1;
+};
+
+window.clearSubjectSearch = function() {
+    const input = document.getElementById('subject-search-input');
+    if (input) {
+        input.value = '';
+        window.filterSubjectDropdown('');
+    }
+};
+
+function renderSelectedSubjectBadges() {
+    const container = document.getElementById('selected-subjects-badges');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    if (editSelectedSubjectIds.length === 0) {
+        container.innerHTML = '<span style="color: #9CA3AF; font-size: 0.85rem; font-style: italic;">Chưa chọn môn học nào</span>';
+        return;
+    }
+    
+    editSelectedSubjectIds.forEach(subId => {
+        const sub = allAvailableSubjects.find(s => s.id === subId);
+        if (!sub) return;
+        
+        const badge = document.createElement('div');
+        badge.style.cssText = `
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: #EEF2FF;
+            color: #4338CA;
+            border: 1px solid #C7D2FE;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        `;
+        badge.innerHTML = `
+            <span>${sub.name}</span>
+            <span onclick="window.toggleSubjectSelection('${sub.id}', '${sub.name}', ${sub.rate}); event.stopPropagation();" style="cursor: pointer; font-weight: bold; color: #9CA3AF; margin-left: 4px;">✕</span>
+        `;
+        container.appendChild(badge);
+    });
+}
+
+async function loadAndRenderSubjects(staffId) {
+    const list = document.getElementById('subject-dropdown-list');
+    if (!list) return;
+    list.innerHTML = '<div style="padding: 0.75rem 1rem; color: #9CA3AF; font-size: 0.9rem;">Đang tải danh sách môn học...</div>';
+    
+    try {
+        const users = await DBService.getUsers();
+        const user = users.find(u => u.id === staffId);
+        if (!user) return;
+        
+        const subjects = await DBService.getSubjects();
+        const configuredRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles : [];
+        const fallbackRate = (configuredRoles.length > 0) ? configuredRoles[0].rate : (user.salary_config?.attendance_rate || 0);
+        
+        allAvailableSubjects = [];
+        
+        // 1. Add configured roles first
+        configuredRoles.forEach(r => {
+            allAvailableSubjects.push({
+                id: r.id,
+                name: r.name,
+                rate: Number(r.rate)
+            });
+        });
+        
+        // 2. Add other subjects from database
+        subjects.forEach(s => {
+            if (!allAvailableSubjects.some(item => item.id === s.id)) {
+                allAvailableSubjects.push({
+                    id: s.id,
+                    name: s.name,
+                    rate: Number(fallbackRate)
+                });
+            }
+        });
+        
+        list.innerHTML = '';
+        allAvailableSubjects.forEach(sub => {
+            const isChecked = editSelectedSubjectIds.includes(sub.id);
+            const item = document.createElement('div');
+            item.className = 'subject-dropdown-item';
+            item.dataset.name = sub.name;
+            item.style.cssText = `
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 0.75rem 1rem;
+                cursor: pointer;
+                border-bottom: 1px solid #F3F4F6;
+                transition: background 0.2s;
+            `;
+            item.onmouseenter = () => { item.style.background = '#F3F4F6'; };
+            item.onmouseleave = () => { item.style.background = 'transparent'; };
+            item.onclick = () => window.toggleSubjectSelection(sub.id, sub.name, sub.rate);
+            
+            item.innerHTML = `
+                <input type="checkbox" id="subject-cb-${sub.id}" ${isChecked ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: #10B981; pointer-events: none;">
+                <span style="font-size: 0.95rem; color: #374151;">${sub.name}</span>
+                <span style="margin-left: auto; font-size: 0.8rem; color: #9CA3AF; font-weight: 500;">${sub.rate.toLocaleString('vi-VN')}đ/h</span>
+            `;
+            list.appendChild(item);
+        });
+        
+        renderSelectedSubjectBadges();
+    } catch (e) {
+        console.warn("Failed to load subjects for edit modal:", e);
+        list.innerHTML = '<div style="padding: 0.75rem 1rem; color: #EF4444; font-size: 0.9rem;">Lỗi tải danh sách môn học.</div>';
+    }
+}
 
 async function populateRoleDropdown(staffId, selectElementId, currentRoleId = null) {
     const select = document.getElementById(selectElementId);
@@ -3200,53 +3367,30 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
         const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
 
-        // Thêm option Tiếp Tân nếu có role tiếp tân
+        let hasSelected = false;
+
+        // 1. Option Tiếp Tân
         if (hasReceptionistRole) {
             const opt = document.createElement('option');
             opt.value = 'tiep-tan';
             opt.textContent = 'Tiếp Tân';
             opt.dataset.rate = user.salary_config?.receptionist_normal_rate || 0;
-            if (currentRoleId === 'tiep-tan' || currentRoleId === 'receptionist') opt.selected = true;
+            if (currentRoleId === 'tiep-tan' || currentRoleId === 'receptionist') {
+                opt.selected = true;
+                hasSelected = true;
+            }
             select.appendChild(opt);
         }
 
-        // Thêm các môn học nếu có role dạy học
+        // 2. Option Giáo Viên / Trợ Giảng
         if (hasTeachingRole) {
-            const configuredRoleIds = [];
-            
-            // 1. Thêm các vai trò dạy học đã cấu hình riêng cho user
-            if (user.salary_config && user.salary_config.roles) {
-                user.salary_config.roles.forEach(role => {
-                    configuredRoleIds.push(role.id);
-                    const opt = document.createElement('option');
-                    opt.value = role.id;
-                    opt.textContent = role.name;
-                    opt.dataset.rate = role.rate;
-                    if (currentRoleId && currentRoleId === role.id) opt.selected = true;
-                    select.appendChild(opt);
-                });
+            const opt = document.createElement('option');
+            opt.value = 'giao-vien';
+            opt.textContent = 'Giáo Viên / Trợ Giảng';
+            if (!hasSelected || (currentRoleId && currentRoleId !== 'tiep-tan' && currentRoleId !== 'receptionist')) {
+                opt.selected = true;
             }
-
-            // 2. Thêm tất cả môn học khác từ DB (để admin chọn môn từ môn học)
-            try {
-                const subjects = await DBService.getSubjects();
-                const fallbackRate = (user.salary_config && user.salary_config.roles && user.salary_config.roles.length > 0)
-                    ? user.salary_config.roles[0].rate
-                    : (user.salary_config?.attendance_rate || 0);
-
-                subjects.forEach(sub => {
-                    if (!configuredRoleIds.includes(sub.id)) {
-                        const opt = document.createElement('option');
-                        opt.value = sub.id;
-                        opt.textContent = sub.name;
-                        opt.dataset.rate = fallbackRate;
-                        if (currentRoleId && currentRoleId === sub.id) opt.selected = true;
-                        select.appendChild(opt);
-                    }
-                });
-            } catch (err) {
-                console.warn('Failed to load general subjects:', err);
-            }
+            select.appendChild(opt);
         }
     } catch (e) {
         console.warn('Cannot load roles:', e);
@@ -3263,9 +3407,14 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         clearBtn.style.display = (selectedOpt && selectedOpt.value) ? 'inline' : 'none';
     }
     
+    const val = selectedOpt ? selectedOpt.value : '';
     const shiftTypeContainer = document.getElementById('edit-shift-type-container');
     if (shiftTypeContainer) {
-        shiftTypeContainer.style.display = (selectedOpt && selectedOpt.value === 'tiep-tan') ? 'block' : 'none';
+        shiftTypeContainer.style.display = (val === 'tiep-tan') ? 'block' : 'none';
+    }
+    const subjectsContainer = document.getElementById('edit-subjects-container');
+    if (subjectsContainer) {
+        subjectsContainer.style.display = (val === 'giao-vien') ? 'block' : 'none';
     }
 }
 
@@ -3336,7 +3485,14 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
             console.warn("Failed to auto-select role:", err);
         }
     }
+    if (isLinkable) {
+        editSelectedSubjectIds = [];
+    } else {
+        editSelectedSubjectIds = matchedRoleId ? [matchedRoleId] : [];
+    }
+
     await populateRoleDropdown(staffId, 'edit-role', matchedRoleId);
+    await loadAndRenderSubjects(staffId);
 
     // Default shift type to normal
     const radios = document.getElementsByName('edit-shift-type');
@@ -3401,7 +3557,16 @@ async function openEditModal(dateKey, sessionId, sessionData, classStart, classC
     }
 
     const staffId = getTargetStaffId();
+
+    const isRecep = sessionData && (sessionData.role === 'tiep-tan' || sessionData.role === 'receptionist');
+    if (isRecep) {
+        editSelectedSubjectIds = [];
+    } else {
+        editSelectedSubjectIds = (sessionData && sessionData.role) ? sessionData.role.split('+') : [];
+    }
+
     await populateRoleDropdown(staffId, 'edit-role', sessionData ? sessionData.role : null);
+    await loadAndRenderSubjects(staffId);
 
     // Update shift type radio buttons
     const isFixed = sessionData && sessionData.isFixedShift === true;
@@ -3483,13 +3648,10 @@ async function saveEditedTime() {
         ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {})
     };
 
-    if (selectedRoleId) {
-        newData.role = selectedRoleId;
-        newData.roleName = selectedRoleName;
-        newData.roleRate = Number(selectedRoleRate);
-    }
-
     if (selectedRoleId === 'tiep-tan') {
+        newData.role = 'tiep-tan';
+        newData.roleName = 'Tiếp Tân';
+        
         const checkedRadio = document.querySelector('input[name="edit-shift-type"]:checked');
         const isFixed = (checkedRadio && checkedRadio.value === 'fixed');
         newData.isFixedShift = isFixed;
@@ -3503,9 +3665,32 @@ async function saveEditedTime() {
             } catch (err) {
                 console.warn("Failed to get fixed rate for receptionist:", err);
             }
+        } else {
+            newData.roleRate = Number(selectedRoleRate || 0);
         }
+    } else if (selectedRoleId === 'giao-vien') {
+        newData.isFixedShift = false;
+        
+        if (editSelectedSubjectIds.length === 0) {
+            alert("Vui lòng chọn ít nhất một môn học!");
+            return;
+        }
+        
+        // Combine subjects
+        const selectedSubjects = editSelectedSubjectIds.map(subId => {
+            return allAvailableSubjects.find(s => s.id === subId);
+        }).filter(Boolean);
+        
+        newData.role = selectedSubjects.map(s => s.id).join('+');
+        newData.roleName = selectedSubjects.map(s => s.name).join(' + ');
+        // Average rate
+        const totalRate = selectedSubjects.reduce((sum, s) => sum + s.rate, 0);
+        newData.roleRate = totalRate / selectedSubjects.length;
     } else {
         newData.isFixedShift = false;
+        newData.role = null;
+        newData.roleName = null;
+        newData.roleRate = 0;
     }
 
     try {
