@@ -3211,15 +3211,42 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         }
 
         // Thêm các môn học nếu có role dạy học
-        if (user.salary_config && user.salary_config.roles && hasTeachingRole) {
-            user.salary_config.roles.forEach(role => {
-                const opt = document.createElement('option');
-                opt.value = role.id;
-                opt.textContent = role.name;
-                opt.dataset.rate = role.rate;
-                if (currentRoleId && currentRoleId === role.id) opt.selected = true;
-                select.appendChild(opt);
-            });
+        if (hasTeachingRole) {
+            const configuredRoleIds = [];
+            
+            // 1. Thêm các vai trò dạy học đã cấu hình riêng cho user
+            if (user.salary_config && user.salary_config.roles) {
+                user.salary_config.roles.forEach(role => {
+                    configuredRoleIds.push(role.id);
+                    const opt = document.createElement('option');
+                    opt.value = role.id;
+                    opt.textContent = role.name;
+                    opt.dataset.rate = role.rate;
+                    if (currentRoleId && currentRoleId === role.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+
+            // 2. Thêm tất cả môn học khác từ DB (để admin chọn môn từ môn học)
+            try {
+                const subjects = await DBService.getSubjects();
+                const fallbackRate = (user.salary_config && user.salary_config.roles && user.salary_config.roles.length > 0)
+                    ? user.salary_config.roles[0].rate
+                    : (user.salary_config?.attendance_rate || 0);
+
+                subjects.forEach(sub => {
+                    if (!configuredRoleIds.includes(sub.id)) {
+                        const opt = document.createElement('option');
+                        opt.value = sub.id;
+                        opt.textContent = sub.name;
+                        opt.dataset.rate = fallbackRate;
+                        if (currentRoleId && currentRoleId === sub.id) opt.selected = true;
+                        select.appendChild(opt);
+                    }
+                });
+            } catch (err) {
+                console.warn('Failed to load general subjects:', err);
+            }
         }
     } catch (e) {
         console.warn('Cannot load roles:', e);
@@ -3464,7 +3491,19 @@ async function saveEditedTime() {
 
     if (selectedRoleId === 'tiep-tan') {
         const checkedRadio = document.querySelector('input[name="edit-shift-type"]:checked');
-        newData.isFixedShift = (checkedRadio && checkedRadio.value === 'fixed');
+        const isFixed = (checkedRadio && checkedRadio.value === 'fixed');
+        newData.isFixedShift = isFixed;
+        if (isFixed) {
+            try {
+                const users = await DBService.getUsers();
+                const user = users.find(u => u.id === staffId);
+                if (user && user.salary_config) {
+                    newData.roleRate = Number(user.salary_config.receptionist_fixed_rate || 0);
+                }
+            } catch (err) {
+                console.warn("Failed to get fixed rate for receptionist:", err);
+            }
+        }
     } else {
         newData.isFixedShift = false;
     }

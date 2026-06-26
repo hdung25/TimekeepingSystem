@@ -1015,6 +1015,7 @@ const DBService = {
 
     checkInPersonal: async (userId, userFullName) => {
         // IP & GPS CHECK LOGIC
+        let locationError = null;
         try {
             const settingsDoc = await db.collection('settings').doc('system').get();
             if (settingsDoc.exists) {
@@ -1022,14 +1023,16 @@ const DBService = {
                 const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
 
                 if (hasGPS) {
-                    await assertAttendanceLocationAllowed(settings);
+                    try {
+                        await assertAttendanceLocationAllowed(settings);
+                    } catch (locErr) {
+                        console.warn("GPS check failed but allowing check-in per bypass rule:", locErr);
+                        locationError = locErr.message;
+                    }
                 }
             }
         } catch (e) {
-            // Rethrow specific errors, ignore fetch errors if offline
-            // User requirement: "đúng ip mạng mới được chấm công" -> STRICT.
-            if (e.message.includes('IP') || e.message.includes('Mạng') || e.message.includes('định vị') || e.message.includes('vị trí') || e.message.includes('Vị trí') || e.message.includes('GPS') || e.message.includes('thiết bị')) throw e;
-            console.warn("Skipping location check due to network/fetch error:", e);
+            console.warn("Skipping location check due to settings fetch error:", e);
         }
 
         const now = new Date();
@@ -1076,6 +1079,9 @@ const DBService = {
                 checkIn: now.toISOString(),
                 checkOut: null
             };
+            if (locationError) {
+                newSession.locationError = locationError;
+            }
 
             data.sessions.push(newSession);
 
@@ -2559,6 +2565,72 @@ const DBService = {
             return true;
         } catch (error) {
             console.error("[Meetings] Error updating attendance status:", error);
+            throw error;
+        }
+    },
+
+    checkInMeetingBulk: async (meetingId, attendees, status) => {
+        try {
+            const meetingDoc = await db.collection('meetings').doc(meetingId).get();
+            if (!meetingDoc.exists) return false;
+            
+            const mData = meetingDoc.data();
+            const mDate = mData.date;
+            if (!mDate) return false;
+            
+            const monthStr = mDate.substring(0, 7);
+            const checkInTime = new Date().toISOString();
+            const batch = db.batch();
+            
+            // Read or initialize the monthly meetings log document
+            const logRef = db.collection('meetings_log').doc(monthStr);
+            const logDoc = await logRef.get();
+            let logData = logDoc.exists ? logDoc.data() : { month: monthStr, records: {} };
+            if (!logData.records) logData.records = {};
+            
+            attendees.forEach(att => {
+                const userId = att.id;
+                const userName = att.name;
+                const spec = att.specialty || '';
+                
+                // Write/merge the attendance document
+                const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
+                batch.set(attendanceRef, {
+                    meetingId,
+                    userId,
+                    userName,
+                    status,
+                    checkInTime,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                
+                // Merge in meetings_log
+                if (!logData.records[userId]) {
+                    logData.records[userId] = {};
+                }
+                
+                const specUpper = spec.toUpperCase();
+                if (specUpper.includes('TG TA')) {
+                    logData.records[userId].hop_tg_tieng_anh = status;
+                }
+                if (specUpper.includes('TG T-TV')) {
+                    logData.records[userId].hop_tg_t_tv = status;
+                }
+                if (specUpper.includes('TOÁN TƯ DUY') || specUpper.includes('TTD')) {
+                    logData.records[userId].hop_toan_tu_duy = status;
+                }
+                if (specUpper.includes('TIẾP TÂN') || specUpper.includes('TT')) {
+                    logData.records[userId].hop_tiep_tan = status;
+                }
+            });
+            
+            batch.set(logRef, logData, { merge: true });
+            await batch.commit();
+            
+            DBService._invalidate(`monthly_meetings_${monthStr}`);
+            return true;
+        } catch (error) {
+            console.error("[Meetings] Error bulk check-in:", error);
             throw error;
         }
     }

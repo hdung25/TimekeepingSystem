@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 
 <head>
@@ -393,7 +393,7 @@
 
             <!-- Create Meeting Modal -->
             <div id="create-meeting-modal" class="modal" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
-                <div class="modal-content" style="max-width: 500px; width: 90%; border-radius: 12px; padding: 2rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-xl); background: white;">
+                <div class="modal-content" style="max-width: 500px; width: 95%; max-height: 90vh; overflow-y: auto; border-radius: 12px; padding: 1.5rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-xl); background: white;">
                     <h2 style="margin-top: 0; margin-bottom: 1.5rem; font-size: 1.25rem; font-weight: 700; color: #7C3AED; display: flex; align-items: center; gap: 8px;">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-circle"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                         Lên Lịch Họp Định Kỳ
@@ -404,6 +404,14 @@
                             <div>
                                 <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Tiêu đề cuộc họp</label>
                                 <input type="text" id="meeting-title" class="filter-input" placeholder="Ví dụ: Họp định kỳ tháng 6" required style="padding: 8px 12px; font-size: 0.9rem;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">Loại cuộc họp</label>
+                                <select id="meeting-type" class="table-select" required style="padding: 8px 12px; font-size: 0.9rem; height: 38px;">
+                                    <option value="online">Họp online</option>
+                                    <option value="direct">Họp trực tiếp</option>
+                                </select>
                             </div>
                             
                             <div>
@@ -417,13 +425,23 @@
                                 </select>
                             </div>
                             
-                            <div id="custom-attendees-container" style="display: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: #F9FAFB; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <div id="custom-attendees-container" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: #F9FAFB; display: flex; flex-direction: column; gap: 0.5rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.25rem;">
-                                    <label style="font-weight: 700; font-size: 0.85rem; color: #7C3AED;">Danh sách nhân sự:</label>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <label style="font-weight: 700; font-size: 0.85rem; color: #7C3AED;">Danh sách nhân sự:</label>
+                                        <span id="attendee-selected-count" style="font-size: 0.78rem; font-weight: 700; color: #6D28D9; background: #EDE9FE; padding: 2px 8px; border-radius: 9999px;">Đã chọn: 0 người</span>
+                                    </div>
                                     <button type="button" id="btn-toggle-select-all" onclick="toggleSelectAllAttendees()" style="background: none; border: none; color: #4338CA; font-weight: 600; font-size: 0.78rem; cursor: pointer; padding: 0;">Chọn tất cả</button>
                                 </div>
-                                <div style="position: relative;">
-                                    <input type="text" id="attendee-search-input" placeholder="Tìm tên nhân viên..." oninput="filterAttendeesList(this.value)" style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; box-sizing: border-box;">
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="text" id="attendee-search-input" placeholder="Tìm tên..." oninput="filterAttendeesList()" style="flex: 2; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; box-sizing: border-box;">
+                                    <select id="attendee-role-filter" onchange="filterAttendeesList()" style="flex: 1; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.82rem; background: white; box-sizing: border-box;">
+                                        <option value="all">Tất cả vai trò</option>
+                                        <option value="TG TA">TG TA</option>
+                                        <option value="TG T-TV">TG T-TV</option>
+                                        <option value="TOÁN TƯ DUY">Toán Tư Duy</option>
+                                        <option value="TIẾP TÂN">Tiếp Tân</option>
+                                    </select>
                                 </div>
                                 <div id="custom-attendees-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; padding-right: 4px;">
                                     <!-- Dynamic list of employees -->
@@ -536,13 +554,7 @@
             const meetingDeptSelect = document.getElementById('meeting-dept');
             if (meetingDeptSelect) {
                 meetingDeptSelect.addEventListener('change', function(e) {
-                    const customContainer = document.getElementById('custom-attendees-container');
-                    if (e.target.value === 'CUSTOM') {
-                        renderCustomAttendeesList();
-                        customContainer.style.display = 'block';
-                    } else {
-                        customContainer.style.display = 'none';
-                    }
+                    autoSelectAttendeesByDept(e.target.value);
                 });
             }
         });
@@ -1089,24 +1101,74 @@
         // ================= PERIODIC MEETING ADMIN FUNCTIONS =================
 
         // 1. Modal control
+        const selectedAttendeeIds = new Set();
         let allAttendeesSelected = false;
-        function toggleSelectAllAttendees() {
-            const checkboxes = document.querySelectorAll('.custom-attendee-cb');
-            allAttendeesSelected = !allAttendeesSelected;
-            checkboxes.forEach(cb => cb.checked = allAttendeesSelected);
-            
-            const btn = document.getElementById('btn-toggle-select-all');
-            if (btn) {
-                btn.innerText = allAttendeesSelected ? "Bỏ chọn tất cả" : "Chọn tất cả";
+
+        function autoSelectAttendeesByDept(dept) {
+            selectedAttendeeIds.clear();
+            if (dept !== 'CUSTOM') {
+                employeesList.forEach(user => {
+                    const spec = formatUserSpecialty(user).toUpperCase();
+                    if (dept === 'TG TA' && spec.includes('TG TA')) {
+                        selectedAttendeeIds.add(user.id);
+                    } else if (dept === 'TG T-TV' && spec.includes('TG T-TV')) {
+                        selectedAttendeeIds.add(user.id);
+                    } else if (dept === 'TOÁN TƯ DUY' && (spec.includes('TOÁN TƯ DUY') || spec.includes('TTD'))) {
+                        selectedAttendeeIds.add(user.id);
+                    } else if (dept === 'TIẾP TÂN' && (spec.includes('TIẾP TÂN') || spec.includes('TT'))) {
+                        selectedAttendeeIds.add(user.id);
+                    }
+                });
             }
+            
+            // Clear search & filters on department change
+            const searchInput = document.getElementById('attendee-search-input');
+            const roleFilter = document.getElementById('attendee-role-filter');
+            if (searchInput) searchInput.value = '';
+            if (roleFilter) roleFilter.value = 'all';
+
+            renderCustomAttendeesList();
         }
-        window.toggleSelectAllAttendees = toggleSelectAllAttendees;
+        window.autoSelectAttendeesByDept = autoSelectAttendeesByDept;
 
         function renderCustomAttendeesList() {
             const listDiv = document.getElementById('custom-attendees-list');
+            if (!listDiv) return;
             listDiv.innerHTML = '';
             
-            employeesList.forEach(user => {
+            const query = (document.getElementById('attendee-search-input')?.value || '').trim().toLowerCase();
+            const roleFilter = document.getElementById('attendee-role-filter')?.value || 'all';
+            
+            // Filter attendees based on name and specialty
+            let list = employeesList.filter(user => {
+                const name = (user.name || user.username || '').toLowerCase();
+                const spec = formatUserSpecialty(user).toUpperCase();
+                
+                const matchesSearch = name.includes(query);
+                let matchesRole = true;
+                
+                if (roleFilter !== 'all') {
+                    if (roleFilter === 'TG TA') matchesRole = spec.includes('TG TA');
+                    else if (roleFilter === 'TG T-TV') matchesRole = spec.includes('TG T-TV');
+                    else if (roleFilter === 'TOÁN TƯ DUY') matchesRole = spec.includes('TOÁN TƯ DUY') || spec.includes('TTD');
+                    else if (roleFilter === 'TIẾP TÂN') matchesRole = spec.includes('TIẾP TÂN') || spec.includes('TT');
+                }
+                
+                return matchesSearch && matchesRole;
+            });
+            
+            // Sort: Checked attendees float to the top
+            list.sort((a, b) => {
+                const aChecked = selectedAttendeeIds.has(a.id) ? 1 : 0;
+                const bChecked = selectedAttendeeIds.has(b.id) ? 1 : 0;
+                if (aChecked !== bChecked) {
+                    return bChecked - aChecked; // checked first
+                }
+                return (a.name || '').localeCompare(b.name || '');
+            });
+            
+            // Render list
+            list.forEach(user => {
                 const label = document.createElement('label');
                 label.className = 'custom-attendee-item';
                 label.dataset.name = (user.name || user.username || '').toLowerCase();
@@ -1126,38 +1188,84 @@
                 label.onmouseout = () => { label.style.background = 'transparent'; };
                 
                 const spec = formatUserSpecialty(user);
+                const isChecked = selectedAttendeeIds.has(user.id);
                 
                 label.innerHTML = `
-                    <input type="checkbox" class="custom-attendee-cb" value="${user.id}" style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--primary-color);">
+                    <input type="checkbox" class="custom-attendee-cb" value="${user.id}" ${isChecked ? 'checked' : ''} style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--primary-color);">
                     <span style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                         <span style="font-weight: 600;">${user.name || user.username}</span>
                         <span style="font-size: 0.75rem; background: #EEF2FF; color: #4338CA; padding: 2px 6px; border-radius: 12px; font-weight: 600;">${spec}</span>
                     </span>
                 `;
+                
+                const cb = label.querySelector('input');
+                cb.addEventListener('change', function(e) {
+                    if (e.target.checked) {
+                        selectedAttendeeIds.add(user.id);
+                    } else {
+                        selectedAttendeeIds.delete(user.id);
+                    }
+                    renderCustomAttendeesList();
+                });
+                
                 listDiv.appendChild(label);
             });
 
-            // Clear search field on render
-            const searchInput = document.getElementById('attendee-search-input');
-            if (searchInput) {
-                searchInput.value = '';
-                filterAttendeesList('');
+            // Update display selected count
+            const countSpan = document.getElementById('attendee-selected-count');
+            if (countSpan) {
+                countSpan.innerText = `Đã chọn: ${selectedAttendeeIds.size} người`;
+            }
+
+            // Update Select All Button text
+            const toggleBtn = document.getElementById('btn-toggle-select-all');
+            if (toggleBtn) {
+                const allChecked = list.length > 0 && list.every(u => selectedAttendeeIds.has(u.id));
+                toggleBtn.innerText = allChecked ? "Bỏ chọn tất cả" : "Chọn tất cả";
             }
         }
+        window.renderCustomAttendeesList = renderCustomAttendeesList;
 
-        function filterAttendeesList(query) {
-            const cleanQuery = query.trim().toLowerCase();
-            const items = document.querySelectorAll('.custom-attendee-item');
-            items.forEach(item => {
-                const name = item.dataset.name || '';
-                if (name.includes(cleanQuery)) {
-                    item.style.display = 'flex';
-                } else {
-                    item.style.display = 'none';
-                }
-            });
+        function filterAttendeesList() {
+            renderCustomAttendeesList();
         }
         window.filterAttendeesList = filterAttendeesList;
+
+        function toggleSelectAllAttendees() {
+            const query = (document.getElementById('attendee-search-input')?.value || '').trim().toLowerCase();
+            const roleFilter = document.getElementById('attendee-role-filter')?.value || 'all';
+            
+            // Get currently visible users
+            const visibleUsers = employeesList.filter(user => {
+                const name = (user.name || user.username || '').toLowerCase();
+                const spec = formatUserSpecialty(user).toUpperCase();
+                
+                const matchesSearch = name.includes(query);
+                let matchesRole = true;
+                
+                if (roleFilter !== 'all') {
+                    if (roleFilter === 'TG TA') matchesRole = spec.includes('TG TA');
+                    else if (roleFilter === 'TG T-TV') matchesRole = spec.includes('TG T-TV');
+                    else if (roleFilter === 'TOÁN TƯ DUY') matchesRole = spec.includes('TOÁN TƯ DUY') || spec.includes('TTD');
+                    else if (roleFilter === 'TIẾP TÂN') matchesRole = spec.includes('TIẾP TÂN') || spec.includes('TT');
+                }
+                
+                return matchesSearch && matchesRole;
+            });
+            
+            const allChecked = visibleUsers.length > 0 && visibleUsers.every(u => selectedAttendeeIds.has(u.id));
+            
+            visibleUsers.forEach(u => {
+                if (!allChecked) {
+                    selectedAttendeeIds.add(u.id);
+                } else {
+                    selectedAttendeeIds.delete(u.id);
+                }
+            });
+            
+            renderCustomAttendeesList();
+        }
+        window.toggleSelectAllAttendees = toggleSelectAllAttendees;
 
         function openCreateMeetingModal() {
             document.getElementById('create-meeting-form').reset();
@@ -1166,18 +1274,20 @@
             const todayStr = today.toISOString().split('T')[0];
             document.getElementById('meeting-date').value = todayStr;
             
-            // Hide custom selection and reset states
-            document.getElementById('custom-attendees-container').style.display = 'none';
-            allAttendeesSelected = false;
-            const toggleBtn = document.getElementById('btn-toggle-select-all');
-            if (toggleBtn) toggleBtn.innerText = "Chọn tất cả";
+            // Default select to TG TA
+            const deptSelect = document.getElementById('meeting-dept');
+            if (deptSelect) deptSelect.value = 'TG TA';
+            
+            autoSelectAttendeesByDept('TG TA');
             
             document.getElementById('create-meeting-modal').style.display = 'flex';
         }
+        window.openCreateMeetingModal = openCreateMeetingModal;
 
         function closeCreateMeetingModal() {
             document.getElementById('create-meeting-modal').style.display = 'none';
         }
+        window.closeCreateMeetingModal = closeCreateMeetingModal;
 
         async function handleCreateMeeting(e) {
             e.preventDefault();
@@ -1187,6 +1297,7 @@
             submitBtn.innerText = "Đang tạo...";
 
             const title = document.getElementById('meeting-title').value.trim();
+            const meetingType = document.getElementById('meeting-type').value;
             const department = document.getElementById('meeting-dept').value;
             const date = document.getElementById('meeting-date').value;
             const startTime = document.getElementById('meeting-start').value;
@@ -1205,31 +1316,43 @@
                     throw new Error("Giờ bắt đầu họp phải trước giờ kết thúc họp!");
                 }
 
-                let attendees = null;
-                if (department === 'CUSTOM') {
-                    const checkedCbs = document.querySelectorAll('.custom-attendee-cb:checked');
-                    if (checkedCbs.length === 0) {
-                        throw new Error("Vui lòng chọn ít nhất một thành viên tham gia họp!");
-                    }
-                    attendees = Array.from(checkedCbs).map(cb => cb.value);
+                if (selectedAttendeeIds.size === 0) {
+                    throw new Error("Vui lòng chọn ít nhất một nhân sự tham gia họp!");
                 }
 
+                const attendees = Array.from(selectedAttendeeIds);
+
+                // Online vs Direct: prefix title
+                const formattedTitle = meetingType === 'online' ? `[Online] ${title}` : `[Trực tiếp] ${title}`;
+
                 const meetingData = {
-                    title,
+                    title: formattedTitle,
+                    type: meetingType,
                     department,
                     date,
                     startTime,
                     endTime,
                     checkInStart,
-                    checkInClose
+                    checkInClose,
+                    attendees
                 };
-                if (attendees) {
-                    meetingData.attendees = attendees;
-                }
 
-                await DBService.createMeeting(meetingData);
+                const meetingId = await DBService.createMeeting(meetingData);
                 
-                UIService.toast("Tạo cuộc họp thành công!", "success");
+                // Map attendees to user details (name & specialty)
+                const attendeeDetails = attendees.map(userId => {
+                    const u = employeesList.find(x => x.id === userId);
+                    return {
+                        id: userId,
+                        name: u ? (u.name || u.username) : "Nhân viên",
+                        specialty: u ? formatUserSpecialty(u) : ""
+                    };
+                });
+                
+                // Perform bulk check-in (marks "Có" instantly on board & salary settings)
+                await DBService.checkInMeetingBulk(meetingId, attendeeDetails, "Có");
+                
+                UIService.toast("Tạo lịch họp và điểm danh thành công!", "success");
                 closeCreateMeetingModal();
                 
                 // Refresh main grid
@@ -1246,6 +1369,7 @@
                 submitBtn.innerText = "Tạo Cuộc Họp";
             }
         }
+        window.handleCreateMeeting = handleCreateMeeting;
 
         // 2. View Toggle
         function showMeetingsStats() {
@@ -1362,8 +1486,26 @@
                     const logs = activeAttendanceMap[m.id] || [];
                     const presentCount = logs.filter(l => l.status === 'Có' || l.status === 'Trễ').length;
 
+                    let displayTitle = m.title || 'Họp định kỳ';
+                    let typeBadgeHtml = '';
+                    const mType = m.type || (displayTitle.startsWith('[Online]') ? 'online' : (displayTitle.startsWith('[Trực tiếp]') ? 'direct' : ''));
+                    if (mType === 'online') {
+                        typeBadgeHtml = `<span style="display: inline-block; padding: 2px 6px; font-size: 0.7rem; font-weight: 600; border-radius: 4px; background: hsla(217, 89%, 60%, 0.1); color: hsl(217, 89%, 50%); margin-left: 6px; vertical-align: middle;">Online</span>`;
+                        if (displayTitle.startsWith('[Online] ')) {
+                            displayTitle = displayTitle.substring(9);
+                        }
+                    } else if (mType === 'direct') {
+                        typeBadgeHtml = `<span style="display: inline-block; padding: 2px 6px; font-size: 0.7rem; font-weight: 600; border-radius: 4px; background: hsla(142, 72%, 45%, 0.1); color: hsl(142, 72%, 35%); margin-left: 6px; vertical-align: middle;">Trực tiếp</span>`;
+                        if (displayTitle.startsWith('[Trực tiếp] ')) {
+                            displayTitle = displayTitle.substring(12);
+                        }
+                    }
+
                     card.innerHTML = `
-                        <div style="font-weight: 700; color: #1F2937; margin-bottom: 0.25rem; font-size: 0.92rem;">${m.title || 'Họp định kỳ'}</div>
+                        <div style="font-weight: 700; color: #1F2937; margin-bottom: 0.25rem; font-size: 0.92rem; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                            <span>${displayTitle}</span>
+                            ${typeBadgeHtml}
+                        </div>
                         <div style="font-size: 0.78rem; color: var(--text-muted); display:flex; flex-direction:column; gap:2px;">
                             <span>📅 Ngày: ${m.date}</span>
                             <span>🕒 Giờ: ${m.startTime} - ${m.endTime}</span>
@@ -1403,7 +1545,18 @@
             const meeting = activeMeetingsInStats.find(m => m.id === meetingId);
             if (!meeting) return;
 
-            document.getElementById('stats-meeting-detail-title').innerText = `Chi tiết: ${meeting.title} (${meeting.date})`;
+            let displayTitle = meeting.title || 'Họp định kỳ';
+            const mType = meeting.type || (displayTitle.startsWith('[Online]') ? 'online' : (displayTitle.startsWith('[Trực tiếp]') ? 'direct' : ''));
+            if (mType === 'online' && displayTitle.startsWith('[Online] ')) {
+                displayTitle = displayTitle.substring(9);
+            } else if (mType === 'direct' && displayTitle.startsWith('[Trực tiếp] ')) {
+                displayTitle = displayTitle.substring(12);
+            }
+            
+            let badgeText = mType === 'online' ? 'Online' : (mType === 'direct' ? 'Trực tiếp' : '');
+            let badgeHtml = badgeText ? ` <span style="font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: ${mType === 'online' ? 'hsla(217, 89%, 60%, 0.1)' : 'hsla(142, 72%, 45%, 0.1)'}; color: ${mType === 'online' ? 'hsl(217, 89%, 50%)' : 'hsl(142, 72%, 35%)'}; margin-left: 8px; display: inline-block; vertical-align: middle;">${badgeText}</span>` : '';
+            
+            document.getElementById('stats-meeting-detail-title').innerHTML = `Chi tiết: ${displayTitle}${badgeHtml} (${meeting.date})`;
             
             const deleteBtn = document.getElementById('btn-delete-meeting');
             deleteBtn.style.display = 'block';
