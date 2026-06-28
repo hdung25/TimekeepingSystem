@@ -288,7 +288,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     ));
                 if (!_isReg) return;
                 const ck = c._compositeKey || null;
-                if (ck && cancelledShifts.includes(`${ck}_${sk}_${i}`)) return;
+                const originalIdx = c._originalIndex !== undefined ? c._originalIndex : i;
+                if (ck && cancelledShifts.includes(`${ck}_${sk}_${originalIdx}`)) return;
                 // Bỏ qua nếu đã có entry cùng (branch + start + end) → tránh chip V giả do duplicate class entry
                 const _slotKey = `${c._branch || ''}_${c.start}_${c.end}`;
                 if (_seenSlots.has(_slotKey)) return;
@@ -404,7 +405,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             // --- NEW: Check Cancelled Shifts ---
             const classCompositeKey = cls._compositeKey || null;
-            if (classCompositeKey && cancelledShifts.includes(`${classCompositeKey}_${secKey}_${idx}`)) {
+            const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
+            if (classCompositeKey && cancelledShifts.includes(`${classCompositeKey}_${secKey}_${originalIdx}`)) {
                 return; // Skip this explicitly cancelled shift
             }
 

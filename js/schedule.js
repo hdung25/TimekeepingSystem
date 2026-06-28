@@ -224,6 +224,15 @@ async function renderTable() {
         try { presentUserIds = await DBService.getDayAttendance(dateKey); } catch(e) {}
     }
 
+    // Fetch all cancelled shifts for the month
+    let cancelledShiftsMap = {};
+    try {
+        const monthStr = dateKey.substring(0, 7);
+        cancelledShiftsMap = await DBService.getAllCancelledShifts(monthStr);
+    } catch (e) {
+        console.error("Error loading cancelled shifts map:", e);
+    }
+
     // Determine Role
     const currentRole = localStorage.getItem('currentRole');
     const currentRoles = typeof parseRoles === 'function' ? parseRoles(currentRole) : (currentRole ? [currentRole] : []);
@@ -267,7 +276,7 @@ async function renderTable() {
 
         rows.forEach((row, idx) => {
             const rowId = `${dateKey}-${section.key}-${idx}`;
-            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff, presentUserIds, dateKey, todayRealKey);
+            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff, presentUserIds, dateKey, todayRealKey, cancelledShiftsMap);
         });
 
         if (isAdmin) {
@@ -295,7 +304,7 @@ function getGVList(row, fieldType) {
 }
 
 // Render compact multi-teacher cell
-function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday, dateKey) {
+function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap = {}) {
     const isGV = fieldType === 'gv';
     const accentColor = isGV ? 'inherit' : '#D97706';
     const gvList = getGVList(row, fieldType);
@@ -325,10 +334,28 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             }
         }
 
-        const absent = isShiftPastOrStarted ? gvList.filter(g => g.id && !presentUserIds.has(g.id)) : [];
+        const absent = isShiftPastOrStarted ? gvList.filter(g => {
+            if (!g.id) return false;
+            const userCancelledShifts = cancelledShiftsMap[g.id] || [];
+            const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
+            return !presentUserIds.has(g.id) && !isCancelled;
+        }) : [];
+
         const f = gvList[0];
-        const fStyle = absent.some(a => a.id === f.id) ? absentStyle : '';
-        nameHtml = `<span style="${fStyle}color:${accentColor};">${f.name}</span>`;
+        const userCancelledShifts = cancelledShiftsMap[f.id] || [];
+        const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
+
+        let fStyle = '';
+        let labelSuffix = '';
+        if (isCancelled) {
+            fStyle = 'color:#10B981;text-decoration:line-through;font-weight:600;';
+            labelSuffix = ' (Admin Hủy)';
+        } else {
+            const isAbsent = absent.some(a => a.id === f.id);
+            fStyle = isAbsent ? absentStyle : `color:${accentColor};`;
+        }
+
+        nameHtml = `<span style="${fStyle}">${f.name}${labelSuffix}</span>`;
         if (gvList.length > 1) nameHtml += ` <span style="background:#E5E7EB;color:#374151;border-radius:10px;padding:1px 5px;font-size:0.68rem;font-weight:700;">+${gvList.length - 1}</span>`;
         if (absent.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#EF4444;">Vắng: ${absent.length}</div>`;
     }
@@ -345,7 +372,7 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
     </div></td>`;
 }
 
-function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, presentUserIds = new Set(), dateKey = '', todayRealKey = '') {
+function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, presentUserIds = new Set(), dateKey = '', todayRealKey = '', cancelledShiftsMap = {}) {
     const isPastClass = isScheduleTimePast(compositeKey, data.start);
     const rowIsAdmin = isAdmin && !isPastClass;
     const inputClass = rowIsAdmin ? 'table-input' : 'table-input read-only-input';
@@ -353,7 +380,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     // === GV FIELD (multi-teacher) ===
     const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
-    const gvCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey);
+    const gvCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
 
 
     // === SỐ HS FIELD ===
@@ -400,7 +427,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
-    const gvTTCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday, dateKey);
+    const gvTTCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
 
     return `
         <tr>
