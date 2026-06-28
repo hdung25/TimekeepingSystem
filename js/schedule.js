@@ -23,6 +23,26 @@ function isCenterClosed(dateStr, shiftKey, centerClosures) {
     return closures.includes('all') || closures.includes(shiftKey);
 }
 
+function isScheduleTimePast(compositeKey, startTimeStr) {
+    if (!compositeKey || !startTimeStr || typeof startTimeStr !== 'string') return false;
+    try {
+        const parts = compositeKey.split('__');
+        if (parts.length < 2) return false;
+        const dateStr = parts[1]; // YYYY-MM-DD
+        
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const [hr, min] = startTimeStr.split(':').map(Number);
+        
+        if (isNaN(y) || isNaN(m) || isNaN(d) || isNaN(hr) || isNaN(min)) return false;
+        
+        const classStart = new Date(y, m - 1, d, hr, min, 0, 0);
+        return new Date() > classStart;
+    } catch (e) {
+        console.error("Error checking isScheduleTimePast:", e);
+        return false;
+    }
+}
+
 
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday

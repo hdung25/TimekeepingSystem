@@ -23,7 +23,7 @@ const STATIC_ASSETS = [
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js?v=20260628-past-lock-assistant',
+    '/js/schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260628-gps-receptionist-persistence',
     '/images/TUDUYTRE.jpg',
