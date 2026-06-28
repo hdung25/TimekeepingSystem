@@ -1,5 +1,5 @@
-// Service Worker v31 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v31-class-closure-specific';
+// Service Worker v32 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v32-copy-week-typo-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,7 +23,7 @@ const STATIC_ASSETS = [
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js?v=20260628-class-closure-specific',
+    '/js/schedule.js?v=20260628-copy-week-typo-fix',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260628-class-closure-specific',
     '/images/TUDUYTRE.jpg',

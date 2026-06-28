@@ -936,12 +936,12 @@ window.executeCopyWeek = async function () {
                 sections.forEach(sec => {
                     if (srcData[sec]) {
                         cleanData[sec] = srcData[sec].map(row => {
-                            const { registeredTeachers, gvThayThe, gvThayTheId, gvThayTheList, ...rest } = row;
+                            const { registeredTeachers, gvThayTe, gvThayTeId, gvThayTeList, ...rest } = row;
                             return {
                                 ...rest,
-                                gvThayThe: '',
-                                gvThayTheId: '',
-                                gvThayTheList: []
+                                gvThayTe: '',
+                                gvThayTeId: '',
+                                gvThayTeList: []
                             };
                         });
                     }
