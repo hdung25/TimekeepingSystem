@@ -531,6 +531,10 @@ const DBService = {
     registerClass: async (compositeKey, caType, rowMeta, user) => {
         // rowMeta: { index, branch, ... }
         try {
+            const userId = user ? (user.id || user.uid) : null;
+            const userName = user ? (user.name || user.displayName || user.username) : null;
+            if (!userId) throw new Error("User ID is required for registration!");
+
             const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
             const manifestName = `schedule_manifest_${branch}`;
             const docRef = db.collection('schedules').doc(docId);
@@ -589,14 +593,14 @@ const DBService = {
                     rows[rowIndex].registeredTeachers = [];
                 }
 
-                const isRegistered = rows[rowIndex].registeredTeachers.some(t => t.id === user.id);
+                const isRegistered = rows[rowIndex].registeredTeachers.some(t => t.id === userId);
 
                 if (isRegistered) {
-                    rows[rowIndex].registeredTeachers = rows[rowIndex].registeredTeachers.filter(t => t.id !== user.id);
+                    rows[rowIndex].registeredTeachers = rows[rowIndex].registeredTeachers.filter(t => t.id !== userId);
                 } else {
                     rows[rowIndex].registeredTeachers.push({
-                        id: user.id,
-                        name: user.name || user.username,
+                        id: userId,
+                        name: userName || "Staff",
                         timestamp: new Date().toISOString(),
                         branch: branch   // ← Tag cơ sở
                     });

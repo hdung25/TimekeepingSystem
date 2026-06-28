@@ -3764,6 +3764,8 @@ async function deleteSessionFromModal() {
                 const classIndex = Number(classIndexRaw);
                 const branch = classCompositeKey.split('_')[0];
                 const mockUser = {
+                    id: staffId,
+                    name: staffName,
                     uid: staffId,
                     displayName: staffName
                 };
