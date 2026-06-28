@@ -741,7 +741,7 @@ async function renderMonthReport(date, forceServer = false) {
         sections.forEach(sec => {
             const rows = item.data[sec] || [];
             // Inject _branch and _compositeKey into each class row for chip display + delete
-            const taggedRows = rows.map(row => ({ ...row, _branch: item.branch, _compositeKey: item.compositeKey }));
+            const taggedRows = rows.map((row, idx) => ({ ...row, _branch: item.branch, _compositeKey: item.compositeKey, _originalIndex: idx }));
             if (!scheduleMap[item.date][sec]) scheduleMap[item.date][sec] = [];
             scheduleMap[item.date][sec] = scheduleMap[item.date][sec].concat(taggedRows);
         });

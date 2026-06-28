@@ -867,6 +867,50 @@ const DBService = {
         return promise;
     },
 
+    getMonthlySchedule: async (monthStr) => {
+        try {
+            const [yearStr, monthNumStr] = monthStr.split('-');
+            const year = parseInt(yearStr, 10);
+            const month = parseInt(monthNumStr, 10) - 1; // 0-indexed
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            
+            const BRANCHES = ['cs1', 'cs2', 'cs3'];
+            const schedulePromises = [];
+            
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                BRANCHES.forEach(branch => {
+                    const compositeKey = `${branch}__${dateKey}`;
+                    schedulePromises.push(
+                        DBService.getSchedule(compositeKey).then(data => ({ date: dateKey, data: data || {}, branch, compositeKey }))
+                    );
+                });
+            }
+            
+            const results = await Promise.all(schedulePromises);
+            const scheduleMap = {};
+            results.forEach(item => {
+                if (!scheduleMap[item.date]) scheduleMap[item.date] = {};
+                const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+                sections.forEach(sec => {
+                    const rows = item.data[sec] || [];
+                    const taggedRows = rows.map((row, idx) => ({ 
+                        ...row, 
+                        _branch: item.branch, 
+                        _compositeKey: item.compositeKey,
+                        _originalIndex: idx
+                    }));
+                    if (!scheduleMap[item.date][sec]) scheduleMap[item.date][sec] = [];
+                    scheduleMap[item.date][sec] = scheduleMap[item.date][sec].concat(taggedRows);
+                });
+            });
+            return scheduleMap;
+        } catch (e) {
+            console.error('getMonthlySchedule error:', e);
+            return {};
+        }
+    },
+
     getMonthlyAttendance: async (monthStr, userId, forceServer = false) => {
         const cacheKey = `monthly_attendance_${monthStr}_${userId}`;
         if (!forceServer && DBService._cache[cacheKey]) return DBService._cache[cacheKey];

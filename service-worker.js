@@ -1,5 +1,5 @@
-// Service Worker v26 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v26-gps-receptionist-persistence';
+// Service Worker v27 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v27-original-index-mobile-modal';
 
 const STATIC_ASSETS = [
     '/',
@@ -16,9 +16,9 @@ const STATIC_ASSETS = [
     '/css/login.css?v=20260621-font',
     '/js/main.js?v=20260628-past-lock-assistant',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260628-gps-receptionist-persistence',
-    '/js/report.js?v=20260626-modal-refinement',
-    '/js/evaluation-service.js?v=20260626-vdx-fallback-role-fixes',
+    '/js/db-service.js?v=20260628-original-index',
+    '/js/report.js?v=20260628-original-index',
+    '/js/evaluation-service.js?v=20260628-original-index',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',

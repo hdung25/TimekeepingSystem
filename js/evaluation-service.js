@@ -704,7 +704,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     classEnd: cls.end,
                     classCompositeKey: cls._compositeKey || null,
                     classSectionKey: secKey,
-                    classIndex: idx,
+                    classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx,
                     overtimeId: otId,
                     overtimePending: otPending,
                     overtimeMinutes: otMinutes,
@@ -730,7 +730,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         classEnd: cls.end,
                         classCompositeKey: cls._compositeKey || null,
                         classSectionKey: secKey,
-                        classIndex: idx
+                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx
                     });
                     return;
                 }
@@ -759,7 +759,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         classEnd: cls.end,
                         classCompositeKey: cls._compositeKey || null,
                         classSectionKey: secKey,
-                        classIndex: idx,
+                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx,
                         isScheduledOnly: true
                     });
                 } else {
@@ -780,7 +780,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         classEnd: cls.end,
                         classCompositeKey: cls._compositeKey || null,
                         classSectionKey: secKey,
-                        classIndex: idx
+                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx
                     });
                 }
             }
