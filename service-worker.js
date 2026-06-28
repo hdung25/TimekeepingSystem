@@ -1,5 +1,5 @@
-// Service Worker v25 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v25-past-lock-assistant';
+// Service Worker v26 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v26-gps-receptionist-persistence';
 
 const STATIC_ASSETS = [
     '/',
@@ -16,7 +16,7 @@ const STATIC_ASSETS = [
     '/css/login.css?v=20260621-font',
     '/js/main.js?v=20260628-past-lock-assistant',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260626-update-session-role-fix',
+    '/js/db-service.js?v=20260628-gps-receptionist-persistence',
     '/js/report.js?v=20260626-modal-refinement',
     '/js/evaluation-service.js?v=20260626-vdx-fallback-role-fixes',
     '/js/ui-service.js',
@@ -24,7 +24,8 @@ const STATIC_ASSETS = [
     '/js/chart-service.js',
     '/js/analytics.js',
     '/js/schedule.js?v=20260628-past-lock-assistant',
-    '/js/receptionist-schedule.js',
+    '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
+    '/js/timekeeping.js?v=20260628-gps-receptionist-persistence',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'

@@ -217,10 +217,28 @@ async function loadAndRender() {
     const key = getWeekCompositeKey();
     const data = await DBService.getReceptionistSchedule(key);
 
-    // Load cancelled shifts for the month
+    // Load cancelled shifts for the month(s) in this week (supporting month spanning)
     const mondayDate = new Date(currentWeekStart);
-    const monthStr = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}`;
-    window.allCancelledShiftsMap = await DBService.getAllCancelledShifts(monthStr);
+    const monthStr1 = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}`;
+    
+    const sundayDate = new Date(currentWeekStart);
+    sundayDate.setDate(sundayDate.getDate() + 6);
+    const monthStr2 = `${sundayDate.getFullYear()}-${String(sundayDate.getMonth() + 1).padStart(2, '0')}`;
+    
+    let mergedMap = {};
+    if (monthStr1 === monthStr2) {
+        mergedMap = await DBService.getAllCancelledShifts(monthStr1);
+    } else {
+        const [map1, map2] = await Promise.all([
+            DBService.getAllCancelledShifts(monthStr1),
+            DBService.getAllCancelledShifts(monthStr2)
+        ]);
+        const allUserIds = new Set([...Object.keys(map1), ...Object.keys(map2)]);
+        allUserIds.forEach(uid => {
+            mergedMap[uid] = [...(map1[uid] || []), ...(map2[uid] || [])];
+        });
+    }
+    window.allCancelledShiftsMap = mergedMap;
 
     isInheritedTemplate = false;
     let inheritedFromDate = null;

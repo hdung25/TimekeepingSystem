@@ -1014,25 +1014,15 @@ const DBService = {
     },
 
     checkInPersonal: async (userId, userFullName) => {
-        // IP & GPS CHECK LOGIC
-        let locationError = null;
-        try {
-            const settingsDoc = await db.collection('settings').doc('system').get();
-            if (settingsDoc.exists) {
-                const settings = settingsDoc.data();
-                const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
+        const settingsDoc = await db.collection('settings').doc('system').get();
+        if (settingsDoc.exists) {
+            const settings = settingsDoc.data();
+            const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
 
-                if (hasGPS) {
-                    try {
-                        await assertAttendanceLocationAllowed(settings);
-                    } catch (locErr) {
-                        console.warn("GPS check failed but allowing check-in per bypass rule:", locErr);
-                        locationError = locErr.message;
-                    }
-                }
+            if (hasGPS) {
+                // Strictly verify GPS location. Do not catch error. Let it throw to abort check-in.
+                await assertAttendanceLocationAllowed(settings);
             }
-        } catch (e) {
-            console.warn("Skipping location check due to settings fetch error:", e);
         }
 
         const now = new Date();
@@ -1079,9 +1069,6 @@ const DBService = {
                 checkIn: now.toISOString(),
                 checkOut: null
             };
-            if (locationError) {
-                newSession.locationError = locationError;
-            }
 
             data.sessions.push(newSession);
 

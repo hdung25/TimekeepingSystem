@@ -13,13 +13,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function initTimekeeping() {
+    const container = document.getElementById('global-checkin-container');
     try {
         const settings = await DBService.getSystemSettings();
         window.centerClosures = settings?.centerClosures || {};
-        if (typeof DBService.prepareAttendanceLocationPermission === 'function') {
-            DBService.prepareAttendanceLocationPermission().catch(e => {
-                console.warn("Attendance location permission is not ready:", e);
-            });
+        
+        // 1. Check Location Permission up-front!
+        const campuses = [
+            { lat: settings?.gpsCS1Lat, lng: settings?.gpsCS1Lng },
+            { lat: settings?.gpsCS2Lat, lng: settings?.gpsCS2Lng },
+            { lat: settings?.gpsCS3Lat, lng: settings?.gpsCS3Lng }
+        ].filter(c => c.lat !== undefined && c.lat !== null && c.lat !== '');
+
+        if (campuses.length > 0) {
+            if (typeof DBService.prepareAttendanceLocationPermission === 'function') {
+                try {
+                    await DBService.prepareAttendanceLocationPermission();
+                } catch (err) {
+                    console.warn("Location check failed:", err);
+                    if (container) {
+                        container.innerHTML = `
+                            <div class="glass-panel" style="background: #FEE2E2; border: 2px solid #EF4444; padding: 2rem; text-align: center;">
+                                <h2 style="color: #DC2626; font-weight: 700; margin-bottom: 1rem;">IP Mạng không hợp lệ!</h2>
+                                <p style="color: #B91C1C; font-size: 1.1rem; line-height: 1.5; margin-bottom: 1.5rem;">
+                                    Vui lòng kết nối đúng Wifi của cơ sở để chấm công.
+                                </p>
+                                <button class="btn" style="background: #DC2626; color: white; padding: 0.75rem 1.5rem; font-size: 1rem; border-radius: 8px;" onclick="retryLocationPermission(this)">
+                                    🔄 Thử kết nối lại Wifi
+                                </button>
+                            </div>
+                        `;
+                    }
+                    return; // Stop initialization of check-in card
+                }
+            }
         }
     } catch (e) {
         console.warn("Error loading system settings:", e);
@@ -34,6 +61,37 @@ async function initTimekeeping() {
         globalCheckAutoCheckout();
     }
 }
+
+window.retryLocationPermission = async function (btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "Đang kiểm tra...";
+    }
+    try {
+        if (typeof DBService.prepareAttendanceLocationPermission === 'function') {
+            await DBService.prepareAttendanceLocationPermission();
+        }
+        // If successful, reload/reinitialize timekeeping
+        initTimekeeping();
+    } catch (e) {
+        console.warn("Location permission retry failed:", e);
+        // Keep the warning message visible
+        const container = document.getElementById('global-checkin-container');
+        if (container) {
+            container.innerHTML = `
+                <div class="glass-panel" style="background: #FEE2E2; border: 2px solid #EF4444; padding: 2rem; text-align: center;">
+                    <h2 style="color: #DC2626; font-weight: 700; margin-bottom: 1rem;">IP Mạng không hợp lệ!</h2>
+                    <p style="color: #B91C1C; font-size: 1.1rem; line-height: 1.5; margin-bottom: 1.5rem;">
+                        Vui lòng kết nối đúng Wifi của cơ sở để chấm công.
+                    </p>
+                    <button class="btn" style="background: #DC2626; color: white; padding: 0.75rem 1.5rem; font-size: 1rem; border-radius: 8px;" onclick="retryLocationPermission(this)">
+                        🔄 Thử kết nối lại Wifi
+                    </button>
+                </div>
+            `;
+        }
+    }
+};
 
 function getLocalDateKey(date) {
     const year = date.getFullYear();
