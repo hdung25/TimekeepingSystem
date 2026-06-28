@@ -326,17 +326,19 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
 }
 
 function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, presentUserIds = new Set(), dateKey = '', todayRealKey = '') {
-    const inputClass = isAdmin ? 'table-input' : 'table-input read-only-input';
-    const readonlyAttr = isAdmin ? '' : 'readonly';
+    const isPastClass = isScheduleTimePast(compositeKey, data.start);
+    const rowIsAdmin = isAdmin && !isPastClass;
+    const inputClass = rowIsAdmin ? 'table-input' : 'table-input read-only-input';
+    const readonlyAttr = rowIsAdmin ? '' : 'readonly';
 
     // === GV FIELD (multi-teacher) ===
     const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
-    const gvCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey);
+    const gvCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey);
 
 
     // === SỐ HS FIELD ===
     let soHSCell = '';
-    if (isAdmin) {
+    if (rowIsAdmin) {
         soHSCell = `<td data-label="So HS"><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
             style="width:60px;text-align:center;"
             onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', parseInt(this.value)||0)"></td>`;
@@ -348,7 +350,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     // === ACTION CELL ===
     let actionCell = '';
-    if (isAdmin) {
+    if (rowIsAdmin) {
         // Admin: Delete button
         actionCell = `
             <td style="text-align: center;">
@@ -360,14 +362,14 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
                 </button>
             </td>`;
     } else {
-        // Non-admin: no action needed (GV auto-assigned by admin)
+        // Non-admin or past class: no action needed (GV auto-assigned by admin)
         actionCell = '<td></td>';
     }
 
     // === CỘT LỚP (Môn học datalist) ===
     const lopVal = (data.lop || '').replace(/"/g, '&quot;');
     let lopCell = '';
-    if (isAdmin) {
+    if (rowIsAdmin) {
         lopCell = `<td><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
             list="subject-list"
             onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)"></td>`;
@@ -378,7 +380,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
-    const gvTTCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday, dateKey);
+    const gvTTCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday, dateKey);
 
     return `
         <tr>
@@ -396,9 +398,12 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     `;
 }
 
-// ================= DATA ACTIONS =================
-
 window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEnd) {
+    if (isScheduleTimePast(compositeKey, defaultStart)) {
+        alert("Không thể thêm lớp học cho thời gian đã qua trong quá khứ!");
+        return;
+    }
+
     const dayData = await DBService.getSchedule(compositeKey) || {};
     if (!dayData[caType]) dayData[caType] = [];
 
@@ -418,15 +423,28 @@ window.updateRow = async function (compositeKey, caType, index, field, value) {
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
 
+    const row = dayData[caType][index];
+    if (isScheduleTimePast(compositeKey, row.start)) {
+        alert("Không thể chỉnh sửa lớp học cho thời gian đã qua trong quá khứ!");
+        renderTable();
+        return;
+    }
+
     dayData[caType][index][field] = value;
     await DBService.saveSchedule(compositeKey, dayData);
 };
 
 window.deleteRow = async function (compositeKey, caType, index) {
-    if (!await UIService.confirm('Bạn có chắc muốn xóa lớp học này?')) return;
-
     const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType]) return;
+    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+
+    const row = dayData[caType][index];
+    if (isScheduleTimePast(compositeKey, row.start)) {
+        alert("Không thể xóa lớp học cho thời gian đã qua trong quá khứ!");
+        return;
+    }
+
+    if (!await UIService.confirm('Bạn có chắc muốn xóa lớp học này?')) return;
 
     dayData[caType].splice(index, 1);
 
@@ -437,8 +455,6 @@ window.deleteRow = async function (compositeKey, caType, index) {
 window.saveScheduleManual = function () {
     const btn = document.querySelector('#admin-actions button');
     if (btn) {
-        // Since we save per row action, this might be redundant or could be used to push all data again.
-        // For now, let's keep it as a visual confirmation.
         alert('Dữ liệu đã được lưu thành công! Lịch làm này sẽ được dùng làm mẫu cho các ngày tương lai chưa có lịch.');
     }
 }
@@ -468,6 +484,15 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
         return;
     }
 
+    const dayData = await DBService.getSchedule(compositeKey);
+    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+    const row = dayData[caType][index];
+
+    if (isScheduleTimePast(compositeKey, row.start)) {
+        alert("Lớp học đã bắt đầu hoặc đã qua trong quá khứ! Không thể nhận lớp.");
+        return;
+    }
+
     // TIME VALIDATION — extract pure dateKey for Date parsing
     if (endTimeStr) {
         const pureDateKey = compositeKey.includes('__') ? compositeKey.split('__')[1] : compositeKey;
@@ -491,7 +516,6 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
         alert("Lỗi: " + e.message);
     }
 };
-
 // ================= GV DROPDOWN =================
 
 async function loadSubjectListForSchedule() {
@@ -539,6 +563,14 @@ window.updateSubjectRow = async function (compositeKey, caType, index, subjectNa
     const lopId = match ? match.id : '';
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+    
+    const row = dayData[caType][index];
+    if (isScheduleTimePast(compositeKey, row.start)) {
+        alert("Không thể chỉnh sửa môn học cho thời gian đã qua trong quá khứ!");
+        renderTable();
+        return;
+    }
+
     dayData[caType][index].lop = subjectName;
     dayData[caType][index].lopId = lopId;
     await DBService.saveSchedule(compositeKey, dayData);
@@ -551,6 +583,10 @@ window.openGVPicker = function (compositeKey, caType, index, fieldType) {
     DBService.getSchedule(compositeKey).then(dayData => {
         if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
         const row = dayData[caType][index];
+        if (isScheduleTimePast(compositeKey, row.start)) {
+            alert("Không thể chỉnh sửa nhân sự của lớp học đã qua trong quá khứ!");
+            return;
+        }
         const currentList = getGVList(row, fieldType);
         const currentIds = new Set(currentList.map(g => g.id || g.name));
         const teachers = window._teacherList || [];
@@ -608,6 +644,14 @@ window.saveGVPickerResult = async function (compositeKey, caType, index, fieldTy
     const newList = Array.from(checked).map(cb => ({ id: cb.value, name: cb.dataset.name }));
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+
+    const row = dayData[caType][index];
+    if (isScheduleTimePast(compositeKey, row.start)) {
+        alert("Không thể chỉnh sửa nhân sự của lớp học đã qua trong quá khứ!");
+        const overlay = document.getElementById('gv-picker-overlay');
+        if (overlay) overlay.remove();
+        return;
+    }
 
     // Validate selected users' roles
     const teachers = window._teacherList || [];
@@ -705,6 +749,7 @@ window.executeCopyWeek = async function () {
 
     try {
         let copied = 0;
+        let skippedPastDays = 0;
         for (let i = 0; i < 7; i++) {
             // Source day
             const srcDate = new Date(currentWeekStart);
@@ -717,6 +762,13 @@ window.executeCopyWeek = async function () {
             const tgtDate = new Date(ty, tm - 1, td + i);
             const tgtKey = getLocalDateKey(tgtDate);
             const tgtComposite = `${currentBranch}__${tgtKey}`;
+
+            // Set time to end of target day (23:59:59) so if today is the target day, we can still copy it
+            const tgtDateEnd = new Date(ty, tm - 1, td + i, 23, 59, 59, 999);
+            if (tgtDateEnd < new Date()) {
+                skippedPastDays++;
+                continue;
+            }
 
             const srcData = await DBService.getSchedule(srcComposite);
             if (srcData && Object.keys(srcData).length > 0) {
@@ -741,7 +793,11 @@ window.executeCopyWeek = async function () {
             }
         }
         document.getElementById('copy-week-modal').remove();
-        alert(`Đã sao chép lịch ${copied}/7 ngày sang tuần đã chọn!`);
+        if (skippedPastDays > 0) {
+            alert(`Đã sao chép lịch ${copied} ngày sang tuần đã chọn (bỏ qua ${skippedPastDays} ngày trong quá khứ để bảo toàn dữ liệu)!`);
+        } else {
+            alert(`Đã sao chép lịch ${copied}/7 ngày sang tuần đã chọn!`);
+        }
     } catch (e) {
         alert('Lỗi sao chép: ' + e.message);
         const btn2 = document.querySelector('#copy-week-modal .btn-primary');

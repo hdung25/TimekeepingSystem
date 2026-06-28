@@ -1,5 +1,5 @@
-// Service Worker v24 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v24-update-session-role-fix';
+// Service Worker v25 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v25-past-lock-assistant';
 
 const STATIC_ASSETS = [
     '/',
@@ -14,16 +14,16 @@ const STATIC_ASSETS = [
     '/he-thong.html',
     '/css/style.css?v=20260621-lotus',
     '/css/login.css?v=20260621-font',
-    '/js/main.js?v=20260624-chip-dedupe',
+    '/js/main.js?v=20260628-past-lock-assistant',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260626-update-session-role-fix',
     '/js/report.js?v=20260626-modal-refinement',
     '/js/evaluation-service.js?v=20260626-vdx-fallback-role-fixes',
     '/js/ui-service.js',
-    '/js/auth-guard.js',
+    '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js',
+    '/js/schedule.js?v=20260628-past-lock-assistant',
     '/js/receptionist-schedule.js',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',

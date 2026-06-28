@@ -25,7 +25,7 @@ async function verify() {
         });
 
         console.log("1. Navigating to Login Page...");
-        await page.goto('https://timekeeping-system-tawny.vercel.app', { waitUntil: 'networkidle2' });
+        await page.goto('https://timekeeping-system-tawny.vercel.app', { waitUntil: 'load' });
 
         console.log("2. Waiting 3 seconds for service worker/page stability...");
         await new Promise(r => setTimeout(r, 3000));
@@ -52,11 +52,11 @@ async function verify() {
         }
 
         console.log("6. Navigating to cham-cong.html (Timekeeping)...");
-        await page.goto('https://timekeeping-system-tawny.vercel.app/cham-cong.html', { waitUntil: 'networkidle2' });
+        await page.goto('https://timekeeping-system-tawny.vercel.app/cham-cong.html', { waitUntil: 'load' });
         console.log("Timekeeping page loaded successfully!");
 
         console.log("7. Navigating to bao-cao.html (Report)...");
-        await page.goto('https://timekeeping-system-tawny.vercel.app/bao-cao.html', { waitUntil: 'networkidle2' });
+        await page.goto('https://timekeeping-system-tawny.vercel.app/bao-cao.html', { waitUntil: 'load' });
         console.log("Reports page loaded successfully!");
 
         console.log("=== VERIFICATION PASSED ===");

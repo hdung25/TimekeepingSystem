@@ -42,7 +42,17 @@
     const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html'];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
-    if (isTargetingAdminPage && !hasAdminAccess) {
+    const hasAssistantAccess = currentRoles.some(r => r === 'assistant');
+    let isAllowed = true;
+    if (isTargetingAdminPage) {
+        if (path.includes('he-thong.html')) {
+            isAllowed = hasAdminAccess || hasAssistantAccess;
+        } else {
+            isAllowed = hasAdminAccess;
+        }
+    }
+
+    if (!isAllowed) {
         console.warn(`Auth Guard: User ${currentUser} (Role: ${currentRole}) attempted to access Admin page.`);
         alert('Bạn không có quyền truy cập trang này!');
 
