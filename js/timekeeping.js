@@ -301,10 +301,13 @@ function createClassCard(cls, compositeKey) {
     el.style.justifyContent = 'space-between';
     el.style.alignItems = 'center';
 
-    const isClosed = isCenterClosed(cls._dateKey, cls.section, window.centerClosures);
+    const isSectionClosed = isCenterClosed(cls._dateKey, cls.section, window.centerClosures);
+    const isClassClosed = cls.isClosed === true;
+    const isClosed = isSectionClosed || isClassClosed;
+    
     if (isClosed) {
-        el.style.borderLeft = '5px solid #9CA3AF';
-        el.style.backgroundColor = '#F9FAFB';
+        el.style.borderLeft = isClassClosed ? '5px solid #EF4444' : '5px solid #9CA3AF';
+        el.style.backgroundColor = isClassClosed ? '#FEF2F2' : '#F9FAFB';
     } else {
         el.style.borderLeft = '5px solid var(--primary-color)';
     }
@@ -325,8 +328,13 @@ function createClassCard(cls, compositeKey) {
     let actionBtn = `<button class="btn btn-primary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Nhận Lớp</button>`;
 
     if (isClosed) {
-        statusBadge = '<span style="color: #9CA3AF; font-weight: bold;">Lịch nghỉ trung tâm</span>';
-        actionBtn = '<span style="color: #9CA3AF; font-size: 0.875rem;">Lớp đã bị tắt do trung tâm nghỉ</span>';
+        if (isClassClosed) {
+            statusBadge = '<span style="color: #EF4444; font-weight: bold;">Lớp nghỉ</span>';
+            actionBtn = '<span style="color: #EF4444; font-size: 0.875rem; font-weight: 500;">Lớp đã bị Admin tắt</span>';
+        } else {
+            statusBadge = '<span style="color: #9CA3AF; font-weight: bold;">Lịch nghỉ trung tâm</span>';
+            actionBtn = '<span style="color: #9CA3AF; font-size: 0.875rem;">Lớp đã bị tắt do trung tâm nghỉ</span>';
+        }
     } else if (isRegistered) {
         statusBadge = '<span style="color: var(--secondary-color); font-weight: bold;">Đã nhận lớp</span>';
         actionBtn = `<button class="btn btn-secondary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;

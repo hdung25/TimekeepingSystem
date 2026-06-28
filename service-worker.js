@@ -1,5 +1,5 @@
-// Service Worker v30 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v30-section-closure-inline';
+// Service Worker v31 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v31-class-closure-specific';
 
 const STATIC_ASSETS = [
     '/',
@@ -18,14 +18,14 @@ const STATIC_ASSETS = [
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260628-transaction-safety',
     '/js/report.js?v=20260628-transaction-safety',
-    '/js/evaluation-service.js?v=20260628-green-strikethrough',
+    '/js/evaluation-service.js?v=20260628-class-closure-specific',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js?v=20260628-section-closure-inline',
+    '/js/schedule.js?v=20260628-class-closure-specific',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
-    '/js/timekeeping.js?v=20260628-gps-receptionist-persistence',
+    '/js/timekeeping.js?v=20260628-class-closure-specific',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'

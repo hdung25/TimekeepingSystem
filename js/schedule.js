@@ -87,6 +87,25 @@ window.toggleSectionClosure = async function (dateKey, shiftKey, isChecked) {
     }
 };
 
+window.toggleClassClosure = async function (compositeKey, caType, index, isChecked) {
+    try {
+        const dayData = await DBService.getSchedule(compositeKey);
+        if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
+        
+        // Update isClosed property
+        dayData[caType][index].isClosed = isChecked;
+        
+        // Save to Firestore
+        await DBService.saveSchedule(compositeKey, dayData);
+        
+        // Re-render table
+        await renderTable();
+    } catch (e) {
+        console.error("Error toggling class closure:", e);
+        alert("Có lỗi xảy ra khi tắt/mở lớp này!");
+    }
+};
+
 
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
@@ -461,7 +480,6 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
     const gvCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
 
-
     // === SỐ HS FIELD ===
     let soHSCell = '';
     if (rowIsAdmin) {
@@ -476,20 +494,32 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     // === ACTION CELL ===
     let actionCell = '';
+    const isClassClosed = data.isClosed === true;
     if (rowIsAdmin) {
-        // Admin: Delete button
+        const checkedAttr = isClassClosed ? 'checked' : '';
         actionCell = `
-            <td style="text-align: center;">
-                <button class="btn-icon" style="color: #EF4444;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                </button>
+            <td style="text-align: center; white-space: nowrap;">
+                <div style="display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;">
+                    <label style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.75rem; color: ${isClassClosed ? '#EF4444' : '#6B7280'}; font-weight: 600; user-select: none;" title="Tắt lớp này">
+                        <input type="checkbox" ${checkedAttr} 
+                            onchange="toggleClassClosure('${compositeKey}', '${caType}', ${index}, this.checked)"
+                            style="cursor: pointer; width: 14px; height: 14px; margin: 0;">
+                        <span>${isClassClosed ? 'Tắt' : 'Bật'}</span>
+                    </label>
+                    <button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})" title="Xóa lớp">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
             </td>`;
     } else {
-        // Non-admin or past class: no action needed (GV auto-assigned by admin)
-        actionCell = '<td></td>';
+        if (isClassClosed) {
+            actionCell = `<td style="text-align: center;"><span style="color: #EF4444; font-size: 0.75rem; font-weight: bold; background: #FEE2E2; padding: 2px 6px; border-radius: 4px;">Đã tắt</span></td>`;
+        } else {
+            actionCell = '<td></td>';
+        }
     }
 
     // === CỘT LỚP (Môn học datalist) ===
@@ -506,10 +536,12 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
-    const gvTTCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gvThayThe', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
+    const gvTTCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gvThayTe', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
+
+    const rowBg = isClassClosed ? 'background: #F3F4F6; opacity: 0.75;' : '';
 
     return `
-        <tr>
+        <tr style="${rowBg}">
             <td data-label="SS" style="text-align: center;">${index + 1}</td>
             <td data-label="Bat dau"><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'start', this.value)"></td>
             <td data-label="Ket thuc"><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>

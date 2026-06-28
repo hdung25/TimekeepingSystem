@@ -279,6 +279,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         sections.forEach(sk => {
             (schedule[sk] || []).forEach((c, i) => {
                 if (!c.start || !c.end) return; // skip malformed rows missing start/end
+                if (c.isClosed === true) return; // skip explicitly closed classes
                 // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
                 const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
                 const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
@@ -402,6 +403,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const _mainSlotKey = `${cls._branch || ''}_${cls.start}_${cls.end}`;
             if (_mainSeenSlots.has(_mainSlotKey)) return;
             _mainSeenSlots.add(_mainSlotKey);
+
+            if (cls.isClosed === true) return; // Skip closed class
 
             // --- NEW: Check Cancelled Shifts ---
             const classCompositeKey = cls._compositeKey || null;
