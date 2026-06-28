@@ -223,7 +223,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         const selectedClasses = [];
         teachingClasses.forEach(c => {
-            const hasOverlap = selectedClasses.some(sel => {
+            const overlappingSel = selectedClasses.find(sel => {
                 const [sH1, sM1] = c.start.split(':').map(Number);
                 const [eH1, eM1] = c.end.split(':').map(Number);
                 const start1 = sH1 * 60 + sM1;
@@ -236,8 +236,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 return start1 < end2 && start2 < end1;
             });
-            if (!hasOverlap) {
-                selectedClasses.push(c);
+            if (!overlappingSel) {
+                selectedClasses.push({
+                    ...c,
+                    _originalLop: c.lop,
+                    _allLops: [c.lop]
+                });
+            } else {
+                if (c.lop && !overlappingSel._allLops.includes(c.lop)) {
+                    overlappingSel._allLops.push(c.lop);
+                    const sortedLops = [...overlappingSel._allLops].sort();
+                    overlappingSel.lop = sortedLops.join('+');
+                }
             }
         });
 
@@ -255,9 +265,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (!_isReg) {
                     localSchedule[sk].push(c);
                 } else {
-                    const isKept = selectedClasses.some(sc => sc._sectionKey === sk && sc._origIndex === i) ||
-                                   vdxClasses.some(vc => vc._sectionKey === sk && vc._origIndex === i);
-                    if (isKept) {
+                    const matchedSelected = selectedClasses.find(sc => sc._sectionKey === sk && sc._origIndex === i);
+                    const matchedVDX = vdxClasses.find(vc => vc._sectionKey === sk && vc._origIndex === i);
+                    if (matchedSelected) {
+                        localSchedule[sk].push(matchedSelected);
+                    } else if (matchedVDX) {
                         localSchedule[sk].push(c);
                     }
                 }
@@ -463,6 +475,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (matchedSession) {
                 usedSessionIdsTeaching.add(matchedSession.id);
                 _matchedTimeSlots.add(`${cls.start}_${cls.end}`);
+                
+                // Consume all other teaching sessions overlapping with this time window
+                attendanceSessions.forEach(s => {
+                    if (usedSessionIdsTeaching.has(s.id)) return;
+                    if (s.linkedClassStart) return; // Already linked to another class
+                    const checkIn = safeDate(s.checkIn || s.start);
+                    if (!checkIn) return;
+                    const checkOut = safeDate(s.checkOut);
+                    if (!checkOut) return;
+                    if (checkIn < schedEnd && checkOut > schedStart) {
+                        usedSessionIdsTeaching.add(s.id);
+                    }
+                });
             }
 
             // 3. Determine Status

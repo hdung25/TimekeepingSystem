@@ -4641,24 +4641,50 @@ async function populateModalCurrentTab() {
                 if (classRates[name] !== undefined && Number(classRates[name]) > 0) {
                     prefillRate = Number(classRates[name]);
                 } else {
-                    const isTT = name.startsWith('Tiếp Tân');
-                    if (isTT) {
-                        if (name.includes('Cố Định')) {
-                            prefillRate = Number(cfg.receptionist_fixed_rate || 0);
-                        } else {
-                            prefillRate = Number(cfg.receptionist_normal_rate || 0);
-                        }
-                    } else {
-                        const foundRoleInConfig = cfg.roles && cfg.roles.find(r => {
-                            const rName = r.name || r.id || '';
-                            const normalizeFn = window.normalizeChipFilterName || (x => x);
-                            return normalizeFn(rName) === normalizeFn(name) || r.id === name;
+                    if (name.includes('+')) {
+                        const components = name.split('+').map(s => s.trim());
+                        let maxRate = 0;
+                        components.forEach(comp => {
+                            let compRate = 0;
+                            if (classRates[comp] !== undefined && Number(classRates[comp]) > 0) {
+                                compRate = Number(classRates[comp]);
+                            } else {
+                                const foundCompRole = cfg.roles && cfg.roles.find(r => {
+                                    const rName = r.name || r.id || '';
+                                    const normalizeFn = window.normalizeChipFilterName || (x => x);
+                                    return normalizeFn(rName) === normalizeFn(comp) || r.id === comp;
+                                });
+                                if (foundCompRole) {
+                                    compRate = Number(foundCompRole.rate || 0);
+                                }
+                            }
+                            if (compRate > maxRate) {
+                                maxRate = compRate;
+                            }
                         });
-                        if (foundRoleInConfig) {
-                            prefillRate = Number(foundRoleInConfig.rate || 0);
+                        prefillRate = maxRate;
+                    }
+
+                    if (prefillRate === 0) {
+                        const isTT = name.startsWith('Tiếp Tân');
+                        if (isTT) {
+                            if (name.includes('Cố Định')) {
+                                prefillRate = Number(cfg.receptionist_fixed_rate || 0);
+                            } else {
+                                prefillRate = Number(cfg.receptionist_normal_rate || 0);
+                            }
                         } else {
-                            const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
-                            prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                            const foundRoleInConfig = cfg.roles && cfg.roles.find(r => {
+                                const rName = r.name || r.id || '';
+                                const normalizeFn = window.normalizeChipFilterName || (x => x);
+                                return normalizeFn(rName) === normalizeFn(name) || r.id === name;
+                            });
+                            if (foundRoleInConfig) {
+                                prefillRate = Number(foundRoleInConfig.rate || 0);
+                            } else {
+                                const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                                prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                            }
                         }
                     }
                 }
