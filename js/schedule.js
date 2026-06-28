@@ -43,6 +43,50 @@ function isScheduleTimePast(compositeKey, startTimeStr) {
     }
 }
 
+function isPastShift(dateKey, section) {
+    const realToday = getLocalDateKey(new Date());
+    if (dateKey < realToday) return true;
+    if (dateKey > realToday) return false;
+    
+    // If today: check if current time has passed the default start of the shift
+    if (!section.defaultStart) return false;
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const [sh, sm] = section.defaultStart.split(':').map(Number);
+    return currentMinutes >= (sh * 60 + sm);
+}
+
+window.toggleSectionClosure = async function (dateKey, shiftKey, isChecked) {
+    try {
+        const settings = await DBService.getSystemSettings();
+        if (!settings.centerClosures) {
+            settings.centerClosures = {};
+        }
+        if (!settings.centerClosures[dateKey]) {
+            settings.centerClosures[dateKey] = [];
+        }
+        
+        if (isChecked) {
+            if (!settings.centerClosures[dateKey].includes(shiftKey)) {
+                settings.centerClosures[dateKey].push(shiftKey);
+            }
+        } else {
+            settings.centerClosures[dateKey] = settings.centerClosures[dateKey].filter(s => s !== shiftKey);
+            if (settings.centerClosures[dateKey].length === 0) {
+                delete settings.centerClosures[dateKey];
+            }
+        }
+        
+        await DBService.saveSystemSettings(settings);
+        window.centerClosures = settings.centerClosures || {};
+        
+        await renderTable();
+    } catch (e) {
+        console.error("Error toggling section closure:", e);
+        alert("Có lỗi xảy ra khi tắt/mở lớp!");
+    }
+};
+
 
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
@@ -260,8 +304,43 @@ async function renderTable() {
 
         const isClosed = isCenterClosed(dateKey, section.key, window.centerClosures);
 
-        // Section Header
-        html += `<tr><td colspan="${totalCols}" class="section-header">${section.label}</td></tr>`;
+        // Section Header with Inline Toggle/Closure Feature
+        let toggleHtml = '';
+        if (isAdmin) {
+            const isPast = isPastShift(dateKey, section);
+            const disabledAttr = isPast ? 'disabled title="Không thể chỉnh sửa lịch đã qua"' : '';
+            const checkedAttr = isClosed ? 'checked' : '';
+            
+            toggleHtml = `
+                <div style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; font-weight: normal; vertical-align: middle;">
+                    <label style="display: inline-flex; align-items: center; cursor: ${isPast ? 'not-allowed' : 'pointer'}; gap: 0.35rem; user-select: none;">
+                        <input type="checkbox" ${checkedAttr} ${disabledAttr} 
+                            onchange="toggleSectionClosure('${dateKey}', '${section.key}', this.checked)"
+                            style="cursor: ${isPast ? 'not-allowed' : 'pointer'}; width: 15px; height: 15px;">
+                        <span style="${isClosed ? 'color: #DC2626; font-weight: bold;' : 'color: #047857; font-weight: bold;'}">
+                            ${isClosed ? '🔴 Đã tắt ca' : '🟢 Ca hoạt động'}
+                        </span>
+                    </label>
+                </div>
+            `;
+        } else {
+            if (isClosed) {
+                toggleHtml = `
+                    <span style="font-size: 0.8rem; font-weight: bold; color: #DC2626; vertical-align: middle;">
+                        🔴 Đã tắt ca
+                    </span>
+                `;
+            }
+        }
+
+        html += `<tr>
+            <td colspan="${totalCols}" class="section-header" style="background: ${isClosed ? '#FEE2E2' : '#D1FAE5'} !important; color: ${isClosed ? '#991B1B' : 'var(--primary-color)'}; padding: 0.75rem !important;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 0.5rem;">
+                    <span style="font-weight: 700;">${section.label}</span>
+                    ${toggleHtml}
+                </div>
+            </td>
+        </tr>`;
 
         if (isClosed) {
             html += `<tr><td colspan="${totalCols}" style="text-align:center; background-color:#F3F4F6; color: #9CA3AF; font-size: 0.875rem; padding: 1rem; font-weight: bold; font-style: italic;">[LỊCH NGHỈ TRUNG TÂM - ĐÃ TẮT LỚP]</td></tr>`;

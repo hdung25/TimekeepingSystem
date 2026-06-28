@@ -1,5 +1,5 @@
-// Service Worker v29 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v29-green-strikethrough';
+// Service Worker v30 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v30-section-closure-inline';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,7 +23,7 @@ const STATIC_ASSETS = [
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js?v=20260628-green-strikethrough',
+    '/js/schedule.js?v=20260628-section-closure-inline',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260628-gps-receptionist-persistence',
     '/images/TUDUYTRE.jpg',
