@@ -1405,7 +1405,41 @@ async function renderMonthReport(date, forceServer = false) {
             div.style.justifyContent = 'space-between';
             div.style.alignItems = 'center';
 
-            div.innerHTML = `<span>${chip.text}</span>`;
+            let badgeHtml = '';
+            if (chip.studentCount && chip.studentCount > 0) {
+                const isPenaltyActive = !!window.currentMonthlySalarySettingsAll?.studentCountBonusPenalty || !!window.hasAnyRejectedStudentCountSessionInMonth;
+                const status = chip.studentCountStatus || 'pending';
+                
+                let badgeText = '';
+                let badgeClass = '';
+                
+                if (isPenaltyActive) {
+                    if (status === 'approved') {
+                        badgeText = `👥 ${chip.studentCount}hs (Đã duyệt - Bị phạt)`;
+                        badgeClass = 'student-count-badge penalty-applied';
+                    } else if (status === 'rejected') {
+                        badgeText = `👥 ${chip.studentCount}hs (Từ chối - Hủy phụ cấp tháng)`;
+                        badgeClass = 'student-count-badge rejected';
+                    } else {
+                        badgeText = `👥 ${chip.studentCount}hs (Chờ duyệt - Bị phạt)`;
+                        badgeClass = 'student-count-badge penalty-applied';
+                    }
+                } else {
+                    if (status === 'approved') {
+                        badgeText = `👥 ${chip.studentCount}hs (Đã duyệt)`;
+                        badgeClass = 'student-count-badge approved';
+                    } else if (status === 'rejected') {
+                        badgeText = `👥 ${chip.studentCount}hs (Từ chối)`;
+                        badgeClass = 'student-count-badge rejected';
+                    } else {
+                        badgeText = `👥 ${chip.studentCount}hs (Chờ duyệt)`;
+                        badgeClass = 'student-count-badge pending';
+                    }
+                }
+                badgeHtml = `<span class="${badgeClass}">${badgeText}</span>`;
+            }
+
+            div.innerHTML = `<span>${chip.text}${badgeHtml}</span>`;
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
@@ -1704,12 +1738,12 @@ async function renderMonthReport(date, forceServer = false) {
             const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
             chip.isFixedShift = isFixed;
             if (isFixed && !window.isFixedShiftMode) {
-                div.innerHTML = `<span>${chip.text} <b>(CĐ)</b></span>`;
+                div.innerHTML = `<span>${chip.text} <b>(CĐ)</b>${badgeHtml}</span>`;
                 div.style.border = '2px solid #8B5CF6';
             }
 
             // --- Role Selection / Bonus/Fixed Click Handler ---
-            const isClickable = chip.isClickable || window.isBonusSelectMode || window.isFixedShiftMode;
+            const isClickable = chip.isClickable || window.isBonusSelectMode || window.isFixedShiftMode || window.isStudentCountSelectMode;
             if (isClickable) {
                 div.style.cursor = 'pointer';
                 if (window.isBonusSelectMode) {
@@ -1719,11 +1753,72 @@ async function renderMonthReport(date, forceServer = false) {
                     const isSelected = window.selectedFixedShifts.has(chip.sessionId);
                     div.style.border = isSelected ? '3px solid #6366F1' : '2px dashed #6366F1';
                     if (isSelected) div.style.background = '#E0E7FF'; // Highlight selected
+                } else if (window.isStudentCountSelectMode && !chip.isReceptionist && chip.sessionId) {
+                    const key = chip.dateStr + '_' + chip.sessionId;
+                    const isSelected = !!window.selectedStudentCountChips[key];
+                    div.classList.add('student-count-selecting');
+                    if (isSelected) {
+                        div.classList.add(isAdminViewer ? 'student-count-admin-selected' : 'student-count-selected');
+                    }
                 }
 
                 div.onclick = async (e) => {
                     e.stopPropagation();
-                    if (window.isBonusSelectMode) {
+                    if (window.isStudentCountSelectMode) {
+                        if (chip.isReceptionist || !chip.sessionId) {
+                            if (typeof UIService !== 'undefined') UIService.toast('Chỉ có thể chọn ca dạy của giáo viên.', 'warning');
+                            return;
+                        }
+                        const key = chip.dateStr + '_' + chip.sessionId;
+                        const isSelected = !!window.selectedStudentCountChips[key];
+
+                        if (isAdminViewer) {
+                            if (isSelected) {
+                                delete window.selectedStudentCountChips[key];
+                            } else {
+                                window.selectedStudentCountChips[key] = {
+                                    dateStr: chip.dateStr,
+                                    sessionId: chip.sessionId,
+                                    studentCount: chip.studentCount || 10,
+                                    status: chip.studentCountStatus || 'pending'
+                                };
+                            }
+                            renderMonthReport(currentDate);
+                        } else {
+                            const pubStatus = window.currentMonthlySalarySettingsAll?.published?.status;
+                            const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
+                            if (isMonthLocked) {
+                                if (typeof UIService !== 'undefined') UIService.toast('Bảng công tháng này đã khóa, không thể sửa.', 'error');
+                                return;
+                            }
+
+                            if (chip.studentCountStatus && chip.studentCountStatus !== 'pending') {
+                                if (typeof UIService !== 'undefined') UIService.toast('Ca này đã được duyệt hoặc từ chối, không thể chỉnh sửa.', 'warning');
+                                return;
+                            }
+
+                            const thresholdInput = document.getElementById('input-student-count-threshold');
+                            const thresholdValue = thresholdInput ? parseInt(thresholdInput.value, 10) || 10 : 10;
+
+                            if (isSelected) {
+                                const currentItem = window.selectedStudentCountChips[key];
+                                if (currentItem.studentCount === thresholdValue) {
+                                    delete window.selectedStudentCountChips[key];
+                                } else {
+                                    currentItem.studentCount = thresholdValue;
+                                    currentItem.status = 'pending';
+                                }
+                            } else {
+                                window.selectedStudentCountChips[key] = {
+                                    dateStr: chip.dateStr,
+                                    sessionId: chip.sessionId,
+                                    studentCount: thresholdValue,
+                                    status: 'pending'
+                                };
+                            }
+                            renderMonthReport(currentDate);
+                        }
+                    } else if (window.isBonusSelectMode) {
                         if (chip.sessionId) {
                             try {
                                 const btn = e.currentTarget;
@@ -2288,6 +2383,25 @@ function calculateSalary() {
                         }
                         subjectBreakdown[segName].minutes += segMins;
                         subjectBreakdown[segName].amount += amount;
+
+                        // Student Count Bonus
+                        if (chip.studentCount && chip.studentCountStatus === 'approved') {
+                            const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                            let bonusRate = 0;
+                            if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
+                                bonusRate = Number(classRates[bonusName]);
+                            }
+                            const hasRejectedChip = (window.unfilteredAllMonthChips || []).some(c => c.studentCountStatus === 'rejected');
+                            const isPenaltyActive = !!monthlyAll?.studentCountBonusPenalty || hasRejectedChip;
+                            const bonusAmount = isPenaltyActive ? 0 : (segMins / 60) * bonusRate;
+                            
+                            if (!subjectBreakdown[bonusName]) {
+                                subjectBreakdown[bonusName] = { minutes: 0, rate: isPenaltyActive ? 0 : bonusRate, amount: 0 };
+                            }
+                            subjectBreakdown[bonusName].minutes += segMins;
+                            subjectBreakdown[bonusName].amount += bonusAmount;
+                            filteredSalary += bonusAmount;
+                        }
                     });
                 } else {
                     if (hasClassRate) {
@@ -2300,6 +2414,25 @@ function calculateSalary() {
                             }
                             subjectBreakdown[segName].minutes += minutes;
                             subjectBreakdown[segName].amount += amount;
+
+                            // Student Count Bonus
+                            if (chip.studentCount && chip.studentCountStatus === 'approved') {
+                                const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                                let bonusRate = 0;
+                                if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
+                                    bonusRate = Number(classRates[bonusName]);
+                                }
+                                const hasRejectedChip = (window.unfilteredAllMonthChips || []).some(c => c.studentCountStatus === 'rejected');
+                                const isPenaltyActive = !!monthlyAll?.studentCountBonusPenalty || hasRejectedChip;
+                                const bonusAmount = isPenaltyActive ? 0 : (minutes / 60) * bonusRate;
+                                
+                                if (!subjectBreakdown[bonusName]) {
+                                    subjectBreakdown[bonusName] = { minutes: 0, rate: isPenaltyActive ? 0 : bonusRate, amount: 0 };
+                                }
+                                subjectBreakdown[bonusName].minutes += minutes;
+                                subjectBreakdown[bonusName].amount += bonusAmount;
+                                filteredSalary += bonusAmount;
+                            }
                         }
                     } else if (isTiepTan && window.currentUserContext && window.currentUserContext.salary_config) {
                         let chipSalary = 0;
@@ -2328,6 +2461,25 @@ function calculateSalary() {
                             }
                             subjectBreakdown[segName].minutes += minutes;
                             subjectBreakdown[segName].amount += amount;
+
+                            // Student Count Bonus
+                            if (chip.studentCount && chip.studentCountStatus === 'approved') {
+                                const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                                let bonusRate = 0;
+                                if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
+                                    bonusRate = Number(classRates[bonusName]);
+                                }
+                                const hasRejectedChip = (window.unfilteredAllMonthChips || []).some(c => c.studentCountStatus === 'rejected');
+                                const isPenaltyActive = !!monthlyAll?.studentCountBonusPenalty || hasRejectedChip;
+                                const bonusAmount = isPenaltyActive ? 0 : (minutes / 60) * bonusRate;
+                                
+                                if (!subjectBreakdown[bonusName]) {
+                                    subjectBreakdown[bonusName] = { minutes: 0, rate: isPenaltyActive ? 0 : bonusRate, amount: 0 };
+                                }
+                                subjectBreakdown[bonusName].minutes += minutes;
+                                subjectBreakdown[bonusName].amount += bonusAmount;
+                                filteredSalary += bonusAmount;
+                            }
                         }
                     }
                 }
