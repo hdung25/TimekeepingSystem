@@ -729,6 +729,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     sessionData: chipSessionData, // Use cloned chipSessionData
                     isClickable: isClickable,
                     isTeaching: true,
+                    studentCount: chipSessionData.studentCount || null,
+                    studentCountStatus: chipSessionData.studentCountStatus || null,
                     chipFilterName: normalizeChipFilterName(cls.lop),
                     classStart: cls.start,
                     classEnd: cls.end,
@@ -1481,6 +1483,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 isAdminCreated: isAdminCreated,
                 isReceptionist: isChipReceptionist,
                 isTeaching: !isChipReceptionist,
+                studentCount: chipSessionData.studentCount || null,
+                studentCountStatus: chipSessionData.studentCountStatus || null,
                 chipFilterName: normalizeChipFilterName(unmatchedChipFilterName),
                 overtimeId: otIdU,
                 overtimePending: otPendingU,

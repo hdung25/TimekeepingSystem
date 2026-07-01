@@ -1366,6 +1366,97 @@ const DBService = {
         }
     },
 
+    updateSessionStudentCount: async (userId, dateKey, sessionId, studentCount, status, updaterId, role) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) throw new Error("Attendance record not found");
+
+                const data = doc.data();
+                if (!data.sessions) throw new Error("No sessions found");
+
+                const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+                if (index === -1) throw new Error("Session not found");
+
+                const session = data.sessions[index];
+                const isAdmin = ['admin', 'senior_assistant'].includes(role);
+
+                // Enforce editing permissions
+                if (!isAdmin) {
+                    // Teacher permissions: can only edit if status is empty, or pending
+                    const currentStatus = session.studentCountStatus;
+                    if (currentStatus && currentStatus !== 'pending') {
+                        throw new Error("Không thể chỉnh sửa ca đã được duyệt hoặc từ chối.");
+                    }
+                    if (studentCount === null || studentCount === undefined || studentCount <= 0) {
+                        delete session.studentCount;
+                        delete session.studentCountStatus;
+                        delete session.studentCountUpdatedAt;
+                        delete session.studentCountUpdatedBy;
+                    } else {
+                        session.studentCount = Number(studentCount);
+                        session.studentCountStatus = 'pending';
+                        session.studentCountUpdatedAt = new Date().toISOString();
+                        session.studentCountUpdatedBy = updaterId || userId;
+                    }
+                } else {
+                    // Admin permissions: can set to approved or rejected or clear
+                    if (studentCount === null || studentCount === undefined || studentCount <= 0) {
+                        delete session.studentCount;
+                        delete session.studentCountStatus;
+                        delete session.studentCountUpdatedAt;
+                        delete session.studentCountUpdatedBy;
+                        delete session.studentCountReviewedAt;
+                        delete session.studentCountReviewedBy;
+                    } else {
+                        session.studentCount = Number(studentCount);
+                        session.studentCountStatus = status || 'pending';
+                        if (status === 'approved' || status === 'rejected') {
+                            session.studentCountReviewedAt = new Date().toISOString();
+                            session.studentCountReviewedBy = updaterId;
+                        } else {
+                            delete session.studentCountReviewedAt;
+                            delete session.studentCountReviewedBy;
+                        }
+                    }
+                }
+
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
+            });
+            DBService._invalidateAttendance(dateKey, userId);
+            return true;
+        } catch (error) {
+            console.error("Error in updateSessionStudentCount:", error);
+            throw error;
+        }
+    },
+
+    saveMonthlyStudentCountPenalty: async (staffId, monthStr, hasPenalty, adminId, reason = '') => {
+        if (!staffId || !monthStr) {
+            throw new Error('[MonthlySalarySettings] staffId and monthStr are required.');
+        }
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            const payload = {
+                studentCountBonusPenalty: !!hasPenalty,
+                studentCountBonusPenaltyAt: hasPenalty ? new Date().toISOString() : null,
+                studentCountBonusPenaltyBy: hasPenalty ? adminId : null,
+                studentCountBonusPenaltyReason: hasPenalty ? reason : null
+            };
+            await db.collection('salary_settings_monthly').doc(docId).set(payload, { merge: true });
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            return true;
+        } catch (e) {
+            console.error('[saveMonthlyStudentCountPenalty] Error saving penalty:', e);
+            throw e;
+        }
+    },
+
+
     toggleSessionBonus10: async (userId, dateKey, sessionId) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);

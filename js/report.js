@@ -517,6 +517,202 @@ window.saveFixedShiftsToServer = async function () {
     }
 };
 
+window.isStudentCountSelectMode = false;
+window.selectedStudentCountChips = {}; // key: "dateKey_sessionId", value: { dateStr, sessionId, studentCount, status }
+
+window.toggleStudentCountSelectMode = function () {
+    window.isStudentCountSelectMode = !window.isStudentCountSelectMode;
+    const btn = document.getElementById('btn-select-student-count-mode');
+    const bar = document.getElementById('student-count-select-bar');
+    const teacherPanel = document.getElementById('student-count-teacher-panel');
+    const adminPanel = document.getElementById('student-count-admin-panel');
+
+    // Parse Roles
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    let roles = [];
+    try { const parsed = JSON.parse(roleRaw); roles = Array.isArray(parsed) ? parsed : [roleRaw]; } catch (e) { roles = [roleRaw]; }
+    const isAdminViewer = roles.some(r => r === 'admin' || r === 'senior_assistant');
+
+    if (window.isStudentCountSelectMode) {
+        // Enforce lock month check for teachers
+        const pubStatus = window.currentMonthlySalarySettingsAll?.published?.status;
+        const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
+        if (!isAdminViewer && isMonthLocked) {
+            window.isStudentCountSelectMode = false;
+            if (typeof UIService !== 'undefined') UIService.toast('Bảng công tháng này đã được khóa (đã gửi/xác nhận), không thể chỉnh sửa.', 'error');
+            return;
+        }
+
+        // Initialize selections
+        window.selectedStudentCountChips = {};
+        if (!isAdminViewer) {
+            // Teacher mode: pre-populate with existing pending/approved/rejected tags of the month
+            window.allMonthChips.forEach(chip => {
+                if (chip.sessionId && chip.studentCount > 0) {
+                    window.selectedStudentCountChips[chip.dateStr + '_' + chip.sessionId] = {
+                        dateStr: chip.dateStr,
+                        sessionId: chip.sessionId,
+                        studentCount: chip.studentCount,
+                        status: chip.studentCountStatus || 'pending'
+                    };
+                }
+            });
+        }
+
+        // Toggle UI
+        if (btn) {
+            btn.innerHTML = '✕ Thoát chế độ chọn';
+            btn.style.background = '#FEE2E2';
+            btn.style.color = '#DC2626';
+            btn.style.borderColor = '#FECACA';
+        }
+        if (bar) bar.style.display = 'flex';
+        if (isAdminViewer) {
+            if (adminPanel) adminPanel.style.display = 'flex';
+            if (teacherPanel) teacherPanel.style.display = 'none';
+        } else {
+            if (teacherPanel) teacherPanel.style.display = 'flex';
+            if (adminPanel) adminPanel.style.display = 'none';
+        }
+    } else {
+        // Reset UI
+        if (btn) {
+            btn.innerHTML = '<i data-lucide="users" style="width:14px; height:14px;"></i> Ca đông học sinh';
+            btn.style.background = '#F0FDF4';
+            btn.style.color = '#166534';
+            btn.style.borderColor = '#BBF7D0';
+            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        }
+        if (bar) bar.style.display = 'none';
+        if (teacherPanel) teacherPanel.style.display = 'none';
+        if (adminPanel) adminPanel.style.display = 'none';
+        window.selectedStudentCountChips = {};
+    }
+
+    renderMonthReport(currentDate);
+};
+
+window.exitStudentCountSelectMode = function () {
+    window.isStudentCountSelectMode = false;
+    window.toggleStudentCountSelectMode();
+};
+
+window.saveStudentCountSelections = async function () {
+    const pubStatus = window.currentMonthlySalarySettingsAll?.published?.status;
+    const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
+    if (isMonthLocked) {
+        if (typeof UIService !== 'undefined') UIService.toast('Bảng công tháng này đã được khóa, không thể lưu.', 'error');
+        return;
+    }
+
+    const staffId = getTargetStaffId();
+    if (!staffId) return;
+
+    const loggedInUser = firebase.auth().currentUser;
+    const updaterId = loggedInUser ? loggedInUser.uid : staffId;
+
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang lưu sĩ số học sinh...');
+
+        const promises = [];
+        
+        for (const chip of window.allMonthChips) {
+            if (!chip.sessionId || chip.isReceptionist) continue;
+            
+            const key = chip.dateStr + '_' + chip.sessionId;
+            const selection = window.selectedStudentCountChips[key];
+            const originalCount = chip.studentCount || null;
+            const originalStatus = chip.studentCountStatus || null;
+
+            if (selection) {
+                if (selection.studentCount !== originalCount || originalStatus !== 'pending') {
+                    if (originalStatus && originalStatus !== 'pending') {
+                        continue; // Cannot edit approved/rejected
+                    }
+                    promises.push(
+                        DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, selection.studentCount, 'pending', updaterId, 'staff')
+                    );
+                }
+            } else {
+                if (originalCount !== null) {
+                    if (originalStatus && originalStatus !== 'pending') {
+                        continue; // Cannot edit approved/rejected
+                    }
+                    promises.push(
+                        DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, null, null, updaterId, 'staff')
+                    );
+                }
+            }
+        }
+
+        await Promise.all(promises);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast('Đã lưu sĩ số học sinh thành công!', 'success');
+        }
+
+        window.exitStudentCountSelectMode();
+    } catch (error) {
+        console.error("Error saving student counts:", error);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(error.message || 'Lỗi khi lưu.', 'error');
+        }
+    }
+};
+
+window.adminReviewStudentCount = async function (newStatus) {
+    const staffId = getTargetStaffId();
+    if (!staffId) return;
+
+    const loggedInUser = firebase.auth().currentUser;
+    if (!loggedInUser) return;
+    const updaterId = loggedInUser.uid;
+
+    const keys = Object.keys(window.selectedStudentCountChips);
+    if (keys.length === 0) {
+        if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn ít nhất 1 ca để thực hiện.', 'warning');
+        return;
+    }
+
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang cập nhật trạng thái duyệt...');
+
+        const promises = [];
+        for (const key of keys) {
+            const item = window.selectedStudentCountChips[key];
+            promises.push(
+                DBService.updateSessionStudentCount(staffId, item.dateStr, item.sessionId, item.studentCount, newStatus, updaterId, 'admin')
+            );
+        }
+        await Promise.all(promises);
+
+        if (newStatus === 'rejected') {
+            const year = currentDate.getFullYear();
+            const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+            const monthStr = `${year}-${month}`;
+            await DBService.saveMonthlyStudentCountPenalty(staffId, monthStr, true, updaterId, 'Từ chối ca đông học sinh');
+        }
+
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast('Cập nhật trạng thái duyệt thành công!', 'success');
+        }
+
+        window.exitStudentCountSelectMode();
+        
+        if (typeof loadSalarySettings === 'function') {
+            await loadSalarySettings();
+        }
+    } catch (error) {
+        console.error("Error in adminReviewStudentCount:", error);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(error.message || 'Lỗi khi cập nhật trạng thái duyệt.', 'error');
+        }
+    }
+};
+
 function getLocalDateKey(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -593,6 +789,26 @@ async function renderMonthReport(date, forceServer = false) {
     const isAdminRole = roles.some(r => r === 'admin' || r === 'senior_assistant');
     let staffId = getTargetStaffId();
 
+    // Exit select mode if we are switching staff
+    if (window.isStudentCountSelectMode && _cachedStaffId !== staffId) {
+        window.isStudentCountSelectMode = false;
+        const btn = document.getElementById('btn-select-student-count-mode');
+        const bar = document.getElementById('student-count-select-bar');
+        const teacherPanel = document.getElementById('student-count-teacher-panel');
+        const adminPanel = document.getElementById('student-count-admin-panel');
+        if (btn) {
+            btn.innerHTML = '<i data-lucide="users" style="width:14px; height:14px;"></i> Ca đông học sinh';
+            btn.style.background = '#F0FDF4';
+            btn.style.color = '#166534';
+            btn.style.borderColor = '#BBF7D0';
+            if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        }
+        if (bar) bar.style.display = 'none';
+        if (teacherPanel) teacherPanel.style.display = 'none';
+        if (adminPanel) adminPanel.style.display = 'none';
+        window.selectedStudentCountChips = {};
+    }
+
     // 0. Fetch User Context for Name Matching
     window.currentUserContext = null;
     try {
@@ -600,6 +816,16 @@ async function renderMonthReport(date, forceServer = false) {
         if (userDoc.exists) window.currentUserContext = userDoc.data();
     } catch (e) { console.error("Error fetching user context", e); }
     const currentUserContext = window.currentUserContext;
+
+    // Load monthly settings for all users to ensure penalty flag and publish status are present
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    try {
+        window.currentMonthlySalarySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+    } catch (e) {
+        console.error("Error fetching monthly salary settings in render:", e);
+        window.currentMonthlySalarySettingsAll = {};
+    }
+
     // Re-sync tieptan inputs box visibility now that currentUserContext is resolved
     if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
 
@@ -617,6 +843,7 @@ async function renderMonthReport(date, forceServer = false) {
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
     const approveSelectedBtn = document.getElementById('btn-approve-selected-bonus10');
     const selectModeBtn = document.getElementById('btn-select-bonus10-mode');
+    const btnSelectStudentCount = document.getElementById('btn-select-student-count-mode');
 
     if (approveAllBtn) {
         if (isAdminViewer && isTeachingAssistant) {
@@ -630,6 +857,13 @@ async function renderMonthReport(date, forceServer = false) {
     }
     if (approveSelectedBtn) {
         approveSelectedBtn.style.display = (isAdminViewer && isTeachingAssistant && window.isBonus10SelectMode) ? 'inline-flex' : 'none';
+    }
+    if (btnSelectStudentCount) {
+        if (isTeachingAssistant) {
+            btnSelectStudentCount.style.display = 'inline-flex';
+        } else {
+            btnSelectStudentCount.style.display = 'none';
+        }
     }
 
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
@@ -649,7 +883,6 @@ async function renderMonthReport(date, forceServer = false) {
     }
 
     // 1. Fetch DATA (Attendance + Schedule)
-    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
 
     // Fetch Fixed Shifts for the month
     window.savedFixedShiftsMonth = [];
@@ -4193,6 +4426,11 @@ function parseFormattedNumber(value) {
     const cleaned = String(value).replace(/,/g, '');
     const num = parseFloat(cleaned);
     return isNaN(num) ? 0 : Math.round(num);
+}
+
+function isStudentCountBonusRow(name) {
+    if (!name) return false;
+    return name.includes('(+') && name.includes('HS)');
 }
 
 function classifyAbsentChip(chip, notesMap) {

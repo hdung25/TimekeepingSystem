@@ -1,5 +1,5 @@
-// Service Worker v33 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v33-class-overlap-merge';
+// Service Worker v34 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v34-student-count';
 
 const STATIC_ASSETS = [
     '/',
@@ -16,8 +16,8 @@ const STATIC_ASSETS = [
     '/css/login.css?v=20260621-font',
     '/js/main.js?v=20260628-past-lock-assistant',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260628-transaction-safety',
-    '/js/report.js?v=20260628-class-overlap-merge',
+    '/js/db-service.js?v=20260701-student-count',
+    '/js/report.js?v=20260701-student-count',
     '/js/evaluation-service.js?v=20260628-class-overlap-merge',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
