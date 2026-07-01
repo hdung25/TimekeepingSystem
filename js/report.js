@@ -553,7 +553,7 @@ window.toggleStudentCountSelectMode = function () {
                         dateStr: chip.dateStr,
                         sessionId: chip.sessionId,
                         studentCount: chip.studentCount,
-                        status: chip.studentCountStatus || 'pending'
+                        status: chip.studentCountStatus || 'approved'
                     };
                 }
             });
@@ -625,18 +625,18 @@ window.saveStudentCountSelections = async function () {
             const originalStatus = chip.studentCountStatus || null;
 
             if (selection) {
-                if (selection.studentCount !== originalCount || originalStatus !== 'pending') {
-                    if (originalStatus && originalStatus !== 'pending') {
-                        continue; // Cannot edit approved/rejected
+                if (selection.studentCount !== originalCount || originalStatus !== 'approved') {
+                    if (originalStatus === 'rejected') {
+                        continue; // Cannot edit rejected
                     }
                     promises.push(
-                        DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, selection.studentCount, 'pending', updaterId, 'staff')
+                        DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, selection.studentCount, 'approved', updaterId, 'staff')
                     );
                 }
             } else {
                 if (originalCount !== null) {
-                    if (originalStatus && originalStatus !== 'pending') {
-                        continue; // Cannot edit approved/rejected
+                    if (originalStatus === 'rejected') {
+                        continue; // Cannot edit rejected
                     }
                     promises.push(
                         DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, null, null, updaterId, 'staff')
@@ -1862,8 +1862,8 @@ async function renderMonthReport(date, forceServer = false) {
                                 return;
                             }
 
-                            if (chip.studentCountStatus && chip.studentCountStatus !== 'pending') {
-                                if (typeof UIService !== 'undefined') UIService.toast('Ca này đã được duyệt hoặc từ chối, không thể chỉnh sửa.', 'warning');
+                            if (chip.studentCountStatus === 'rejected') {
+                                if (typeof UIService !== 'undefined') UIService.toast('Ca này đã bị từ chối, không thể chỉnh sửa.', 'warning');
                                 return;
                             }
 
@@ -1876,14 +1876,14 @@ async function renderMonthReport(date, forceServer = false) {
                                     delete window.selectedStudentCountChips[key];
                                 } else {
                                     currentItem.studentCount = thresholdValue;
-                                    currentItem.status = 'pending';
+                                    currentItem.status = 'approved';
                                 }
                             } else {
                                 window.selectedStudentCountChips[key] = {
                                     dateStr: chip.dateStr,
                                     sessionId: chip.sessionId,
                                     studentCount: thresholdValue,
-                                    status: 'pending'
+                                    status: 'approved'
                                 };
                             }
                             renderMonthReport(currentDate);
