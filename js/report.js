@@ -713,6 +713,76 @@ window.adminReviewStudentCount = async function (newStatus) {
     }
 };
 
+window.openStudentCountReviewModal = function (dateStr, sessionId, chipText, checkIn, checkOut, studentCount, status) {
+    document.getElementById('scr-date-key').value = dateStr;
+    document.getElementById('scr-session-id').value = sessionId;
+    
+    document.getElementById('scr-class-name').innerText = `Lớp: ${chipText}`;
+    document.getElementById('scr-session-time').innerText = `Thời gian: ${checkIn || '--'} - ${checkOut || '--'}`;
+    document.getElementById('scr-reported-count').innerText = `Sĩ số khai báo: ${studentCount} học sinh`;
+    
+    const modal = document.getElementById('student-count-review-modal');
+    if (modal) modal.style.display = 'flex';
+};
+
+window.closeStudentCountReviewModal = function () {
+    const modal = document.getElementById('student-count-review-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.adminQuickAction = async function (action) {
+    const dateStr = document.getElementById('scr-date-key').value;
+    const sessionId = document.getElementById('scr-session-id').value;
+    const staffId = getTargetStaffId();
+    if (!staffId || !dateStr || !sessionId) return;
+
+    const loggedInUser = firebase.auth().currentUser;
+    if (!loggedInUser) return;
+    const updaterId = loggedInUser.uid;
+
+    window.closeStudentCountReviewModal();
+
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang xử lý...');
+
+        const chip = window.allMonthChips.find(c => c.dateStr === dateStr && c.sessionId === sessionId);
+        const currentCount = chip ? chip.studentCount : 10;
+
+        if (action === 'approved') {
+            await DBService.updateSessionStudentCount(staffId, dateStr, sessionId, currentCount, 'approved', updaterId, 'admin');
+            if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt ca đông học sinh!', 'success');
+        } else if (action === 'rejected') {
+            await DBService.updateSessionStudentCount(staffId, dateStr, sessionId, currentCount, 'rejected', updaterId, 'admin');
+            
+            // Save penalty settings for this month
+            const year = currentDate.getFullYear();
+            const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+            const monthStr = `${year}-${month}`;
+            await DBService.saveMonthlyStudentCountPenalty(staffId, monthStr, true, updaterId, 'Từ chối ca đông học sinh');
+            
+            if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối và áp dụng phạt phụ cấp tháng này!', 'success');
+        } else if (action === 'delete') {
+            await DBService.updateSessionStudentCount(staffId, dateStr, sessionId, null, null, updaterId, 'admin');
+            if (typeof UIService !== 'undefined') UIService.toast('Đã xóa thông tin sĩ số khai báo!', 'success');
+        }
+
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
+
+        // Refresh report
+        renderMonthReport(currentDate);
+        
+        if (typeof loadSalarySettings === 'function') {
+            await loadSalarySettings();
+        }
+    } catch (err) {
+        console.error("Error in adminQuickAction:", err);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(err.message || 'Lỗi xảy ra', 'error');
+        }
+    }
+};
+
 function getLocalDateKey(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -1415,24 +1485,24 @@ async function renderMonthReport(date, forceServer = false) {
                 
                 if (isPenaltyActive) {
                     if (status === 'approved') {
-                        badgeText = `👥 ${chip.studentCount}hs (Đã duyệt - Bị phạt)`;
+                        badgeText = `${chip.studentCount}hs (Đã duyệt - Bị phạt)`;
                         badgeClass = 'student-count-badge penalty-applied';
                     } else if (status === 'rejected') {
-                        badgeText = `👥 ${chip.studentCount}hs (Từ chối - Hủy phụ cấp tháng)`;
+                        badgeText = `${chip.studentCount}hs (Từ chối - Hủy phụ cấp tháng)`;
                         badgeClass = 'student-count-badge rejected';
                     } else {
-                        badgeText = `👥 ${chip.studentCount}hs (Chờ duyệt - Bị phạt)`;
+                        badgeText = `${chip.studentCount}hs (Chờ duyệt - Bị phạt)`;
                         badgeClass = 'student-count-badge penalty-applied';
                     }
                 } else {
                     if (status === 'approved') {
-                        badgeText = `👥 ${chip.studentCount}hs (Đã duyệt)`;
+                        badgeText = `${chip.studentCount}hs (Đã duyệt)`;
                         badgeClass = 'student-count-badge approved';
                     } else if (status === 'rejected') {
-                        badgeText = `👥 ${chip.studentCount}hs (Từ chối)`;
+                        badgeText = `${chip.studentCount}hs (Từ chối)`;
                         badgeClass = 'student-count-badge rejected';
                     } else {
-                        badgeText = `👥 ${chip.studentCount}hs (Chờ duyệt)`;
+                        badgeText = `${chip.studentCount}hs (Chờ duyệt)`;
                         badgeClass = 'student-count-badge pending';
                     }
                 }
@@ -1845,7 +1915,19 @@ async function renderMonthReport(date, forceServer = false) {
                         }
                     } else if (chip.isClickable) {
                         if (chip.sessionId) {
-                            openRoleSelectModal(dateStr, chip.sessionData);
+                            if (chip.studentCount > 0 && isAdminViewer) {
+                                openStudentCountReviewModal(
+                                    dateStr,
+                                    chip.sessionId,
+                                    chip.text,
+                                    chip.sessionData.checkIn,
+                                    chip.sessionData.checkOut,
+                                    chip.studentCount,
+                                    chip.studentCountStatus
+                                );
+                            } else {
+                                openRoleSelectModal(dateStr, chip.sessionData);
+                            }
                         } else if (isAdminRole) {
                             // Creating new session from Registration, pass shift metadata so admin can delete this shift
                             openManualModal(
@@ -4248,7 +4330,7 @@ async function openRoleSelectModal(dateKey, session) {
 
     // Kiểm tra có ít nhất 1 option để chọn
     if (!hasReceptionistRole && teachingRoles.length === 0) {
-        alert(`Chưa có cấu hình Vai trò cho nhân viên này. [staffId: ${staffId}]`);
+        // Suppress alert silently for teachers as they calculate by subject
         return;
     }
 
@@ -4995,6 +5077,22 @@ async function populateModalCurrentTab() {
                         }
                         groups[segName].chips.push(chip);
                         groups[segName].totalMinutes += segMins;
+
+                        // Split into student count bonus row if studentCount exists!
+                        if (chip.studentCount && chip.studentCount > 0) {
+                            const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                            if (!groups[bonusName]) {
+                                groups[bonusName] = {
+                                    name: bonusName,
+                                    chips: [],
+                                    totalMinutes: 0
+                                };
+                            }
+                            groups[bonusName].chips.push(chip);
+                            if (chip.studentCountStatus === 'approved') {
+                                groups[bonusName].totalMinutes += segMins;
+                            }
+                        }
                     }
                 });
             } else {
@@ -5007,6 +5105,22 @@ async function populateModalCurrentTab() {
                 }
                 groups[name].chips.push(chip);
                 groups[name].totalMinutes += (chip.paidMinutes || 0);
+
+                // Split into student count bonus row if studentCount exists!
+                if (chip.studentCount && chip.studentCount > 0) {
+                    const bonusName = `${name} (+${chip.studentCount} HS)`;
+                    if (!groups[bonusName]) {
+                        groups[bonusName] = {
+                            name: bonusName,
+                            chips: [],
+                            totalMinutes: 0
+                        };
+                    }
+                    groups[bonusName].chips.push(chip);
+                    if (chip.studentCountStatus === 'approved') {
+                        groups[bonusName].totalMinutes += (chip.paidMinutes || 0);
+                    }
+                }
             }
         }
     });
@@ -5079,18 +5193,32 @@ async function populateModalCurrentTab() {
                     }
                 }
                 
+                const hasRejectedChip = window.unfilteredAllMonthChips?.some(c => c.studentCountStatus === 'rejected');
+                const isPenaltyActive = !!window.currentMonthlySalarySettingsAll?.studentCountBonusPenalty || hasRejectedChip;
+                const isBonus = isStudentCountBonusRow(name);
+                const isRowDisabled = isBonus && isPenaltyActive;
+                
                 const hours = mins / 60;
-                const amount = hours * prefillRate;
+                let amount = isRowDisabled ? 0 : hours * prefillRate;
                 grandTotalSalary += amount;
                 
                 const h = Math.floor(mins / 60);
                 const m = Math.floor(mins % 60);
                 const timeStr = `${h}h${m > 0 ? ' ' + m + 'p' : ''}`;
                 
+                const nameStyle = isBonus ? 'padding-left: 2.25rem; font-weight: 600; color: #166534; font-size: 0.85rem;' : 'font-weight: 500; color: #374151;';
+                const displayName = isBonus ? `↳ ${name}` : name;
+                
+                const inputBg = isRowDisabled ? 'background-color: #E5E7EB; cursor: not-allowed;' : '';
+                const inputDisabledAttr = isRowDisabled ? 'disabled' : '';
+
                 const row = document.createElement('tr');
                 row.style.borderBottom = '1px solid #E5E7EB';
+                if (isRowDisabled) {
+                    row.classList.add('salary-row-student-count-disabled');
+                }
                 row.innerHTML = `
-                    <td style="padding: 0.75rem 1rem; font-weight: 500; color: #374151;">${name}</td>
+                    <td style="padding: 0.75rem 1rem; ${nameStyle}">${displayName}</td>
                     <td style="padding: 0.75rem 1rem; text-align: center; color: #4B5563;">${timeStr}</td>
                     <td style="padding: 0.5rem 1rem; text-align: right;">
                         <input type="text" class="class-rate-input table-input money-input" 
@@ -5098,7 +5226,8 @@ async function populateModalCurrentTab() {
                             data-minutes="${mins}"
                             value="${formatNumberWithCommas(prefillRate)}" 
                             oninput="recalculateSalaryModal()"
-                            style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px 8px; font-weight: 600;">
+                            ${inputDisabledAttr}
+                            style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px 8px; font-weight: 600; ${inputBg}">
                     </td>
                     <td class="class-row-total" style="padding: 0.75rem 1rem; text-align: right; font-weight: 700; color: #111827;">
                         ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount)}
