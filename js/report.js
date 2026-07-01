@@ -1478,7 +1478,7 @@ async function renderMonthReport(date, forceServer = false) {
             let badgeHtml = '';
             if (chip.studentCount && chip.studentCount > 0) {
                 const isPenaltyActive = !!window.currentMonthlySalarySettingsAll?.studentCountBonusPenalty || !!window.hasAnyRejectedStudentCountSessionInMonth;
-                const status = chip.studentCountStatus || 'pending';
+                const status = chip.studentCountStatus === 'rejected' ? 'rejected' : 'approved';
                 
                 let badgeText = '';
                 let badgeClass = '';
@@ -1487,23 +1487,17 @@ async function renderMonthReport(date, forceServer = false) {
                     if (status === 'approved') {
                         badgeText = `${chip.studentCount}hs (Đã duyệt - Bị phạt)`;
                         badgeClass = 'student-count-badge penalty-applied';
-                    } else if (status === 'rejected') {
+                    } else {
                         badgeText = `${chip.studentCount}hs (Từ chối - Hủy phụ cấp tháng)`;
                         badgeClass = 'student-count-badge rejected';
-                    } else {
-                        badgeText = `${chip.studentCount}hs (Chờ duyệt - Bị phạt)`;
-                        badgeClass = 'student-count-badge penalty-applied';
                     }
                 } else {
                     if (status === 'approved') {
                         badgeText = `${chip.studentCount}hs (Đã duyệt)`;
                         badgeClass = 'student-count-badge approved';
-                    } else if (status === 'rejected') {
+                    } else {
                         badgeText = `${chip.studentCount}hs (Từ chối)`;
                         badgeClass = 'student-count-badge rejected';
-                    } else {
-                        badgeText = `${chip.studentCount}hs (Chờ duyệt)`;
-                        badgeClass = 'student-count-badge pending';
                     }
                 }
                 badgeHtml = `<span class="${badgeClass}">${badgeText}</span>`;
@@ -2467,7 +2461,7 @@ function calculateSalary() {
                         subjectBreakdown[segName].amount += amount;
 
                         // Student Count Bonus
-                        if (chip.studentCount && chip.studentCountStatus === 'approved') {
+                        if (chip.studentCount && chip.studentCountStatus !== 'rejected') {
                             const bonusName = `${segName} (+${chip.studentCount} HS)`;
                             let bonusRate = 0;
                             if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
@@ -2498,7 +2492,7 @@ function calculateSalary() {
                             subjectBreakdown[segName].amount += amount;
 
                             // Student Count Bonus
-                            if (chip.studentCount && chip.studentCountStatus === 'approved') {
+                            if (chip.studentCount && chip.studentCountStatus !== 'rejected') {
                                 const bonusName = `${segName} (+${chip.studentCount} HS)`;
                                 let bonusRate = 0;
                                 if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
@@ -2545,7 +2539,7 @@ function calculateSalary() {
                             subjectBreakdown[segName].amount += amount;
 
                             // Student Count Bonus
-                            if (chip.studentCount && chip.studentCountStatus === 'approved') {
+                            if (chip.studentCount && chip.studentCountStatus !== 'rejected') {
                                 const bonusName = `${segName} (+${chip.studentCount} HS)`;
                                 let bonusRate = 0;
                                 if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
@@ -5089,7 +5083,7 @@ async function populateModalCurrentTab() {
                                 };
                             }
                             groups[bonusName].chips.push(chip);
-                            if (chip.studentCountStatus === 'approved') {
+                            if (chip.studentCountStatus !== 'rejected') {
                                 groups[bonusName].totalMinutes += segMins;
                             }
                         }
@@ -5117,7 +5111,7 @@ async function populateModalCurrentTab() {
                         };
                     }
                     groups[bonusName].chips.push(chip);
-                    if (chip.studentCountStatus === 'approved') {
+                    if (chip.studentCountStatus !== 'rejected') {
                         groups[bonusName].totalMinutes += (chip.paidMinutes || 0);
                     }
                 }
@@ -7238,6 +7232,46 @@ function getCurrentCalculationPayload(role) {
                             totalBaseMins += segMins;
                             totalBaseSalary += salary;
                         }
+
+                        // Split into student count bonus row if studentCount exists and is not rejected!
+                        if (chip.studentCount && chip.studentCountStatus !== 'rejected') {
+                            const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                            let bonusRate = 0;
+                            if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
+                                bonusRate = Number(classRates[bonusName]);
+                            }
+                            const hasRejectedChip = (window.unfilteredAllMonthChips || []).some(c => c.studentCountStatus === 'rejected');
+                            const isPenaltyActive = !!monthlyAll?.studentCountBonusPenalty || hasRejectedChip;
+                            const bonusSalary = isPenaltyActive ? 0 : (segMins / 60) * bonusRate;
+
+                            if (!subjectBreakdown[bonusName]) {
+                                subjectBreakdown[bonusName] = { minutes: 0, rate: isPenaltyActive ? 0 : bonusRate, amount: 0 };
+                            }
+                            subjectBreakdown[bonusName].minutes += segMins;
+                            subjectBreakdown[bonusName].amount += bonusSalary;
+
+                            const bFilterNameRaw = (bonusName || '').toLowerCase();
+                            const bFilterNameNorm = removeVietnameseTones(bFilterNameRaw);
+                            if (bFilterNameNorm.includes('tin hoc')) {
+                                totalTinHocMins += segMins;
+                                totalTinHocSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('mam non')) {
+                                totalPreschoolMins += segMins;
+                                totalPreschoolSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('lien ket')) {
+                                totalAffiliateMins += segMins;
+                                totalAffiliateSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('kem 1:1') || bFilterNameNorm.includes('kem 1-1') || bFilterNameNorm.includes('tai nha')) {
+                                totalTutoringMins += segMins;
+                                totalTutoringSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('soan') || bFilterNameNorm.includes('cham') || bFilterNameNorm.includes('su kien') || bFilterNameNorm.includes('phat sinh')) {
+                                totalExtraMins += segMins;
+                                totalExtraSalary += bonusSalary;
+                            } else {
+                                totalBaseMins += segMins;
+                                totalBaseSalary += bonusSalary;
+                            }
+                        }
                     });
                 } else {
                     if (hasClassRate) {
@@ -7270,6 +7304,46 @@ function getCurrentCalculationPayload(role) {
                         }
                         subjectBreakdown[segName].minutes += minutes;
                         subjectBreakdown[segName].amount += salary;
+
+                        // Split into student count bonus row if studentCount exists and is not rejected!
+                        if (chip.studentCount && chip.studentCountStatus !== 'rejected') {
+                            const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                            let bonusRate = 0;
+                            if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
+                                bonusRate = Number(classRates[bonusName]);
+                            }
+                            const hasRejectedChip = (window.unfilteredAllMonthChips || []).some(c => c.studentCountStatus === 'rejected');
+                            const isPenaltyActive = !!monthlyAll?.studentCountBonusPenalty || hasRejectedChip;
+                            const bonusSalary = isPenaltyActive ? 0 : (minutes / 60) * bonusRate;
+
+                            if (!subjectBreakdown[bonusName]) {
+                                subjectBreakdown[bonusName] = { minutes: 0, rate: isPenaltyActive ? 0 : bonusRate, amount: 0 };
+                            }
+                            subjectBreakdown[bonusName].minutes += minutes;
+                            subjectBreakdown[bonusName].amount += bonusSalary;
+
+                            const bFilterNameRaw = (bonusName || '').toLowerCase();
+                            const bFilterNameNorm = removeVietnameseTones(bFilterNameRaw);
+                            if (bFilterNameNorm.includes('tin hoc')) {
+                                totalTinHocMins += minutes;
+                                totalTinHocSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('mam non')) {
+                                totalPreschoolMins += minutes;
+                                totalPreschoolSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('lien ket')) {
+                                totalAffiliateMins += minutes;
+                                totalAffiliateSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('kem 1:1') || bFilterNameNorm.includes('kem 1-1') || bFilterNameNorm.includes('tai nha')) {
+                                totalTutoringMins += minutes;
+                                totalTutoringSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('soan') || bFilterNameNorm.includes('cham') || bFilterNameNorm.includes('su kien') || bFilterNameNorm.includes('phat sinh')) {
+                                totalExtraMins += minutes;
+                                totalExtraSalary += bonusSalary;
+                            } else {
+                                totalBaseMins += minutes;
+                                totalBaseSalary += bonusSalary;
+                            }
+                        }
                     } else {
                         let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
                         const salary = (minutes / 60) * defaultRate;
@@ -7282,6 +7356,46 @@ function getCurrentCalculationPayload(role) {
                         }
                         subjectBreakdown[segName].minutes += minutes;
                         subjectBreakdown[segName].amount += salary;
+
+                        // Split into student count bonus row if studentCount exists and is not rejected!
+                        if (chip.studentCount && chip.studentCountStatus !== 'rejected') {
+                            const bonusName = `${segName} (+${chip.studentCount} HS)`;
+                            let bonusRate = 0;
+                            if (classRates[bonusName] !== undefined && Number(classRates[bonusName]) > 0) {
+                                bonusRate = Number(classRates[bonusName]);
+                            }
+                            const hasRejectedChip = (window.unfilteredAllMonthChips || []).some(c => c.studentCountStatus === 'rejected');
+                            const isPenaltyActive = !!monthlyAll?.studentCountBonusPenalty || hasRejectedChip;
+                            const bonusSalary = isPenaltyActive ? 0 : (minutes / 60) * bonusRate;
+
+                            if (!subjectBreakdown[bonusName]) {
+                                subjectBreakdown[bonusName] = { minutes: 0, rate: isPenaltyActive ? 0 : bonusRate, amount: 0 };
+                            }
+                            subjectBreakdown[bonusName].minutes += minutes;
+                            subjectBreakdown[bonusName].amount += bonusSalary;
+
+                            const bFilterNameRaw = (bonusName || '').toLowerCase();
+                            const bFilterNameNorm = removeVietnameseTones(bFilterNameRaw);
+                            if (bFilterNameNorm.includes('tin hoc')) {
+                                totalTinHocMins += minutes;
+                                totalTinHocSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('mam non')) {
+                                totalPreschoolMins += minutes;
+                                totalPreschoolSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('lien ket')) {
+                                totalAffiliateMins += minutes;
+                                totalAffiliateSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('kem 1:1') || bFilterNameNorm.includes('kem 1-1') || bFilterNameNorm.includes('tai nha')) {
+                                totalTutoringMins += minutes;
+                                totalTutoringSalary += bonusSalary;
+                            } else if (bFilterNameNorm.includes('soan') || bFilterNameNorm.includes('cham') || bFilterNameNorm.includes('su kien') || bFilterNameNorm.includes('phat sinh')) {
+                                totalExtraMins += minutes;
+                                totalExtraSalary += bonusSalary;
+                            } else {
+                                totalBaseMins += minutes;
+                                totalBaseSalary += bonusSalary;
+                            }
+                        }
                     }
                 }
             }
