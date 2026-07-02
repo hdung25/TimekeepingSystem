@@ -936,7 +936,7 @@ window.executeCopyWeek = async function () {
                 sections.forEach(sec => {
                     if (srcData[sec]) {
                         cleanData[sec] = srcData[sec].map(row => {
-                            const { registeredTeachers, gvThayTe, gvThayTeId, gvThayTeList, ...rest } = row;
+                            const { registeredTeachers, gvThayTe, gvThayTeId, gvThayTeList, isClosed, ...rest } = row;
                             return {
                                 ...rest,
                                 gvThayTe: '',

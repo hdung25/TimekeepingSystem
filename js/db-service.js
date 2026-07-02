@@ -459,13 +459,14 @@ const DBService = {
 
                 const templateData = neighborDoc.data();
 
-                // SANITIZATION: Clean up 'registeredTeachers'
+                // SANITIZATION: Clean up 'registeredTeachers' and temporary closure 'isClosed'
                 Object.keys(templateData).forEach(key => {
                     if (Array.isArray(templateData[key])) {
-                        templateData[key] = templateData[key].map(row => ({
-                            ...row,
-                            registeredTeachers: []
-                        }));
+                        templateData[key] = templateData[key].map(row => {
+                            const newRow = { ...row, registeredTeachers: [] };
+                            delete newRow.isClosed;
+                            return newRow;
+                        });
                     }
                 });
 
@@ -572,10 +573,11 @@ const DBService = {
                     // Sanitize Template
                     Object.keys(templateData).forEach(key => {
                         if (Array.isArray(templateData[key])) {
-                            templateData[key] = templateData[key].map(row => ({
-                                ...row,
-                                registeredTeachers: []
-                            }));
+                            templateData[key] = templateData[key].map(row => {
+                                const newRow = { ...row, registeredTeachers: [] };
+                                delete newRow.isClosed;
+                                return newRow;
+                            });
                         }
                     });
 
