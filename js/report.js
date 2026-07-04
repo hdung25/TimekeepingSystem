@@ -23,8 +23,17 @@ async function initReport() {
         }
     }
     
-    // Restore saved staff ID if available
+    // Support URL focus date param
     const urlParams = new URLSearchParams(window.location.search);
+    const dateParam = urlParams.get('date');
+    if (dateParam) {
+        const parsedDate = new Date(dateParam);
+        if (!isNaN(parsedDate.getTime())) {
+            currentDate = parsedDate;
+        }
+    }
+    
+    // Restore saved staff ID if available
     window.initialTargetStaffId = urlParams.get('staffId') || localStorage.getItem('lastSelectedStaffId') || '';
 
     // 0. Wait for Firebase Auth to restore session (critical for Firestore permissions)
@@ -2241,6 +2250,47 @@ async function renderMonthReport(date, forceServer = false) {
 
     if (isAdminRole) {
         loadSalarySettings();
+    }
+
+    // Highlight and scroll to focus date if parameter exists
+    const urlParamsFocus = new URLSearchParams(window.location.search);
+    const dateParamFocus = urlParamsFocus.get('date');
+    if (dateParamFocus) {
+        setTimeout(() => {
+            const targetCell = document.getElementById('calendar-cell-' + dateParamFocus);
+            if (targetCell) {
+                document.querySelectorAll('.focused-calendar-day').forEach(el => el.classList.remove('focused-calendar-day'));
+                
+                targetCell.classList.add('focused-calendar-day');
+                
+                if (!document.getElementById('focus-day-style')) {
+                    const styleEl = document.createElement('style');
+                    styleEl.id = 'focus-day-style';
+                    styleEl.innerHTML = `
+                        @keyframes borderPulse {
+                            0% { box-shadow: 0 0 0 0px rgba(16, 185, 129, 0.7); border-color: #10B981; }
+                            50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); border-color: #10B981; }
+                            100% { box-shadow: 0 0 0 0px rgba(16, 185, 129, 0); border-color: #10B981; }
+                        }
+                        .focused-calendar-day {
+                            animation: borderPulse 2s infinite ease-in-out;
+                            border: 2px solid #10B981 !important;
+                            position: relative;
+                            z-index: 10;
+                            background-color: #ECFDF5 !important;
+                        }
+                    `;
+                    document.head.appendChild(styleEl);
+                }
+                
+                targetCell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Clean URL param silently without reload
+                const cleanUrl = new URL(window.location);
+                cleanUrl.searchParams.delete('date');
+                window.history.replaceState({}, '', cleanUrl);
+            }
+        }, 400);
     }
 }
 

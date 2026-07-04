@@ -539,7 +539,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     let isLate = false;
                     if (matchedSession.isAdminEdited) {
                         minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
-                        label += ` ${actualStartStr}–${actualEndStr}`;
+                        label = `${actualStartStr}–${actualEndStr}${_labelBranchSuffix}`;
                     } else {
                         // Lấy thời gian làm việc thực tế nằm trong khung giờ lịch
                         const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));

@@ -146,10 +146,20 @@ async function loadUnregisteredAlerts() {
                         <strong>${req.staffName || 'N/A'}</strong>
                         <span style="color:var(--text-muted);margin-left:0.5rem;">Ngày ${req.dateKey || ''}</span>
                     </div>
-                    <a href="bao-cao.html?staffId=${req.staffId}" class="btn"
-                        style="background:#7C3AED;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
-                        Xem &amp; Duyệt
-                    </a>
+                    <div style="display:flex;gap:0.5rem;">
+                        <button class="btn" onclick="rejectBonus10FromDashboard('${req.id}', this)"
+                            style="background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;padding:0.4rem 0.75rem;font-size:0.85rem;cursor:pointer;border-radius:4px;display:inline-flex;align-items:center;">
+                            ${window.getIconHtml('x-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:3px;'})} Từ Chối
+                        </button>
+                        <button class="btn" onclick="approveBonus10FromDashboard('${req.id}', '${req.staffId}', '${req.dateKey}', '${req.sessionId || ''}', this)"
+                            style="background:#10B981;color:white;border:none;padding:0.4rem 0.75rem;font-size:0.85rem;cursor:pointer;border-radius:4px;display:inline-flex;align-items:center;">
+                            ${window.getIconHtml('check-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:3px;'})} Duyệt
+                        </button>
+                        <a href="bao-cao.html?staffId=${req.staffId}&date=${req.dateKey}" class="btn"
+                            style="background:#7C3AED;color:white;padding:0.4rem 0.75rem;font-size:0.85rem;text-decoration:none;border-radius:4px;display:inline-flex;align-items:center;">
+                            Xem
+                        </a>
+                    </div>
                 </div>
             `;
         });
@@ -165,12 +175,16 @@ async function loadUnregisteredAlerts() {
                     </div>
                     <div style="display:flex;gap:0.5rem;">
                         <button class="btn" onclick="rejectOvertimeFromDashboard('${ot.id}', this)"
-                            style="background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;padding:0.4rem 0.75rem;font-size:0.85rem;">
+                            style="background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;padding:0.4rem 0.75rem;font-size:0.85rem;cursor:pointer;border-radius:4px;display:inline-flex;align-items:center;">
                             ${window.getIconHtml('x-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:3px;'})} Từ Chối
                         </button>
-                        <a href="bao-cao.html?staffId=${ot.staffId}" class="btn"
-                            style="background:#F59E0B;color:white;padding:0.4rem 1rem;font-size:0.85rem;text-decoration:none;">
-                            Xem &amp; Duyệt
+                        <button class="btn" onclick="approveOvertimeFromDashboard('${ot.id}', this)"
+                            style="background:#10B981;color:white;border:none;padding:0.4rem 0.75rem;font-size:0.85rem;cursor:pointer;border-radius:4px;display:inline-flex;align-items:center;">
+                            ${window.getIconHtml('check-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:3px;'})} Duyệt
+                        </button>
+                        <a href="bao-cao.html?staffId=${ot.staffId}&date=${ot.dateKey}" class="btn"
+                            style="background:#F59E0B;color:white;padding:0.4rem 0.75rem;font-size:0.85rem;text-decoration:none;border-radius:4px;display:inline-flex;align-items:center;">
+                            Xem
                         </a>
                     </div>
                 </div>
@@ -210,6 +224,45 @@ window.rejectOvertimeFromDashboard = async function(requestId, btn) {
         await DBService.rejectOvertimeRequest(requestId, adminName);
         await loadUnregisteredAlerts(); // await để đảm bảo refresh sau khi Firestore write xong
         if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối yêu cầu tăng ca.', 'info');
+    } catch(e) {
+        if (btn) btn.disabled = false;
+        if (typeof UIService !== 'undefined') UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+};
+
+window.approveOvertimeFromDashboard = async function(requestId, btn) {
+    if (btn) btn.disabled = true;
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+    try {
+        await DBService.approveOvertimeRequest(requestId, adminName);
+        await loadUnregisteredAlerts();
+        if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt yêu cầu tăng ca.', 'success');
+    } catch(e) {
+        if (btn) btn.disabled = false;
+        if (typeof UIService !== 'undefined') UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+};
+
+window.approveBonus10FromDashboard = async function(requestId, staffId, dateKey, sessionId, btn) {
+    if (btn) btn.disabled = true;
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+    try {
+        await DBService.approveBonus10Request(requestId, adminName, staffId, dateKey, sessionId);
+        await loadUnregisteredAlerts();
+        if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt yêu cầu sớm 10p.', 'success');
+    } catch(e) {
+        if (btn) btn.disabled = false;
+        if (typeof UIService !== 'undefined') UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+};
+
+window.rejectBonus10FromDashboard = async function(requestId, btn) {
+    if (btn) btn.disabled = true;
+    const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+    try {
+        await DBService.rejectBonus10Request(requestId, adminName);
+        await loadUnregisteredAlerts();
+        if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối yêu cầu sớm 10p.', 'info');
     } catch(e) {
         if (btn) btn.disabled = false;
         if (typeof UIService !== 'undefined') UIService.toast('Lỗi: ' + e.message, 'error');
