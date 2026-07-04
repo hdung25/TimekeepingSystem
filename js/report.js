@@ -1527,17 +1527,26 @@ async function renderMonthReport(date, forceServer = false) {
             window.unfilteredAllMonthChips.push(c);
         });
 
+        const salaryRoleFilterEl = document.getElementById('salary-role-filter');
+        const salaryRoleFilter = salaryRoleFilterEl ? salaryRoleFilterEl.value : 'all';
+
+        let filteredChips = chips;
+        if (salaryRoleFilter === 'tiep-tan') {
+            filteredChips = chips.filter(chip => chip.isReceptionist === true);
+        } else if (salaryRoleFilter === 'giao-vien') {
+            filteredChips = chips.filter(chip => chip.isReceptionist !== true);
+        }
+
         const displayFilterEl = document.getElementById('display-role-filter');
         const displayFilter = displayFilterEl ? displayFilterEl.value : 'all';
 
-        let filteredChips = chips;
         if (displayFilter !== 'all') {
             if (displayFilter === 'ca-co-dinh') {
-                filteredChips = chips.filter(chip => chip.isFixedShift === true);
+                filteredChips = filteredChips.filter(chip => chip.isFixedShift === true);
             } else if (displayFilter === 'ca-binh-thuong') {
-                filteredChips = chips.filter(chip => chip.isFixedShift === false);
+                filteredChips = filteredChips.filter(chip => chip.isFixedShift === false);
             } else {
-                filteredChips = chips.filter(chip => chip.chipFilterName === displayFilter);
+                filteredChips = filteredChips.filter(chip => chip.chipFilterName === displayFilter);
             }
         }
 
