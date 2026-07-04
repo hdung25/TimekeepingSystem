@@ -2410,7 +2410,7 @@ function updateBonusDisplay(amount) {
 
 function calculateSalary() {
     // 1. Get Settings
-    const roleFilter = 'all';
+    const roleFilter = document.getElementById('salary-role-filter')?.value || 'all';
 
     // 2. Filter Chips & Calculate Minutes
     const hoursDisplay = document.getElementById('role-hours-display');

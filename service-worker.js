@@ -1,5 +1,5 @@
 // Service Worker v35 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v37-approve-buttons-focus-date';
+const CACHE_NAME = 'tdt-chamcong-v38-role-filter-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -17,7 +17,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260704-approve-buttons',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
-    '/js/report.js?v=20260704-focus-date',
+    '/js/report.js?v=20260705-role-filter-fix',
     '/js/evaluation-service.js?v=20260704-admin-edit-fix',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
