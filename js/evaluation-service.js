@@ -1473,7 +1473,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
 
             const paidMinutes = Math.max(0, Math.round(duration + otMinutesU));
-            if (isUsedForTeaching && paidMinutes <= 0 && !otPendingU) {
+            if (isUsedForTeaching && paidMinutes < 30 && !otPendingU) {
                 return;
             }
 

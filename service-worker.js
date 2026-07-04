@@ -1,5 +1,5 @@
 // Service Worker v35 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v39-admin-edit-overlap-fix';
+const CACHE_NAME = 'tdt-chamcong-v40-teaching-buffer-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -18,7 +18,7 @@ const STATIC_ASSETS = [
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
     '/js/report.js?v=20260705-role-filter-fix',
-    '/js/evaluation-service.js?v=20260705-admin-edit-overlap-fix',
+    '/js/evaluation-service.js?v=20260705-teaching-buffer-fix',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
