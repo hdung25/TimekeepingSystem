@@ -498,7 +498,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     if (rowIsAdmin) {
         const checkedAttr = isClassClosed ? 'checked' : '';
         actionCell = `
-            <td style="text-align: center; white-space: nowrap;">
+            <td data-label="Thao tác" style="text-align: center; white-space: nowrap;">
                 <div style="display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;">
                     <label style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.75rem; color: ${isClassClosed ? '#EF4444' : '#6B7280'}; font-weight: 600; user-select: none;" title="Tắt lớp này">
                         <input type="checkbox" ${checkedAttr} 
@@ -516,9 +516,9 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             </td>`;
     } else {
         if (isClassClosed) {
-            actionCell = `<td style="text-align: center;"><span style="color: #EF4444; font-size: 0.75rem; font-weight: bold; background: #FEE2E2; padding: 2px 6px; border-radius: 4px;">Đã tắt</span></td>`;
+            actionCell = `<td data-label="Thao tác" style="text-align: center;"><span style="color: #EF4444; font-size: 0.75rem; font-weight: bold; background: #FEE2E2; padding: 2px 6px; border-radius: 4px;">Đã tắt</span></td>`;
         } else {
-            actionCell = '<td></td>';
+            actionCell = `<td data-label="Thao tác"></td>`;
         }
     }
 
@@ -546,11 +546,11 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             <td data-label="Bat dau"><input type="time" class="${inputClass}" value="${data.start || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'start', this.value)"></td>
             <td data-label="Ket thuc"><input type="time" class="${inputClass}" value="${data.end || ''}" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'end', this.value)"></td>
             ${lopCell}
-            <td><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
+            <td data-label="Phòng"><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
             ${gvCell}
             ${gvTTCell}
             ${soHSCell}
-            <td><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
+            <td data-label="Ghi chú"><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
             ${actionCell}
         </tr>
     `;

@@ -1,14 +1,26 @@
 // Database Service - Lớp trung gian xử lý dữ liệu
 // Mục đích: Tách biệt logic gọi database khỏi giao diện (UI)
 
-// Global helper: Generate YYYY-MM-DD using LOCAL timezone (not UTC!)
-// Fixes bug: 00:00-06:59 Vietnam (UTC+7) was creating wrong date with toISOString()
+// Global helper: Generate YYYY-MM-DD using Vietnam timezone (UTC+7)
 function getLocalDateKeyFromDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    if (!(date instanceof Date)) return '';
+    const vnTime = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    const year = vnTime.getUTCFullYear();
+    const month = String(vnTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(vnTime.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
+
+// Global helper: Create a Date object corresponding to a given HH:MM in Vietnam timezone (UTC+7)
+function getVietnamDateFromHM(dateKey, hmStr) {
+    if (!dateKey || !hmStr) return null;
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const [hour, minute] = hmStr.split(':').map(Number);
+    if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hour) || isNaN(minute)) return null;
+    const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+    return new Date(utcDate.getTime() - 7 * 60 * 60 * 1000);
+}
+
 
 async function resolveDDNS(domain) {
     if (!domain || domain.trim() === '') return null;

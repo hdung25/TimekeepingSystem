@@ -487,11 +487,8 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
                 const endStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
 
                 // FIX: dùng local time, tránh UTC parse gây lệch 7h
-                const [_acy, _acm, _acd] = dateKey.split('-').map(Number);
-                const [_ssh, _ssm] = startStr.split(':').map(Number);
-                const [_seh, _sem] = endStr.split(':').map(Number);
-                const shiftStart = new Date(_acy, _acm - 1, _acd, _ssh, _ssm, 0, 0);
-                const shiftEnd = new Date(_acy, _acm - 1, _acd, _seh, _sem, 0, 0);
+                const shiftStart = getVietnamDateFromHM(dateKey, startStr);
+                const shiftEnd = getVietnamDateFromHM(dateKey, endStr);
 
                 allShifts.push({ shiftStart, shiftEnd, startStr, endStr });
             }
@@ -566,19 +563,24 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
         }
 
         if (allClasses.length === 0) return;
-        allClasses.sort((a, b) => a.start.localeCompare(b.start));
 
-        // Tìm lớp khớp checkInTime (±60 phút tính từ giờ bắt đầu)
+        // Tìm lớp khớp checkInTime (khoảng cách giờ bắt đầu gần nhất trong vòng 60p, trước khi lớp kết thúc)
         let matchedClassEnd = null;
         let matchedClassEndStr = null;
+        let minDiff = Infinity;
         for (const cls of allClasses) {
-            const [_csh, _csm] = cls.start.split(':').map(Number);
-            const classStart = new Date(_tcy, _tcm - 1, _tcd, _csh, _csm, 0, 0);
-            if (Math.abs(checkInTime - classStart) < 60 * 60 * 1000) {
-                const [_ceh, _cem] = cls.end.split(':').map(Number);
-                matchedClassEnd = new Date(_tcy, _tcm - 1, _tcd, _ceh, _cem, 0, 0);
-                matchedClassEndStr = cls.end;
-                break; // lấy lớp sớm nhất khớp
+            if (!cls.start || !cls.end) continue;
+            const classStart = getVietnamDateFromHM(dateKey, cls.start);
+            const classEnd = getVietnamDateFromHM(dateKey, cls.end);
+            if (!classStart || !classEnd) continue;
+
+            const diffMs = Math.abs(checkInTime - classStart);
+            if (diffMs < 60 * 60 * 1000 && checkInTime < new Date(classEnd.getTime() + 15 * 60 * 1000)) {
+                if (diffMs < minDiff) {
+                    minDiff = diffMs;
+                    matchedClassEnd = classEnd;
+                    matchedClassEndStr = cls.end;
+                }
             }
         }
 
@@ -591,9 +593,8 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             extended = false;
             for (const cls of allClasses) {
                 if (cls.start === matchedClassEndStr) {
-                    const [_ceh, _cem] = cls.end.split(':').map(Number);
-                    const newEnd = new Date(_tcy, _tcm - 1, _tcd, _ceh, _cem, 0, 0);
-                    if (newEnd > matchedClassEnd) {
+                    const newEnd = getVietnamDateFromHM(dateKey, cls.end);
+                    if (newEnd && newEnd > matchedClassEnd) {
                         matchedClassEnd = newEnd;
                         matchedClassEndStr = cls.end;
                         extended = true;

@@ -1056,29 +1056,63 @@ async function renderMonthReport(date, forceServer = false) {
         Object.entries(attendanceMap).forEach(([dateKey, sessions]) => {
             if (dateKey >= todayKey) return;
             const sched = scheduleMap[dateKey] || {};
-            const [_sy, _sm, _sd] = dateKey.split('-').map(Number);
             sessions.forEach(s => {
                 if (!s.checkOut && s.id) {
                     // Tìm giờ kết thúc lịch cho session này
                     let correctEndISO = null;
                     const checkIn = s.checkIn ? new Date(s.checkIn) : null;
                     if (checkIn) {
-                        outer: for (const sec of sections) {
-                            for (const cls of (sched[sec] || [])) {
+                        // Thu thập tất cả lớp của giáo viên hôm đó
+                        const staffClasses = [];
+                        sections.forEach(sec => {
+                            (sched[sec] || []).forEach(cls => {
                                 const isAssigned = (cls.gvId && cls.gvId === staffId) ||
                                     (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
                                     (cls.registeredTeachers || []).some(t => t.id === staffId);
-                                if (!isAssigned) continue;
-                                const [_h, _m] = cls.start.split(':').map(Number);
-                                const clsStart = new Date(_sy, _sm - 1, _sd, _h, _m, 0, 0);
-                                if (Math.abs(checkIn - clsStart) < 60 * 60 * 1000) {
-                                    correctEndISO = new Date(`${dateKey}T${cls.end}:00`).toISOString();
-                                    break outer;
+                                if (isAssigned && cls.start && cls.end) {
+                                    staffClasses.push(cls);
                                 }
+                            });
+                        });
+
+                        // Tìm lớp bắt đầu gần nhất với check-in trong vòng 60p
+                        let matchedClass = null;
+                        let minDiff = Infinity;
+                        staffClasses.forEach(cls => {
+                            const clsStart = getVietnamDateFromHM(dateKey, cls.start);
+                            const clsEnd = getVietnamDateFromHM(dateKey, cls.end);
+                            if (!clsStart || !clsEnd) return;
+
+                            const diffMs = Math.abs(checkIn - clsStart);
+                            if (diffMs < 60 * 60 * 1000 && checkIn < new Date(clsEnd.getTime() + 15 * 60 * 1000)) {
+                                if (diffMs < minDiff) {
+                                    minDiff = diffMs;
+                                    matchedClass = cls;
+                                }
+                            }
+                        });
+
+                        if (matchedClass) {
+                            // Mở rộng nếu có ca liên tiếp
+                            let currentEndStr = matchedClass.end;
+                            let extended = true;
+                            while (extended) {
+                                extended = false;
+                                for (const cls of staffClasses) {
+                                    if (cls.start === currentEndStr) {
+                                        currentEndStr = cls.end;
+                                        extended = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            const finalEndDate = getVietnamDateFromHM(dateKey, currentEndStr);
+                            if (finalEndDate) {
+                                correctEndISO = finalEndDate.toISOString();
                             }
                         }
                     }
-                    const fallbackISO = new Date(`${dateKey}T23:59:00`).toISOString();
+                    const fallbackISO = getVietnamDateFromHM(dateKey, "23:59")?.toISOString() || new Date(`${dateKey}T23:59:00Z`).toISOString();
                     const closeISO = correctEndISO || fallbackISO;
                     DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO).then(closed => {
                         if (closed) {
@@ -1279,10 +1313,12 @@ async function renderMonthReport(date, forceServer = false) {
         const todayRecepShifts = receptionistShiftsMap[todayKey] || [];
         let shiftEnded = false;
         todayRecepShifts.forEach(rs => {
-            const shiftStart = new Date(`${todayKey}T${rs.start}`);
-            const shiftEnd = new Date(`${todayKey}T${rs.end}`);
-            if (Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 && nowForAutoClose >= shiftEnd) {
-                shiftEnded = true;
+            const shiftStart = getVietnamDateFromHM(todayKey, rs.start);
+            const shiftEnd = getVietnamDateFromHM(todayKey, rs.end);
+            if (shiftStart && shiftEnd) {
+                if (Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 && nowForAutoClose >= shiftEnd) {
+                    shiftEnded = true;
+                }
             }
         });
         if (shiftEnded) {
@@ -1295,21 +1331,57 @@ async function renderMonthReport(date, forceServer = false) {
 
         // Check teacher classes
         const todaySchedule = scheduleMap[todayKey] || {};
+        const staffClasses = [];
         ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(sec => {
             (todaySchedule[sec] || []).forEach(cls => {
                 const isRegistered = (cls.gvId && cls.gvId === staffId) ||
+                    (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
                     (cls.registeredTeachers || []).some(t => t.id === staffId);
-                if (!isRegistered) return;
-                const classStart = new Date(`${todayKey}T${cls.start}`);
-                const classEnd = new Date(`${todayKey}T${cls.end}`);
-                if (Math.abs(checkInTime - classStart) < 60 * 60 * 1000 && nowForAutoClose >= classEnd) {
-                    DBService.checkOutPersonal(staffId).then(() => {
-                        s.checkOut = nowForAutoClose.toISOString();
-                        console.log(`[Report AutoClose] Auto-closed today's overdue class session for ${staffId}`);
-                    }).catch(e => console.warn('[Report AutoClose] Error:', e));
+                if (isRegistered && cls.start && cls.end) {
+                    staffClasses.push(cls);
                 }
             });
         });
+
+        // Find closest starting class within 60 mins window
+        let matchedClass = null;
+        let minDiff = Infinity;
+        staffClasses.forEach(cls => {
+            const clsStart = getVietnamDateFromHM(todayKey, cls.start);
+            const clsEnd = getVietnamDateFromHM(todayKey, cls.end);
+            if (!clsStart || !clsEnd) return;
+
+            const diffMs = Math.abs(checkInTime - clsStart);
+            if (diffMs < 60 * 60 * 1000 && checkInTime < new Date(clsEnd.getTime() + 15 * 60 * 1000)) {
+                if (diffMs < minDiff) {
+                    minDiff = diffMs;
+                    matchedClass = cls;
+                }
+            }
+        });
+
+        if (matchedClass) {
+            // Find the end of any consecutive class chain today
+            let currentEndStr = matchedClass.end;
+            let extended = true;
+            while (extended) {
+                extended = false;
+                for (const cls of staffClasses) {
+                    if (cls.start === currentEndStr) {
+                        currentEndStr = cls.end;
+                        extended = true;
+                        break;
+                    }
+                }
+            }
+            const finalEndDate = getVietnamDateFromHM(todayKey, currentEndStr);
+            if (finalEndDate && nowForAutoClose >= finalEndDate) {
+                DBService.checkOutPersonal(staffId).then(() => {
+                    s.checkOut = nowForAutoClose.toISOString();
+                    console.log(`[Report AutoClose] Auto-closed today's overdue class session for ${staffId}`);
+                }).catch(e => console.warn('[Report AutoClose] Error:', e));
+            }
+        }
     });
 
     // 2. CALCULATE & RENDER
