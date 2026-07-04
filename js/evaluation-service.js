@@ -536,12 +536,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     const actualEndStr = actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
+                    // Lấy thời gian làm việc thực tế nằm trong khung giờ lịch
+                    const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
+                    const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
+                    minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
+
                     let isLate = false;
                     if (matchedSession.isAdminEdited) {
-                        minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
                         label = `${actualStartStr}–${actualEndStr}${_labelBranchSuffix}`;
                     } else {
-                        // Lấy thời gian làm việc thực tế nằm trong khung giờ lịch
                         const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
                         const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
                         minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
@@ -938,8 +941,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const tsStart = new Date(_ry, _rm - 1, _rd, parseInt(tsStartParts[0], 10), parseInt(tsStartParts[1], 10), 0, 0);
                     const tsEnd = new Date(_ry, _rm - 1, _rd, parseInt(tsEndParts[0], 10), parseInt(tsEndParts[1], 10), 0, 0);
                     
-                    const overlapStart = new Date(Math.max(schedStart.getTime(), tsStart.getTime()));
-                    const overlapEnd = new Date(Math.min(schedEnd.getTime(), tsEnd.getTime()));
+                    const recepStart = matchedSession.isAdminEdited ? actualStart : schedStart;
+                    const recepEnd = matchedSession.isAdminEdited ? actualEnd : schedEnd;
+                    const overlapStart = new Date(Math.max(recepStart.getTime(), tsStart.getTime()));
+                    const overlapEnd = new Date(Math.min(recepEnd.getTime(), tsEnd.getTime()));
                     if (overlapStart < overlapEnd) {
                         overlappingTeachingMinutes += Math.max(0, Math.round((overlapEnd - overlapStart) / 60000));
                     }
@@ -950,7 +955,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualEndStr = actualEnd ? actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 if (matchedSession.isAdminEdited) {
-                    minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
+                    const fullActualMinutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
+                    minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes);
                     label = `${labelShort} ${actualStartStr}–${actualEndStr}${branchShortR}`;
                 } else {
                     // Ghi chú đi trễ
