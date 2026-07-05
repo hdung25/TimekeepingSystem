@@ -1,5 +1,5 @@
 // Service Worker v36 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v46-admin-edit-absent-fix';
+const CACHE_NAME = 'tdt-chamcong-v47-admin-wrench-icon-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -17,7 +17,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260704-approve-buttons',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
-    '/js/report.js?v=20260705-admin-edit-absent-fix',
+    '/js/report.js?v=20260705-admin-wrench-icon-fix',
     '/js/evaluation-service.js?v=20260705-admin-edit-absent-fix',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
