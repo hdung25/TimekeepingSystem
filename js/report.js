@@ -3167,6 +3167,82 @@ function calculateSalary() {
             breakdownSection.style.display = 'none';
         }
     }
+
+    // Update Admin Edited History UI
+    const adminEditedSection = document.getElementById('admin-edited-history-section');
+    const adminEditedBody = document.getElementById('admin-edited-history-body');
+    if (adminEditedSection && adminEditedBody) {
+        adminEditedBody.innerHTML = '';
+        
+        const editedChips = [];
+        const seenSessionIds = new Set();
+        const allMonthChips = window.allMonthChips || [];
+        
+        allMonthChips.forEach(chip => {
+            if (chip.isAdminEdited && chip.sessionId && !seenSessionIds.has(chip.sessionId)) {
+                seenSessionIds.add(chip.sessionId);
+                editedChips.push(chip);
+            }
+        });
+        
+        const viewerRole = localStorage.getItem('currentRole') || 'staff';
+        let viewerRoles = [];
+        try {
+            const parsed = JSON.parse(viewerRole);
+            viewerRoles = Array.isArray(parsed) ? parsed : [viewerRole];
+        } catch(e) {
+            viewerRoles = [viewerRole];
+        }
+        const isAdminViewer = viewerRoles.some(r => r === 'admin' || r === 'senior_assistant');
+
+        if (isAdminViewer && editedChips.length > 0) {
+            adminEditedSection.style.display = 'block';
+            
+            // Sort by date key ascending
+            editedChips.sort((a, b) => {
+                const dA = a.dateStr || '';
+                const dB = b.dateStr || '';
+                return dA.localeCompare(dB);
+            });
+
+            editedChips.forEach(chip => {
+                const s = chip.sessionData || {};
+                
+                let dateDisplay = 'N/A';
+                if (chip.dateStr) {
+                    const parts = chip.dateStr.split('-');
+                    if (parts.length === 3) {
+                        dateDisplay = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                    }
+                }
+                
+                const checkInTime = s.checkIn ? new Date(s.checkIn).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
+                const checkOutTime = s.checkOut ? new Date(s.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa ra ca';
+                
+                let workDetails = chip.text || 'N/A';
+                if (s.isAbsent) {
+                    workDetails += ' <span style="color:#DC2626; font-weight:700;">(Vắng)</span>';
+                }
+                
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid var(--border-color)';
+                tr.style.fontSize = '0.9rem';
+                tr.innerHTML = `
+                    <td style="padding: 0.75rem 0.5rem; font-weight: 600; color: var(--text-color);">${dateDisplay}</td>
+                    <td style="padding: 0.75rem 0.5rem; font-weight: 500; display: flex; align-items: center; gap: 4px;">
+                        ${workDetails}
+                        <span title="Admin đã chỉnh sửa" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                    </td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: center; color: #2563EB; font-weight: 500;">${checkInTime}</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: center; color: #DC2626; font-weight: 500;">${checkOutTime}</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: right; font-weight: 600; color: var(--secondary-color);">${s.roleName || (s.role === 'tiep-tan' ? 'Tiếp Tân' : 'Dạy học')}</td>
+                `;
+                adminEditedBody.appendChild(tr);
+            });
+        } else {
+            adminEditedSection.style.display = 'none';
+        }
+    }
 }
 
 function applySalaryVisibility() {
