@@ -1059,80 +1059,7 @@ async function renderMonthReport(date, forceServer = false) {
         });
     });
 
-    // === AUTO-CLOSE STALE SESSIONS (chạy sau khi có scheduleMap) ===
-    {
-        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
-        Object.entries(attendanceMap).forEach(([dateKey, sessions]) => {
-            if (dateKey >= todayKey) return;
-            const sched = scheduleMap[dateKey] || {};
-            sessions.forEach(s => {
-                if (!s.checkOut && s.id) {
-                    // Tìm giờ kết thúc lịch cho session này
-                    let correctEndISO = null;
-                    const checkIn = s.checkIn ? new Date(s.checkIn) : null;
-                    if (checkIn) {
-                        // Thu thập tất cả lớp của giáo viên hôm đó
-                        const staffClasses = [];
-                        sections.forEach(sec => {
-                            (sched[sec] || []).forEach(cls => {
-                                const isAssigned = (cls.gvId && cls.gvId === staffId) ||
-                                    (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
-                                    (cls.registeredTeachers || []).some(t => t.id === staffId);
-                                if (isAssigned && cls.start && cls.end) {
-                                    staffClasses.push(cls);
-                                }
-                            });
-                        });
 
-                        // Tìm lớp bắt đầu gần nhất với check-in trong vòng 60p
-                        let matchedClass = null;
-                        let minDiff = Infinity;
-                        staffClasses.forEach(cls => {
-                            const clsStart = getVietnamDateFromHM(dateKey, cls.start);
-                            const clsEnd = getVietnamDateFromHM(dateKey, cls.end);
-                            if (!clsStart || !clsEnd) return;
-
-                            const diffMs = Math.abs(checkIn - clsStart);
-                            if (diffMs < 60 * 60 * 1000 && checkIn < new Date(clsEnd.getTime() + 15 * 60 * 1000)) {
-                                if (diffMs < minDiff) {
-                                    minDiff = diffMs;
-                                    matchedClass = cls;
-                                }
-                            }
-                        });
-
-                        if (matchedClass) {
-                            // Mở rộng nếu có ca liên tiếp
-                            let currentEndStr = matchedClass.end;
-                            let extended = true;
-                            while (extended) {
-                                extended = false;
-                                for (const cls of staffClasses) {
-                                    if (cls.start === currentEndStr) {
-                                        currentEndStr = cls.end;
-                                        extended = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            const finalEndDate = getVietnamDateFromHM(dateKey, currentEndStr);
-                            if (finalEndDate) {
-                                correctEndISO = finalEndDate.toISOString();
-                            }
-                        }
-                    }
-                    const fallbackISO = getVietnamDateFromHM(dateKey, "23:59")?.toISOString() || new Date(`${dateKey}T23:59:00Z`).toISOString();
-                    const closeISO = correctEndISO || fallbackISO;
-                    DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO).then(closed => {
-                        if (closed) {
-                            s.checkOut = closeISO;
-                            s.autoClosedReason = 'stale_session';
-                        }
-                    });
-                }
-            });
-        });
-    }
 
     // C. Receptionist Schedule Data (only for receptionist role staff)
     const receptionistShiftsMap = {}; // "YYYY-MM-DD" -> [{ shift, label, start, end }]
@@ -1307,6 +1234,105 @@ async function renderMonthReport(date, forceServer = false) {
                 mergedShifts.push(currentShift);
                 receptionistShiftsMap[dateStr] = mergedShifts;
             }
+        });
+    }
+
+    // === AUTO-CLOSE STALE SESSIONS (chạy sau khi có scheduleMap và receptionistShiftsMap) ===
+    {
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        Object.entries(attendanceMap).forEach(([dateKey, sessions]) => {
+            if (dateKey >= todayKey) return;
+            const sched = scheduleMap[dateKey] || {};
+            sessions.forEach(s => {
+                if (!s.checkOut && s.id) {
+                    // Tìm giờ kết thúc lịch cho session này
+                    let correctEndISO = null;
+                    const checkIn = s.checkIn ? new Date(s.checkIn) : null;
+                    if (checkIn) {
+                        // 1. Kiểm tra ca dạy (Teaching classes)
+                        const staffClasses = [];
+                        sections.forEach(sec => {
+                            (sched[sec] || []).forEach(cls => {
+                                const isAssigned = (cls.gvId && cls.gvId === staffId) ||
+                                    (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
+                                    (cls.registeredTeachers || []).some(t => t.id === staffId);
+                                if (isAssigned && cls.start && cls.end) {
+                                    staffClasses.push(cls);
+                                }
+                            });
+                        });
+
+                        let matchedClass = null;
+                        let minDiff = Infinity;
+                        staffClasses.forEach(cls => {
+                            const clsStart = getVietnamDateFromHM(dateKey, cls.start);
+                            const clsEnd = getVietnamDateFromHM(dateKey, cls.end);
+                            if (!clsStart || !clsEnd) return;
+
+                            const diffMs = Math.abs(checkIn - clsStart);
+                            if (diffMs < 60 * 60 * 1000 && checkIn < new Date(clsEnd.getTime() + 15 * 60 * 1000)) {
+                                if (diffMs < minDiff) {
+                                    minDiff = diffMs;
+                                    matchedClass = cls;
+                                }
+                            }
+                        });
+
+                        if (matchedClass) {
+                            let currentEndStr = matchedClass.end;
+                            let extended = true;
+                            while (extended) {
+                                extended = false;
+                                for (const cls of staffClasses) {
+                                    if (cls.start === currentEndStr) {
+                                        currentEndStr = cls.end;
+                                        extended = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            const finalEndDate = getVietnamDateFromHM(dateKey, currentEndStr);
+                            if (finalEndDate) {
+                                correctEndISO = finalEndDate.toISOString();
+                            }
+                        }
+
+                        // 2. Nếu không khớp ca dạy, kiểm tra ca Tiếp Tân (Receptionist shifts)
+                        if (!correctEndISO && receptionistShiftsMap[dateKey]) {
+                            let matchedRecepShift = null;
+                            let minRecepDiff = Infinity;
+                            receptionistShiftsMap[dateKey].forEach(rs => {
+                                const shiftStart = getVietnamDateFromHM(dateKey, rs.start);
+                                const shiftEnd = getVietnamDateFromHM(dateKey, rs.end);
+                                if (!shiftStart || !shiftEnd) return;
+
+                                const diffMs = Math.abs(checkIn - shiftStart);
+                                if (diffMs < 90 * 60 * 1000) {
+                                    if (diffMs < minRecepDiff) {
+                                        minRecepDiff = diffMs;
+                                        matchedRecepShift = rs;
+                                    }
+                                }
+                            });
+
+                            if (matchedRecepShift) {
+                                const finalEndDate = getVietnamDateFromHM(dateKey, matchedRecepShift.end);
+                                if (finalEndDate) {
+                                    correctEndISO = finalEndDate.toISOString();
+                                }
+                            }
+                        }
+                    }
+                    const fallbackISO = getVietnamDateFromHM(dateKey, "23:59")?.toISOString() || new Date(`${dateKey}T23:59:00Z`).toISOString();
+                    const closeISO = correctEndISO || fallbackISO;
+                    
+                    // Cập nhật local ngay lập tức để render đúng đồng thì
+                    s.checkOut = closeISO;
+                    s.autoClosedReason = 'stale_session';
+                    
+                    DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO);
+                }
+            });
         });
     }
 

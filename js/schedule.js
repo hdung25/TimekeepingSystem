@@ -500,7 +500,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
         actionCell = `
             <td data-label="Thao tác" style="text-align: center; white-space: nowrap;">
                 <div style="display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;">
-                    <label style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.75rem; color: ${isClassClosed ? '#EF4444' : '#6B7280'}; font-weight: 600; user-select: none;" title="Tắt lớp này">
+                    <label class="class-closure-toggle" style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.75rem; color: ${isClassClosed ? '#EF4444' : '#6B7280'}; font-weight: 600; user-select: none;" title="Tắt lớp này">
                         <input type="checkbox" ${checkedAttr} 
                             onchange="toggleClassClosure('${compositeKey}', '${caType}', ${index}, this.checked)"
                             style="cursor: pointer; width: 14px; height: 14px; margin: 0;">
@@ -526,7 +526,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     const lopVal = (data.lop || '').replace(/"/g, '&quot;');
     let lopCell = '';
     if (rowIsAdmin) {
-        lopCell = `<td><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
+        lopCell = `<td data-label="Mon / Lop"><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
             list="subject-list"
             onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)"></td>`;
     } else {

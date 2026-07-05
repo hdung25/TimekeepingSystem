@@ -1215,12 +1215,6 @@ button {
         letter-spacing: 0.02em;
     }
 
-    .schedule-table-container .schedule-table td:nth-child(2),
-    .schedule-table-container .schedule-table td:nth-child(3),
-    .schedule-table-container .schedule-table td:nth-child(8) {
-        display: none !important;
-    }
-
     .schedule-table-container .table-input {
         min-height: 42px;
         padding: 0.55rem 0.65rem !important;
@@ -1249,6 +1243,77 @@ button {
         line-height: 1.28;
         word-break: normal;
         overflow-wrap: anywhere;
+    }
+
+    .schedule-table-container .schedule-table td[data-label="Thao tÃ¡c"],
+    .schedule-table-container .schedule-table td[data-label="Thao tác"] {
+        grid-template-columns: 1fr;
+        gap: 0.45rem;
+        padding-top: 0.7rem !important;
+        border-top: 1px dashed var(--border-color) !important;
+    }
+
+    .schedule-table-container .schedule-table td[data-label="Thao tÃ¡c"]::before,
+    .schedule-table-container .schedule-table td[data-label="Thao tác"]::before {
+        content: none;
+    }
+
+    .schedule-table-container .schedule-table td[data-label="Thao tÃ¡c"] > div,
+    .schedule-table-container .schedule-table td[data-label="Thao tác"] > div {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) 46px;
+        gap: 0.55rem !important;
+        width: 100%;
+    }
+
+    .schedule-table-container .class-closure-toggle {
+        min-height: 44px;
+        justify-content: center;
+        gap: 0.45rem;
+        border: 1px solid #FCA5A5;
+        border-radius: 10px;
+        background: #FEF2F2;
+        color: #B91C1C !important;
+        font-size: 0.9rem !important;
+        font-weight: 800 !important;
+    }
+
+    .schedule-table-container .class-closure-toggle input {
+        width: 18px !important;
+        height: 18px !important;
+        accent-color: #EF4444;
+    }
+
+    .schedule-table-container td[data-label="Thao tÃ¡c"] .btn-icon,
+    .schedule-table-container td[data-label="Thao tác"] .btn-icon {
+        width: 46px;
+        height: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #FECACA !important;
+        border-radius: 10px;
+        background: #FFF7F7 !important;
+    }
+
+    .schedule-table-container .section-header > div {
+        flex-wrap: wrap;
+        justify-content: center !important;
+        gap: 0.45rem;
+    }
+
+    .schedule-table-container .section-header label {
+        min-height: 36px;
+        padding: 0.25rem 0.55rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.65);
+    }
+
+    .schedule-table-container .add-row-btn {
+        min-height: 46px;
+        font-weight: 800;
+        background: #FFFFFF;
     }
 }
 

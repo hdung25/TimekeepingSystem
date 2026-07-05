@@ -1,5 +1,5 @@
-// Service Worker v35 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v41-role-filter-display-fix';
+// Service Worker v36 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v43-receptionist-autoclose-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -12,18 +12,18 @@ const STATIC_ASSETS = [
     '/lich-tiep-tan.html',
     '/nhan-su.html',
     '/he-thong.html',
-    '/css/style.css?v=20260621-lotus',
+    '/css/style.css?v=20260705-mobile-schedule-actions',
     '/css/login.css?v=20260621-font',
     '/js/main.js?v=20260704-approve-buttons',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
-    '/js/report.js?v=20260705-role-filter-display-fix',
+    '/js/report.js?v=20260705-receptionist-autoclose-fix',
     '/js/evaluation-service.js?v=20260705-teaching-buffer-fix',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js?v=20260704-timezone-fix',
+    '/js/schedule.js?v=20260705-mobile-schedule-actions',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260628-class-closure-specific',
     '/images/TUDUYTRE.jpg',
