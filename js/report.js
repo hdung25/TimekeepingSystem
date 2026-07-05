@@ -1620,7 +1620,12 @@ async function renderMonthReport(date, forceServer = false) {
                 badgeHtml = `<span class="${badgeClass}">${badgeText}</span>`;
             }
 
-            div.innerHTML = `<span>${chip.text}${badgeHtml}</span>`;
+            let editedHtml = '';
+            if (chip.isAdminEdited) {
+                editedHtml = ` <span title="Admin đã chỉnh sửa" style="cursor:help; font-size:0.85rem; display:inline-flex; align-items:center; vertical-align:middle; margin-left:4px;">✏️</span>`;
+            }
+
+            div.innerHTML = `<span>${chip.text}${editedHtml}${badgeHtml}</span>`;
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
@@ -4041,6 +4046,8 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
+    const statusEl = document.getElementById('edit-session-status');
+    if (statusEl) statusEl.value = 'worked';
 
     // Reset class metadata fields just in case
     if (document.getElementById('edit-class-composite-key')) {
@@ -4139,6 +4146,8 @@ async function openEditModal(dateKey, sessionId, sessionData, classStart, classC
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
+    const statusEl = document.getElementById('edit-session-status');
+    if (statusEl) statusEl.value = (sessionData && sessionData.isAbsent) ? 'absent' : 'worked';
     const linkedEl = document.getElementById('edit-linked-class-start');
     if (linkedEl) linkedEl.value = classStart || (sessionData ? (sessionData.linkedClassStart || '') : '');
 
@@ -4258,11 +4267,15 @@ async function saveEditedTime() {
     const selectedRoleName = roleSelect?.options[roleSelect.selectedIndex]?.text || null;
     const selectedRoleRate = roleSelect?.options[roleSelect.selectedIndex]?.dataset?.rate || null;
 
+    const statusVal = document.getElementById('edit-session-status')?.value || 'worked';
+    const isAbsent = (statusVal === 'absent');
+
     const newData = {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
         isAdminEdited: true,
+        isAbsent: isAbsent,
         ...(linkedClassStart ? { linkedClassStart } : {}),
         ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {})
     };

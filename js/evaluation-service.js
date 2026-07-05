@@ -524,6 +524,27 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Clone sessionData to prevent shared reference modifications
                 const chipSessionData = { ...matchedSession };
 
+                if (matchedSession.isAbsent) {
+                    chips.push({
+                        text: `${cls.lop || 'ca dạy'} (Vắng)`,
+                        class: 'chip-gray',
+                        paidMinutes: 0,
+                        tooltip: 'Admin đánh dấu vắng mặt',
+                        sessionId: matchedSession.id,
+                        sessionData: chipSessionData,
+                        isClickable: true,
+                        isTeaching: true,
+                        isAdminEdited: !!matchedSession.isAdminEdited,
+                        chipFilterName: normalizeChipFilterName(cls.lop),
+                        classStart: cls.start,
+                        classEnd: cls.end,
+                        classCompositeKey: cls._compositeKey || null,
+                        classSectionKey: secKey,
+                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx
+                    });
+                    return;
+                }
+
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
                     // FULL CHECK-IN/OUT
@@ -731,6 +752,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     sessionId: matchedSession.id,
                     sessionData: chipSessionData, // Use cloned chipSessionData
                     isClickable: isClickable,
+                    isAdminEdited: !!(matchedSession && matchedSession.isAdminEdited),
                     isTeaching: true,
                     studentCount: chipSessionData.studentCount || null,
                     studentCountStatus: chipSessionData.studentCountStatus || null,
@@ -922,6 +944,28 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             const chipSessionData = { ...matchedSession };
 
+            if (matchedSession.isAbsent) {
+                chips.push({
+                    text: `${rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'} (Vắng)`,
+                    class: 'chip-gray',
+                    paidMinutes: 0,
+                    tooltip: 'Admin đánh dấu vắng mặt',
+                    sessionId: matchedSession.id,
+                    sessionData: chipSessionData,
+                    isClickable: true,
+                    isReceptionist: true,
+                    isAdminEdited: !!matchedSession.isAdminEdited,
+                    chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
+                    classCompositeKey: compositeKeyLocal,
+                    classSectionKey: rs.shift,
+                    classIndex: dayKeyLocal,
+                    isFixedShift: rs.isFixedShift,
+                    mergedSegments: rs.mergedSegments || null,
+                    bonus10Status: b10StatusR
+                });
+                return;
+            }
+
             if (matchedSession.checkOut) {
                 // === HAS CHECK-OUT ===
                 const actualStart = safeDate(matchedSession.checkIn || matchedSession.start);
@@ -1108,6 +1152,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 sessionData: chipSessionData, // Use cloned chipSessionData
                 isClickable: isClickable,
                 isReceptionist: true,
+                isAdminEdited: !!(matchedSession && matchedSession.isAdminEdited),
                 chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
                 classCompositeKey: compositeKeyLocal,
                 classSectionKey: rs.shift,
@@ -1284,6 +1329,28 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     s.roleRate = autoRoleRate;
                     s._autoAssignedRole = true;
                 }
+            }
+
+            if (s.isAbsent) {
+                const isChipReceptionist = (chipSessionData.role === 'tiep-tan');
+                const unmatchedChipFilterName = isChipReceptionist ? 'tiep-tan' : (chipSessionData.role || 'giao-vien');
+                
+                chips.push({
+                    text: `${chipSessionData.roleName || 'Ca làm'} (Vắng)`,
+                    class: 'chip-gray',
+                    paidMinutes: 0,
+                    tooltip: 'Admin đánh dấu vắng mặt',
+                    sessionId: s.id,
+                    sessionData: chipSessionData,
+                    isClickable: true,
+                    isAdminEdited: !!s.isAdminEdited,
+                    isReceptionist: isChipReceptionist,
+                    isTeaching: !isChipReceptionist,
+                    studentCount: chipSessionData.studentCount || null,
+                    studentCountStatus: chipSessionData.studentCountStatus || null,
+                    chipFilterName: normalizeChipFilterName(unmatchedChipFilterName)
+                });
+                return;
             }
 
             const isAdminCreated = (s.type === 'admin_add' || s.type === 'manual');
@@ -1488,6 +1555,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 isClickable: isClickable,
                 isWarning: isUnmatchedWarning,
                 isAdminCreated: isAdminCreated,
+                isAdminEdited: !!s.isAdminEdited,
                 isReceptionist: isChipReceptionist,
                 isTeaching: !isChipReceptionist,
                 studentCount: chipSessionData.studentCount || null,
