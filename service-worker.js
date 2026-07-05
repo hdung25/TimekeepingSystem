@@ -1,5 +1,5 @@
 // Service Worker v36 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v43-receptionist-autoclose-fix';
+const CACHE_NAME = 'tdt-chamcong-v44-stale-re-evaluate-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -17,7 +17,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260704-approve-buttons',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
-    '/js/report.js?v=20260705-receptionist-autoclose-fix',
+    '/js/report.js?v=20260705-stale-re-evaluate-fix',
     '/js/evaluation-service.js?v=20260705-teaching-buffer-fix',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',

@@ -1244,7 +1244,7 @@ async function renderMonthReport(date, forceServer = false) {
             if (dateKey >= todayKey) return;
             const sched = scheduleMap[dateKey] || {};
             sessions.forEach(s => {
-                if (!s.checkOut && s.id) {
+                if (s.id && (!s.checkOut || s.autoClosedReason === 'stale_session' || (s.checkOut && s.checkOut.includes('T23:59:00')))) {
                     // Tìm giờ kết thúc lịch cho session này
                     let correctEndISO = null;
                     const checkIn = s.checkIn ? new Date(s.checkIn) : null;
@@ -1326,11 +1326,12 @@ async function renderMonthReport(date, forceServer = false) {
                     const fallbackISO = getVietnamDateFromHM(dateKey, "23:59")?.toISOString() || new Date(`${dateKey}T23:59:00Z`).toISOString();
                     const closeISO = correctEndISO || fallbackISO;
                     
-                    // Cập nhật local ngay lập tức để render đúng đồng thì
-                    s.checkOut = closeISO;
-                    s.autoClosedReason = 'stale_session';
-                    
-                    DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO);
+                    if (s.checkOut !== closeISO) {
+                        // Cập nhật local ngay lập tức để render đúng đồng thì
+                        s.checkOut = closeISO;
+                        s.autoClosedReason = 'stale_session';
+                        DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO);
+                    }
                 }
             });
         });
