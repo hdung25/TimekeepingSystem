@@ -1342,7 +1342,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             let b10DataU, b10StatusU;
 
-            if (s.checkOut) {
+            if (s.checkOut && s.autoClosedReason !== 'stale_session' && !s.checkOut.includes('T23:59:00')) {
                 const sessionEnd = safeDate(s.checkOut);
                 const endStr = sessionEnd ? sessionEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
@@ -1431,7 +1431,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 if (isPastDayU) {
                     duration = 0;
-                    label = `${startStr}–???`;
+                    const roleSuffix = chipSessionData.role ? ` (${chipSessionData.roleName || chipSessionData.role})` : '';
+                    label = `${startStr}–???${roleSuffix}`;
                     cssClass = 'chip-orange';
                     tooltip += ' - Quên check-out (ngày đã qua)';
                     isClickable = true;
