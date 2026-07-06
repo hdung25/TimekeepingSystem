@@ -1435,6 +1435,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             : `Đúng giờ (${schedStartStr})`;
                     }
 
+                    // Check for invalid/accidental sessions
+                    const actualSessionDurationMs = sessionEnd - sessionStart;
+                    if (actualSessionDurationMs < 10 * 60 * 1000 || sessionEnd <= nearestSchedStart || sessionStart >= nearestSchedEnd) {
+                        duration = 0;
+                    }
+
                     // Subtract teaching minutes (Issue 1)
                     const teachingMins = teachingMinutesMap[s.id] || 0;
                     duration = Math.max(0, duration - teachingMins);
