@@ -1,5 +1,5 @@
 // Service Worker v36 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v49-accidental-session-fix';
+const CACHE_NAME = 'tdt-chamcong-v50-vdx-clickable-and-deletable';
 
 const STATIC_ASSETS = [
     '/',
@@ -18,7 +18,7 @@ const STATIC_ASSETS = [
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
     '/js/report.js?v=20260705-admin-edited-history-panel',
-    '/js/evaluation-service.js?v=20260706-accidental-session-fix',
+    '/js/evaluation-service.js?v=20260708-vdx-clickable-and-deletable',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',

@@ -170,10 +170,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // Collect VĐX (Vắng đã xác nhận) slots for this staff on this day to hide overlapping receptionist absent chips
     const vdxSlots = [];
     sections.forEach(sk => {
-        (schedule[sk] || []).forEach(c => {
+        (schedule[sk] || []).forEach((c, idx) => {
             if (!c.start || !c.end) return;
             const isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+            const ck = c._compositeKey || null;
+            const originalIdx = c._originalIndex !== undefined ? c._originalIndex : idx;
             if (isOriginalVDX) {
+                if (ck && cancelledShifts.includes(`${ck}_${sk}_${originalIdx}`)) return;
                 vdxSlots.push({ start: c.start, end: c.end });
             }
         });
@@ -387,6 +390,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const isSubstitute = cls.gvThayTheId && cls.gvThayTheId === staffId;
             const isOriginalVDX = cls.gvThayTheId && cls.gvId === staffId;
 
+            const classCompositeKey = cls._compositeKey || null;
+            const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
+
+            // --- CHECK CANCELLED SHIFTS FIRST ---
+            if (classCompositeKey && cancelledShifts.includes(`${classCompositeKey}_${secKey}_${originalIdx}`)) {
+                return; // Skip this explicitly cancelled/deleted shift
+            }
+
             // GV gốc bị thay → tạo chip VĐX riêng (không tính giờ/lương) rồi return
             if (isOriginalVDX) {
                 const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
@@ -398,7 +409,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isWarning: false,
                     isVDX: true,
                     chipFilterName: normalizeChipFilterName(cls.lop),
-                    tooltip: `Vắng đột xuất — GV thay thế: ${cls.gvThayThe || '?'}`
+                    tooltip: `Vắng đột xuất — GV thay thế: ${cls.gvThayThe || '?'}`,
+                    sessionId: null,
+                    schedData: { start: cls.start, end: cls.end },
+                    isClickable: true,
+                    classCompositeKey: classCompositeKey,
+                    classSectionKey: secKey,
+                    classIndex: originalIdx
                 });
                 return;
             }
@@ -417,13 +434,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             _mainSeenSlots.add(_mainSlotKey);
 
             if (cls.isClosed === true) return; // Skip closed class
-
-            // --- NEW: Check Cancelled Shifts ---
-            const classCompositeKey = cls._compositeKey || null;
-            const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
-            if (classCompositeKey && cancelledShifts.includes(`${classCompositeKey}_${secKey}_${originalIdx}`)) {
-                return; // Skip this explicitly cancelled shift
-            }
 
             // --- MERGE: bỏ qua ca không phải đầu chuỗi (đã được gộp vào ca trước) ---
             const _mk = `${secKey}_${idx}`;
