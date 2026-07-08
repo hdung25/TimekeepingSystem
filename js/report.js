@@ -1952,7 +1952,7 @@ async function renderMonthReport(date, forceServer = false) {
             }
 
             // --- Role Selection / Bonus/Fixed Click Handler ---
-            const isClickable = chip.isClickable || window.isBonusSelectMode || window.isFixedShiftMode || window.isStudentCountSelectMode;
+            const isClickable = chip.isClickable || window.isBonusSelectMode || window.isFixedShiftMode || window.isStudentCountSelectMode || isAdminRole;
             if (isClickable) {
                 div.style.cursor = 'pointer';
                 if (window.isBonusSelectMode) {
