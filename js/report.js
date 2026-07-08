@@ -4295,6 +4295,15 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     // --- ADMIN APPROVAL & EXTRA CONFIGS DYNAMIC POPULATION ---
     const adminApprovalSec = document.getElementById('admin-approval-section');
     if (adminApprovalSec) {
+        const currentRoleRaw = localStorage.getItem('currentRole') || 'staff';
+        let currentUserRoles = [];
+        try {
+            const _parsed = JSON.parse(currentRoleRaw);
+            currentUserRoles = Array.isArray(_parsed) ? _parsed : [currentRoleRaw];
+        } catch (e) {
+            currentUserRoles = [currentRoleRaw];
+        }
+
         const currentUserContext = window.currentUserContext; // current target user context
         const uRoles = currentUserContext?.roles || (currentUserContext?.role ? [currentUserContext.role] : []);
         const isTargetTA = uRoles.includes('teaching_assistant');
@@ -4548,6 +4557,14 @@ async function saveEditedTime() {
 
         // Save Overtime Minutes if modified (Admin Only)
         const otInput = document.getElementById('edit-overtime-minutes');
+        const currentRoleRaw = localStorage.getItem('currentRole') || 'staff';
+        let currentUserRoles = [];
+        try {
+            const _parsed = JSON.parse(currentRoleRaw);
+            currentUserRoles = Array.isArray(_parsed) ? _parsed : [currentRoleRaw];
+        } catch (e) {
+            currentUserRoles = [currentRoleRaw];
+        }
         const isAdminRole = window.currentUserContext && (window.currentUserContext.role === 'admin' || (window.currentUserContext.roles || []).includes('admin'));
         const isAdminViewer = isAdminRole || (currentUserRoles || []).includes('admin') || (currentUserRoles || []).includes('senior_assistant');
         

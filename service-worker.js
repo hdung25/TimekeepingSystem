@@ -1,5 +1,5 @@
 // Service Worker v36 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v52-smart-edit-modal';
+const CACHE_NAME = 'tdt-chamcong-v53-fix-admin-roles-reference';
 
 const STATIC_ASSETS = [
     '/',
@@ -17,7 +17,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260704-approve-buttons',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
-    '/js/report.js?v=20260708-smart-edit-modal',
+    '/js/report.js?v=20260708-fix-admin-roles-reference',
     '/js/evaluation-service.js?v=20260708-subject-prefill-and-b10-cancel-option',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
