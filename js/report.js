@@ -2054,15 +2054,16 @@ async function renderMonthReport(date, forceServer = false) {
                         }
                     } else if (chip.isClickable) {
                         if (chip.sessionId) {
-                            if (chip.studentCount > 0 && isAdminViewer) {
-                                openStudentCountReviewModal(
+                            if (isAdminViewer) {
+                                openEditModal(
                                     dateStr,
                                     chip.sessionId,
-                                    chip.text,
-                                    chip.sessionData.checkIn,
-                                    chip.sessionData.checkOut,
-                                    chip.studentCount,
-                                    chip.studentCountStatus
+                                    chip,
+                                    chip.classStart,
+                                    chip.classCompositeKey,
+                                    chip.classSectionKey,
+                                    chip.classIndex,
+                                    chip.isReceptionist
                                 );
                             } else {
                                 openRoleSelectModal(dateStr, chip.sessionData);
@@ -2075,7 +2076,6 @@ async function renderMonthReport(date, forceServer = false) {
                                 chip.classCompositeKey,
                                 chip.classSectionKey,
                                 chip.classIndex,
-                                // FIX Bug 3: chỉ truyền isReceptionist để modal xóa dùng đúng method
                                 chip.isReceptionist ? true : false
                             );
                         }
@@ -2101,7 +2101,7 @@ async function renderMonthReport(date, forceServer = false) {
                     openEditModal(
                         dateStr,
                         chip.sessionId,
-                        chip.sessionData,
+                        chip,
                         chip.classStart,
                         chip.classCompositeKey,
                         chip.classSectionKey,
@@ -2110,37 +2110,6 @@ async function renderMonthReport(date, forceServer = false) {
                     );
                 };
                 div.appendChild(editBtn);
-
-                // Admin: if this chip has a pending overtime, show Confirm/Reject buttons
-                if (chip.overtimePending && chip.overtimeId) {
-                    const confirmBtn = document.createElement('span');
-                    confirmBtn.innerHTML = window.getIconHtml('check-circle', {width: '14', height: '14', stroke: '#10B981'});
-                    confirmBtn.title = 'Xác nhận tăng ca';
-                    confirmBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;';
-                    confirmBtn.onclick = async (e) => {
-                        e.stopPropagation();
-                        if (!await UIService.confirm('Xác nhận giờ tăng ca này?')) return;
-                        const adminName = localStorage.getItem('currentUserName') || 'Admin';
-                        await DBService.approveOvertimeRequest(chip.overtimeId, adminName);
-                        _cachedStaffId = null;
-                        renderMonthReport(currentDate);
-                    };
-                    div.appendChild(confirmBtn);
-
-                    const rejectBtn = document.createElement('span');
-                    rejectBtn.innerHTML = window.getIconHtml('x-circle', {width: '14', height: '14', stroke: '#EF4444'});
-                    rejectBtn.title = 'Từ chối tăng ca';
-                    rejectBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:2px;';
-                    rejectBtn.onclick = async (e) => {
-                        e.stopPropagation();
-                        if (!await UIService.confirm('Từ chối yêu cầu tăng ca này?')) return;
-                        const adminName = localStorage.getItem('currentUserName') || 'Admin';
-                        await DBService.rejectOvertimeRequest(chip.overtimeId, adminName);
-                        _cachedStaffId = null;
-                        renderMonthReport(currentDate);
-                    };
-                    div.appendChild(rejectBtn);
-                }
             }
 
             // Staff: add ⏱️ Overtime Request button on completed sessions with no pending OT
@@ -4257,7 +4226,8 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     }
 }
 
-async function openEditModal(dateKey, sessionId, sessionData, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
+async function openEditModal(dateKey, sessionId, chip, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
+    const sessionData = chip.sessionData || chip;
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = sessionId;
@@ -4321,6 +4291,120 @@ async function openEditModal(dateKey, sessionId, sessionData, classStart, classC
             r.checked = !isFixed;
         }
     });
+
+    // --- ADMIN APPROVAL & EXTRA CONFIGS DYNAMIC POPULATION ---
+    const adminApprovalSec = document.getElementById('admin-approval-section');
+    if (adminApprovalSec) {
+        const currentUserContext = window.currentUserContext; // current target user context
+        const uRoles = currentUserContext?.roles || (currentUserContext?.role ? [currentUserContext.role] : []);
+        const isTargetTA = uRoles.includes('teaching_assistant');
+        const isAdminRole = window.currentUserContext && (window.currentUserContext.role === 'admin' || (window.currentUserContext.roles || []).includes('admin'));
+        const isAdminViewer = isAdminRole || (currentUserRoles || []).includes('admin') || (currentUserRoles || []).includes('senior_assistant');
+
+        if (isAdminViewer && sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null') {
+            adminApprovalSec.style.display = 'block';
+
+            // 1. BONUS 10P (Early check-in)
+            const b10Container = document.getElementById('modal-bonus10-container');
+            const b10Actions = document.getElementById('modal-bonus10-actions');
+            const canSeeBonus10 = !isRecep && isTargetTA;
+
+            if (canSeeBonus10) {
+                b10Container.style.display = 'flex';
+                b10Actions.innerHTML = '';
+                const b10Status = chip.bonus10Status;
+                const hasBonus = sessionData && sessionData.bonus10;
+
+                if (b10Status === 'approved' || hasBonus) {
+                    b10Actions.innerHTML = `
+                        <span style="color: #059669; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ Đã duyệt</span>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedBonus10('${chip.bonus10Id || ''}', '${staffId}', '${dateKey}', '${sessionId}')">Hủy thưởng</button>
+                    `;
+                } else if (b10Status === 'pending') {
+                    b10Actions.innerHTML = `
+                        <span style="color: #D97706; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">⏱️ Chờ duyệt</span>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveBonus10('${chip.bonus10Id}', '${sessionId}', '${dateKey}', '${staffId}')">Duyệt</button>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalRejectBonus10('${chip.bonus10Id}')">Từ chối</button>
+                    `;
+                } else {
+                    b10Actions.innerHTML = `
+                        <span style="color: #6B7280; font-size: 0.9rem; margin-right: 8px;">Chưa yêu cầu</span>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalSubmitBonus10Request('${sessionId}', '${dateKey}', '${staffId}')">Thưởng +10p</button>
+                    `;
+                }
+            } else {
+                b10Container.style.display = 'none';
+            }
+
+            // 2. OVERTIME
+            const otPendingStatus = document.getElementById('modal-overtime-pending-status');
+            const otActions = document.getElementById('modal-overtime-actions');
+            const otInput = document.getElementById('edit-overtime-minutes');
+
+            otPendingStatus.innerHTML = '';
+            otActions.innerHTML = '';
+            otInput.value = chip.overtimeMinutes || 0;
+
+            if (chip.overtimePending && chip.overtimeId) {
+                const otMinutesRequested = sessionData ? sessionData.overtimeMinutes : '';
+                otPendingStatus.innerHTML = `⚠️ Nhân viên yêu cầu tăng ca: <strong>${otMinutesRequested || '??'} phút</strong>`;
+                otActions.innerHTML = `
+                    <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveOvertime('${chip.overtimeId}')">Duyệt</button>
+                    <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalRejectOvertime('${chip.overtimeId}')">Từ chối</button>
+                `;
+            } else if (chip.overtimeMinutes > 0) {
+                otPendingStatus.innerHTML = `✅ Đã duyệt tăng ca: <strong>${chip.overtimeMinutes} phút</strong>`;
+                otActions.innerHTML = `
+                    <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedOvertime('${chip.overtimeId || ''}', '${staffId}', '${dateKey}', '${sessionId}')">Hủy tăng ca</button>
+                `;
+            } else {
+                otPendingStatus.innerHTML = 'Không có yêu cầu tăng ca.';
+            }
+
+            // 3. STUDENT COUNT (Many students)
+            const scContainer = document.getElementById('modal-student-count-container');
+            const scLabel = document.getElementById('modal-student-count-label');
+            const scBadge = document.getElementById('modal-student-count-status-badge');
+
+            if (!isRecep && chip.studentCount > 0) {
+                scContainer.style.display = 'flex';
+                scLabel.innerText = `Sĩ số khai báo: ${chip.studentCount} học sinh`;
+
+                let statusText = 'Chờ duyệt';
+                let badgeBg = '#FEF3C7';
+                let badgeColor = '#D97706';
+
+                if (chip.studentCountStatus === 'approved') {
+                    statusText = 'Đã duyệt';
+                    badgeBg = '#D1FAE5';
+                    badgeColor = '#059669';
+                } else if (chip.studentCountStatus === 'rejected') {
+                    statusText = 'Từ chối (Phạt)';
+                    badgeBg = '#FEE2E2';
+                    badgeColor = '#DC2626';
+                }
+
+                scBadge.innerText = statusText;
+                scBadge.style.background = badgeBg;
+                scBadge.style.color = badgeColor;
+
+                document.getElementById('btn-modal-sc-approve').onclick = async () => {
+                    await modalStudentCountAction('approve', dateKey, sessionId);
+                };
+                document.getElementById('btn-modal-sc-reject').onclick = async () => {
+                    await modalStudentCountAction('reject', dateKey, sessionId);
+                };
+                document.getElementById('btn-modal-sc-delete').onclick = async () => {
+                    await modalStudentCountAction('delete', dateKey, sessionId);
+                };
+            } else {
+                scContainer.style.display = 'none';
+            }
+
+        } else {
+            adminApprovalSec.style.display = 'none';
+        }
+    }
 
     document.querySelector('#edit-time-modal h2').innerText = "Chỉnh Sửa Giờ Làm";
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
@@ -4441,8 +4525,9 @@ async function saveEditedTime() {
     }
 
     try {
+        let finalSessionId = null;
         if (sessionIdRaw === 'NEW') {
-            await DBService.addSession(staffId, dateKey, newData);
+            finalSessionId = await DBService.addSession(staffId, dateKey, newData);
             // Send notification to staff
             await DBService.createAdminNotification(
                 staffId, staffName, 'add_session', dateKey,
@@ -4452,6 +4537,7 @@ async function saveEditedTime() {
         } else {
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
             await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
+            finalSessionId = parsedSessionId;
             // Send notification to staff
             await DBService.createAdminNotification(
                 staffId, staffName, 'edit_session', dateKey,
@@ -4459,6 +4545,17 @@ async function saveEditedTime() {
             );
             alert("Cập nhật thành công!");
         }
+
+        // Save Overtime Minutes if modified (Admin Only)
+        const otInput = document.getElementById('edit-overtime-minutes');
+        const isAdminRole = window.currentUserContext && (window.currentUserContext.role === 'admin' || (window.currentUserContext.roles || []).includes('admin'));
+        const isAdminViewer = isAdminRole || (currentUserRoles || []).includes('admin') || (currentUserRoles || []).includes('senior_assistant');
+        
+        if (otInput && finalSessionId && isAdminViewer) {
+            const newOtMinutes = parseInt(otInput.value, 10) || 0;
+            await DBService.saveAdminOvertimeConfig(staffId, staffName, dateKey, finalSessionId, newOtMinutes);
+        }
+
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore after edit
         renderMonthReport(currentDate, true); // true = bypass Firestore cache
@@ -4467,6 +4564,183 @@ async function saveEditedTime() {
     }
 }
 
+// Modal approval helper functions
+window.modalApproveBonus10 = async function(requestId, sessionId, dateKey, staffId) {
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang duyệt...');
+        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+        await DBService.approveBonus10Request(requestId, adminName, staffId, dateKey, sessionId);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã duyệt thưởng 10p!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalRejectBonus10 = async function(requestId) {
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang từ chối...');
+        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+        await DBService.rejectBonus10Request(requestId, adminName);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã từ chối thưởng 10p!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalCancelApprovedBonus10 = async function(requestId, staffId, dateKey, sessionId) {
+    try {
+        if (!confirm("Bạn có muốn hủy duyệt thưởng 10p cho ca này không?")) return;
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang hủy...');
+        await DBService.cancelApprovedBonus10(requestId, staffId, dateKey, sessionId);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã hủy duyệt thưởng 10p!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalSubmitBonus10Request = async function(sessionId, dateKey, staffId) {
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang gửi yêu cầu...');
+        const staffName = getTargetStaffName();
+        await DBService.createBonus10Request(staffId, staffName, dateKey, sessionId);
+        const snap = await db.collection('bonus10_requests')
+            .where('sessionId', '==', sessionId)
+            .where('staffId', '==', staffId)
+            .where('dateKey', '==', dateKey)
+            .get();
+        if (!snap.empty) {
+            const reqId = snap.docs[0].id;
+            const adminName = localStorage.getItem('currentUserName') || 'Admin';
+            await DBService.approveBonus10Request(reqId, adminName, staffId, dateKey, sessionId);
+        }
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã tặng thưởng 10p thành công!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalApproveOvertime = async function(requestId) {
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang duyệt...');
+        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+        await DBService.approveOvertimeRequest(requestId, adminName);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã duyệt tăng ca!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalRejectOvertime = async function(requestId) {
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang từ chối...');
+        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+        await DBService.rejectOvertimeRequest(requestId, adminName);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã từ chối tăng ca!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalCancelApprovedOvertime = async function(requestId, staffId, dateKey, sessionId) {
+    try {
+        if (!confirm("Bạn có muốn hủy duyệt tăng ca cho ca này không?")) return;
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang hủy...');
+        if (requestId) {
+            await db.collection('overtime_requests').doc(requestId).delete();
+        }
+        await DBService.saveAdminOvertimeConfig(staffId, '', dateKey, sessionId, 0);
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast("Đã hủy duyệt tăng ca!", "success");
+        }
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') {
+            UIService.hideLoading();
+            UIService.toast(e.message || 'Lỗi', 'error');
+        }
+    }
+};
+
+window.modalStudentCountAction = async function(action, dateKey, sessionId) {
+    const staffId = getTargetStaffId();
+    if (!staffId || !dateKey || !sessionId) return;
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang xử lý...');
+        const adminName = localStorage.getItem('currentUserName') || 'Admin';
+
+        if (action === 'approve') {
+            const chip = window.allMonthChips.find(c => String(c.sessionId) === String(sessionId));
+            const count = chip ? chip.studentCount : 10;
+            await DBService.reviewStudentCountReport(staffId, dateKey, sessionId, count, 'approved', adminName);
+            if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt sĩ số!', 'success');
+        } else if (action === 'reject') {
+            const chip = window.allMonthChips.find(c => String(c.sessionId) === String(sessionId));
+            const count = chip ? chip.studentCount : 10;
+            await DBService.reviewStudentCountReport(staffId, dateKey, sessionId, count, 'rejected', adminName);
+            if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối sĩ số (phạt cả tháng)!', 'error');
+        } else if (action === 'delete') {
+            await DBService.clearStudentCountReport(staffId, dateKey, sessionId);
+            if (typeof UIService !== 'undefined') UIService.toast('Đã xóa sĩ số khai báo!', 'success');
+        }
+        
+        closeEditModal();
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') UIService.toast(e.message || 'Lỗi xử lý.', 'error');
+    } finally {
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
+    }
+};
 
 async function deleteSessionFromModal() {
     // Remove confirmation popup as requested by user

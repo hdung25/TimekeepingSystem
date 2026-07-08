@@ -1515,6 +1515,7 @@ const DBService = {
             if (userDoc.exists) userName = userDoc.data().name || userDoc.data().username;
         } catch (e) { }
 
+        let newSessionId = null;
         try {
             await db.runTransaction(async (t) => {
                 const doc = await t.get(ref);
@@ -1547,8 +1548,10 @@ const DBService = {
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
 
                 t.set(ref, data);
+                newSessionId = newSession.id;
             });
             DBService._invalidateAttendance(dateKey, userId);
+            return newSessionId;
         } catch (error) {
             console.error("Error in addSession:", error);
             throw error;
@@ -2210,6 +2213,49 @@ const DBService = {
             console.log('[OT] Rejected:', requestId);
         } catch (e) {
             console.error('[OT] Error rejecting:', e);
+            throw e;
+        }
+    },
+
+    saveAdminOvertimeConfig: async (staffId, staffName, dateKey, sessionId, minutes) => {
+        try {
+            const snap = await db.collection('overtime_requests')
+                .where('staffId', '==', staffId)
+                .where('sessionId', '==', String(sessionId))
+                .get();
+
+            if (Number(minutes) > 0) {
+                const adminName = localStorage.getItem('currentUserName') || 'Admin';
+                if (!snap.empty) {
+                    const docId = snap.docs[0].id;
+                    await db.collection('overtime_requests').doc(docId).update({
+                        duration: Number(minutes),
+                        status: 'approved',
+                        approvedBy: adminName,
+                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    await db.collection('overtime_requests').add({
+                        staffId: staffId,
+                        staffName: staffName || '',
+                        dateKey: dateKey,
+                        sessionId: String(sessionId),
+                        duration: Number(minutes),
+                        status: 'approved',
+                        approvedBy: adminName,
+                        approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            } else {
+                if (!snap.empty) {
+                    await db.collection('overtime_requests').doc(snap.docs[0].id).delete();
+                }
+            }
+            DBService._invalidate('overtime_requests_staff_');
+            console.log('[OT] Saved admin overtime config:', staffId, sessionId, minutes);
+        } catch (e) {
+            console.error('[OT] Error saving overtime config:', e);
             throw e;
         }
     },
