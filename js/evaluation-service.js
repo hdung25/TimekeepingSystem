@@ -838,7 +838,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         paidMinutes: 0,
                         tooltip: 'Không có dữ liệu chấm công (Vắng)',
                         sessionId: null,
-                        schedData: { start: cls.start, end: cls.end },
+                        schedData: { start: cls.start, end: cls.end, lop: cls.lop, lopId: cls.lopId },
                         isClickable: true,
                         isWarning: true,
                         isTeaching: true,

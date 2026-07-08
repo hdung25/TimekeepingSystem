@@ -2455,6 +2455,38 @@ const DBService = {
         }
     },
 
+    cancelApprovedBonus10: async (requestId, staffId, dateKey, sessionId) => {
+        try {
+            // 1. Delete request from collection if it exists
+            if (requestId) {
+                await db.collection('bonus10_requests').doc(requestId).delete();
+            }
+            // 2. Clear bonus10 on the actual session (set it to false)
+            const docId = `${dateKey}_${staffId}`;
+            const ref = db.collection('attendance_logs').doc(docId);
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (doc.exists) {
+                    const data = doc.data();
+                    if (data.sessions) {
+                        const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+                        if (index !== -1 && data.sessions[index].bonus10) {
+                            data.sessions[index].bonus10 = false;
+                            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                            t.set(ref, data);
+                        }
+                    }
+                }
+            });
+            DBService._invalidateAttendance(dateKey, staffId);
+            DBService._invalidate('bonus10_requests_staff_');
+            console.log('[Bonus10] Cancelled approved request:', requestId, sessionId);
+        } catch (e) {
+            console.error('[Bonus10] Error cancelling approved bonus:', e);
+            throw e;
+        }
+    },
+
     rejectBonus10Request: async (requestId, adminName) => {
         try {
             await db.collection('bonus10_requests').doc(requestId).update({

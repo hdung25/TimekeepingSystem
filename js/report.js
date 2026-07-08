@@ -726,7 +726,7 @@ window.openStudentCountReviewModal = function (dateStr, sessionId, chipText, che
     document.getElementById('scr-date-key').value = dateStr;
     document.getElementById('scr-session-id').value = sessionId;
     
-    document.getElementById('scr-class-name').innerText = `Lớp: ${chipText}`;
+    document.getElementById('scr-class-name').innerHTML = `Lớp: ${chipText}`;
     document.getElementById('scr-session-time').innerText = `Thời gian: ${checkIn || '--'} - ${checkOut || '--'}`;
     document.getElementById('scr-reported-count').innerText = `Sĩ số khai báo: ${studentCount} học sinh`;
     
@@ -1870,8 +1870,31 @@ async function renderMonthReport(date, forceServer = false) {
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
-                    b10Btn.disabled = true;
-                    b10Btn.title = 'Đã được thưởng 10p';
+                    if (isAdminRole2) {
+                        b10Btn.style.cursor = 'pointer';
+                        b10Btn.title = 'Đã duyệt - Bấm để hủy duyệt thưởng 10p';
+                        b10Btn.onclick = async (e) => {
+                            e.stopPropagation();
+                            if (!confirm("Bạn có muốn hủy duyệt thưởng 10p cho ca này không?")) return;
+                            try {
+                                if (typeof UIService !== 'undefined') UIService.showLoading('Đang hủy duyệt...');
+                                await DBService.cancelApprovedBonus10(chip.bonus10Id, staffId, dateStr, chip.sessionId);
+                                if (typeof UIService !== 'undefined') {
+                                    UIService.hideLoading();
+                                    UIService.toast("Đã hủy duyệt thưởng 10p!", "success");
+                                }
+                                renderMonthReport(currentDate); // re-render
+                            } catch (err) {
+                                if (typeof UIService !== 'undefined') {
+                                    UIService.hideLoading();
+                                    UIService.toast(err.message || 'Lỗi', 'error');
+                                }
+                            }
+                        };
+                    } else {
+                        b10Btn.disabled = true;
+                        b10Btn.title = 'Đã được thưởng 10p';
+                    }
                 } else if (b10Status === 'pending') {
                     if (isAdminRole2) {
                         // Checkbox để multi-select
@@ -4169,18 +4192,34 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
         matchedRoleId = 'tiep-tan';
     } else {
         try {
-            if (preFill && preFill.lop) {
+            if (preFill) {
                 const users = await DBService.getUsers();
                 const user = users.find(u => u.id === staffId);
                 if (user && user.salary_config && user.salary_config.roles) {
-                    const clean = s => s.toLowerCase().replace(/\s+/g, '');
-                    const classLopClean = clean(preFill.lop);
-                    const found = user.salary_config.roles.find(r => 
-                        clean(r.name) === classLopClean || 
-                        classLopClean.includes(clean(r.name)) || 
-                        clean(r.name).includes(classLopClean)
-                    );
-                    if (found) matchedRoleId = found.id;
+                    const teachingRoles = user.salary_config.roles.filter(r => r.id !== 'tiep-tan' && r.id !== 'receptionist');
+                    
+                    // 1. Try matching by preFill.lopId
+                    if (preFill.lopId) {
+                        const found = teachingRoles.find(r => r.id === preFill.lopId);
+                        if (found) matchedRoleId = found.id;
+                    }
+                    
+                    // 2. Try matching by string matching on preFill.lop
+                    if (!matchedRoleId && preFill.lop) {
+                        const clean = s => s.toLowerCase().replace(/\s+/g, '');
+                        const classLopClean = clean(preFill.lop);
+                        const found = teachingRoles.find(r => 
+                            clean(r.name) === classLopClean || 
+                            classLopClean.includes(clean(r.name)) || 
+                            clean(r.name).includes(classLopClean)
+                        );
+                        if (found) matchedRoleId = found.id;
+                    }
+                    
+                    // 3. Fallback to single configured teaching role if they only have one
+                    if (!matchedRoleId && teachingRoles.length === 1) {
+                        matchedRoleId = teachingRoles[0].id;
+                    }
                 }
             }
         } catch (err) {
