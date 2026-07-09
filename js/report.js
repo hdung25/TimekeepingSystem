@@ -2364,7 +2364,7 @@ function renderEvaluationTable(savedData = []) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -2458,7 +2458,7 @@ function calculateSalary() {
     let receptionistMinutes = 0;
     allChips.forEach(chip => {
         const mins = chip.paidMinutes || 0;
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData?.role));
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData?.role));
         if (isTT) receptionistMinutes += mins;
         else if (chip.isTeaching || (chip.sessionData && chip.sessionData.role)) teachingMinutes += mins;
     });
@@ -2490,7 +2490,7 @@ function calculateSalary() {
     allChipsForStats.forEach(chip => {
         if (chip.class === 'chip-future' || chip.isCenterOff) return; // Bỏ ca tương lai và ca nghỉ trung tâm
         const isTiepTan = chip.isReceptionist || (chip.sessionData &&
-            ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (!isTiepTan) return; // Chỉ tính tiếp tân
 
         // FIX Bug 1: Nếu chip có mergedSegments (ca thường gộp với ca CĐ),
@@ -2578,7 +2578,7 @@ function calculateSalary() {
                 let rate = 0;
                 let hasClassRate = false;
                 
-                const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
                 const monthlyAll = window.currentMonthlySalarySettingsAll || {};
                 const cfg = window.currentUserContext?.salary_config || {};
                 
@@ -2768,7 +2768,7 @@ function calculateSalary() {
                 const normalizedApps = removeVietnameseTones(roleName);
 
                 // Exclude Reception keys
-                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chipRole);
+                const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chipRole);
                 if (isReceptionID || normalizedApps.includes('tiep') || normalizedApps.includes('le') || normalizedApps.includes('reception')) {
                     include = false;
                 }
@@ -2782,7 +2782,7 @@ function calculateSalary() {
                 const roleName = (chip.sessionData && chip.sessionData.roleName) ? chip.sessionData.roleName.toLowerCase() : '';
                 const normalizedApps = removeVietnameseTones(roleName);
 
-                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chipRole);
+                const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chipRole);
                 if (isReceptionID || normalizedApps.includes('tiep') || normalizedApps.includes('le') || normalizedApps.includes('reception')) {
                     include = true;
                 }
@@ -2796,7 +2796,7 @@ function calculateSalary() {
                 let rate = 0;
                 let hasClassRate = false;
                 
-                const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
                 const monthlyAll = window.currentMonthlySalarySettingsAll || {};
                 const cfg = window.currentUserContext?.salary_config || {};
                 
@@ -2971,7 +2971,7 @@ function calculateSalary() {
     let isRecep = false;
     if (staffUser) {
         const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
-        isRecep = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        isRecep = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
     }
 
     // Redistribution logic for Receptionist collective bonus pool
@@ -3018,7 +3018,7 @@ function calculateSalary() {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         const isPureRecep = hasReceptionist && !hasTeaching;
@@ -3099,7 +3099,7 @@ function calculateSalary() {
         const monthlyAll = window.currentMonthlySalarySettingsAll || {};
         
         // Helper to identify chip roles
-        const checkIsReceptionist = c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+        const checkIsReceptionist = c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role));
         
         const hasTeachingChips = allChips.some(c => !checkIsReceptionist(c));
         const hasReceptionistChips = allChips.some(c => checkIsReceptionist(c));
@@ -3356,7 +3356,7 @@ async function saveSalarySettings() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -3467,7 +3467,7 @@ async function loadSalarySettings() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -3488,7 +3488,7 @@ async function loadSalarySettings() {
             let teachingShiftCount = 0;
             (window.unfilteredAllMonthChips || []).forEach(chip => {
                 if (chip.class === 'chip-future' || chip.isCenterOff) return;
-                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
                 if (isTT) receptionistShiftCount++;
                 else teachingShiftCount++;
             });
@@ -5323,7 +5323,7 @@ function handleMoneyInput(e) {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -5381,7 +5381,7 @@ function getRecepDynamicFixedFactor(chips) {
     let absentMinutes = 0;
     
     (chips || []).forEach(chip => {
-        const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (!isTiepTan) return;
         if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
@@ -5448,7 +5448,7 @@ async function openClassRateModal() {
     let teachingShiftCount = 0;
     (window.unfilteredAllMonthChips || []).forEach(chip => {
         if (chip.class === 'chip-future' || chip.isCenterOff) return;
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (isTT) receptionistShiftCount++;
         else teachingShiftCount++;
     });
@@ -5541,7 +5541,7 @@ async function populateModalCurrentTab() {
     // Fallback to general settings if missing in monthlySettingsAll
     const user = window.currentUserContext || {};
     const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-    const hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+    const hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
     const hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     
     let gvSettings = monthlySettingsAll['giao_vien'] || monthlySettingsAll['giao-vien'];
@@ -5577,7 +5577,7 @@ async function populateModalCurrentTab() {
     (window.unfilteredAllMonthChips || []).forEach(chip => {
         if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
         if (window.modalActiveRole === 'giao-vien' && isTT) return;
         
@@ -5626,7 +5626,7 @@ async function populateModalCurrentTab() {
         const name = chip.chipFilterName;
         if (!name) return;
         
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
         if (window.modalActiveRole === 'giao-vien' && isTT) return;
         
@@ -6042,7 +6042,7 @@ async function populateModalCurrentTab() {
     let debugText = `DEBUG INFO (v20260710-v2):\n`;
     debugText += `Total chips in unfilteredAllMonthChips: ${window.unfilteredAllMonthChips?.length || 0}\n`;
     (window.unfilteredAllMonthChips || []).forEach((c, idx) => {
-        const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+        const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role));
         if (isTT) {
             debugText += `[TT #${idx}] Date: ${c.dateStr} | Text: ${c.text} | Class: ${c.class} | PaidMins: ${c.paidMinutes} | Fixed: ${c.isFixedShift}\n`;
         } else {
@@ -6435,7 +6435,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         prevChips.forEach(chip => {
             if (chip.class === 'chip-future' || chip.isCenterOff) return;
             
-            const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
             if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
             if (window.modalActiveRole === 'giao-vien' && isTT) return;
             
@@ -6461,7 +6461,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
             const name = chip.chipFilterName;
             if (!name) return;
             
-            const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
             if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
             if (window.modalActiveRole === 'giao-vien' && isTT) return;
             
@@ -6593,13 +6593,13 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         }
         
         const grandH = Math.floor(prevChips.reduce((acc, c) => {
-            const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+            const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role));
             if (window.modalActiveRole === 'tiep-tan' && !isTT) return acc;
             if (window.modalActiveRole === 'giao-vien' && isTT) return acc;
             return acc + (c.paidMinutes || 0);
         }, 0) / 60);
         const grandM = Math.floor(prevChips.reduce((acc, c) => {
-            const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+            const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role));
             if (window.modalActiveRole === 'tiep-tan' && !isTT) return acc;
             if (window.modalActiveRole === 'giao-vien' && isTT) return acc;
             return acc + (c.paidMinutes || 0);
@@ -7070,7 +7070,7 @@ async function loadAndComputeAllReceptionists(monthStr) {
         let normalWorkedMinutesCs2 = 0;
 
         allChips.forEach(chip => {
-            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
             if (!isTiepTan) return;
             if (chip.class === 'chip-gray') return;
             
@@ -7202,7 +7202,7 @@ async function saveRecepExtras() {
             let hasTeaching = false;
             if (user) {
                 const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-                hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+                hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
                 hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
             }
             const isPureRecep = hasReceptionist && !hasTeaching;
@@ -7253,7 +7253,7 @@ async function saveRecepExtras() {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -7341,7 +7341,7 @@ async function publishSalary() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     
@@ -7489,7 +7489,7 @@ function renderSalaryDashboardTable() {
         
         const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
         const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-        const isRecep = uRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        const isRecep = uRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         
         let primaryRole = 'Staff';
         if (isTeacher && isRecep) primaryRole = 'Dual (GV & TT)';
@@ -7723,7 +7723,7 @@ function getCurrentCalculationPayload(role) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     
@@ -7793,7 +7793,7 @@ function getCurrentCalculationPayload(role) {
             const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
             const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
             const name = removeVietnameseTones(nameRaw);
-            const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+            const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(roleId);
             if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                 include = false;
             } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
@@ -7806,7 +7806,7 @@ function getCurrentCalculationPayload(role) {
                 const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
                 const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
                 const name = removeVietnameseTones(nameRaw);
-                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+                const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(roleId);
                 if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                     include = true;
                 }
@@ -7818,7 +7818,7 @@ function getCurrentCalculationPayload(role) {
             let rate = 0;
             let hasClassRate = false;
             
-            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
             
             let classRates = {};
             const cfg = window.currentUserContext?.salary_config || {};
@@ -8254,7 +8254,7 @@ function getCurrentCalculationPayload(role) {
     unfilteredChips.forEach(chip => {
         if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (role === 'tiep-tan' && !isTT) return;
         if (role === 'giao-vien' && isTT) return;
         
@@ -8389,7 +8389,7 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     
@@ -8550,7 +8550,7 @@ async function openBulkPublishModal() {
         staffList.forEach(u => {
             const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
             const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-            const isRecep = uRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            const isRecep = uRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
             
             const docData = allSettings[u.id] || {};
             const pub = docData.published;

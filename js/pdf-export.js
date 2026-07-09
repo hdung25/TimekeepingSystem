@@ -10,7 +10,7 @@ function togglePdfTieptanInputs() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
         hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
     }
     
@@ -31,7 +31,7 @@ function togglePdfTieptanInputs() {
             let teachingShiftCount = 0;
             (window.unfilteredAllMonthChips || []).forEach(chip => {
                 if (chip.class === 'chip-future') return;
-                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+                const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
                 if (isTT) receptionistShiftCount++;
                 else teachingShiftCount++;
             });
@@ -84,7 +84,7 @@ function exportSalaryPDF(overrides) {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
             hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
         }
         if (hasReceptionist && !hasTeaching) {
@@ -161,7 +161,7 @@ function exportSalaryPDF(overrides) {
             const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
             const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
             const name = removeVietnameseTones(nameRaw);
-            const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+            const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(roleId);
             
             if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                 include = false;
@@ -175,7 +175,7 @@ function exportSalaryPDF(overrides) {
                 const roleId = chip.sessionData ? (chip.sessionData.role || '') : '';
                 const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
                 const name = removeVietnameseTones(nameRaw);
-                const isReceptionID = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(roleId);
+                const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(roleId);
 
                 if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
                     include = true;
@@ -189,7 +189,7 @@ function exportSalaryPDF(overrides) {
             let rate = 0;
             let hasClassRate = false;
             
-            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+            const isTiepTan = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
             const monthlyAll = window.currentMonthlySalarySettingsAll || {};
             const cfg = window.currentUserContext?.salary_config || {};
             
@@ -359,7 +359,7 @@ function exportSalaryPDF(overrides) {
     unfilteredChips.forEach(chip => {
         if (chip.class === 'chip-future') return;
         
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(chip.sessionData.role));
+        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (filterType === 'tiep-tan' && !isTT) return;
         if (filterType === 'giao-vien' && isTT) return;
         
