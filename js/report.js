@@ -2503,9 +2503,25 @@ function calculateSalary() {
                 if (hasFixed) {
                     fixedWorkedCount++;
                     // Tính giờ CĐ theo segment
-                    const fixedMins = chip.mergedSegments
-                        .filter(s => s.isFixedShift)
-                        .reduce((acc, s) => acc + (s.schedMinutes || 0), 0);
+                    let remainingMinutes = chip.paidMinutes || 0;
+                    const totalSched = chip.mergedSegments.reduce((sum, s) => sum + (s.schedMinutes || 0), 0);
+                    let fixedMins = 0;
+                    chip.mergedSegments.forEach((s, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round((chip.paidMinutes || 0) / chip.mergedSegments.length);
+                        } else {
+                            segMins = Math.round(((s.schedMinutes || 0) / totalSched) * (chip.paidMinutes || 0));
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                segMins = remainingMinutes;
+                            } else {
+                                remainingMinutes -= segMins;
+                            }
+                        }
+                        if (s.isFixedShift) {
+                            fixedMins += segMins;
+                        }
+                    });
                     fixedWorkedMinutes += fixedMins;
                 }
                 if (hasNormal) normalWorkedCount++;
@@ -7029,8 +7045,20 @@ async function loadAndComputeAllReceptionists(monthStr) {
             }
 
             if (chip.mergedSegments && chip.mergedSegments.length > 0) {
-                chip.mergedSegments.forEach(seg => {
-                    const segMins = seg.schedMinutes || 0;
+                let remainingMinutes = chip.paidMinutes || 0;
+                const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                chip.mergedSegments.forEach((seg, sIdx) => {
+                    let segMins = 0;
+                    if (totalSched <= 0) {
+                        segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round((chip.paidMinutes || 0) / chip.mergedSegments.length);
+                    } else {
+                        segMins = Math.round(((seg.schedMinutes || 0) / totalSched) * (chip.paidMinutes || 0));
+                        if (sIdx === chip.mergedSegments.length - 1) {
+                            segMins = remainingMinutes;
+                        } else {
+                            remainingMinutes -= segMins;
+                        }
+                    }
                     const segIsCs2 = seg.branch === 'cs2' || seg.lop?.includes('CS2') || chip.branch === 'cs2';
                     if (seg.isFixedShift) {
                         fixedWorkedMinutes += segMins;

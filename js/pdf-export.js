@@ -212,16 +212,28 @@ function exportSalaryPDF(overrides) {
                 let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
                 
                 if (chip.mergedSegments && chip.mergedSegments.length > 0) {
-                    chip.mergedSegments.forEach(seg => {
-                        const segMinutes = seg.schedMinutes || 0;
+                    let remainingMinutes = minutes;
+                    const totalSched = chip.mergedSegments.reduce((sum, seg) => sum + (seg.schedMinutes || 0), 0);
+                    chip.mergedSegments.forEach((seg, sIdx) => {
+                        let segMins = 0;
+                        if (totalSched <= 0) {
+                            segMins = sIdx === chip.mergedSegments.length - 1 ? remainingMinutes : Math.round(minutes / chip.mergedSegments.length);
+                        } else {
+                            segMins = Math.round(((seg.schedMinutes || 0) / totalSched) * minutes);
+                            if (sIdx === chip.mergedSegments.length - 1) {
+                                segMins = remainingMinutes;
+                            } else {
+                                remainingMinutes -= segMins;
+                            }
+                        }
                         const segRate = seg.isFixedShift ? fixedRate : normalRate;
-                        const segSalary = (segMinutes / 60) * segRate;
+                        const segSalary = (segMins / 60) * segRate;
                         
                         if (seg.isFixedShift) {
-                            fixedMinutes += segMinutes;
+                            fixedMinutes += segMins;
                             fixedSalary += segSalary;
                         } else {
-                            normalMinutes += segMinutes;
+                            normalMinutes += segMins;
                             normalSalary += segSalary;
                         }
                     });
