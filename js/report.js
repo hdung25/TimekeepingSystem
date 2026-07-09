@@ -6015,6 +6015,41 @@ async function populateModalCurrentTab() {
     
     bindMoneyInputFormatters();
     recalculateSalaryModal();
+
+    // Diagnostic Debug Section
+    let debugDiv = document.getElementById('modal-salary-debug-info');
+    if (!debugDiv) {
+        debugDiv = document.createElement('div');
+        debugDiv.id = 'modal-salary-debug-info';
+        debugDiv.style.marginTop = '1.5rem';
+        debugDiv.style.padding = '0.75rem';
+        debugDiv.style.background = '#FFFBEB';
+        debugDiv.style.border = '2px dashed #F59E0B';
+        debugDiv.style.borderRadius = '8px';
+        debugDiv.style.fontSize = '0.72rem';
+        debugDiv.style.color = '#B45309';
+        debugDiv.style.fontFamily = 'monospace';
+        debugDiv.style.maxHeight = '200px';
+        debugDiv.style.overflowY = 'auto';
+        debugDiv.style.flexShrink = '0';
+        
+        const modalBody = document.querySelector('#class-rate-modal .modal-content');
+        if (modalBody) {
+            modalBody.appendChild(debugDiv);
+        }
+    }
+    
+    let debugText = `DEBUG INFO (v20260710-v2):\n`;
+    debugText += `Total chips in unfilteredAllMonthChips: ${window.unfilteredAllMonthChips?.length || 0}\n`;
+    (window.unfilteredAllMonthChips || []).forEach((c, idx) => {
+        const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(c.sessionData.role));
+        if (isTT) {
+            debugText += `[TT #${idx}] Date: ${c.dateStr} | Text: ${c.text} | Class: ${c.class} | PaidMins: ${c.paidMinutes} | Fixed: ${c.isFixedShift}\n`;
+        } else {
+            debugText += `[GV #${idx}] Date: ${c.dateStr} | Text: ${c.text} | Class: ${c.class} | PaidMins: ${c.paidMinutes}\n`;
+        }
+    });
+    debugDiv.innerText = debugText;
 }
 
 function recalculateSalaryModal() {
