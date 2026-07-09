@@ -6039,7 +6039,7 @@ async function populateModalCurrentTab() {
         }
     }
     
-    let debugText = `DEBUG INFO (v20260710-v2):\n`;
+    let debugText = `DEBUG INFO (v20260710-v3):\n`;
     debugText += `Total chips in unfilteredAllMonthChips: ${window.unfilteredAllMonthChips?.length || 0}\n`;
     (window.unfilteredAllMonthChips || []).forEach((c, idx) => {
         const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role));
