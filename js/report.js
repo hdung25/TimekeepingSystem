@@ -6023,8 +6023,54 @@ async function populateModalCurrentTab() {
     bindMoneyInputFormatters();
     recalculateSalaryModal();
 
-    // Bảng debug đã được gỡ bỏ — dọn luôn phần tử cũ nếu còn sót lại trong DOM.
+    // === Bảng chẩn đoán (debug) — ẨN mặc định, admin bấm mới bung để lấy dữ liệu gửi ===
     document.getElementById('modal-salary-debug-info')?.remove();
+    {
+        const wrap = document.createElement('div');
+        wrap.id = 'modal-salary-debug-info';
+        wrap.style.cssText = 'margin-top:1rem;flex-shrink:0;';
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.textContent = '🔧 Chi tiết kỹ thuật (debug) — bấm để xem';
+        toggle.style.cssText = 'font-size:0.72rem;color:#9CA3AF;background:transparent;border:1px dashed #D1D5DB;border-radius:6px;padding:4px 8px;cursor:pointer;';
+
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'display:none;margin-top:6px;padding:0.75rem;background:#FFFBEB;border:2px dashed #F59E0B;border-radius:8px;font-size:0.7rem;color:#B45309;font-family:monospace;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-all;';
+
+        let built = false;
+        toggle.onclick = () => {
+            if (pre.style.display === 'none') {
+                if (!built) { pre.textContent = buildSalaryDebugText(); built = true; }
+                pre.style.display = 'block';
+                toggle.textContent = '🔧 Chi tiết kỹ thuật (debug) — bấm để ẩn';
+            } else {
+                pre.style.display = 'none';
+                toggle.textContent = '🔧 Chi tiết kỹ thuật (debug) — bấm để xem';
+            }
+        };
+
+        wrap.appendChild(toggle);
+        wrap.appendChild(pre);
+        const modalBody = document.querySelector('#class-rate-modal .modal-content');
+        if (modalBody) modalBody.appendChild(wrap);
+    }
+}
+
+// Sinh nội dung debug đầy đủ: paidMinutes, isReceptionist, role, sessionId, mergedSegments —
+// dùng để soi chip trùng (phantom) và cấu trúc ca gộp (merge).
+function buildSalaryDebugText() {
+    const chips = window.unfilteredAllMonthChips || [];
+    let t = `DEBUG (v20260710-v6)\nTổng số chip: ${chips.length}\n`;
+    chips.forEach((c, idx) => {
+        const role = (c.sessionData && c.sessionData.role) ? c.sessionData.role : '-';
+        let segInfo = '';
+        if (c.mergedSegments && c.mergedSegments.length) {
+            segInfo = ' | SEG: ' + c.mergedSegments.map(s => `${s.start}-${s.end}${s.isFixedShift ? '[CĐ]' : '[TT]'}=${s.schedMinutes}p`).join(', ');
+        }
+        t += `#${idx} ${c.dateStr} | "${c.text}" | ${c.class} | paid=${c.paidMinutes} | recep=${c.isReceptionist} | role=${role} | fixed=${c.isFixedShift} | sid=${c.sessionId || '-'}${segInfo}\n`;
+    });
+    return t;
 }
 
 function recalculateSalaryModal() {
