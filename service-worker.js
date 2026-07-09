@@ -1,5 +1,5 @@
 // Service Worker v36 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v62-split';
+const CACHE_NAME = 'tdt-chamcong-v63-subshift-split';
 
 const STATIC_ASSETS = [
     '/',
@@ -14,11 +14,11 @@ const STATIC_ASSETS = [
     '/he-thong.html',
     '/css/style.css?v=20260705-mobile-schedule-actions',
     '/css/login.css?v=20260621-font',
-    '/js/main.js?v=20260710-v7',
+    '/js/main.js?v=20260710-v8',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260704-timezone-fix',
-    '/js/report.js?v=20260710-v7',
-    '/js/evaluation-service.js?v=20260710-v7',
+    '/js/report.js?v=20260710-v8',
+    '/js/evaluation-service.js?v=20260710-v8',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260628-past-lock-assistant',
     '/js/chart-service.js',

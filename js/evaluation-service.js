@@ -878,12 +878,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         // FIX: tách năm/tháng/ngày từ dateStr để tạo local Date, tránh UTC parse
         const [_ry, _rm, _rd] = dateStr.split('-').map(Number);
-        const schedStart = new Date(_ry, _rm - 1, _rd, parseInt(startParts[0], 10), parseInt(startParts[1], 10), 0, 0);
-        const schedEnd = new Date(_ry, _rm - 1, _rd, parseInt(endParts[0], 10), parseInt(endParts[1], 10), 0, 0);
+        // let (không phải const) vì "tách ca gộp" có thể thu hẹp mốc giờ lịch về ca con thực làm.
+        let schedStart = new Date(_ry, _rm - 1, _rd, parseInt(startParts[0], 10), parseInt(startParts[1], 10), 0, 0);
+        let schedEnd = new Date(_ry, _rm - 1, _rd, parseInt(endParts[0], 10), parseInt(endParts[1], 10), 0, 0);
 
         if (isNaN(schedStart.getTime()) || isNaN(schedEnd.getTime())) return;
 
-        const schedDuration = (schedEnd - schedStart) / 60000;
+        let schedDuration = (schedEnd - schedStart) / 60000;
+        // Lưu FULL danh sách ca con gốc (trước khi tách) để ô sửa còn cho phép bỏ đánh dấu vắng.
+        const _fullSubShifts = rs.mergedSegments ? rs.mergedSegments.slice() : null;
         const now = new Date();
 
         // Branch tag for receptionist shifts — abbreviated
@@ -974,6 +977,52 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     bonus10Status: b10StatusR
                 });
                 return;
+            }
+
+            // === TÁCH CA GỘP: admin đánh dấu chỉ làm 1 số ca con; các ca con còn lại = VẮNG ===
+            // absentSubShifts = mảng start-time (VD "14:00") của ca con KHÔNG làm.
+            if (rs.mergedSegments && rs.mergedSegments.length > 1 &&
+                Array.isArray(matchedSession.absentSubShifts) && matchedSession.absentSubShifts.length > 0) {
+                const _absentSet = new Set(matchedSession.absentSubShifts);
+                const _workedSegs = rs.mergedSegments.filter(s => !_absentSet.has(s.start));
+                const _absentSegs = rs.mergedSegments.filter(s => _absentSet.has(s.start));
+
+                // Chỉ tách khi vừa có ca con làm, vừa có ca con vắng (tránh làm hỏng dữ liệu).
+                if (_workedSegs.length > 0 && _absentSegs.length > 0) {
+                    // 1) Mỗi ca con bị vắng → 1 chip Vắng riêng
+                    _absentSegs.forEach(seg => {
+                        chips.push({
+                            text: `${labelShort} ${seg.start}–${seg.end}${branchShortR} (Tiếp Tân) (Vắng)`,
+                            class: 'chip-gray',
+                            paidMinutes: 0,
+                            tooltip: 'Tách ca gộp: admin đánh dấu ca con này VẮNG',
+                            sessionId: null,
+                            schedData: { start: seg.start, end: seg.end },
+                            isClickable: false,
+                            isWarning: true,
+                            isReceptionist: true,
+                            isSplitAbsent: true,
+                            chipFilterName: normalizeChipFilterName(rs.label ? 'Tiếp Tân (' + rs.label + ')' : 'Tiếp Tân'),
+                            classCompositeKey: compositeKeyLocal,
+                            classSectionKey: rs.shift,
+                            classIndex: dayKeyLocal,
+                            isFixedShift: seg.isFixedShift
+                        });
+                    });
+
+                    // 2) Thu hẹp ca làm về các ca con thực làm → tính giờ trễ theo ca thật
+                    const _workedStart = _workedSegs.reduce((m, s) => (s.start < m ? s.start : m), _workedSegs[0].start);
+                    const _workedEnd = _workedSegs.reduce((m, s) => (s.end > m ? s.end : m), _workedSegs[0].end);
+                    rs.start = _workedStart;
+                    rs.end = _workedEnd;
+                    rs.mergedSegments = _workedSegs.length > 1 ? _workedSegs : null;
+                    const [_wsH, _wsM] = _workedStart.split(':').map(Number);
+                    const [_weH, _weM] = _workedEnd.split(':').map(Number);
+                    schedStart = new Date(_ry, _rm - 1, _rd, _wsH, _wsM, 0, 0);
+                    schedEnd = new Date(_ry, _rm - 1, _rd, _weH, _weM, 0, 0);
+                    schedDuration = (schedEnd - schedStart) / 60000;
+                    label = `${labelShort} ${_workedStart}–${_workedEnd}${branchShortR}`;
+                }
             }
 
             if (matchedSession.checkOut) {
@@ -1200,6 +1249,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 overtimeMinutes: otMinutesR,
                 isFixedShift: rs.isFixedShift,
                 mergedSegments: rs.mergedSegments || null,
+                allSubShifts: _fullSubShifts, // full danh sách ca con gốc (cho ô sửa tách ca)
                 bonus10Status: b10StatusR,
                 bonus10Id: b10DataR ? b10DataR.id : null
             });

@@ -4336,6 +4336,30 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
         }
     });
 
+    // --- TÁCH CA GỘP: chỉ hiện với ca tiếp tân gộp từ nhiều ca con ---
+    const splitContainer = document.getElementById('edit-split-subshift-container');
+    const splitList = document.getElementById('edit-split-subshift-list');
+    if (splitContainer && splitList) {
+        // Ưu tiên allSubShifts (full ca con gốc) để sau khi tách vẫn bỏ đánh dấu vắng được.
+        const segs = (chip && Array.isArray(chip.allSubShifts)) ? chip.allSubShifts
+                   : ((chip && Array.isArray(chip.mergedSegments)) ? chip.mergedSegments : []);
+        if (isReceptionist && segs.length > 1) {
+            const absentSet = new Set((sessionData && Array.isArray(sessionData.absentSubShifts)) ? sessionData.absentSubShifts : []);
+            splitList.innerHTML = '';
+            segs.forEach(seg => {
+                const worked = !absentSet.has(seg.start);
+                const row = document.createElement('label');
+                row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem;color:#374151;';
+                row.innerHTML = `<input type="checkbox" class="edit-subshift-cb" data-start="${seg.start}" ${worked ? 'checked' : ''} style="width:16px;height:16px;accent-color:#10B981;"> Ca ${seg.start}–${seg.end}`;
+                splitList.appendChild(row);
+            });
+            splitContainer.style.display = 'block';
+        } else {
+            splitContainer.style.display = 'none';
+            splitList.innerHTML = '';
+        }
+    }
+
     // --- ADMIN APPROVAL & EXTRA CONFIGS DYNAMIC POPULATION ---
     const adminApprovalSec = document.getElementById('admin-approval-section');
     if (adminApprovalSec) {
@@ -4522,6 +4546,14 @@ async function saveEditedTime() {
     const statusVal = document.getElementById('edit-session-status')?.value || 'worked';
     const isAbsent = (statusVal === 'absent');
 
+    // Tách ca gộp: các ca con bị BỎ tick = vắng. Luôn ghi (kể cả [] để bỏ đánh dấu cũ).
+    const splitCbs = document.querySelectorAll('.edit-subshift-cb');
+    let absentSubShifts = null;
+    if (splitCbs.length > 0) {
+        absentSubShifts = [];
+        splitCbs.forEach(cb => { if (!cb.checked) absentSubShifts.push(cb.dataset.start); });
+    }
+
     const newData = {
         checkIn: checkInDate.toISOString(),
         start: checkInDate.toISOString(),
@@ -4529,7 +4561,8 @@ async function saveEditedTime() {
         isAdminEdited: true,
         isAbsent: isAbsent,
         ...(linkedClassStart ? { linkedClassStart } : {}),
-        ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {})
+        ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {}),
+        ...(absentSubShifts !== null ? { absentSubShifts } : {})
     };
 
     if (selectedRoleId === 'tiep-tan') {
@@ -6065,7 +6098,7 @@ async function populateModalCurrentTab() {
 // dùng để soi chip trùng (phantom) và cấu trúc ca gộp (merge).
 function buildSalaryDebugText() {
     const chips = window.unfilteredAllMonthChips || [];
-    let t = `DEBUG (v20260710-v7)\nTổng số chip: ${chips.length}\n`;
+    let t = `DEBUG (v20260710-v8)\nTổng số chip: ${chips.length}\n`;
     chips.forEach((c, idx) => {
         const role = (c.sessionData && c.sessionData.role) ? c.sessionData.role : '-';
         let segInfo = '';
