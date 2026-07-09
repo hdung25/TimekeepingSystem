@@ -1012,6 +1012,34 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const fullActualMinutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
                     minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes);
                     label = `${labelShort} ${actualStartStr}–${actualEndStr}${branchShortR}`;
+                    
+                    // Ghi chú đi trễ kể cả khi admin đã sửa
+                    if (actualStart > schedStart) {
+                        const lateMinutesRaw = Math.round((actualStart - schedStart) / 60000);
+                        if (lateMinutesRaw > 0) {
+                            isLate = true;
+                            label += ` (T${lateMinutesRaw}p)`;
+                        }
+                    } else if (actualStart < schedStart) {
+                        const earlyMins = Math.round((schedStart - actualStart) / 60000);
+                        if (earlyMins > 0) {
+                            tooltip += ` | Vào sớm ${earlyMins}p`;
+                        }
+                    }
+
+                    // Ghi chú về sớm kể cả khi admin đã sửa
+                    if (actualEnd < schedEnd) {
+                        const earlyCheckoutMins = Math.round((schedEnd - actualEnd) / 60000);
+                        if (earlyCheckoutMins > 0) {
+                            label += ` (V${earlyCheckoutMins}p)`;
+                        }
+                    }
+
+                    // Hiển thị nếu ra muộn vượt ca kể cả khi admin đã sửa
+                    if (actualEnd > schedEnd) {
+                        const overMins = Math.round((actualEnd - schedEnd) / 60000);
+                        tooltip += ` | Ra muộn ${overMins}p`;
+                    }
                 } else {
                     // Ghi chú đi trễ
                     if (actualStart > schedStart) {

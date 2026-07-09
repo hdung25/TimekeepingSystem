@@ -1,4 +1,4 @@
-const APP_VERSION = '20260708-smart-edit-modal-v3';
+const APP_VERSION = '20260709-fix-recep-proportional-hours-and-lateness';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
