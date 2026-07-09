@@ -2458,7 +2458,11 @@ function calculateSalary() {
     let receptionistMinutes = 0;
     allChips.forEach(chip => {
         const mins = chip.paidMinutes || 0;
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData?.role));
+        // FIX (v20260710-v6): phân loại theo isReceptionist (đáng tin), KHÔNG theo sessionData.role.
+        // Lý do: khi 1 tiếp tân đi dạy thêm (VD chip lớp FFS/Pre sau ca trực), chip lớp đó có
+        // recep=undefined nhưng role vẫn = 'tiep-tan' (kế thừa từ người) → nếu xét theo role sẽ
+        // đếm nhầm giờ dạy thành giờ tiếp tân, làm phồng "TT" (VD Quang Huy 74h5 -> 78h35).
+        const isTT = chip.isReceptionist === true;
         if (isTT) receptionistMinutes += mins;
         else if (chip.isTeaching || (chip.sessionData && chip.sessionData.role)) teachingMinutes += mins;
     });
@@ -6061,7 +6065,7 @@ async function populateModalCurrentTab() {
 // dùng để soi chip trùng (phantom) và cấu trúc ca gộp (merge).
 function buildSalaryDebugText() {
     const chips = window.unfilteredAllMonthChips || [];
-    let t = `DEBUG (v20260710-v6)\nTổng số chip: ${chips.length}\n`;
+    let t = `DEBUG (v20260710-v7)\nTổng số chip: ${chips.length}\n`;
     chips.forEach((c, idx) => {
         const role = (c.sessionData && c.sessionData.role) ? c.sessionData.role : '-';
         let segInfo = '';
