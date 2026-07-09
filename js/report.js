@@ -5576,11 +5576,15 @@ async function populateModalCurrentTab() {
     
     (window.unfilteredAllMonthChips || []).forEach(chip => {
         if (chip.class === 'chip-future' || chip.isCenterOff) return;
-        
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
-        if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
-        if (window.modalActiveRole === 'giao-vien' && isTT) return;
-        
+
+        // FIX (v20260710-v4): Tiếp Tân chỉ tính chip tiếp tân THỰC (isReceptionist===true).
+        // Chip "ma"/trùng có role tiếp tân trong sessionData nhưng isReceptionist!==true
+        // (session lọt xuống "Ca Ngoài Lịch/Ca Thêm") bị loại khỏi CẢ 2 view để không cộng dư.
+        const isTTStrict = chip.isReceptionist === true;
+        const isTTLoose = chip.isReceptionist === true || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
+        if (window.modalActiveRole === 'tiep-tan' && !isTTStrict) return;
+        if (window.modalActiveRole === 'giao-vien' && isTTLoose) return;
+
         if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
             const type = classifyAbsentChip(chip, _cachedStaffNotes);
             if (type === 'VP') vpShifts++;
@@ -5625,10 +5629,13 @@ async function populateModalCurrentTab() {
     (window.unfilteredAllMonthChips || []).forEach(chip => {
         const name = chip.chipFilterName;
         if (!name) return;
-        
-        const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
-        if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
-        if (window.modalActiveRole === 'giao-vien' && isTT) return;
+
+        // FIX (v20260710-v4): giống loop thống kê phía trên — Tiếp Tân chỉ tính chip
+        // isReceptionist===true; loại chip "ma"/trùng khỏi cả 2 view (chống cộng dư giờ/lương).
+        const isTTStrict = chip.isReceptionist === true;
+        const isTTLoose = chip.isReceptionist === true || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
+        if (window.modalActiveRole === 'tiep-tan' && !isTTStrict) return;
+        if (window.modalActiveRole === 'giao-vien' && isTTLoose) return;
         
         if (window.modalActiveRole === 'tiep-tan') {
             if (chip.mergedSegments && chip.mergedSegments.length > 0) {
@@ -6039,7 +6046,7 @@ async function populateModalCurrentTab() {
         }
     }
     
-    let debugText = `DEBUG INFO (v20260710-v3):\n`;
+    let debugText = `DEBUG INFO (v20260710-v4):\n`;
     debugText += `Total chips in unfilteredAllMonthChips: ${window.unfilteredAllMonthChips?.length || 0}\n`;
     (window.unfilteredAllMonthChips || []).forEach((c, idx) => {
         const isTT = c.isReceptionist || (c.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role));
