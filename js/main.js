@@ -1,4 +1,4 @@
-const APP_VERSION = '20260709-fix-recep-proportional-hours-and-lateness';
+const APP_VERSION = '20260710-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
