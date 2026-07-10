@@ -159,6 +159,30 @@ function mergeAdjacentShifts(shifts) {
     return merged;
 }
 
+// Gộp các ca con CHỒNG giờ (double-book cùng khoảng) thành 1 khoảng union; giữ RIÊNG các ca con
+// chỉ KỀ nhau (VD 14:00-18:00 + 18:00-21:10). Dùng cho auto-tách ca để không tạo "vắng ảo".
+// Trả về [{ _startDate, _endDate, _origStarts: [start-string...] }].
+function collapseOverlappingSegments(segments, y, m, d) {
+    const toDate = (t) => {
+        const parts = String(t).split(':');
+        return new Date(y, m - 1, d, parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+    };
+    const sorted = [...segments].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    const out = [];
+    sorted.forEach(seg => {
+        const s = toDate(seg.start);
+        const e = toDate(seg.end);
+        const prev = out[out.length - 1];
+        if (prev && s < prev._endDate) { // CHỒNG thực sự (không phải chỉ kề nhau)
+            if (e > prev._endDate) prev._endDate = e;
+            prev._origStarts.push(seg.start);
+        } else {
+            out.push({ _startDate: s, _endDate: e, _origStarts: [seg.start] });
+        }
+    });
+    return out;
+}
+
 function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
@@ -979,23 +1003,48 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 return;
             }
 
-            // === TÁCH CA GỘP: admin đánh dấu chỉ làm 1 số ca con; các ca con còn lại = VẮNG ===
-            // absentSubShifts = mảng start-time (VD "14:00") của ca con KHÔNG làm.
-            if (rs.mergedSegments && rs.mergedSegments.length > 1 &&
-                Array.isArray(matchedSession.absentSubShifts) && matchedSession.absentSubShifts.length > 0) {
-                const _absentSet = new Set(matchedSession.absentSubShifts);
-                const _workedSegs = rs.mergedSegments.filter(s => !_absentSet.has(s.start));
-                const _absentSegs = rs.mergedSegments.filter(s => _absentSet.has(s.start));
+            // === TÁCH CA GỘP (TỰ ĐỘNG + admin ghi đè) ===
+            // Quy tắc GĐ: ca gộp gồm nhiều ca con kề nhau. Dựa vào giờ VÀO/RA thực tế:
+            //  - Ca con đến SAU khi nó đã kết thúc → VẮNG (bỏ lỡ cả ca đó).
+            //  - Ca con ra-về TRƯỚC khi nó bắt đầu → VẮNG.
+            //  - Giờ trễ tính theo ca con thực làm đầu tiên (không tính từ mốc ca gộp).
+            // Admin có thể ghi đè bằng ô tick (absentSubShifts): [] = ép "làm đủ", có phần tử = vắng tay.
+            let _splitAbsentStartsForChip = null; // ghi lên chip để ô sửa hiển thị đúng ca con vắng
+            if (rs.mergedSegments && rs.mergedSegments.length > 1) {
+                let _absentStarts = new Set();
+                if (Array.isArray(matchedSession.absentSubShifts)) {
+                    // Admin đã đụng tay → tôn trọng lựa chọn tay (kể cả [] nghĩa là "làm đủ, đừng tách").
+                    _absentStarts = new Set(matchedSession.absentSubShifts);
+                } else {
+                    // TỰ ĐỘNG suy ra từ giờ chấm công.
+                    const _ci = safeDate(matchedSession.checkIn || matchedSession.start);
+                    const _co = safeDate(matchedSession.checkOut); // có thể null (quên/chưa ra ca)
+                    if (_ci) {
+                        // Gộp ca con CHỒNG giờ (double-book) trước để không tạo vắng ảo.
+                        const _collapsed = collapseOverlappingSegments(rs.mergedSegments, _ry, _rm, _rd);
+                        _collapsed.forEach(cseg => {
+                            const _missedByLate = _ci >= cseg._endDate;           // đến sau khi ca con kết thúc
+                            const _missedByEarly = _co && _co <= cseg._startDate; // về trước khi ca con bắt đầu
+                            if (_missedByLate || _missedByEarly) {
+                                cseg._origStarts.forEach(st => _absentStarts.add(st));
+                            }
+                        });
+                    }
+                }
+
+                const _workedSegs = rs.mergedSegments.filter(s => !_absentStarts.has(s.start));
+                const _absentSegs = rs.mergedSegments.filter(s => _absentStarts.has(s.start));
 
                 // Chỉ tách khi vừa có ca con làm, vừa có ca con vắng (tránh làm hỏng dữ liệu).
-                if (_workedSegs.length > 0 && _absentSegs.length > 0) {
+                if (_absentStarts.size > 0 && _workedSegs.length > 0 && _absentSegs.length > 0) {
+                    _splitAbsentStartsForChip = _absentSegs.map(s => s.start);
                     // 1) Mỗi ca con bị vắng → 1 chip Vắng riêng
                     _absentSegs.forEach(seg => {
                         chips.push({
                             text: `${labelShort} ${seg.start}–${seg.end}${branchShortR} (Tiếp Tân) (Vắng)`,
                             class: 'chip-gray',
                             paidMinutes: 0,
-                            tooltip: 'Tách ca gộp: admin đánh dấu ca con này VẮNG',
+                            tooltip: 'Tách ca gộp: ca con này VẮNG (theo giờ chấm công / đánh dấu tay)',
                             sessionId: null,
                             schedData: { start: seg.start, end: seg.end },
                             isClickable: false,
@@ -1250,6 +1299,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 isFixedShift: rs.isFixedShift,
                 mergedSegments: rs.mergedSegments || null,
                 allSubShifts: _fullSubShifts, // full danh sách ca con gốc (cho ô sửa tách ca)
+                splitAbsentStarts: _splitAbsentStartsForChip, // ca con đang bị coi là vắng (auto/tay)
                 bonus10Status: b10StatusR,
                 bonus10Id: b10DataR ? b10DataR.id : null
             });

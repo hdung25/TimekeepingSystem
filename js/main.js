@@ -1,4 +1,4 @@
-const APP_VERSION = '20260710-v8';
+const APP_VERSION = '20260710-v9';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;

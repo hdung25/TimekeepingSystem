@@ -4344,7 +4344,11 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
         const segs = (chip && Array.isArray(chip.allSubShifts)) ? chip.allSubShifts
                    : ((chip && Array.isArray(chip.mergedSegments)) ? chip.mergedSegments : []);
         if (isReceptionist && segs.length > 1) {
-            const absentSet = new Set((sessionData && Array.isArray(sessionData.absentSubShifts)) ? sessionData.absentSubShifts : []);
+            // Ưu tiên đánh dấu TAY của admin; nếu chưa có thì lấy kết quả TỰ ĐỘNG (ca con đang bị coi là vắng).
+            const absentSource = (sessionData && Array.isArray(sessionData.absentSubShifts))
+                ? sessionData.absentSubShifts
+                : (Array.isArray(chip.splitAbsentStarts) ? chip.splitAbsentStarts : []);
+            const absentSet = new Set(absentSource);
             splitList.innerHTML = '';
             segs.forEach(seg => {
                 const worked = !absentSet.has(seg.start);
@@ -6098,7 +6102,7 @@ async function populateModalCurrentTab() {
 // dùng để soi chip trùng (phantom) và cấu trúc ca gộp (merge).
 function buildSalaryDebugText() {
     const chips = window.unfilteredAllMonthChips || [];
-    let t = `DEBUG (v20260710-v8)\nTổng số chip: ${chips.length}\n`;
+    let t = `DEBUG (v20260710-v9)\nTổng số chip: ${chips.length}\n`;
     chips.forEach((c, idx) => {
         const role = (c.sessionData && c.sessionData.role) ? c.sessionData.role : '-';
         let segInfo = '';
