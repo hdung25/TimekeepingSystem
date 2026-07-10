@@ -8617,18 +8617,25 @@ async function openBulkPublishModal() {
             const docData = allSettings[u.id] || {};
             const pub = docData.published;
             
-            let status = 'uncalculated';
+            let teacherStatus = 'uncalculated';
+            let recepStatus = 'uncalculated';
             let teacherNetPay = 0;
             let recepNetPay = 0;
             
             if (pub && pub.status) {
-                status = pub.status;
                 if (pub.role === 'dual') {
+                    teacherStatus = pub.status_gv || 'draft';
+                    recepStatus = pub.status_tt || 'draft';
+                    if (!pub.details_gv) teacherStatus = 'uncalculated';
+                    if (!pub.details_tt) recepStatus = 'uncalculated';
+                    
                     teacherNetPay = pub.details_gv?.netPay || 0;
                     recepNetPay = pub.details_tt?.netPay || 0;
                 } else if (pub.role === 'tiep-tan') {
+                    recepStatus = pub.status_tt || pub.status;
                     recepNetPay = pub.netPay || 0;
                 } else {
+                    teacherStatus = pub.status_gv || pub.status;
                     teacherNetPay = pub.netPay || 0;
                 }
             }
@@ -8642,7 +8649,7 @@ async function openBulkPublishModal() {
                     id: u.id,
                     name: u.name || u.username,
                     msnv: u.msnvStr || '—',
-                    status: status,
+                    status: teacherStatus,
                     netPay: teacherNetPay
                 });
             }
@@ -8651,7 +8658,7 @@ async function openBulkPublishModal() {
                     id: u.id,
                     name: u.name || u.username,
                     msnv: u.msnvStr || '—',
-                    status: status,
+                    status: recepStatus,
                     netPay: recepNetPay
                 });
             }
@@ -8799,10 +8806,7 @@ function createBulkStaffRow(item, group) {
 }
 
 function onBulkCheckboxChange(staffId, isChecked) {
-    const checkboxes = document.querySelectorAll(`.bulk-staff-checkbox[data-id="${staffId}"]`);
-    checkboxes.forEach(cb => {
-        cb.checked = isChecked;
-    });
+    // Checkboxes are selected independently per group; no cross-synchronization.
     updateBulkSelectedCount();
 }
 
@@ -8814,37 +8818,21 @@ function toggleSelectAllGroup(group) {
     const checkboxes = document.querySelectorAll(`.bulk-staff-checkbox.bulk-group-${group}:not(:disabled)`);
     checkboxes.forEach(cb => {
         cb.checked = isChecked;
-        // Also sync if dual-role
-        const staffId = cb.dataset.id;
-        const otherCheckboxes = document.querySelectorAll(`.bulk-staff-checkbox[data-id="${staffId}"]`);
-        otherCheckboxes.forEach(ocb => {
-            ocb.checked = isChecked;
-        });
     });
     updateBulkSelectedCount();
 }
 
 function updateBulkSelectedCount() {
     const checkedBoxes = document.querySelectorAll('.bulk-staff-checkbox:checked');
-    const selectedIds = new Set();
-    checkedBoxes.forEach(cb => {
-        selectedIds.add(cb.dataset.id);
-    });
-    
     const countDisplay = document.getElementById('bulk-selected-count');
     if (countDisplay) {
-        countDisplay.innerText = `Đã chọn: ${selectedIds.size} nhân viên`;
+        countDisplay.innerText = `Đã chọn: ${checkedBoxes.length} lượt gửi`;
     }
 }
 
 async function submitBulkPublish() {
     const checkedBoxes = document.querySelectorAll('.bulk-staff-checkbox:checked');
-    const selectedIds = new Set();
-    checkedBoxes.forEach(cb => {
-        selectedIds.add(cb.dataset.id);
-    });
-    
-    if (selectedIds.size === 0) {
+    if (checkedBoxes.length === 0) {
         UIService.toast('Vui lòng chọn ít nhất 1 nhân viên để gửi!', 'warning');
         return;
     }
@@ -8863,23 +8851,60 @@ async function submitBulkPublish() {
         
         const allSettings = window.bulkPublishAllSettings || {};
         
-        selectedIds.forEach(staffId => {
+        // Group checked checkboxes by staffId
+        const publishTargets = {}; // { staffId: { teachers: boolean, receps: boolean } }
+        checkedBoxes.forEach(cb => {
+            const staffId = cb.dataset.id;
+            const group = cb.dataset.group;
+            if (!publishTargets[staffId]) {
+                publishTargets[staffId] = { teachers: false, receps: false };
+            }
+            if (group === 'teachers') publishTargets[staffId].teachers = true;
+            if (group === 'receps') publishTargets[staffId].receps = true;
+        });
+        
+        Object.keys(publishTargets).forEach(staffId => {
             const docId = `${monthStr}_${staffId}`;
             const docRef = db.collection('salary_settings_monthly').doc(docId);
             
             const docData = allSettings[staffId] || {};
             const currentPublished = docData.published || {};
+            const targets = publishTargets[staffId];
             
             // Rebuild published payload
             const updatedPublished = {
                 ...currentPublished,
-                status: 'published',
                 publishedAt: new Date().toISOString()
             };
             
             // If commonMessage is not empty, override
             if (commonMessage.trim()) {
                 updatedPublished.message = commonMessage.trim();
+            }
+            
+            if (currentPublished.role === 'dual') {
+                if (targets.teachers) {
+                    updatedPublished.status_gv = 'published';
+                    updatedPublished.publishedAt_gv = new Date().toISOString();
+                }
+                if (targets.receps) {
+                    updatedPublished.status_tt = 'published';
+                    updatedPublished.publishedAt_tt = new Date().toISOString();
+                }
+                
+                const gvPub = updatedPublished.status_gv === 'published' || updatedPublished.status_gv === 'received';
+                const ttPub = updatedPublished.status_tt === 'published' || updatedPublished.status_tt === 'received';
+                if (gvPub || ttPub) {
+                    updatedPublished.status = 'published';
+                }
+            } else if (currentPublished.role === 'tiep-tan') {
+                updatedPublished.status = 'published';
+                updatedPublished.status_tt = 'published';
+                updatedPublished.publishedAt_tt = new Date().toISOString();
+            } else {
+                updatedPublished.status = 'published';
+                updatedPublished.status_gv = 'published';
+                updatedPublished.publishedAt_gv = new Date().toISOString();
             }
             
             batch.set(docRef, {
@@ -8892,7 +8917,7 @@ async function submitBulkPublish() {
         // Invalidate cache
         DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
         
-        UIService.toast(`Đã gửi bảng lương cho ${selectedIds.size} nhân viên thành công!`, 'success');
+        UIService.toast(`Đã gửi bảng lương thành công!`, 'success');
         closeBulkPublishModal();
         
         // Refresh dashboard or view if they are open

@@ -1,4 +1,4 @@
-const APP_VERSION = '20260710-v9';
+const APP_VERSION = '20260710-v10';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
@@ -2523,30 +2523,50 @@ async function loadStaffPersonalSalary() {
         const breakdownContainer = document.getElementById('ps-breakdown-container');
         const confirmBtn = document.getElementById('btn-confirm-receipt');
 
-        if (published.details_gv || published.details_tt || published.details) {
-            // Show detailed table view
-            if (basicView) basicView.style.display = 'none';
-            if (breakdownContainer) breakdownContainer.style.display = 'none';
-            if (detailedView) {
-                detailedView.style.display = 'block';
-                let html = '';
-                if (published.details_gv) {
-                    html += renderDetailedSalaryTable(published.details_gv, published.status);
-                }
-                if (published.details_tt) {
-                    if (html) html += '<div style="height: 20px;"></div>';
-                    html += renderDetailedSalaryTable(published.details_tt, published.status);
-                }
-                if (!published.details_gv && !published.details_tt && published.details) {
-                    html += renderDetailedSalaryTable(published.details, published.status);
-                }
-                detailedView.innerHTML = html;
+        const hasDetailed = !!(published.details_gv || published.details_tt || published.details);
+        let html = '';
+        if (hasDetailed) {
+            if (published.details_gv && (published.status_gv === 'published' || published.status_gv === 'received' || (!published.status_gv && published.status !== 'draft'))) {
+                html += renderDetailedSalaryTable(published.details_gv, published.status_gv || published.status);
             }
+            if (published.details_tt && (published.status_tt === 'published' || published.status_tt === 'received' || (!published.status_tt && published.status !== 'draft'))) {
+                if (html) html += '<div style="height: 20px;"></div>';
+                html += renderDetailedSalaryTable(published.details_tt, published.status_tt || published.status);
+            }
+            if (!published.details_gv && !published.details_tt && published.details) {
+                html += renderDetailedSalaryTable(published.details, published.status);
+            }
+        }
 
-            if (published.status === 'received') {
-                if (confirmBtn) confirmBtn.style.display = 'none';
+        if (hasDetailed) {
+            if (html) {
+                // Show detailed table view
+                if (basicView) basicView.style.display = 'none';
+                if (breakdownContainer) breakdownContainer.style.display = 'none';
+                if (detailedView) {
+                    detailedView.style.display = 'block';
+                    detailedView.innerHTML = html;
+                }
+
+                if (published.status === 'received') {
+                    if (confirmBtn) confirmBtn.style.display = 'none';
+                } else {
+                    if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+                }
             } else {
-                if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+                // Fallback to uncalculated / draft view
+                statusContainer.style.display = 'block';
+                statusContainer.innerHTML = `
+                    <span style="display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size:1.5rem; margin-bottom:0.5rem;">
+                        ${window.getIconHtml('help-circle', {width: '32', height: '32'})}
+                    </span>
+                    <p style="margin: 0; font-weight: 500;">Bảng lương đang được tổng hợp.</p>
+                `;
+                if (detailedView) detailedView.style.display = 'none';
+                if (basicView) basicView.style.display = 'none';
+                if (breakdownContainer) breakdownContainer.style.display = 'none';
+                if (confirmBtn) confirmBtn.style.display = 'none';
+                return;
             }
         } else {
             // Fallback to basic summary view

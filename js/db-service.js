@@ -2037,13 +2037,30 @@ const DBService = {
         }
         try {
             const docId = `${monthStr}_${staffId}`;
+            const docSnap = await db.collection('salary_settings_monthly').doc(docId).get();
+            const data = docSnap.exists ? docSnap.data() : {};
+            const pub = data.published || {};
+            
+            const updatedPublished = {
+                ...pub,
+                status: 'received',
+                receivedAt: new Date().toISOString(),
+                confirmedBy: confirmedBy
+            };
+            
+            if (pub.status_gv === 'published') {
+                updatedPublished.status_gv = 'received';
+                updatedPublished.receivedAt_gv = new Date().toISOString();
+            }
+            if (pub.status_tt === 'published') {
+                updatedPublished.status_tt = 'received';
+                updatedPublished.receivedAt_tt = new Date().toISOString();
+            }
+            
             await db.collection('salary_settings_monthly').doc(docId).set({
-                published: {
-                    status: 'received',
-                    receivedAt: new Date().toISOString(),
-                    confirmedBy: confirmedBy
-                }
+                published: updatedPublished
             }, { merge: true });
+            
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
             return true;
         } catch (e) {
