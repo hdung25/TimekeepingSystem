@@ -1551,6 +1551,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const sessionEnd = safeDate(s.checkOut);
                 const endStr = sessionEnd ? sessionEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
+                // === ẨN CA BẤM NHẦM ===
+                // Session vào ≈ ra (≤ 2 phút) là bấm nhầm/bấm trùng (VD "14:00–14:00", "18:00–18:01").
+                // Quy tắc <10 phút bên dưới vốn đã cho 0 phút lương nên ẩn chip KHÔNG đổi tổng giờ/lương,
+                // chỉ dọn rác khỏi bảng công. Không đụng ca admin thêm/sửa tay, và ca "quên check-out"
+                // (không có checkOut) vẫn giữ để admin theo dõi.
+                if (!isAdminCreated && !s.isAdminEdited && sessionEnd &&
+                    (sessionEnd - sessionStart) <= 2 * 60 * 1000) {
+                    return;
+                }
+
                 if (USE_SCHED) {
                     // Tính sớm/trễ theo giờ lịch
                     const diffToSched = sessionStart - nearestSchedStart; // + = trễ, - = sớm
