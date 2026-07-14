@@ -183,7 +183,40 @@ function collapseOverlappingSegments(segments, y, m, d) {
     return out;
 }
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}) {
+function getClassObservationSummary(observations, staffId, cls, secKey, classIndex, dateStr) {
+    const activeItems = (Array.isArray(observations) ? observations : []).filter(item => {
+        if (!item || item.status === 'cancelled') return false;
+        if (item.dateKey && item.dateKey !== dateStr) return false;
+        if (item.teacherId && item.teacherId !== staffId) return false;
+        if (item.classStart && item.classStart !== cls.start) return false;
+        if (item.branch && cls._branch && item.branch !== cls._branch) return false;
+
+        const hasExactScheduleIdentity = item.scheduleCompositeKey && item.classSectionKey;
+        if (hasExactScheduleIdentity) {
+            return item.scheduleCompositeKey === cls._compositeKey &&
+                item.classSectionKey === secKey &&
+                Number(item.classIndex) === Number(classIndex);
+        }
+        return true;
+    });
+
+    const manualLateMinutes = activeItems.reduce(
+        (max, item) => Math.max(max, Math.max(0, Math.round(Number(item.lateMinutes) || 0))),
+        0
+    );
+    const notes = activeItems
+        .map(item => String(item.note || '').trim())
+        .filter(Boolean);
+
+    return {
+        items: activeItems,
+        manualLateMinutes,
+        notes,
+        ids: activeItems.map(item => item.id).filter(Boolean)
+    };
+}
+
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = []) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIdsTeaching = new Set();
@@ -579,6 +612,33 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     return;
                 }
 
+                const observationSummary = getClassObservationSummary(
+                    shiftObservations,
+                    staffId,
+                    cls,
+                    secKey,
+                    originalIdx,
+                    dateStr
+                );
+                const actualStartForLate = safeDate(matchedSession.checkIn || matchedSession.start);
+                const systemLateMinutes = actualStartForLate && actualStartForLate > schedStart
+                    ? Math.max(0, Math.round((actualStartForLate - schedStart) / 60000))
+                    : 0;
+                const manualLateMinutes = observationSummary.manualLateMinutes;
+                const effectiveLateMinutes = Math.max(systemLateMinutes, manualLateMinutes);
+
+                const appendLateDetails = () => {
+                    if (effectiveLateMinutes > 0) {
+                        label += ` (T${effectiveLateMinutes}p)`;
+                    }
+                    if (manualLateMinutes > 0) {
+                        tooltip += ` | Tiếp tân ghi nhận ${manualLateMinutes}p`;
+                    }
+                    if (observationSummary.notes.length > 0) {
+                        tooltip += ` | Ghi chú: ${observationSummary.notes.join(' / ')}`;
+                    }
+                };
+
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
                     // FULL CHECK-IN/OUT
@@ -596,7 +656,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
                     minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
 
-                    let isLate = false;
+                    let isLate = effectiveLateMinutes > 0;
                     if (matchedSession.isAdminEdited) {
                         label = `${actualStartStr}–${actualEndStr}${_labelBranchSuffix}`;
                     } else {
@@ -604,14 +664,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
                         minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
 
-                        // Ghi chú đi trễ
-                        if (actualStart > schedStart) {
-                            const lateMinutesRaw = Math.round((actualStart - schedStart) / 60000);
-                            if (lateMinutesRaw > 0) {
-                                isLate = true;
-                                label += ` (T${lateMinutesRaw}p)`;
-                            }
-                        } else if (actualStart < schedStart) {
+                        // Ghi chú vào sớm. Trễ được áp dụng thống nhất ở dưới.
+                        if (actualStart < schedStart) {
                             const earlyMins = Math.round((schedStart - actualStart) / 60000);
                             if (earlyMins > 0) {
                                 tooltip += ` | Vào sớm ${earlyMins}p`;
@@ -626,6 +680,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             }
                         }
                     }
+
+                    // Khoảng chấm công đã tự khấu trừ số phút trễ hệ thống.
+                    // Chỉ khấu trừ phần lệnh tiếp tân vượt quá số phút đó.
+                    if (manualLateMinutes > systemLateMinutes) {
+                        minutes = Math.max(0, minutes - (manualLateMinutes - systemLateMinutes));
+                    }
+                    appendLateDetails();
 
                     // Hiển thị thông tin nếu ra muộn (chỉ để tham khảo, không tính lương)
                     if (actualEnd > schedEnd) {
@@ -734,14 +795,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const todayStr = getLocalDateKey ? getLocalDateKey(now) : now.toISOString().split('T')[0];
                     const isPastDay = dateStr < todayStr;
 
+                    appendLateDetails();
                     if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
-                        minutes = schedDuration;
-                        cssClass = 'chip-green';
-                        tooltip += ' - Tự ra ca (Tính đủ giờ)';
+                        minutes = Math.max(0, schedDuration - effectiveLateMinutes);
+                        cssClass = effectiveLateMinutes > 0 ? 'chip-orange' : 'chip-green';
+                        tooltip += effectiveLateMinutes > 0
+                            ? ' - Tự ra ca (đã khấu trừ phút trễ hiệu lực)'
+                            : ' - Tự ra ca (Tính đủ giờ)';
                         isClickable = true;
                     } else {
                         minutes = 0;
-                        cssClass = 'chip-blue';
+                        cssClass = effectiveLateMinutes > 0 ? 'chip-orange' : 'chip-blue';
                         label += ` (Đang làm)`;
                         tooltip += ` - Đang làm | Vào: ${actualStartStrNoCO}`;
                     }
@@ -801,7 +865,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     overtimeMinutes: otMinutes,
                     bonus10Status: b10StatusT,
                     bonus10Id: b10DataT ? b10DataT.id : null,
-                    mergedSegments: (_mergeInfo[_mk] && _mergeInfo[_mk].chainSegments) || null
+                    mergedSegments: (_mergeInfo[_mk] && _mergeInfo[_mk].chainSegments) || null,
+                    systemLateMinutes,
+                    manualLateMinutes,
+                    effectiveLateMinutes,
+                    shiftObservationIds: observationSummary.ids,
+                    shiftObservationNotes: observationSummary.notes
                 });
 
             } else {

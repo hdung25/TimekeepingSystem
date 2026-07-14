@@ -1,5 +1,5 @@
-// Service Worker v37 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v66-hide-mistap';
+// Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
+const CACHE_NAME = 'tdt-chamcong-v67-shift-oversight';
 
 const STATIC_ASSETS = [
     '/',
@@ -10,17 +10,21 @@ const STATIC_ASSETS = [
     '/bao-cao.html',
     '/lich-lam.html',
     '/lich-tiep-tan.html',
+    '/quan-sat-ca.html',
+    '/nhat-ky-ca.html',
     '/nhan-su.html',
     '/he-thong.html',
     '/css/style.css?v=20260705-mobile-schedule-actions',
     '/css/login.css?v=20260621-font',
-    '/js/main.js?v=20260710-v11',
+    '/css/shift-oversight.css?v=20260714-shift-oversight-v1',
+    '/js/main.js?v=20260714-shift-oversight-v1',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260710-v11',
-    '/js/report.js?v=20260710-v11',
-    '/js/evaluation-service.js?v=20260710-v11',
+    '/js/db-service.js?v=20260714-shift-oversight-v1',
+    '/js/report.js?v=20260714-shift-oversight-v1',
+    '/js/evaluation-service.js?v=20260714-shift-oversight-v1',
+    '/js/shift-oversight.js?v=20260714-shift-oversight-v1',
     '/js/ui-service.js',
-    '/js/auth-guard.js?v=20260628-past-lock-assistant',
+    '/js/auth-guard.js?v=20260714-shift-oversight-v1',
     '/js/chart-service.js',
     '/js/analytics.js',
     '/js/schedule.js?v=20260705-mobile-schedule-actions',

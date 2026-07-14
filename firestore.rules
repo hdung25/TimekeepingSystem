@@ -50,6 +50,13 @@ service cloud.firestore {
       return hasRole('assistant') || hasRole('receptionist_assistant');
     }
 
+    function isReceptionistOperator() {
+      return hasRole('receptionist') ||
+        hasRole('receptionist_assistant') ||
+        hasRole('receptionist_lead') ||
+        hasRole('receptionist_staff');
+    }
+
     // --- COLLECTIONS ---
 
     // 0. User Roles (The Security Map)
@@ -111,6 +118,67 @@ service cloud.firestore {
     match /receptionist_schedules/{weekId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
+    }
+
+    // 7.1 Receptionist shift activation. A receptionist can only activate
+    // their own deterministic presence document; admins can audit all shifts.
+    match /receptionist_shift_presence/{presenceId} {
+      allow read: if isAuthenticated() && (isAdmin() || isReceptionistOperator());
+      allow create, update: if isAuthenticated() && isReceptionistOperator()
+        && request.resource.data.staffId == getUserId()
+        && request.resource.data.authUid == request.auth.uid
+        && presenceId == request.resource.data.dateKey + '_' +
+          request.resource.data.branch + '_' +
+          request.resource.data.shiftKey + '_' +
+          request.resource.data.staffId;
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // 7.2 Notes and late-minute commands created during receptionist shifts.
+    // Attendance timestamps remain immutable; payroll reads the maximum of
+    // system lateness and active receptionist commands.
+    match /shift_observations/{observationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        isReceptionistOperator() ||
+        resource.data.teacherId == getUserId()
+      );
+      allow create: if isAuthenticated()
+        && (isAdmin() || isReceptionistOperator())
+        && request.resource.data.createdByAuthUid == request.auth.uid
+        && request.resource.data.createdByStaffId == getUserId()
+        && request.resource.data.status == 'active'
+        && request.resource.data.lateMinutes is int
+        && request.resource.data.lateMinutes >= 0
+        && request.resource.data.lateMinutes <= 240
+        && (
+          isAdmin() ||
+          exists(/databases/$(database)/documents/receptionist_shift_presence/$(
+            request.resource.data.dateKey + '_' +
+            request.resource.data.branch + '_' +
+            request.resource.data.shiftKey + '_' +
+            request.resource.data.createdByStaffId
+          ))
+        );
+      allow update: if isAuthenticated() && isAdmin()
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'cancelledByName',
+          'cancelReason',
+          'cancelledAt',
+          'updatedAt'
+        ])
+        && request.resource.data.createdByAuthUid == resource.data.createdByAuthUid
+        && request.resource.data.createdByStaffId == resource.data.createdByStaffId
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.dateKey == resource.data.dateKey
+        && request.resource.data.branch == resource.data.branch
+        && request.resource.data.shiftKey == resource.data.shiftKey
+        && request.resource.data.classStart == resource.data.classStart
+        && request.resource.data.classEnd == resource.data.classEnd
+        && request.resource.data.lateMinutes == resource.data.lateMinutes;
+      allow delete: if false;
     }
 
     // 8. Daily Notes (Firestore-synced, replaces localStorage)

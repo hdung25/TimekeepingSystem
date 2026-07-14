@@ -9,6 +9,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let currentDate = new Date(); // Global View Date
 
+function escapeReportHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 async function initReport() {
     // Reset role filter select to default 'all'
     const roleFilterEl = document.getElementById('salary-role-filter');
@@ -985,6 +994,16 @@ async function renderMonthReport(date, forceServer = false) {
     // DBService.getMonthlyAttendance returns array of docs with { sessions: [...] }
     const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId, forceServer);
 
+    // Receptionist notes/late commands are stored separately from attendance.
+    // Keeping them separate preserves the original clock timestamps for audit.
+    const shiftObservations = await DBService.getShiftObservationsForMonth(monthStr, staffId);
+    const shiftObservationsMap = {};
+    shiftObservations.forEach(item => {
+        if (!item.dateKey) return;
+        if (!shiftObservationsMap[item.dateKey]) shiftObservationsMap[item.dateKey] = [];
+        shiftObservationsMap[item.dateKey].push(item);
+    });
+
     // Normalize Attendance into a Map: "YYYY-MM-DD" -> [sessions]
     const attendanceMap = {};
     attendanceRecords.forEach(record => {
@@ -1547,7 +1566,18 @@ async function renderMonthReport(date, forceServer = false) {
         const dailyAttendance = attendanceMap[dateStr] || [];
         const dailyReceptionistShifts = receptionistShiftsMap[dateStr] || [];
 
-        const chips = calculateDailyChips(dailySchedule, dailyAttendance, staffId, dateStr, currentUserContext, dailyReceptionistShifts, overtimeDateMap[dateStr] || {}, cancelledShifts, bonus10Map);
+        const chips = calculateDailyChips(
+            dailySchedule,
+            dailyAttendance,
+            staffId,
+            dateStr,
+            currentUserContext,
+            dailyReceptionistShifts,
+            overtimeDateMap[dateStr] || {},
+            cancelledShifts,
+            bonus10Map,
+            shiftObservationsMap[dateStr] || []
+        );
         // Inject dateStr so we can auto-save roles later
         chips.forEach(c => {
             c.dateStr = dateStr;
@@ -1625,7 +1655,17 @@ async function renderMonthReport(date, forceServer = false) {
                 editedHtml = ` <span title="Admin đã chỉnh sửa" style="cursor:help; margin-left:4px; display:inline-flex; align-items:center; vertical-align:middle;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>`;
             }
 
-            div.innerHTML = `<span>${chip.text}${editedHtml}${badgeHtml}</span>`;
+            const observationNotes = Array.isArray(chip.shiftObservationNotes)
+                ? chip.shiftObservationNotes.filter(Boolean)
+                : [];
+            let observationNoteHtml = '';
+            if (observationNotes.length > 0) {
+                const fullReason = observationNotes.join(' / ');
+                const shortReason = fullReason.length > 110 ? `${fullReason.slice(0, 107)}...` : fullReason;
+                observationNoteHtml = `<small style="display:block;margin-top:4px;font-size:0.72rem;font-weight:600;line-height:1.35;color:#9A3412;white-space:normal">Lý do: ${escapeReportHtml(shortReason)}</small>`;
+            }
+
+            div.innerHTML = `<span style="min-width:0">${chip.text}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
@@ -6430,6 +6470,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         const overtimeRecords = await DBService.getMonthlyOvertimeRequests(prevMonthStr, staffId);
         const bonus10Records = await DBService.getMonthlyBonus10Requests(prevMonthStr, staffId);
         const scheduleMap = await DBService.getMonthlySchedule(prevMonthStr);
+        const observationRecords = await DBService.getShiftObservationsForMonth(prevMonthStr, staffId);
         
         const attendanceMap = {};
         attendanceRecords.forEach(rec => {
@@ -6456,6 +6497,13 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 bonus10Map[req.dateKey][req.sessionId] = req;
             }
         });
+
+        const observationMap = {};
+        observationRecords.forEach(item => {
+            if (!item.dateKey) return;
+            if (!observationMap[item.dateKey]) observationMap[item.dateKey] = [];
+            observationMap[item.dateKey].push(item);
+        });
         
         const daysInMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
         const prevChips = [];
@@ -6475,7 +6523,8 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 dailyReceptionistShifts,
                 overtimeDateMap[dateStr] || {},
                 cancelledShifts,
-                bonus10Map
+                bonus10Map[dateStr] || {},
+                observationMap[dateStr] || []
             );
             
             chips.forEach(c => {

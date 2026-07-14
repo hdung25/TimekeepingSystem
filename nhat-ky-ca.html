@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#047857">
+    <title>Nhật Ký Ca - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css/style.css?v=20260714-shift-oversight-v1">
+    <link rel="stylesheet" href="css/shift-oversight.css?v=20260714-shift-oversight-v1">
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
+    <script src="js/auth-guard.js?v=20260714-shift-oversight-v1"></script>
+    <script src="js/db-service.js?v=20260714-shift-oversight-v1"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body data-shift-oversight-mode="admin">
+    <div class="admin-container">
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo" style="height:40px;margin-right:.5rem;border-radius:4px">
+                <span style="font-size:.9rem;font-weight:700">NGOẠI NGỮ &amp; TOÁN TƯ DUY TRẺ</span>
+            </div>
+            <nav id="sidebar-nav"></nav>
+        </aside>
+
+        <main class="main-content oversight-main">
+            <header class="oversight-header admin-log-header">
+                <div>
+                    <div class="oversight-kicker">Dành cho quản trị viên</div>
+                    <h1>Nhật ký quan sát ca</h1>
+                    <p>Theo dõi người tạo lệnh, nội dung ghi chú và mức trễ áp dụng theo ngày.</p>
+                </div>
+                <a href="quan-sat-ca.html" class="view-operation-link"><i data-lucide="external-link"></i>Mở trang thao tác</a>
+            </header>
+
+            <section class="admin-log-filters">
+                <label class="oversight-field"><span>Từ ngày</span><input type="date" id="log-from-date"></label>
+                <label class="oversight-field"><span>Đến ngày</span><input type="date" id="log-to-date"></label>
+                <label class="oversight-field"><span>Cơ sở</span>
+                    <select id="log-branch"><option value="all">Tất cả</option><option value="cs1">Cơ sở 1</option><option value="cs2">Cơ sở 2</option><option value="cs3">Cơ sở 3</option></select>
+                </label>
+                <label class="oversight-field"><span>Ca</span>
+                    <select id="log-shift"><option value="all">Tất cả</option><option value="morning">Sáng</option><option value="afternoon">Chiều</option><option value="evening">Tối</option></select>
+                </label>
+                <label class="oversight-field log-search-field"><span>Tìm kiếm</span>
+                    <div class="search-input-wrap"><i data-lucide="search"></i><input type="search" id="log-search" placeholder="Giáo viên, tiếp tân, ghi chú..."></div>
+                </label>
+                <button type="button" class="filter-submit-btn" id="log-filter-btn"><i data-lucide="sliders-horizontal"></i>Lọc dữ liệu</button>
+            </section>
+
+            <section class="log-summary" aria-label="Thống kê nhật ký">
+                <div><span>Lệnh đang áp dụng</span><strong id="summary-active">0</strong></div>
+                <div><span>Ca có ghi chú</span><strong id="summary-notes">0</strong></div>
+                <div><span>Tổng phút lệnh</span><strong id="summary-minutes">0</strong></div>
+            </section>
+
+            <section class="admin-log-section">
+                <div class="section-heading">
+                    <div><h2>Dữ liệu theo ngày</h2><p id="log-result-label">Đang tải nhật ký...</p></div>
+                    <button type="button" class="quiet-refresh-btn" id="log-refresh-btn"><i data-lucide="refresh-cw"></i>Làm mới</button>
+                </div>
+                <div id="admin-log-list" class="admin-log-list" aria-live="polite"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js?v=20260714-shift-oversight-v1"></script>
+    <script src="js/shift-oversight.js?v=20260714-shift-oversight-v1"></script>
+    <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+</body>
+</html>

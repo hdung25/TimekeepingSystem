@@ -39,7 +39,7 @@
 
     // 2. Check Role Access checks
     // Admin Only Pages
-    const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html'];
+    const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html', 'nhat-ky-ca.html'];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
     const hasAssistantAccess = currentRoles.some(r => r === 'assistant');
@@ -50,6 +50,17 @@
         } else {
             isAllowed = hasAdminAccess;
         }
+    }
+
+    if (path.includes('quan-sat-ca.html')) {
+        isAllowed = currentRoles.some(r => [
+            'admin',
+            'senior_assistant',
+            'receptionist',
+            'receptionist_assistant',
+            'receptionist_lead',
+            'receptionist_staff'
+        ].includes(r));
     }
 
     if (!isAllowed) {

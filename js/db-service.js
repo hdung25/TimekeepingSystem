@@ -1037,6 +1037,17 @@ const DBService = {
         }
     },
 
+    getAttendanceRecordsForDate: async (dateKey) => {
+        if (!dateKey) return [];
+        try {
+            const snap = await db.collection('attendance_logs').where('date', '==', dateKey).get();
+            return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (e) {
+            console.warn('getAttendanceRecordsForDate error:', e);
+            return [];
+        }
+    },
+
     // 9. System Settings
     getSystemSettings: async () => {
         const cacheKey = 'system_settings';
@@ -1909,6 +1920,185 @@ const DBService = {
 
         DBService._cache[cacheKey] = promise;
         return promise;
+    },
+
+    // ================= SHIFT OVERSIGHT (RECEPTIONIST -> TEACHER) =================
+
+    _buildReceptionistPresenceId(dateKey, branch, shiftKey, staffId) {
+        return [dateKey, branch, shiftKey, staffId]
+            .map(value => String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_'))
+            .join('_');
+    },
+
+    async getReceptionistShiftPresence(dateKey, branch, shiftKey, staffIds = []) {
+        const uniqueIds = [...new Set((staffIds || []).filter(Boolean))];
+        if (uniqueIds.length === 0) return [];
+
+        try {
+            const docs = await Promise.all(uniqueIds.map(staffId => {
+                const id = DBService._buildReceptionistPresenceId(dateKey, branch, shiftKey, staffId);
+                return db.collection('receptionist_shift_presence').doc(id).get();
+            }));
+            return docs.filter(doc => doc.exists).map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (e) {
+            console.error('[ShiftOversight] Error loading shift presence:', e);
+            return [];
+        }
+    },
+
+    async activateReceptionistShift(dateKey, branch, shiftKey, staffId, staffName) {
+        const authUser = firebase.auth().currentUser;
+        if (!authUser) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        if (!dateKey || !branch || !shiftKey || !staffId) {
+            throw new Error('Thiếu thông tin ca trực.');
+        }
+
+        const id = DBService._buildReceptionistPresenceId(dateKey, branch, shiftKey, staffId);
+        const ref = db.collection('receptionist_shift_presence').doc(id);
+        await ref.set({
+            dateKey,
+            branch,
+            shiftKey,
+            staffId,
+            staffName: staffName || localStorage.getItem('userFullName') || '',
+            authUid: authUser.uid,
+            status: 'active',
+            activatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        return id;
+    },
+
+    async getShiftObservationsForDate(dateKey) {
+        if (!dateKey) return [];
+        try {
+            const snap = await db.collection('shift_observations')
+                .where('dateKey', '==', dateKey)
+                .get();
+            return snap.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => String(b.createdAt?.seconds || 0).localeCompare(String(a.createdAt?.seconds || 0)));
+        } catch (e) {
+            console.error('[ShiftOversight] Error loading observations for date:', e);
+            return [];
+        }
+    },
+
+    async getShiftObservationsForMonth(monthStr, staffId = '') {
+        if (!/^\d{4}-\d{2}$/.test(monthStr || '')) return [];
+        const cacheKey = `shift_observations_${monthStr}_${staffId || 'all'}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            const start = `${monthStr}-01`;
+            const [year, month] = monthStr.split('-').map(Number);
+            const nextMonth = new Date(year, month, 1);
+            const end = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`;
+            try {
+                // A staff-scoped equality query is required so Firestore rules can
+                // prove teachers only read their own observations. Date filtering
+                // stays client-side to avoid requiring a new composite index.
+                let query = db.collection('shift_observations');
+                if (staffId) {
+                    query = query.where('teacherId', '==', staffId);
+                } else {
+                    query = query.where('dateKey', '>=', start).where('dateKey', '<', end);
+                }
+                const snap = await query.get();
+                return snap.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() }))
+                    .filter(item => item.dateKey >= start && item.dateKey < end)
+                    .filter(item => !staffId || item.teacherId === staffId);
+            } catch (e) {
+                console.error('[ShiftOversight] Error loading monthly observations:', e);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
+    },
+
+    async getShiftObservationsByRange(fromDate, toDate) {
+        if (!fromDate || !toDate) return [];
+        try {
+            const snap = await db.collection('shift_observations')
+                .where('dateKey', '>=', fromDate)
+                .where('dateKey', '<=', toDate)
+                .get();
+            return snap.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => {
+                    const dateCmp = String(b.dateKey || '').localeCompare(String(a.dateKey || ''));
+                    if (dateCmp !== 0) return dateCmp;
+                    return Number(b.createdAt?.seconds || 0) - Number(a.createdAt?.seconds || 0);
+                });
+        } catch (e) {
+            console.error('[ShiftOversight] Error loading observation range:', e);
+            return [];
+        }
+    },
+
+    async createShiftObservation(payload) {
+        const authUser = firebase.auth().currentUser;
+        if (!authUser) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+
+        const required = ['dateKey', 'branch', 'shiftKey', 'teacherId', 'classStart', 'classEnd'];
+        const missing = required.find(field => !payload?.[field]);
+        if (missing) throw new Error(`Thiếu dữ liệu bắt buộc: ${missing}`);
+
+        const lateMinutes = Math.max(0, Math.min(240, Math.round(Number(payload.lateMinutes) || 0)));
+        const note = String(payload.note || '').trim().slice(0, 500);
+        if (lateMinutes === 0 && !note) {
+            throw new Error('Vui lòng nhập số phút trễ hoặc nội dung ghi chú.');
+        }
+
+        const creatorStaffId = localStorage.getItem('currentUserId') || '';
+        const creatorName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || '';
+        if (!creatorStaffId) throw new Error('Không xác định được người tạo lệnh.');
+
+        const ref = await db.collection('shift_observations').add({
+            dateKey: payload.dateKey,
+            branch: payload.branch,
+            shiftKey: payload.shiftKey,
+            scheduleCompositeKey: payload.scheduleCompositeKey || `${payload.branch}__${payload.dateKey}`,
+            classSectionKey: payload.classSectionKey || '',
+            classIndex: Number.isInteger(payload.classIndex) ? payload.classIndex : Number(payload.classIndex || 0),
+            classStart: payload.classStart,
+            classEnd: payload.classEnd,
+            className: String(payload.className || '').slice(0, 160),
+            subjectId: payload.subjectId || '',
+            teacherId: payload.teacherId,
+            teacherName: String(payload.teacherName || '').slice(0, 160),
+            lateMinutes,
+            systemLateAtCreation: Math.max(0, Math.round(Number(payload.systemLateAtCreation) || 0)),
+            effectiveLateAtCreation: Math.max(lateMinutes, Math.round(Number(payload.systemLateAtCreation) || 0)),
+            note,
+            kind: lateMinutes > 0 ? 'late_adjustment' : 'note',
+            status: 'active',
+            createdByStaffId: creatorStaffId,
+            createdByName: creatorName,
+            createdByAuthUid: authUser.uid,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        DBService._invalidate('shift_observations_');
+        return ref.id;
+    },
+
+    async cancelShiftObservation(observationId, reason = '') {
+        if (!observationId) throw new Error('Thiếu mã lệnh cần hủy.');
+        const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
+        await db.collection('shift_observations').doc(observationId).update({
+            status: 'cancelled',
+            cancelledByName: adminName,
+            cancelReason: String(reason || '').trim().slice(0, 300),
+            cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        DBService._invalidate('shift_observations_');
+        return true;
     },
 
     // ================= DAILY NOTES (Firestore-synced) =================
