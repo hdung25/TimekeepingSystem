@@ -1326,7 +1326,12 @@ async function renderMonthReport(date, forceServer = false) {
                                 if (!shiftStart || !shiftEnd) return;
 
                                 const diffMs = Math.abs(checkIn - shiftStart);
-                                if (diffMs < 90 * 60 * 1000) {
+                                // Khớp khi check-in gần giờ vào ca (±90p) HOẶC nằm TRONG khung ca.
+                                // Ca tiếp tân ở đây đã được GỘP (VD 14:00–21:10), nên người vào trễ giữa
+                                // ca (VD 17:17 = lệch 197p so với 14:00) trước đây không khớp ca nào và bị
+                                // đóng nhầm về 23:59; giờ vẫn đóng đúng theo giờ tan ca (21:10).
+                                const insideShift = checkIn >= shiftStart && checkIn < shiftEnd;
+                                if (diffMs < 90 * 60 * 1000 || insideShift) {
                                     if (diffMs < minRecepDiff) {
                                         minRecepDiff = diffMs;
                                         matchedRecepShift = rs;

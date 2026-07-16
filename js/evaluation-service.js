@@ -159,6 +159,9 @@ function mergeAdjacentShifts(shifts) {
     return merged;
 }
 
+// Trễ quá ngưỡng này so với giờ bắt đầu một ca con (trong ca gộp) → ca con đó tính VẮNG.
+const LATE_ABSENT_THRESHOLD_MS = 50 * 60 * 1000;
+
 // Gộp các ca con CHỒNG giờ (double-book cùng khoảng) thành 1 khoảng union; giữ RIÊNG các ca con
 // chỉ KỀ nhau (VD 14:00-18:00 + 18:00-21:10). Dùng cho auto-tách ca để không tạo "vắng ảo".
 // Trả về [{ _startDate, _endDate, _origStarts: [start-string...] }].
@@ -1092,7 +1095,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         // Gộp ca con CHỒNG giờ (double-book) trước để không tạo vắng ảo.
                         const _collapsed = collapseOverlappingSegments(rs.mergedSegments, _ry, _rm, _rd);
                         _collapsed.forEach(cseg => {
-                            const _missedByLate = _ci >= cseg._endDate;           // đến sau khi ca con kết thúc
+                            // Quy tắc GĐ: trễ quá 50 phút so với giờ bắt đầu ca con → VẮNG cả ca con đó.
+                            // (VD ca 14:00–18:00, vào 17:17 = trễ 197p → VẮNG ca chiều, không còn tính
+                            //  "làm cả ca chiều nhưng trễ 197p" như trước.)
+                            // Vẫn giữ điều kiện cũ "vào sau khi ca con đã kết thúc" để ca con ngắn
+                            // (dưới 50 phút) không bị lọt.
+                            const _lateMs = _ci - cseg._startDate;                // >0 = vào trễ so với ca con
+                            const _missedByLate = _lateMs > LATE_ABSENT_THRESHOLD_MS || _ci >= cseg._endDate;
                             const _missedByEarly = _co && _co <= cseg._startDate; // về trước khi ca con bắt đầu
                             if (_missedByLate || _missedByEarly) {
                                 cseg._origStarts.forEach(st => _absentStarts.add(st));
