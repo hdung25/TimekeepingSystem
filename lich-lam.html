@@ -295,7 +295,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260717-schedule-fixes-v1'></script>
+    <script src='js/db-service.js?v=20260717-gv-absence-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -319,6 +319,17 @@
             <header style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
                 <h1 style="font-size: 1.5rem; font-weight: 700;">Quản Lý Lịch Học</h1>
                 <div id="admin-actions" style="display: none; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <button id="btn-gv-absence" class="btn" onclick="openGVAbsenceModal()"
+                        style="display:none;align-items:center;gap:0.4rem;background:#FFF7ED;border:1.5px solid #FDBA74;color:#9A3412;font-weight:700;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M3 21v-2a4 4 0 0 1 4-4h4"></path>
+                            <line x1="16" y1="16" x2="22" y2="22"></line>
+                            <line x1="22" y1="16" x2="16" y2="22"></line>
+                        </svg>
+                        Vắng GV
+                    </button>
                     <button class="btn btn-secondary" onclick="openCopyWeekModal()"
                         style="display:flex;align-items:center;gap:0.4rem;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -414,7 +425,7 @@
     </div>
     <script src="js/ui-service.js"></script>
     <script src="js/main.js?v=20260714-shift-oversight-v1"></script>
-    <script src="js/schedule.js?v=20260717-schedule-fixes-v1"></script>
+    <script src="js/schedule.js?v=20260717-gv-absence-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

@@ -164,6 +164,14 @@ function initSchedule() {
         loadSubjectListForSchedule();
     }
 
+    // Nút "Vắng GV" — CHỈ dành cho chức vụ Trợ lý ('assistant'), theo yêu cầu:
+    // trợ lý kiểm/chỉnh trạng thái Vắng phép / Vắng đột xuất cho giáo viên.
+    // (Không mở cho role khác; admin đã có đường chỉnh qua Bảng Công.)
+    if (roles.includes('assistant')) {
+        const btnAbs = document.getElementById('btn-gv-absence');
+        if (btnAbs) btnAbs.style.display = 'flex';
+    }
+
     // 5. Event Listeners
     document.getElementById('prev-week').addEventListener('click', () => changeWeek(-7));
     document.getElementById('next-week').addEventListener('click', () => changeWeek(7));
@@ -1054,4 +1062,146 @@ window.goToDatePickerDate = function(dateVal) {
 window.filterScheduleShifts = function(filterVal) {
     currentShiftFilter = filterVal;
     renderTable();
+};
+
+// ================= VẮNG GV (Trợ lý kiểm/chỉnh Vắng phép - Vắng đột xuất) =================
+// Nguồn sự thật: daily_notes/{gvId}[dateKey]. classifyAbsentChip (report.js) đọc note này:
+// chứa "đột xuất/vdx" → VĐX, chứa "phép/vp" → VP, không có → VKP. Ghi đúng chuẩn text ở đây
+// thì Bảng Công / tiền phạt / PDF tự khớp — không đụng vào logic lương hay dữ liệu chấm công.
+
+function classifyAbsenceNote(noteText) {
+    const t = (noteText || '').toLowerCase().trim();
+    if (!t) return null;
+    if (t.includes('đột xuất') || t.includes('vdx') || t.includes('đx')) return 'VDX';
+    if (t.includes('phép') || t.includes('vp') || t.includes(' p ') || t.endsWith(' p') || t.startsWith('p ')) return 'VP';
+    return null; // note tự do, không phải đánh dấu vắng
+}
+
+function absenceStatusBadge(status, noteText) {
+    if (status === 'VDX') return `<span style="background:#FFEDD5;color:#9A3412;border-radius:99px;padding:2px 8px;font-size:0.68rem;font-weight:700;">Vắng đột xuất</span>`;
+    if (status === 'VP') return `<span style="background:#D1FAE5;color:#065F46;border-radius:99px;padding:2px 8px;font-size:0.68rem;font-weight:700;">Vắng phép</span>`;
+    if (noteText) return `<span title="${noteText.replace(/"/g, '&quot;')}" style="background:#F3F4F6;color:#6B7280;border-radius:99px;padding:2px 8px;font-size:0.68rem;font-weight:600;">Có ghi chú khác</span>`;
+    return `<span style="background:#F3F4F6;color:#9CA3AF;border-radius:99px;padding:2px 8px;font-size:0.68rem;font-weight:600;">Chưa đánh dấu</span>`;
+}
+
+window.openGVAbsenceModal = async function () {
+    const existing = document.getElementById('gv-absence-overlay');
+    if (existing) existing.remove();
+
+    const dayDate = new Date(currentWeekStart);
+    dayDate.setDate(dayDate.getDate() + selectedDayIndex);
+    const dateKey = getLocalDateKey(dayDate);
+    const compositeKey = getCompositeKey(dateKey);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'gv-absence-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+<div style="background:white;border-radius:16px;max-width:460px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+  <div style="background:linear-gradient(135deg,#F97316,#EA580C);padding:1.1rem 1.4rem;display:flex;justify-content:space-between;align-items:center;">
+    <h3 style="color:white;margin:0;font-size:1rem;font-weight:700;">Vắng GV — ${DAYS[selectedDayIndex]}, ${formatDateShort(dayDate)}</h3>
+    <button onclick="document.getElementById('gv-absence-overlay').remove()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:1.1rem;">✕</button>
+  </div>
+  <div id="gv-absence-list" style="padding:0.75rem;overflow-y:auto;flex:1;">
+    <div style="text-align:center;color:#9CA3AF;padding:1.5rem;">Đang tải danh sách GV của ngày...</div>
+  </div>
+  <div style="padding:0.6rem 1rem;border-top:1px solid #E5E7EB;font-size:0.7rem;color:#6B7280;line-height:1.5;">
+    Đánh dấu ghi vào <b>ghi chú ngày</b> của GV — Bảng Công sẽ tự phân loại
+    Vắng phép / Vắng đột xuất. Không đánh dấu = Vắng không phép (nếu GV vắng).
+  </div>
+</div>`;
+    document.body.appendChild(overlay);
+
+    // Gom GV được xếp trong ngày (GV chính + GV thay thế, mọi ca) — chỉ cơ sở đang xem
+    const dayData = await DBService.getSchedule(compositeKey) || {};
+    const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+    const seen = new Map(); // id -> { id, name, classes: [] }
+    sections.forEach(sec => {
+        (dayData[sec] || []).forEach(row => {
+            const all = [...getGVList(row, 'gv'), ...getGVList(row, 'gvThayTe')];
+            all.forEach(g => {
+                if (!g.id) return; // không có ID thì không ghi note được — bỏ qua
+                if (!seen.has(g.id)) seen.set(g.id, { id: g.id, name: g.name, classes: [] });
+                if (row.lop && !seen.get(g.id).classes.includes(row.lop)) seen.get(g.id).classes.push(row.lop);
+            });
+        });
+    });
+
+    const listEl = document.getElementById('gv-absence-list');
+    if (!listEl) return;
+    if (seen.size === 0) {
+        listEl.innerHTML = '<div style="text-align:center;color:#9CA3AF;padding:1.5rem;">Ngày này chưa xếp GV nào (cơ sở đang xem).</div>';
+        return;
+    }
+
+    // Đọc note hiện tại của từng GV rồi vẽ danh sách
+    const teachers = Array.from(seen.values());
+    const rows = await Promise.all(teachers.map(async t => {
+        let noteText = '';
+        try {
+            const notes = await DBService.getDailyNotes(t.id);
+            noteText = (notes && notes[dateKey]) || '';
+        } catch (e) { console.warn('Không đọc được ghi chú của', t.name, e); }
+        return { ...t, noteText, status: classifyAbsenceNote(noteText) };
+    }));
+
+    listEl.innerHTML = rows.map(t => renderGVAbsenceRow(t, dateKey)).join('');
+};
+
+function renderGVAbsenceRow(t, dateKey) {
+    const safeName = (t.name || '').replace(/"/g, '&quot;');
+    const cls = t.classes.length ? `<div style="font-size:0.68rem;color:#9CA3AF;">${t.classes.join(', ')}</div>` : '';
+    const btn = (label, type, active, bg, fg) =>
+        `<button onclick="setGVAbsence('${t.id}','${safeName}','${dateKey}','${type}')"
+            style="padding:4px 9px;border-radius:8px;border:1.5px solid ${active ? fg : '#E5E7EB'};cursor:pointer;font-size:0.7rem;font-weight:700;background:${active ? bg : 'white'};color:${active ? fg : '#6B7280'};white-space:nowrap;">${label}</button>`;
+    return `<div id="gv-abs-row-${t.id}" data-note="${(t.noteText || '').replace(/"/g, '&quot;')}" data-classes="${t.classes.join(', ').replace(/"/g, '&quot;')}"
+        style="display:flex;align-items:center;gap:0.5rem;padding:0.55rem 0.35rem;border-bottom:1px solid #F3F4F6;flex-wrap:wrap;">
+        <div style="flex:1;min-width:120px;">
+            <div style="font-size:0.85rem;font-weight:600;">${t.name} ${absenceStatusBadge(t.status, t.noteText)}</div>
+            ${cls}
+        </div>
+        <div style="display:flex;gap:0.35rem;flex-shrink:0;">
+            ${btn('Vắng phép', 'VP', t.status === 'VP', '#D1FAE5', '#065F46')}
+            ${btn('Vắng ĐX', 'VDX', t.status === 'VDX', '#FFEDD5', '#9A3412')}
+            ${btn('Xoá', 'CLEAR', false, '', '')}
+        </div>
+    </div>`;
+}
+
+window.setGVAbsence = async function (teacherId, teacherName, dateKey, type) {
+    const rowEl = document.getElementById(`gv-abs-row-${teacherId}`);
+    const currentNote = rowEl ? (rowEl.dataset.note || '') : '';
+    const canonical = type === 'VP' ? 'Vắng phép' : (type === 'VDX' ? 'Vắng đột xuất' : '');
+
+    // An toàn dữ liệu: note ngày có thể do admin/GV ghi nội dung khác — hỏi trước khi ghi đè/xoá.
+    const isPlainMark = !currentNote || classifyAbsenceNote(currentNote) !== null;
+    if (type === 'CLEAR') {
+        if (!currentNote) return; // không có gì để xoá
+        if (!await UIService.confirm(`Xoá ghi chú ngày ${dateKey} của ${teacherName}?\n(Hiện tại: "${currentNote}")`)) return;
+    } else if (!isPlainMark) {
+        if (!await UIService.confirm(`${teacherName} đã có ghi chú khác ngày ${dateKey}:\n"${currentNote}"\n\nThay bằng "${canonical}"?`)) return;
+    }
+
+    try {
+        // Clone để không sửa trực tiếp object trong cache; chỉ đụng đúng 1 ngày.
+        const notes = { ...(await DBService.getDailyNotes(teacherId) || {}) };
+        if (type === 'CLEAR') delete notes[dateKey];
+        else notes[dateKey] = canonical;
+        await DBService.saveDailyNotes(teacherId, notes);
+
+        // Cập nhật lại đúng dòng trong modal
+        if (rowEl) {
+            const noteText = type === 'CLEAR' ? '' : canonical;
+            const t = {
+                id: teacherId, name: teacherName,
+                classes: (rowEl.dataset.classes || '').split(', ').filter(Boolean),
+                noteText, status: classifyAbsenceNote(noteText)
+            };
+            rowEl.outerHTML = renderGVAbsenceRow(t, dateKey);
+        }
+    } catch (e) {
+        console.error('Lỗi lưu đánh dấu vắng:', e);
+        alert('Có lỗi khi lưu đánh dấu vắng: ' + (e.message || e));
+    }
 };

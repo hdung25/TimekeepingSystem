@@ -1,4 +1,4 @@
-const APP_VERSION = '20260717-schedule-fixes-v1';
+const APP_VERSION = '20260717-gv-absence-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
