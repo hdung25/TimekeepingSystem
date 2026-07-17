@@ -477,6 +477,10 @@ const DBService = {
                         templateData[key] = templateData[key].map(row => {
                             const newRow = { ...row, registeredTeachers: [] };
                             delete newRow.isClosed;
+                            // GV thay thế chỉ có hiệu lực đúng ngày được gán — không kế thừa
+                            // sang tuần sau (dữ liệu cũ tồn tại cả 2 cách viết The/Te).
+                            newRow.gvThayThe = ''; newRow.gvThayTheId = ''; newRow.gvThayTheList = [];
+                            newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
                             return newRow;
                         });
                     }
@@ -588,6 +592,9 @@ const DBService = {
                             templateData[key] = templateData[key].map(row => {
                                 const newRow = { ...row, registeredTeachers: [] };
                                 delete newRow.isClosed;
+                                // GV thay thế không kế thừa sang ngày mới (cả 2 cách viết The/Te)
+                                newRow.gvThayThe = ''; newRow.gvThayTheId = ''; newRow.gvThayTheList = [];
+                                newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
                                 return newRow;
                             });
                         }

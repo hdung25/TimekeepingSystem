@@ -273,8 +273,14 @@ async function renderTable() {
     const branchLabel = { cs1: 'Cơ Sở 1', cs2: 'Cơ Sở 2', cs3: 'Cơ Sở 3' }[currentBranch] || currentBranch.toUpperCase();
     document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)} — ${branchLabel}`;
 
-    // Loading State
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
+    // Giữ nguyên bảng cũ trong lúc tải (chỉ làm mờ) — nếu xoá bảng để hiện "Đang tải..."
+    // thì trang co ngắn lại, trình duyệt tuột cuộn lên đầu, admin đang xếp lịch bị mất chỗ.
+    const scrollYBefore = window.scrollY;
+    if (tbody.dataset.rendered === '1') {
+        tbody.style.opacity = '0.55';
+    } else {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
+    }
 
     // Load Data from Cloud (branch-prefixed)
     const dayData = await DBService.getSchedule(compositeKey) || {};
@@ -389,6 +395,9 @@ async function renderTable() {
     });
 
     tbody.innerHTML = html;
+    tbody.style.opacity = '';
+    tbody.dataset.rendered = '1';
+    window.scrollTo(0, scrollYBefore);
     syncDatePickerValue();
 }
 
@@ -454,6 +463,7 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
         }
 
         nameHtml = `<span style="${fStyle}">${f.name}${labelSuffix}</span>`;
+        if (f.pendingFixed) nameHtml += ` <span title="Chuẩn bị cố định từ tuần sau" style="background:#FFEDD5;color:#9A3412;border:1px solid #FDBA74;border-radius:99px;padding:1px 6px;font-size:0.62rem;font-weight:700;white-space:nowrap;">⏳ CĐ tuần sau</span>`;
         if (gvList.length > 1) nameHtml += ` <span style="background:#E5E7EB;color:#374151;border-radius:10px;padding:1px 5px;font-size:0.68rem;font-weight:700;">+${gvList.length - 1}</span>`;
         if (absent.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#EF4444;">Vắng: ${absent.length}</div>`;
     }
@@ -761,10 +771,17 @@ window.openGVPicker = function (compositeKey, caType, index, fieldType) {
         const rows = filteredTeachers.map(t => {
             const name = (t.name || t.username || '').replace(/"/g, '&quot;');
             const chk = currentIds.has(t.id) ? 'checked' : '';
+            // "Chuẩn bị cố định tuần sau": ghi chú theo yêu cầu khách — GV tuần này chưa
+            // cố định, tuần sau mới cố định. Chỉ là nhãn nhắc, không tự đổi lịch/lương.
+            const curEntry = currentList.find(g => (g.id || g.name) === t.id);
+            const cbcdOn = curEntry && curEntry.pendingFixed ? '1' : '0';
             return `<label class="gv-picker-item${chk ? ' selected' : ''}">
                 <input type="checkbox" value="${t.id}" data-name="${name}" ${chk}
                     onchange="this.closest('label').classList.toggle('selected',this.checked)">
-                <span>${name}</span></label>`;
+                <span style="flex:1;">${name}</span>
+                <span class="cbcd-toggle" data-active="${cbcdOn}" title="Đánh dấu: GV này CHUẨN BỊ CỐ ĐỊNH từ tuần sau"
+                    onclick="event.preventDefault();event.stopPropagation();toggleCBCDBadge(this)"
+                    style="cursor:pointer;font-size:0.62rem;font-weight:700;padding:3px 8px;border-radius:99px;white-space:nowrap;flex-shrink:0;${cbcdOn === '1' ? 'background:#F97316;color:white;' : 'background:#F3F4F6;color:#9CA3AF;'}">⏳ CĐ tuần sau</span></label>`;
         }).join('');
 
         const overlay = document.createElement('div');
@@ -791,6 +808,13 @@ window.openGVPicker = function (compositeKey, caType, index, fieldType) {
     });
 };
 
+window.toggleCBCDBadge = function (el) {
+    const on = el.dataset.active === '1';
+    el.dataset.active = on ? '0' : '1';
+    el.style.background = on ? '#F3F4F6' : '#F97316';
+    el.style.color = on ? '#9CA3AF' : 'white';
+};
+
 window.filterGVPicker = function (q) {
     document.querySelectorAll('#gv-picker-list .gv-picker-item').forEach(el => {
         el.style.display = el.querySelector('span').textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
@@ -799,7 +823,13 @@ window.filterGVPicker = function (q) {
 
 window.saveGVPickerResult = async function (compositeKey, caType, index, fieldType) {
     const checked = document.querySelectorAll('#gv-picker-list input[type=checkbox]:checked');
-    const newList = Array.from(checked).map(cb => ({ id: cb.value, name: cb.dataset.name }));
+    const newList = Array.from(checked).map(cb => {
+        const item = { id: cb.value, name: cb.dataset.name };
+        // Nhãn "chuẩn bị cố định tuần sau" (chỉ lưu khi bật để Firestore không nhận undefined)
+        const badge = cb.closest('label')?.querySelector('.cbcd-toggle');
+        if (badge && badge.dataset.active === '1') item.pendingFixed = true;
+        return item;
+    });
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
 
@@ -849,7 +879,10 @@ window.showGVPopup = function (triggerEl, encodedList) {
     const popup = document.createElement('div');
     popup.id = 'gv-popup';
     popup.style.cssText = 'position:fixed;background:white;border:1px solid #E5E7EB;border-radius:10px;padding:0.5rem 0.75rem;box-shadow:0 8px 24px rgba(0,0,0,0.15);z-index:9998;min-width:140px;';
-    popup.innerHTML = gvList.map(g => `<div style="padding:0.3rem 0;font-size:0.85rem;border-bottom:1px solid #F3F4F6;">${g.name}</div>`).join('');
+    popup.innerHTML = gvList.map(g => {
+        const cbcd = g.pendingFixed ? ` <span style="background:#FFEDD5;color:#9A3412;border-radius:99px;padding:1px 6px;font-size:0.62rem;font-weight:700;white-space:nowrap;">⏳ CĐ tuần sau</span>` : '';
+        return `<div style="padding:0.3rem 0;font-size:0.85rem;border-bottom:1px solid #F3F4F6;">${g.name}${cbcd}</div>`;
+    }).join('');
     const rect = triggerEl.getBoundingClientRect();
     const top = Math.min(rect.bottom + 4, window.innerHeight - 160);
     popup.style.top = top + 'px';
@@ -936,12 +969,16 @@ window.executeCopyWeek = async function () {
                 sections.forEach(sec => {
                     if (srcData[sec]) {
                         cleanData[sec] = srcData[sec].map(row => {
-                            const { registeredTeachers, gvThayTe, gvThayTeId, gvThayTeList, isClosed, ...rest } = row;
+                            // Xoá GV thay thế theo CẢ 2 cách viết (The/Te) — trước đây chỉ xoá
+                            // bản viết thiếu "h" nên gvThayThe/gvThayTheId (trường tính lương,
+                            // đánh vắng) vẫn bị sao chép sang tuần sau.
+                            const { registeredTeachers, isClosed,
+                                gvThayThe, gvThayTheId, gvThayTheList,
+                                gvThayTe, gvThayTeId, gvThayTeList, ...rest } = row;
                             return {
                                 ...rest,
-                                gvThayTe: '',
-                                gvThayTeId: '',
-                                gvThayTeList: []
+                                gvThayThe: '', gvThayTheId: '', gvThayTheList: [],
+                                gvThayTe: '', gvThayTeId: '', gvThayTeList: []
                             };
                         });
                     }
