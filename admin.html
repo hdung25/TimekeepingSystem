@@ -20,7 +20,7 @@
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260714-shift-oversight-v1'></script> <!-- Security Guard -->
-    <script src='js/db-service.js?v=20260717-gv-absence-v1'></script>
+    <script src='js/db-service.js?v=20260717-announcements-v1'></script>
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js'></script>
@@ -196,6 +196,20 @@
                     </div>
                     <div id="unregistered-alerts-body" style="font-size: 0.9rem;">
                         <p style="color: var(--text-muted); text-align: center; padding: 1rem;">Đang tải...</p>
+                    </div>
+                </div>
+
+                <!-- Broadcast Announcements (Thông báo nội bộ) -->
+                <div class="glass-panel" style="padding: 1.5rem; margin-top: 1.5rem; border-left: 4px solid #6366F1;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                        <h2 style="font-size: 1.25rem; font-weight: 600;">📣 Thông Báo Nội Bộ</h2>
+                        <button id="btn-compose-announcement" onclick="openAnnouncementComposer()"
+                            style="background: #6366F1; color: white; border: none; padding: 0.6rem 1.25rem; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px;">
+                            ✈️ Soạn thông báo mới
+                        </button>
+                    </div>
+                    <div id="sent-announcements-list" style="font-size: 0.9rem;">
+                        <p style="color: var(--text-muted); text-align: center; padding: 1rem;">Đang tải lịch sử...</p>
                     </div>
                 </div>
             </div> <!-- End Tab Dashboard -->
@@ -629,7 +643,7 @@
     <script src="js/ui-service.js"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/analytics.js"></script> <!-- Charts -->
-    <script src="js/main.js?v=20260714-shift-oversight-v1"></script>
+    <script src="js/main.js?v=20260717-announcements-v1"></script>
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>

@@ -1,4 +1,4 @@
-const APP_VERSION = '20260717-gv-absence-v1';
+const APP_VERSION = '20260717-announcements-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
@@ -742,6 +742,21 @@ function showNotificationPopup(notifications) {
     const items = notifications.map(n => {
         const actionLabel = actionLabels[n.action] || n.action;
         const timeStr = n.createdAt ? new Date(n.createdAt.seconds * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+
+        // Thông báo nội bộ (admin soạn gửi nhóm) — hiển thị theo màu + icon đã chọn
+        if (n.action === 'announcement') {
+            const colorHex = ({ blue: '#3B82F6', green: '#10B981', amber: '#F59E0B', red: '#EF4444', violet: '#8B5CF6' })[n.color] || '#3B82F6';
+            const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `
+            <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6;border-left:4px solid ${colorHex}">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;gap:8px">
+                    <span style="font-size:0.9rem;font-weight:700;color:${colorHex};display:inline-flex;align-items:center;gap:5px">${window.getIconHtml(n.icon || 'bell', { width: '15', height: '15', stroke: colorHex })} ${esc(n.title) || 'Thông báo'}</span>
+                    <span style="font-size:0.75rem;color:#9CA3AF;flex-shrink:0">${timeStr}</span>
+                </div>
+                <div style="font-size:0.85rem;color:#374151;white-space:pre-wrap">${esc(n.details)}</div>
+                <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Từ: ${esc(n.adminName) || 'Admin'}</div>
+            </div>`;
+        }
         return `
             <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
@@ -2669,3 +2684,244 @@ async function confirmPersonalSalaryReceipt() {
 window.loadStaffPersonalSalary = loadStaffPersonalSalary;
 window.changePersonalSalaryMonth = changePersonalSalaryMonth;
 window.confirmPersonalSalaryReceipt = confirmPersonalSalaryReceipt;
+
+// ================= BROADCAST ANNOUNCEMENTS (Thông Báo Nội Bộ — admin.html) =================
+// Gửi = ghi 1 doc admin_notifications/người nhận (action:'announcement') → chuông sẵn có
+// của nhân viên tự nhận. Không collection mới, không cần đổi Firestore rules.
+
+const ANN_COLORS = [
+    { key: 'blue', label: 'Xanh dương', hex: '#3B82F6' },
+    { key: 'green', label: 'Lục', hex: '#10B981' },
+    { key: 'amber', label: 'Vàng', hex: '#F59E0B' },
+    { key: 'red', label: 'Đỏ', hex: '#EF4444' },
+    { key: 'violet', label: 'Tím', hex: '#8B5CF6' }
+];
+const ANN_ICONS = ['bell', 'calendar', 'clipboard-list', 'shield', 'clock', 'message-circle'];
+const ANN_GROUPS = {
+    all: { label: 'Tất cả nhân sự', roles: null },
+    gv: { label: 'Giáo viên & Trợ giảng', roles: ['giao-vien', 'teacher', 'teaching_assistant', 'assistant'] },
+    tt: { label: 'Tiếp tân', roles: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'] }
+};
+
+function annEsc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function annUserRoles(u) {
+    return Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
+}
+
+// Người nhận hợp lệ: loại tài khoản admin/senior_assistant (họ không có chuông thông báo)
+function annFilterRecipients(users, groupKey) {
+    const g = ANN_GROUPS[groupKey] || ANN_GROUPS.all;
+    return (users || []).filter(u => {
+        if (!u.id) return false;
+        const roles = annUserRoles(u);
+        if (roles.includes('admin') || roles.includes('senior_assistant')) return false;
+        if (!g.roles) return true;
+        return roles.some(r => g.roles.includes(r));
+    });
+}
+
+window.openAnnouncementComposer = async function () {
+    const existing = document.getElementById('ann-composer-overlay');
+    if (existing) existing.remove();
+
+    if (!window._annUsers) {
+        try { window._annUsers = await DBService.getUsers(); }
+        catch (e) { alert('Không tải được danh sách nhân sự: ' + (e.message || e)); return; }
+    }
+
+    const colorChips = ANN_COLORS.map((c, i) => `
+        <label style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border:1.5px solid ${i === 0 ? c.hex : '#E5E7EB'};border-radius:99px;cursor:pointer;font-size:0.8rem;font-weight:600;" data-ann-color="${c.key}">
+            <input type="radio" name="ann-color" value="${c.key}" ${i === 0 ? 'checked' : ''} style="display:none;">
+            <span style="width:10px;height:10px;border-radius:50%;background:${c.hex};display:inline-block;"></span>${c.label}
+        </label>`).join('');
+
+    const iconBtns = ANN_ICONS.map((ic, i) => `
+        <label style="display:inline-flex;align-items:center;justify-content:center;width:46px;height:40px;border:1.5px solid ${i === 0 ? '#6366F1' : '#E5E7EB'};border-radius:10px;cursor:pointer;" data-ann-icon="${ic}">
+            <input type="radio" name="ann-icon" value="${ic}" ${i === 0 ? 'checked' : ''} style="display:none;">
+            ${window.getIconHtml(ic, { width: '18', height: '18', stroke: '#4B5563' })}
+        </label>`).join('');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ann-composer-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+<div style="background:white;border-radius:16px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="padding:1.1rem 1.4rem;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;">
+    <h3 style="margin:0;font-size:1.05rem;font-weight:700;">Soạn thảo thông báo mới</h3>
+    <button onclick="document.getElementById('ann-composer-overlay').remove()" style="background:#F3F4F6;border:none;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:1rem;">✕</button>
+  </div>
+  <div style="padding:1.25rem 1.4rem;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:1rem;">
+    <div>
+      <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:5px;">Tiêu đề thông báo *</label>
+      <input id="ann-title" type="text" maxlength="120" placeholder="VD: Cập nhật lịch trống tuần mới" style="width:100%;box-sizing:border-box;padding:0.65rem 0.85rem;border:1.5px solid #E5E7EB;border-radius:10px;font-size:0.9rem;outline:none;">
+    </div>
+    <div>
+      <label style="font-size:0.78rem;font-weight:700;color:#6B7280;letter-spacing:0.03em;display:block;margin-bottom:5px;">NỘI DUNG THÔNG BÁO *</label>
+      <textarea id="ann-message" rows="4" maxlength="1500" placeholder="Nhập nội dung nhắc nhở hoặc thông báo chi tiết..." style="width:100%;box-sizing:border-box;padding:0.65rem 0.85rem;border:1.5px solid #E5E7EB;border-radius:10px;font-size:0.9rem;outline:none;resize:vertical;font-family:inherit;"></textarea>
+    </div>
+    <div>
+      <label style="font-size:0.78rem;font-weight:700;color:#6B7280;letter-spacing:0.03em;display:block;margin-bottom:6px;">MÀU SẮC CHỦ ĐỀ HIỂN THỊ</label>
+      <div id="ann-color-row" style="display:flex;gap:6px;flex-wrap:wrap;">${colorChips}</div>
+    </div>
+    <div>
+      <label style="font-size:0.78rem;font-weight:700;color:#6B7280;letter-spacing:0.03em;display:block;margin-bottom:6px;">BIỂU TƯỢNG THÔNG BÁO</label>
+      <div id="ann-icon-row" style="display:flex;gap:6px;flex-wrap:wrap;">${iconBtns}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+      <div>
+        <label style="font-size:0.78rem;font-weight:700;color:#6B7280;letter-spacing:0.03em;display:block;margin-bottom:5px;">NHÓM ĐỐI TƯỢNG NHẬN *</label>
+        <select id="ann-group" onchange="annRefreshRecipientPicker()" style="width:100%;padding:0.6rem;border:1.5px solid #E5E7EB;border-radius:10px;font-size:0.88rem;">
+          <option value="gv">Giáo viên & Trợ giảng</option>
+          <option value="tt">Tiếp tân</option>
+          <option value="all">Tất cả nhân sự</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:0.78rem;font-weight:700;color:#6B7280;letter-spacing:0.03em;display:block;margin-bottom:5px;">PHẠM VI GỬI *</label>
+        <select id="ann-scope" onchange="annRefreshRecipientPicker()" style="width:100%;padding:0.6rem;border:1.5px solid #E5E7EB;border-radius:10px;font-size:0.88rem;">
+          <option value="group">Gửi cho toàn bộ nhóm</option>
+          <option value="custom">Chọn người cụ thể</option>
+        </select>
+      </div>
+    </div>
+    <div id="ann-recipient-box" style="display:none;">
+      <label style="font-size:0.78rem;font-weight:700;color:#6B7280;letter-spacing:0.03em;display:block;margin-bottom:5px;">CHỌN NGƯỜI NHẬN</label>
+      <div id="ann-recipient-list" style="max-height:170px;overflow-y:auto;border:1.5px solid #E5E7EB;border-radius:10px;padding:0.4rem 0.6rem;display:flex;flex-direction:column;gap:2px;"></div>
+    </div>
+    <div id="ann-recipient-count" style="font-size:0.8rem;color:#6B7280;"></div>
+  </div>
+  <div style="padding:0.9rem 1.4rem;border-top:1px solid #E5E7EB;display:flex;gap:0.6rem;justify-content:flex-end;">
+    <button onclick="document.getElementById('ann-composer-overlay').remove()" style="padding:0.6rem 1.2rem;background:#F3F4F6;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Hủy</button>
+    <button id="ann-send-btn" onclick="sendAnnouncementNow()" style="padding:0.6rem 1.4rem;background:#6366F1;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:6px;">✈️ Gửi thông báo</button>
+  </div>
+</div>`;
+    document.body.appendChild(overlay);
+
+    // Highlight lựa chọn màu/icon khi bấm
+    overlay.querySelectorAll('[data-ann-color]').forEach(el => el.addEventListener('click', () => {
+        overlay.querySelectorAll('[data-ann-color]').forEach(x => x.style.borderColor = '#E5E7EB');
+        el.style.borderColor = (ANN_COLORS.find(c => c.key === el.dataset.annColor) || {}).hex || '#6366F1';
+    }));
+    overlay.querySelectorAll('[data-ann-icon]').forEach(el => el.addEventListener('click', () => {
+        overlay.querySelectorAll('[data-ann-icon]').forEach(x => x.style.borderColor = '#E5E7EB');
+        el.style.borderColor = '#6366F1';
+    }));
+
+    annRefreshRecipientPicker();
+};
+
+window.annRefreshRecipientPicker = function () {
+    const groupKey = document.getElementById('ann-group') ? document.getElementById('ann-group').value : 'all';
+    const scope = document.getElementById('ann-scope') ? document.getElementById('ann-scope').value : 'group';
+    const box = document.getElementById('ann-recipient-box');
+    const listEl = document.getElementById('ann-recipient-list');
+    const countEl = document.getElementById('ann-recipient-count');
+    const candidates = annFilterRecipients(window._annUsers, groupKey);
+
+    if (scope === 'custom') {
+        box.style.display = 'block';
+        listEl.innerHTML = candidates.length === 0
+            ? '<div style="color:#9CA3AF;padding:0.5rem;">Nhóm này chưa có nhân sự.</div>'
+            : candidates.map(u => `
+                <label style="display:flex;align-items:center;gap:8px;padding:0.3rem 0.2rem;cursor:pointer;font-size:0.85rem;">
+                    <input type="checkbox" class="ann-recipient-cb" value="${u.id}" data-name="${annEsc(u.name || u.username || '')}" onchange="annUpdateCount()">
+                    <span>${annEsc(u.name || u.username || u.id)}</span>
+                </label>`).join('');
+    } else {
+        box.style.display = 'none';
+    }
+    countEl.dataset.groupTotal = candidates.length;
+    annUpdateCount();
+};
+
+window.annUpdateCount = function () {
+    const scope = document.getElementById('ann-scope') ? document.getElementById('ann-scope').value : 'group';
+    const countEl = document.getElementById('ann-recipient-count');
+    if (!countEl) return;
+    if (scope === 'group') {
+        countEl.innerText = 'Sẽ gửi đến ' + (countEl.dataset.groupTotal || 0) + ' người trong nhóm.';
+    } else {
+        const n = document.querySelectorAll('.ann-recipient-cb:checked').length;
+        countEl.innerText = 'Đã chọn ' + n + ' người nhận.';
+    }
+};
+
+window.sendAnnouncementNow = async function () {
+    const title = (document.getElementById('ann-title') ? document.getElementById('ann-title').value : '').trim();
+    const message = (document.getElementById('ann-message') ? document.getElementById('ann-message').value : '').trim();
+    const colorInp = document.querySelector('input[name=ann-color]:checked');
+    const iconInp = document.querySelector('input[name=ann-icon]:checked');
+    const color = colorInp ? colorInp.value : 'blue';
+    const icon = iconInp ? iconInp.value : 'bell';
+    const groupKey = document.getElementById('ann-group') ? document.getElementById('ann-group').value : 'all';
+    const scope = document.getElementById('ann-scope') ? document.getElementById('ann-scope').value : 'group';
+
+    if (!title) { alert('Vui lòng nhập tiêu đề thông báo!'); return; }
+    if (!message) { alert('Vui lòng nhập nội dung thông báo!'); return; }
+
+    let recipients;
+    if (scope === 'custom') {
+        recipients = Array.from(document.querySelectorAll('.ann-recipient-cb:checked'))
+            .map(cb => ({ id: cb.value, name: cb.dataset.name }));
+    } else {
+        recipients = annFilterRecipients(window._annUsers, groupKey).map(u => ({ id: u.id, name: u.name || u.username || '' }));
+    }
+    if (recipients.length === 0) { alert('Chưa có người nhận nào!'); return; }
+
+    const groupLabel = scope === 'custom' ? (recipients.length + ' người đã chọn') : ((ANN_GROUPS[groupKey] || {}).label || '');
+    if (!confirm('Gửi thông báo "' + title + '" đến ' + recipients.length + ' người (' + groupLabel + ')?')) return;
+
+    const btn = document.getElementById('ann-send-btn');
+    if (btn) { btn.disabled = true; btn.innerText = 'Đang gửi...'; }
+    try {
+        await DBService.sendAnnouncement(recipients, { title: title, message: message, color: color, icon: icon });
+        const ov = document.getElementById('ann-composer-overlay');
+        if (ov) ov.remove();
+        if (typeof UIService !== 'undefined' && UIService.toast) UIService.toast('Đã gửi thông báo đến ' + recipients.length + ' người!', 'success');
+        else alert('Đã gửi thông báo đến ' + recipients.length + ' người!');
+        loadSentAnnouncements();
+    } catch (e) {
+        console.error('[Announcement] Send error:', e);
+        alert('Lỗi gửi thông báo: ' + (e.message || e));
+        if (btn) { btn.disabled = false; btn.innerText = '✈️ Gửi thông báo'; }
+    }
+};
+
+async function loadSentAnnouncements() {
+    const listEl = document.getElementById('sent-announcements-list');
+    if (!listEl) return;
+    try {
+        const groups = await DBService.getRecentAnnouncements(8);
+        if (groups.length === 0) {
+            listEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem;">Chưa gửi thông báo nào.</p>';
+            return;
+        }
+        listEl.innerHTML = groups.map(g => {
+            const hex = (ANN_COLORS.find(c => c.key === g.color) || {}).hex || '#3B82F6';
+            const timeStr = g.createdAt && g.createdAt.seconds ? new Date(g.createdAt.seconds * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+            const allRead = g.readCount >= g.total;
+            return `
+            <div style="display:flex;align-items:center;gap:10px;padding:0.6rem 0.25rem;border-bottom:1px solid #F3F4F6;">
+                <span style="display:inline-flex;flex-shrink:0;color:${hex};">${window.getIconHtml(g.icon || 'bell', { width: '17', height: '17', stroke: hex })}</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${annEsc(g.title)}</div>
+                    <div style="font-size:0.75rem;color:#9CA3AF;">${timeStr} · ${annEsc(g.adminName)}</div>
+                </div>
+                <span style="flex-shrink:0;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:99px;background:${allRead ? '#D1FAE5' : '#F3F4F6'};color:${allRead ? '#065F46' : '#6B7280'};">Đã đọc ${g.readCount}/${g.total}</span>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        console.error('[Announcement] History error:', e);
+        listEl.innerHTML = '<p style="color:#EF4444;text-align:center;padding:1rem;">Lỗi tải lịch sử thông báo.</p>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (!document.getElementById('sent-announcements-list')) return;
+    if (window.waitAuth) { try { await window.waitAuth(); } catch (e) { } }
+    loadSentAnnouncements();
+});

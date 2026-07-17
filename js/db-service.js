@@ -1792,6 +1792,73 @@ const DBService = {
         }
     },
 
+    // ================= BROADCAST ANNOUNCEMENTS (Thông báo nội bộ) =================
+    // Tái dùng collection admin_notifications: mỗi người nhận 1 doc (action:'announcement')
+    // → chuông + popup + đánh dấu đã đọc CÓ SẴN của nhân viên tự hoạt động, không cần rules mới.
+
+    // recipients: [{id, name}], payload: {title, message, color, icon}
+    sendAnnouncement: async (recipients, payload) => {
+        const currentUser = firebase.auth().currentUser;
+        const adminName = currentUser ? (currentUser.displayName || currentUser.email || 'Admin') : 'Admin';
+        const batchId = `ann_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const todayKey = new Date().toISOString().split('T')[0];
+
+        // Firestore batch tối đa 500 op — chia khúc 400 cho an toàn
+        for (let i = 0; i < recipients.length; i += 400) {
+            const chunk = recipients.slice(i, i + 400);
+            const batch = db.batch();
+            chunk.forEach(r => {
+                const ref = db.collection('admin_notifications').doc();
+                batch.set(ref, {
+                    staffId: r.id,
+                    staffName: r.name || 'N/A',
+                    action: 'announcement',
+                    title: payload.title,
+                    details: payload.message,
+                    color: payload.color || 'blue',
+                    icon: payload.icon || 'bell',
+                    batchId: batchId,
+                    dateKey: todayKey,
+                    adminName: adminName,
+                    read: false,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            await batch.commit();
+        }
+        return { batchId, count: recipients.length };
+    },
+
+    // Lịch sử thông báo đã gửi — gom theo batchId, kèm số người đã đọc
+    getRecentAnnouncements: async (maxGroups = 8) => {
+        try {
+            // 1 WHERE duy nhất để không cần composite index
+            const snap = await db.collection('admin_notifications')
+                .where('action', '==', 'announcement')
+                .limit(400)
+                .get();
+            const groups = {};
+            snap.docs.forEach(doc => {
+                const d = doc.data();
+                const key = d.batchId || doc.id;
+                if (!groups[key]) {
+                    groups[key] = { batchId: key, title: d.title || '(không tiêu đề)', details: d.details || '', color: d.color || 'blue', icon: d.icon || 'bell', adminName: d.adminName || 'Admin', createdAt: d.createdAt, total: 0, readCount: 0 };
+                }
+                groups[key].total++;
+                if (d.read === true) groups[key].readCount++;
+                const t = d.createdAt && d.createdAt.seconds ? d.createdAt.seconds : 0;
+                const cur = groups[key].createdAt && groups[key].createdAt.seconds ? groups[key].createdAt.seconds : 0;
+                if (t > cur) groups[key].createdAt = d.createdAt;
+            });
+            return Object.values(groups)
+                .sort((a, b) => ((b.createdAt?.seconds) || 0) - ((a.createdAt?.seconds) || 0))
+                .slice(0, maxGroups);
+        } catch (e) {
+            console.error('[Announcement] Error fetching history:', e);
+            return [];
+        }
+    },
+
     // ================= AUTO-CLOSE STALE SESSIONS =================
     // Close open sessions from past days that were never checked out
     autoCloseStaleSession: async (userId, dateKey, sessionId, correctEndISO = null) => {
