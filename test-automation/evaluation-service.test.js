@@ -111,14 +111,30 @@ function observation(lateMinutes) {
 }
 
 {
+    // QUY TẮC GĐ (18/07): giờ admin đã sửa là nguồn sự thật — tính đủ phút theo đúng
+    // khoảng admin đặt (không cắt theo lịch) và KHÔNG gắn cờ trễ (T..p) theo lịch cũ.
     const chips = chipsFor({
         id: 'admin-edited',
         checkIn: '2026-07-14T00:33:00.000Z',
         checkOut: '2026-07-14T02:00:00.000Z',
         isAdminEdited: true
     });
+    assert.equal(chips[0].class, 'chip-green');
+    assert.ok(!/\(T\d+p\)/.test(chips[0].text), 'admin-edited không gắn cờ trễ hệ thống');
+    assert.equal(chips[0].paidMinutes, 87); // 07:33–09:00 đủ theo giờ admin
+}
+
+{
+    // Admin sửa giờ NHƯNG tiếp tân có ghi nhận trễ tay → ghi nhận tay vẫn hiệu lực
+    const chips = chipsFor({
+        id: 'admin-edited-manual-late',
+        checkIn: '2026-07-14T00:33:00.000Z',
+        checkOut: '2026-07-14T02:00:00.000Z',
+        isAdminEdited: true
+    }, [observation(5)]);
     assert.equal(chips[0].class, 'chip-orange');
-    assert.match(chips[0].text, /\(T3p\)/);
+    assert.match(chips[0].text, /\(T5p\)/);
+    assert.equal(chips[0].paidMinutes, 82); // 87p − 5p ghi nhận tay
 }
 
 console.log('evaluation-service late-minute tests passed');

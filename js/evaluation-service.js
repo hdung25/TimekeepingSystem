@@ -693,6 +693,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     let isLate = effectiveLateMinutes > 0;
                     if (matchedSession.isAdminEdited) {
+                        // QUY TẮC GĐ: giờ admin đã sửa là NGUỒN SỰ THẬT — tính đủ phút theo đúng
+                        // khoảng admin đặt, KHÔNG cắt theo khung giờ lịch. (Trước đây admin sửa
+                        // 18:00–20:00 vẫn bị cắt còn 1h30 theo lịch 18:00–19:30; sửa 17:50–19:30
+                        // bị cắt còn 40p vì lịch lớp 17:00–18:30 — giống nhánh tiếp tân đã làm đúng.)
+                        minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
                         label = `${actualStartStr}–${actualEndStr}${_labelBranchSuffix}`;
                     } else {
                         const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
@@ -716,12 +721,28 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                     }
 
-                    // Khoảng chấm công đã tự khấu trừ số phút trễ hệ thống.
-                    // Chỉ khấu trừ phần lệnh tiếp tân vượt quá số phút đó.
-                    if (manualLateMinutes > systemLateMinutes) {
-                        minutes = Math.max(0, minutes - (manualLateMinutes - systemLateMinutes));
+                    if (matchedSession.isAdminEdited) {
+                        // Admin đã xác nhận giờ → không gắn cờ trễ (T..p) theo lịch cũ nữa;
+                        // chỉ giữ ghi nhận trễ TAY của tiếp tân (nếu có) và ghi chú quan sát.
+                        isLate = manualLateMinutes > 0;
+                        if (manualLateMinutes > 0) {
+                            label += ` (T${manualLateMinutes}p)`;
+                            tooltip += ` | Tiếp tân ghi nhận ${manualLateMinutes}p`;
+                            minutes = Math.max(0, minutes - manualLateMinutes);
+                        } else if (systemLateMinutes > 0) {
+                            tooltip += ` | Vào sau giờ lịch ${systemLateMinutes}p (admin đã xác nhận giờ)`;
+                        }
+                        if (observationSummary.notes.length > 0) {
+                            tooltip += ` | Ghi chú: ${observationSummary.notes.join(' / ')}`;
+                        }
+                    } else {
+                        // Khoảng chấm công đã tự khấu trừ số phút trễ hệ thống.
+                        // Chỉ khấu trừ phần lệnh tiếp tân vượt quá số phút đó.
+                        if (manualLateMinutes > systemLateMinutes) {
+                            minutes = Math.max(0, minutes - (manualLateMinutes - systemLateMinutes));
+                        }
+                        appendLateDetails();
                     }
-                    appendLateDetails();
 
                     // Hiển thị thông tin nếu ra muộn (chỉ để tham khảo, không tính lương)
                     if (actualEnd > schedEnd) {

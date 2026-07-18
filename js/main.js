@@ -1,4 +1,4 @@
-const APP_VERSION = '20260718-no-double-absent-v1';
+const APP_VERSION = '20260718-admin-truth-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
