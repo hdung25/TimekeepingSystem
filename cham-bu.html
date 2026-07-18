@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chấm Công Bù - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+    <script src='js/firebase-config.js'></script>
+    <script src='js/auth-guard.js?v=20260714-shift-oversight-v1'></script>
+    <script src='js/db-service.js?v=20260718-makeup-v1'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root { --p:#059669; --p-dark:#047857; --p-soft:#ECFDF5; --ink:#1F2937; --muted:#6B7280; --line:#E5E7EB; --bg:#F0FDF4; }
+        * { box-sizing:border-box; margin:0; }
+        body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+        .topbar { background:white; border-bottom:1px solid var(--line); padding:0.85rem 1rem; display:flex; align-items:center; gap:0.75rem; position:sticky; top:0; z-index:50; }
+        .topbar a { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; font-size:0.85rem; font-weight:600; padding:6px 10px; border-radius:8px; }
+        .topbar a:hover { background:var(--p-soft); color:var(--p); }
+        .topbar h1 { font-size:1.05rem; font-weight:700; color:var(--p-dark); }
+        .wrap { max-width:760px; margin:0 auto; padding:1rem; display:flex; flex-direction:column; gap:1rem; }
+        .mode-switch { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .mode-btn { padding:0.85rem 0.5rem; border-radius:14px; border:1.5px solid var(--line); background:white; cursor:pointer; text-align:center; transition:all 0.15s; }
+        .mode-btn .mt { font-weight:700; font-size:0.92rem; }
+        .mode-btn .ms { font-size:0.72rem; color:var(--muted); margin-top:2px; }
+        .mode-btn.active { border-color:var(--p); background:var(--p-soft); box-shadow:0 2px 10px rgba(5,150,105,0.15); }
+        .mode-btn.active .mt { color:var(--p-dark); }
+        .card { background:white; border:1px solid var(--line); border-radius:16px; padding:1.1rem; box-shadow:0 2px 10px rgba(0,0,0,0.04); }
+        .card h2 { font-size:0.95rem; font-weight:700; margin-bottom:0.75rem; display:flex; align-items:center; gap:6px; color:var(--p-dark); }
+        label.f { font-size:0.75rem; font-weight:700; color:var(--muted); letter-spacing:0.03em; display:block; margin:0.6rem 0 4px; }
+        input, select, textarea { width:100%; padding:0.6rem 0.75rem; border:1.5px solid var(--line); border-radius:10px; font-size:0.9rem; font-family:inherit; outline:none; background:white; }
+        input:focus, select:focus, textarea:focus { border-color:var(--p); }
+        .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; }
+        .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0.7rem 1.2rem; border-radius:12px; border:none; cursor:pointer; font-weight:700; font-size:0.9rem; font-family:inherit; }
+        .btn-p { background:var(--p); color:white; width:100%; margin-top:0.9rem; }
+        .btn-p:hover { background:var(--p-dark); }
+        .btn-p:disabled { opacity:0.55; cursor:not-allowed; }
+        .shift-item { display:flex; align-items:center; gap:10px; padding:0.65rem 0.5rem; border-bottom:1px solid #F3F4F6; cursor:pointer; border-radius:8px; }
+        .shift-item:hover { background:#F9FAFB; }
+        .shift-item input { width:17px; height:17px; accent-color:var(--p); flex-shrink:0; }
+        .shift-item .si-t { font-weight:600; font-size:0.88rem; }
+        .shift-item .si-s { font-size:0.72rem; color:var(--muted); }
+        .tag { display:inline-block; font-size:0.66rem; font-weight:700; padding:2px 8px; border-radius:99px; }
+        .tag-gv { background:#E0E7FF; color:#3730A3; }
+        .tag-tt { background:#DBEAFE; color:#1E40AF; }
+        .tag-done { background:#F3F4F6; color:#9CA3AF; }
+        .st-pending { background:#FEF3C7; color:#92400E; }
+        .st-approved { background:#D1FAE5; color:#065F46; }
+        .st-rejected { background:#FEE2E2; color:#991B1B; }
+        .req-item { padding:0.7rem 0.4rem; border-bottom:1px solid #F3F4F6; display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+        .empty { text-align:center; color:var(--muted); padding:1.25rem; font-size:0.85rem; }
+        .hint { font-size:0.72rem; color:var(--muted); line-height:1.5; margin-top:0.5rem; }
+        .chk { display:flex; align-items:center; gap:8px; font-size:0.85rem; margin-top:0.6rem; cursor:pointer; }
+        .chk input { width:16px; height:16px; accent-color:var(--p); }
+        @media (min-width:800px) { .wrap { padding:1.5rem; } .card { padding:1.4rem; } }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="nhan-vien.html"><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Quay lại</a>
+        <h1>Chấm Công Bù</h1>
+    </div>
+    <div class="wrap">
+        <div class="mode-switch">
+            <button class="mode-btn active" id="mode-sched" onclick="switchMode('sched')">
+                <div class="mt">Ca Có Lịch</div>
+                <div class="ms">Đã xếp lịch nhưng quên chấm công</div>
+            </button>
+            <button class="mode-btn" id="mode-extra" onclick="switchMode('extra')">
+                <div class="mt">Ca Ngoài Lịch</div>
+                <div class="ms">Chưa được xếp lịch</div>
+            </button>
+        </div>
+
+        <div class="card" id="panel-sched">
+            <h2><i data-lucide="calendar-check" style="width:17px;height:17px;"></i> Chọn ngày và ca quên chấm</h2>
+            <div class="grid2">
+                <div><label class="f">NGÀY</label><input type="date" id="sched-date"></div>
+                <div><label class="f">&nbsp;</label><button class="btn btn-p" style="margin-top:0;" onclick="loadDayShifts()">Tải ca của ngày</button></div>
+            </div>
+            <div id="shift-list" style="margin-top:0.75rem;"><div class="empty">Chọn ngày rồi bấm "Tải ca của ngày".</div></div>
+            <label class="f">LÝ DO / TƯỜNG TRÌNH</label>
+            <textarea id="sched-reason" rows="2" placeholder="VD: Quên mang điện thoại nên không chấm công được..."></textarea>
+            <button class="btn btn-p" id="sched-submit" onclick="submitScheduled()">Gửi yêu cầu chấm bù</button>
+            <div class="hint">Giờ vào/ra sẽ tính theo đúng giờ ca trên lịch. Admin duyệt xong thì công tự hiện trên Bảng Công.</div>
+        </div>
+
+        <div class="card" id="panel-extra" style="display:none;">
+            <h2><i data-lucide="clock-plus" style="width:17px;height:17px;"></i> Khai ca ngoài lịch</h2>
+            <div class="grid2">
+                <div><label class="f">NGÀY</label><input type="date" id="ex-date"></div>
+                <div><label class="f">VAI TRÒ</label><select id="ex-role"></select></div>
+            </div>
+            <div class="grid2">
+                <div><label class="f">TRẠNG THÁI</label>
+                    <select id="ex-status" onchange="document.getElementById('ex-times').style.display=this.value==='absent'?'none':'grid'">
+                        <option value="worked">Đi làm</option>
+                        <option value="absent">Vắng (ghi nhận vắng)</option>
+                    </select></div>
+                <div><label class="f">TĂNG CA (PHÚT)</label><input type="number" id="ex-ot" min="0" step="5" placeholder="0"></div>
+            </div>
+            <div class="grid2" id="ex-times">
+                <div><label class="f">GIỜ VÀO</label><input type="time" id="ex-in"></div>
+                <div><label class="f">GIỜ RA</label><input type="time" id="ex-out"></div>
+            </div>
+            <label class="chk"><input type="checkbox" id="ex-b10"> Xin Sớm 10 phút (thưởng 10p)</label>
+            <label class="f">LÝ DO / TƯỜNG TRÌNH</label>
+            <textarea id="ex-reason" rows="2" placeholder="VD: Được nhờ hỗ trợ lớp đột xuất, chưa có trên lịch..."></textarea>
+            <button class="btn btn-p" onclick="submitExtra()">Gửi yêu cầu</button>
+            <div class="hint">Chip sẽ hiển thị dạng "Ca Thêm" sau khi admin duyệt. Nếu bạn có 2 vai trò, chọn đúng vai trò để tính lương đúng.</div>
+        </div>
+
+        <div class="card">
+            <h2><i data-lucide="history" style="width:17px;height:17px;"></i> Yêu cầu của tôi</h2>
+            <div id="my-requests"><div class="empty">Đang tải...</div></div>
+        </div>
+    </div>
+
+<script>
+const SECTIONS = ['morning1','morning2','afternoon1','afternoon2','evening1','evening2'];
+const BRANCHES = ['cs1','cs2','cs3'];
+const RECEP_SHIFTS = { morning:{label:'SÁNG',start:'07:00',end:'11:30'}, afternoon:{label:'CHIỀU',start:'14:00',end:'18:00'}, evening:{label:'TỐI',start:'18:00',end:'21:30'} };
+const DAY_KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
+let myShifts = [];
+
+function uid(){ return localStorage.getItem('currentUserId'); }
+function uname(){ return localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A'; }
+function myRoles(){
+    try { const p = JSON.parse(localStorage.getItem('currentRole')); return Array.isArray(p)?p:[p]; }
+    catch(e){ const r = localStorage.getItem('currentRole'); return r?[r]:[]; }
+}
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function isoAt(dateKey, hm){ return new Date(dateKey + 'T' + hm + ':00').toISOString(); }
+
+window.switchMode = function(m){
+    document.getElementById('mode-sched').classList.toggle('active', m==='sched');
+    document.getElementById('mode-extra').classList.toggle('active', m==='extra');
+    document.getElementById('panel-sched').style.display = m==='sched' ? 'block' : 'none';
+    document.getElementById('panel-extra').style.display = m==='extra' ? 'block' : 'none';
+};
+
+function fillRoles(){
+    const roles = myRoles();
+    const hasTT = roles.some(r=>['tiep-tan','receptionist','receptionist_assistant','receptionist_lead','receptionist_staff'].includes(r));
+    const hasGV = roles.some(r=>['giao-vien','teacher','teaching_assistant','assistant','senior_assistant','staff'].includes(r));
+    const sel = document.getElementById('ex-role');
+    let opts = '';
+    if (hasGV) opts += '<option value="gv">Giáo viên / Trợ giảng</option>';
+    if (hasTT) opts += '<option value="tiep-tan">Tiếp tân</option>';
+    if (!opts) opts = '<option value="gv">Nhân viên</option>';
+    sel.innerHTML = opts;
+}
+
+window.loadDayShifts = async function(){
+    const dateKey = document.getElementById('sched-date').value;
+    const listEl = document.getElementById('shift-list');
+    if (!dateKey) { alert('Vui lòng chọn ngày.'); return; }
+    const today = new Date(); today.setHours(23,59,59,999);
+    if (new Date(dateKey) > today) { alert('Chỉ chấm bù cho ngày đã qua hoặc hôm nay.'); return; }
+    listEl.innerHTML = '<div class="empty">Đang tải lịch...</div>';
+    myShifts = [];
+    try {
+        const me = uid();
+        // 1) Session đã có trong ngày (để loại ca đã chấm)
+        const attDoc = await db.collection('attendance_logs').doc(dateKey + '_' + me).get();
+        const sessions = (attDoc.exists && attDoc.data().sessions) || [];
+        const covered = (startHM, endHM) => sessions.some(s => {
+            if (!s.checkIn || s.isAbsent) return false;
+            const ci = new Date(s.checkIn), co = s.checkOut ? new Date(s.checkOut) : ci;
+            return ci < new Date(dateKey+'T'+endHM+':00') && co > new Date(dateKey+'T'+startHM+':00');
+        });
+        // 2) Lớp dạy được phân trong ngày (3 cơ sở)
+        for (const br of BRANCHES) {
+            const sched = await DBService.getSchedule(br + '__' + dateKey) || {};
+            SECTIONS.forEach(sec => (sched[sec]||[]).forEach(row => {
+                if (!row.start || !row.end) return;
+                const assigned = (row.gvId===me) || (row.gvThayTheId===me) || (row.registeredTeachers||[]).some(t=>t.id===me);
+                if (!assigned) return;
+                myShifts.push({ kind:'gv', branch:br, start:row.start, end:row.end, label:(row.lop||'Ca dạy'), done:covered(row.start,row.end) });
+            }));
+        }
+        // 3) Ca tiếp tân trong tuần chứa ngày đó
+        const dObj = new Date(dateKey+'T12:00:00');
+        const dow = dObj.getDay(); const diff = dObj.getDate()-dow+(dow===0?-6:1);
+        const mon = new Date(dObj); mon.setDate(diff);
+        const monKey = mon.getFullYear()+'-'+String(mon.getMonth()+1).padStart(2,'0')+'-'+String(mon.getDate()).padStart(2,'0');
+        const dayKey = DAY_KEYS[dow===0?6:dow-1];
+        for (const br of BRANCHES) {
+            const week = await DBService.getReceptionistSchedule(br+'__'+monKey) || {};
+            Object.keys(RECEP_SHIFTS).forEach(sk => {
+                const entry = ((week[sk]||{})[dayKey]||[]).find(x=>x.id===me);
+                if (!entry) return;
+                const cfg = (week._shiftConfig&&week._shiftConfig[sk])||{};
+                const start = entry.customStart||cfg.start||RECEP_SHIFTS[sk].start;
+                const end = entry.customEnd||cfg.end||RECEP_SHIFTS[sk].end;
+                myShifts.push({ kind:'tt', branch:br, start, end, label:'Tiếp Tân ('+RECEP_SHIFTS[sk].label+')', done:covered(start,end) });
+            });
+        }
+        myShifts.sort((a,b)=>a.start.localeCompare(b.start));
+        if (myShifts.length===0) { listEl.innerHTML = '<div class="empty">Ngày này bạn không được xếp ca nào. Dùng tab "Ca Ngoài Lịch" nếu bạn có đi làm.</div>'; return; }
+        listEl.innerHTML = myShifts.map((s,i)=>`
+            <label class="shift-item" style="${s.done?'opacity:0.55;':''}">
+                <input type="checkbox" data-i="${i}" ${s.done?'disabled':''}>
+                <div style="flex:1;">
+                    <div class="si-t">${s.start}–${s.end} ${s.branch.toUpperCase()} (${esc(s.label)})</div>
+                    <div class="si-s">${s.done?'Đã có chấm công — không cần bù':'Chưa có chấm công'}</div>
+                </div>
+                <span class="tag ${s.done?'tag-done':(s.kind==='tt'?'tag-tt':'tag-gv')}">${s.done?'Đã chấm':(s.kind==='tt'?'Tiếp tân':'Dạy học')}</span>
+            </label>`).join('');
+    } catch(e){ console.error(e); listEl.innerHTML = '<div class="empty">Lỗi tải lịch: '+esc(e.message||e)+'</div>'; }
+};
+
+window.submitScheduled = async function(){
+    const dateKey = document.getElementById('sched-date').value;
+    const reason = document.getElementById('sched-reason').value.trim();
+    const picked = Array.from(document.querySelectorAll('#shift-list input:checked')).map(cb=>myShifts[+cb.dataset.i]);
+    if (!dateKey || picked.length===0) { alert('Vui lòng chọn ngày và ít nhất 1 ca.'); return; }
+    if (!reason) { alert('Vui lòng ghi lý do tường trình.'); return; }
+    if (!confirm('Gửi yêu cầu chấm bù ' + picked.length + ' ca ngày ' + dateKey + '?')) return;
+    const btn = document.getElementById('sched-submit'); btn.disabled = true;
+    try {
+        const reqs = picked.map(s => ({
+            staffId: uid(), staffName: uname(), type: 'scheduled', dateKey, branch: s.branch,
+            shiftLabel: s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')',
+            session: {
+                checkIn: isoAt(dateKey, s.start), checkOut: isoAt(dateKey, s.end),
+                role: s.kind==='tt' ? 'tiep-tan' : null,
+                roleName: s.kind==='tt' ? 'Tiếp Tân' : null
+            },
+            reason
+        }));
+        await DBService.createMakeupRequests(reqs);
+        alert('Đã gửi ' + reqs.length + ' yêu cầu. Chờ admin duyệt.');
+        document.getElementById('sched-reason').value = '';
+        loadDayShifts(); loadMyRequests();
+    } catch(e){ alert('Lỗi gửi: '+(e.message||e)); }
+    btn.disabled = false;
+};
+
+window.submitExtra = async function(){
+    const dateKey = document.getElementById('ex-date').value;
+    const status = document.getElementById('ex-status').value;
+    const roleV = document.getElementById('ex-role').value;
+    const tIn = document.getElementById('ex-in').value, tOut = document.getElementById('ex-out').value;
+    const ot = parseInt(document.getElementById('ex-ot').value)||0;
+    const b10 = document.getElementById('ex-b10').checked;
+    const reason = document.getElementById('ex-reason').value.trim();
+    if (!dateKey) { alert('Vui lòng chọn ngày.'); return; }
+    if (status==='worked' && (!tIn || !tOut)) { alert('Vui lòng nhập giờ vào và giờ ra.'); return; }
+    if (status==='worked' && tOut <= tIn) { alert('Giờ ra phải sau giờ vào.'); return; }
+    if (!reason) { alert('Vui lòng ghi lý do tường trình.'); return; }
+    const isTT = roleV==='tiep-tan';
+    const req = {
+        staffId: uid(), staffName: uname(), type: 'unscheduled', dateKey, branch: '',
+        shiftLabel: (status==='absent'?'Vắng':(tIn+'–'+tOut)) + (isTT?' (Tiếp Tân)':' (GV/TG)'),
+        session: {
+            checkIn: status==='worked' ? isoAt(dateKey,tIn) : isoAt(dateKey,'12:00'),
+            checkOut: status==='worked' ? isoAt(dateKey,tOut) : null,
+            role: isTT ? 'tiep-tan' : null,
+            roleName: isTT ? 'Tiếp Tân' : 'Giáo viên / Trợ giảng',
+            isAbsent: status==='absent',
+            bonus10: b10, overtimeMinutes: ot
+        },
+        reason
+    };
+    if (!confirm('Gửi yêu cầu ca ngoài lịch ngày ' + dateKey + '?')) return;
+    try {
+        await DBService.createMakeupRequests([req]);
+        alert('Đã gửi yêu cầu. Chờ admin duyệt.');
+        document.getElementById('ex-reason').value=''; document.getElementById('ex-ot').value='';
+        document.getElementById('ex-b10').checked=false;
+        loadMyRequests();
+    } catch(e){ alert('Lỗi gửi: '+(e.message||e)); }
+};
+
+async function loadMyRequests(){
+    const el = document.getElementById('my-requests');
+    try {
+        const list = await DBService.getMyMakeupRequests(uid());
+        if (list.length===0) { el.innerHTML = '<div class="empty">Chưa có yêu cầu nào.</div>'; return; }
+        const stMap = { pending:['Chờ duyệt','st-pending'], approved:['Đã duyệt','st-approved'], rejected:['Từ chối','st-rejected'] };
+        el.innerHTML = list.slice(0,30).map(r => {
+            const st = stMap[r.status]||stMap.pending;
+            return `<div class="req-item">
+                <div>
+                    <div style="font-weight:600;font-size:0.86rem;">${esc(r.dateKey)} — ${esc(r.shiftLabel||'')}</div>
+                    <div style="font-size:0.72rem;color:var(--muted);">${r.type==='scheduled'?'Ca có lịch':'Ca ngoài lịch'} · ${esc(r.reason||'')}</div>
+                    ${r.status==='rejected'&&r.rejectReason?`<div style="font-size:0.72rem;color:#991B1B;">Lý do từ chối: ${esc(r.rejectReason)}</div>`:''}
+                </div>
+                <span class="tag ${st[1]}">${st[0]}</span>
+            </div>`;
+        }).join('');
+    } catch(e){ el.innerHTML = '<div class="empty">Lỗi tải danh sách.</div>'; }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.waitAuth) { try { await window.waitAuth(); } catch(e){} }
+    const t = new Date();
+    document.getElementById('sched-date').value = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+    document.getElementById('ex-date').value = document.getElementById('sched-date').value;
+    fillRoles(); loadMyRequests();
+    if (window.lucide) lucide.createIcons();
+});
+</script>
+</body>
+</html>

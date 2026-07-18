@@ -1792,6 +1792,82 @@ const DBService = {
         }
     },
 
+    // ================= MAKEUP REQUESTS (Tường trình — chấm công bù) =================
+    // Nhân viên gửi yêu cầu chấm bù (ca có lịch quên chấm / ca ngoài lịch). Admin duyệt
+    // → materialize session qua DBService.addSession (transaction có sẵn, an toàn dữ liệu).
+
+    createMakeupRequests: async (requests) => {
+        const batchId = `mk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const batch = db.batch();
+        requests.forEach(r => {
+            const ref = db.collection('makeup_requests').doc();
+            batch.set(ref, { ...r, batchId, status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        });
+        await batch.commit();
+        return { batchId, count: requests.length };
+    },
+
+    getMyMakeupRequests: async (staffId) => {
+        try {
+            const snap = await db.collection('makeup_requests').where('staffId', '==', staffId).limit(100).get();
+            const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            list.sort((a, b) => ((b.createdAt && b.createdAt.seconds) || 0) - ((a.createdAt && a.createdAt.seconds) || 0));
+            return list;
+        } catch (e) { console.error('[Makeup] get mine:', e); return []; }
+    },
+
+    getMakeupRequestsByStatus: async (status) => {
+        try {
+            const snap = await db.collection('makeup_requests').where('status', '==', status).limit(200).get();
+            const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            list.sort((a, b) => ((b.createdAt && b.createdAt.seconds) || 0) - ((a.createdAt && a.createdAt.seconds) || 0));
+            return list;
+        } catch (e) { console.error('[Makeup] get by status:', e); return []; }
+    },
+
+    approveMakeupRequest: async (req, adminName) => {
+        const s = req.session || {};
+        const sessionData = {
+            checkIn: s.checkIn || null,
+            checkOut: s.checkOut || null,
+            role: s.role || null,
+            roleName: s.roleName || null,
+            isAdminEdited: true, // admin duyệt = admin xác nhận giờ (quy tắc admin-là-chuẩn)
+            makeupRequestId: req.id,
+            // 'makeup' (có lịch) → session thường, khớp lịch như chấm công thật;
+            // 'admin_add' (ngoài lịch) → hiển thị "Ca Thêm" như admin thêm tay.
+            type: req.type === 'unscheduled' ? 'admin_add' : 'makeup'
+        };
+        if (s.isAbsent) sessionData.isAbsent = true;
+        if (s.bonus10) sessionData.bonus10 = true;
+        const sid = await DBService.addSession(req.staffId, req.dateKey, sessionData);
+
+        if (s.overtimeMinutes > 0) {
+            const h = Math.floor(s.overtimeMinutes / 60), m = s.overtimeMinutes % 60;
+            await db.collection('overtime_requests').add({
+                staffId: req.staffId, staffName: req.staffName || 'N/A', dateKey: req.dateKey,
+                sessionId: String(sid),
+                duration: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+                minutes: s.overtimeMinutes, status: 'approved',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                approvedBy: adminName || 'Admin', approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        await db.collection('makeup_requests').doc(req.id).update({
+            status: 'approved', reviewedBy: adminName || 'Admin',
+            reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            materializedSessionId: String(sid)
+        });
+        return sid;
+    },
+
+    rejectMakeupRequest: async (reqId, adminName, reason) => {
+        await db.collection('makeup_requests').doc(reqId).update({
+            status: 'rejected', reviewedBy: adminName || 'Admin',
+            reviewedAt: firebase.firestore.FieldValue.serverTimestamp(), rejectReason: reason || ''
+        });
+    },
+
     // ================= BROADCAST ANNOUNCEMENTS (Thông báo nội bộ) =================
     // Tái dùng collection admin_notifications: mỗi người nhận 1 doc (action:'announcement')
     // → chuông + popup + đánh dấu đã đọc CÓ SẴN của nhân viên tự hoạt động, không cần rules mới.

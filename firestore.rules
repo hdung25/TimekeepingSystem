@@ -256,6 +256,15 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
+    // 18. Makeup Requests (Tường trình — chấm công bù)
+    // Nhân viên tạo yêu cầu chấm bù; admin duyệt/từ chối (update) và có thể xóa.
+    match /makeup_requests/{reqId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
     // Default Block
     match /{document=**} {
       allow read, write: if false;

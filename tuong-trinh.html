@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tường Trình - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+    <script src='js/firebase-config.js'></script>
+    <script src='js/auth-guard.js?v=20260714-shift-oversight-v1'></script>
+    <script src='js/db-service.js?v=20260718-makeup-v1'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root { --p:#059669; --p-dark:#047857; --p-soft:#ECFDF5; --ink:#1F2937; --muted:#6B7280; --line:#E5E7EB; --bg:#F0FDF4; }
+        * { box-sizing:border-box; margin:0; }
+        body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+        .topbar { background:white; border-bottom:1px solid var(--line); padding:0.85rem 1rem; display:flex; align-items:center; gap:0.75rem; position:sticky; top:0; z-index:50; }
+        .topbar a { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; font-size:0.85rem; font-weight:600; padding:6px 10px; border-radius:8px; }
+        .topbar a:hover { background:var(--p-soft); color:var(--p); }
+        .topbar h1 { font-size:1.05rem; font-weight:700; color:var(--p-dark); }
+        .wrap { max-width:860px; margin:0 auto; padding:1rem; }
+        .tabs { display:flex; gap:8px; margin-bottom:1rem; flex-wrap:wrap; }
+        .tab { padding:0.55rem 1.1rem; border-radius:99px; border:1.5px solid var(--line); background:white; cursor:pointer; font-weight:700; font-size:0.85rem; color:var(--muted); font-family:inherit; }
+        .tab.active { background:var(--p); border-color:var(--p); color:white; }
+        .batch { background:white; border:1px solid var(--line); border-radius:16px; margin-bottom:1rem; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,0.04); }
+        .batch-head { padding:0.8rem 1rem; background:#F9FAFB; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+        .batch-head .bh-t { font-weight:700; font-size:0.9rem; }
+        .batch-head .bh-s { font-size:0.74rem; color:var(--muted); }
+        .req { padding:0.8rem 1rem; border-bottom:1px solid #F3F4F6; display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap; }
+        .req .r-t { font-weight:600; font-size:0.88rem; }
+        .req .r-s { font-size:0.74rem; color:var(--muted); margin-top:2px; }
+        .tag { display:inline-block; font-size:0.66rem; font-weight:700; padding:2px 8px; border-radius:99px; }
+        .tag-sched { background:#E0E7FF; color:#3730A3; }
+        .tag-extra { background:#FFEDD5; color:#9A3412; }
+        .tag-absent { background:#F3F4F6; color:#6B7280; }
+        .st-approved { background:#D1FAE5; color:#065F46; }
+        .st-rejected { background:#FEE2E2; color:#991B1B; }
+        .btn { display:inline-flex; align-items:center; gap:5px; padding:0.5rem 0.9rem; border-radius:10px; border:none; cursor:pointer; font-weight:700; font-size:0.8rem; font-family:inherit; }
+        .btn-ok { background:var(--p); color:white; }
+        .btn-ok:hover { background:var(--p-dark); }
+        .btn-no { background:#FEE2E2; color:#991B1B; }
+        .btn-all { background:#EEF2FF; color:#4338CA; border:1.5px solid #C7D2FE; }
+        .btn:disabled { opacity:0.5; cursor:not-allowed; }
+        .empty { text-align:center; color:var(--muted); padding:2rem; background:white; border-radius:16px; border:1px solid var(--line); }
+        @media (max-width:600px) { .req { align-items:flex-start; } }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="admin.html"><i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Quản Lý</a>
+        <h1>Tường Trình Chấm Công Bù</h1>
+    </div>
+    <div class="wrap">
+        <div class="tabs">
+            <button class="tab active" id="tab-pending" onclick="loadTab('pending')">Chờ duyệt</button>
+            <button class="tab" id="tab-approved" onclick="loadTab('approved')">Đã duyệt</button>
+            <button class="tab" id="tab-rejected" onclick="loadTab('rejected')">Từ chối</button>
+        </div>
+        <div id="list"><div class="empty">Đang tải...</div></div>
+    </div>
+
+<script>
+let curTab = 'pending';
+let curReqs = [];
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function adminName(){ return localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin'; }
+function fmtTime(iso){ return iso ? new Date(iso).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}) : '?'; }
+
+function guardAdmin(){
+    let roles = [];
+    try { const p = JSON.parse(localStorage.getItem('currentRole')); roles = Array.isArray(p)?p:[p]; }
+    catch(e){ roles = [localStorage.getItem('currentRole')]; }
+    if (!roles.some(r=>['admin','senior_assistant'].includes(r))) {
+        alert('Trang này chỉ dành cho quản lý.');
+        window.location.href = 'nhan-vien.html';
+        return false;
+    }
+    return true;
+}
+
+window.loadTab = async function(tab){
+    curTab = tab;
+    ['pending','approved','rejected'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('active',t===tab));
+    const el = document.getElementById('list');
+    el.innerHTML = '<div class="empty">Đang tải...</div>';
+    curReqs = await DBService.getMakeupRequestsByStatus(tab);
+    if (curReqs.length===0) { el.innerHTML = '<div class="empty">Không có yêu cầu nào.</div>'; return; }
+
+    // Gom theo batch (1 lần gửi của nhân viên)
+    const groups = {};
+    curReqs.forEach(r => {
+        const k = r.batchId || r.id;
+        if (!groups[k]) groups[k] = [];
+        groups[k].push(r);
+    });
+
+    el.innerHTML = Object.entries(groups).map(([bk, reqs]) => {
+        const first = reqs[0];
+        const t = first.createdAt && first.createdAt.seconds ? new Date(first.createdAt.seconds*1000).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'}) : '';
+        const bulkBtn = (tab==='pending' && reqs.length>1)
+            ? `<button class="btn btn-all" onclick="approveBatch('${bk}')">Duyệt cả nhóm (${reqs.length})</button>` : '';
+        const rows = reqs.map(r => {
+            const s = r.session||{};
+            const timeStr = s.isAbsent ? 'Ghi nhận VẮNG' : (fmtTime(s.checkIn)+'–'+fmtTime(s.checkOut));
+            const extras = [ s.bonus10?'Sớm 10p':null, s.overtimeMinutes>0?('Tăng ca '+s.overtimeMinutes+'p'):null ].filter(Boolean).join(' · ');
+            let right = '';
+            if (tab==='pending') {
+                right = `<div style="display:flex;gap:6px;">
+                    <button class="btn btn-ok" onclick="approveOne('${r.id}')">Duyệt</button>
+                    <button class="btn btn-no" onclick="rejectOne('${r.id}')">Từ chối</button></div>`;
+            } else if (tab==='approved') {
+                right = `<span class="tag st-approved">Đã duyệt · ${esc(r.reviewedBy||'')}</span>`;
+            } else {
+                right = `<span class="tag st-rejected" title="${esc(r.rejectReason||'')}">Từ chối</span>`;
+            }
+            return `<div class="req">
+                <div style="flex:1;min-width:200px;">
+                    <div class="r-t">${esc(r.dateKey)} · ${esc(r.shiftLabel||timeStr)}
+                        <span class="tag ${r.type==='scheduled'?'tag-sched':'tag-extra'}">${r.type==='scheduled'?'Có lịch':'Ngoài lịch'}</span>
+                        ${s.isAbsent?'<span class="tag tag-absent">Vắng</span>':''}</div>
+                    <div class="r-s">${timeStr}${extras?' · '+extras:''} — Lý do: ${esc(r.reason||'(không ghi)')}</div>
+                </div>${right}</div>`;
+        }).join('');
+        return `<div class="batch">
+            <div class="batch-head">
+                <div><div class="bh-t">${esc(first.staffName||first.staffId)}</div>
+                <div class="bh-s">Gửi lúc ${t} · ${reqs.length} yêu cầu</div></div>${bulkBtn}
+            </div>${rows}</div>`;
+    }).join('');
+};
+
+window.approveOne = async function(id){
+    const r = curReqs.find(x=>x.id===id); if (!r) return;
+    if (!confirm('Duyệt yêu cầu của '+(r.staffName||'')+' ngày '+r.dateKey+'?\nCông sẽ được ghi vào Bảng Công.')) return;
+    try { await DBService.approveMakeupRequest(r, adminName()); loadTab(curTab); }
+    catch(e){ alert('Lỗi duyệt: '+(e.message||e)); }
+};
+
+window.rejectOne = async function(id){
+    const reason = prompt('Lý do từ chối (nhân viên sẽ thấy):');
+    if (reason===null) return;
+    try { await DBService.rejectMakeupRequest(id, adminName(), reason); loadTab(curTab); }
+    catch(e){ alert('Lỗi: '+(e.message||e)); }
+};
+
+window.approveBatch = async function(batchId){
+    const reqs = curReqs.filter(r=>(r.batchId||r.id)===batchId);
+    if (!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?')) return;
+    for (const r of reqs) {
+        try { await DBService.approveMakeupRequest(r, adminName()); }
+        catch(e){ alert('Lỗi ở yêu cầu '+r.dateKey+': '+(e.message||e)); break; }
+    }
+    loadTab(curTab);
+};
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.waitAuth) { try { await window.waitAuth(); } catch(e){} }
+    if (!guardAdmin()) return;
+    loadTab('pending');
+    if (window.lucide) lucide.createIcons();
+});
+</script>
+</body>
+</html>
