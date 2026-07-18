@@ -162,6 +162,36 @@ function mergeAdjacentShifts(shifts) {
 // Trễ quá ngưỡng này so với giờ bắt đầu một ca con (trong ca gộp) → ca con đó tính VẮNG.
 const LATE_ABSENT_THRESHOLD_MS = 50 * 60 * 1000;
 
+// Quy tắc GĐ: cùng một khung giờ chỉ có thể dạy ở MỘT lớp. Nếu GV có session chấm công
+// thực (đi làm) phủ trùng khung giờ lớp này ≥10 phút — tức đang dạy/hỗ trợ lớp khác —
+// thì lớp này KHÔNG được tính vắng (VD: chị Nhàn bị mượn sang dạy Dự thính, lớp TV4
+// cố định có GV thay thế → không đánh VĐX/Vắng cho chị ở lớp TV4 nữa).
+function hasOverlappingWorkSession(attendanceSessions, dateStr, startStr, endStr) {
+    if (!startStr || !endStr) return false;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const [sH, sM] = String(startStr).split(':').map(Number);
+    const [eH, eM] = String(endStr).split(':').map(Number);
+    const clsStart = new Date(y, m - 1, d, sH, sM, 0, 0);
+    const clsEnd = new Date(y, m - 1, d, eH, eM, 0, 0);
+
+    return (attendanceSessions || []).some(s => {
+        if (!s || s.isAbsent) return false;
+        const ci = safeDate(s.checkIn || s.start);
+        if (!ci) return false;
+        let co = safeDate(s.checkOut);
+        // Quên check-out (auto-close 23:59): không rõ làm tới đâu → không dùng để miễn vắng
+        if (typeof s.checkOut === 'string' && s.checkOut.includes('T23:59')) co = ci;
+        if (!co) {
+            // Chưa ra ca: hôm nay thì coi như đang làm tới hiện tại; ngày cũ thì không rõ
+            const todayStr = typeof getLocalDateKey === 'function'
+                ? getLocalDateKey(new Date()) : new Date().toISOString().split('T')[0];
+            co = dateStr === todayStr ? new Date() : ci;
+        }
+        const overlapMs = Math.min(co.getTime(), clsEnd.getTime()) - Math.max(ci.getTime(), clsStart.getTime());
+        return overlapMs >= 10 * 60 * 1000; // ≥10 phút để loại session bấm nhầm
+    });
+}
+
 // Gộp các ca con CHỒNG giờ (double-book cùng khoảng) thành 1 khoảng union; giữ RIÊNG các ca con
 // chỉ KỀ nhau (VD 14:00-18:00 + 18:00-21:10). Dùng cho auto-tách ca để không tạo "vắng ảo".
 // Trả về [{ _startDate, _endDate, _origStarts: [start-string...] }].
@@ -460,6 +490,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             // GV gốc bị thay → tạo chip VĐX riêng (không tính giờ/lương) rồi return
             if (isOriginalVDX) {
+                // Cùng giờ đó GV có chấm công đi làm (bị mượn dạy lớp khác) → KHÔNG tính vắng
+                if (hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) return;
                 const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
                 const branchLabel = cls._branch ? cls._branch.toUpperCase() : '';
                 chips.push({
@@ -928,6 +960,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else {
                     // Nếu đã có session khớp ở branch khác cùng giờ → bỏ qua, không sinh chip Vắng
                     if (_matchedTimeSlots.has(`${cls.start}_${cls.end}`)) return;
+                    // Cùng giờ đó GV có chấm công đi làm (dạy/hỗ trợ lớp khác) → không tính vắng
+                    if (hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) return;
                     chips.push({
                         text: label + ' (V)',
                         class: 'chip-gray',
