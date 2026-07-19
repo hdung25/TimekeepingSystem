@@ -3147,6 +3147,8 @@ const DBService = {
                 userId,
                 userName,
                 status,
+                // Admin chỉnh tay -> luôn được coi là hợp lệ, kể cả khi ngoài khung giờ điểm danh
+                adminOverride: true,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 

@@ -270,7 +270,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260719-meetings-v3'></script>
+    <script src='js/db-service.js?v=20260719-meetings-v4'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -677,7 +677,7 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260719-meetings-v3"></script>
+    <script src="js/main.js?v=20260719-meetings-v4"></script>
     <script src="js/auth-helper.js"></script>
     
     <script>
@@ -1008,7 +1008,9 @@
                         const logs = monthlyAttendanceMap[meeting.id] || [];
                         const userLog = logs.find(l => l.userId === userId);
 
-                        if (userLog && userLog.status && userLog.status !== 'Chưa điểm danh') {
+                        // Chỉ dùng bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh),
+                        // tránh lấy nhầm bản ghi "điểm danh sẵn" tạo trước ngày họp
+                        if (isValidCheckIn(userLog, meeting)) {
                             return userLog.status; // Đã điểm danh — ưu tiên dùng trạng thái thực tế
                         }
 
@@ -1636,6 +1638,19 @@
             return new Date() >= new Date(y, mo - 1, d, h, mi, 0);
         }
 
+        // Một bản ghi điểm danh CHỈ hợp lệ nếu được tạo sau khi khung giờ điểm danh mở.
+        // Điều này vô hiệu hoá vĩnh viễn các bản ghi "điểm danh sẵn" tạo trước ngày họp
+        // (dữ liệu cũ từ cơ chế tự động đánh dấu "Có" khi tạo lịch).
+        function isValidCheckIn(log, m) {
+            if (!log || !log.status) return false;
+            if (log.status === 'Chưa điểm danh') return false;
+            if (log.adminOverride) return true;   // admin chỉnh tay -> luôn hợp lệ
+            if (!log.checkInTime) return true;    // không có mốc giờ -> coi như hợp lệ
+            const [y, mo, d] = m.date.split('-').map(Number);
+            const [h, mi] = (m.checkInStart || '00:00').split(':').map(Number);
+            return new Date(log.checkInTime) >= new Date(y, mo - 1, d, h, mi, 0);
+        }
+
         // Trạng thái cuộc họp theo thời gian thực
         function getMeetingTimeStatus(meeting) {
             const now = new Date();
@@ -1701,10 +1716,8 @@
                 meetings.forEach(m => {
                     const status = getMeetingTimeStatus(m);
                     const logs = attendanceByMeeting[m.id] || [];
-                    // Chưa mở điểm danh → chưa ai điểm danh được
-                    const presentCount = meetingHasStarted(m)
-                        ? logs.filter(l => l.status === 'Có' || l.status === 'Trễ').length
-                        : 0;
+                    // Chỉ đếm bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh)
+                    const presentCount = logs.filter(l => isValidCheckIn(l, m) && (l.status === 'Có' || l.status === 'Trễ')).length;
                     const required = requiredCountForMeeting(m);
                     const pct = required > 0 ? Math.round((presentCount / required) * 100) : 0;
 
@@ -1843,18 +1856,17 @@
 
                     totalRequiredAttendees += requiredCount;
 
-                    // Chỉ tính điểm danh khi cuộc họp đã mở (bỏ qua bản ghi cũ của họp chưa diễn ra)
-                    if (meetingHasStarted(m)) {
-                        logs.forEach(log => {
-                            if (log.status === 'Có') totalPresent++;
-                            else if (log.status === 'Trễ') {
-                                totalPresent++;
-                                totalLate++;
-                            } else if (log.status === 'Vắng không phép' || log.status === 'Vắng phép' || log.status === 'Vắng đột xuất') {
-                                totalAbsent++;
-                            }
-                        });
-                    }
+                    // Chỉ tính các bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh)
+                    logs.forEach(log => {
+                        if (!isValidCheckIn(log, m)) return;
+                        if (log.status === 'Có') totalPresent++;
+                        else if (log.status === 'Trễ') {
+                            totalPresent++;
+                            totalLate++;
+                        } else if (log.status === 'Vắng không phép' || log.status === 'Vắng phép' || log.status === 'Vắng đột xuất') {
+                            totalAbsent++;
+                        }
+                    });
 
                     const now = new Date();
                     const [_y, _m, _d] = m.date.split('-').map(Number);
@@ -1862,7 +1874,7 @@
                     const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
 
                     if (now > mEnd) {
-                        const checkedInUserIds = new Set(logs.map(l => l.userId));
+                        const checkedInUserIds = new Set(logs.filter(l => isValidCheckIn(l, m)).map(l => l.userId));
                         const missingCount = requiredCount - checkedInUserIds.size;
                         if (missingCount > 0) {
                             totalAbsent += missingCount;
@@ -1893,9 +1905,7 @@
                     card.onclick = () => selectMeetingForStats(m.id);
 
                     const logs = activeAttendanceMap[m.id] || [];
-                    const presentCount = meetingHasStarted(m)
-                        ? logs.filter(l => l.status === 'Có' || l.status === 'Trễ').length
-                        : 0;
+                    const presentCount = logs.filter(l => isValidCheckIn(l, m) && (l.status === 'Có' || l.status === 'Trễ')).length;
 
                     let displayTitle = m.title || 'Họp định kỳ';
                     let typeBadgeHtml = '';
@@ -2004,8 +2014,6 @@
                     return;
                 }
 
-                const started = meetingHasStarted(meeting);
-
                 requiredUsers.forEach((user, idx) => {
                     const userId = user.id;
                     const msnvDisplay = user.msnvStr || (idx + 1);
@@ -2019,11 +2027,9 @@
                     const [eH, eM] = meeting.endTime.split(':').map(Number);
                     const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
 
-                    if (!started) {
-                        // Cuộc họp chưa mở điểm danh → không ai có thể đã điểm danh
-                        status = 'Chưa điểm danh';
-                        ciTimeStr = '---';
-                    } else if (userLog) {
+                    // Chỉ chấp nhận bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh).
+                    // Bản ghi "điểm danh sẵn" trước giờ họp bị bỏ qua → hiện "Chưa điểm danh".
+                    if (userLog && isValidCheckIn(userLog, meeting)) {
                         status = userLog.status;
                         ciTimeStr = userLog.checkInTime ? new Date(userLog.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '---';
                     } else {
@@ -2160,13 +2166,11 @@
 
                     requiredCount++;
 
-                    // Cuộc họp chưa mở điểm danh → chưa tính vào số liệu
-                    if (!meetingHasStarted(m)) return;
-
                     const logs = activeAttendanceMap[m.id] || [];
                     const userLog = logs.find(l => l.userId === userId);
 
-                    if (userLog) {
+                    // Chỉ tính bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh)
+                    if (userLog && isValidCheckIn(userLog, m)) {
                         if (userLog.status === 'Có') presentCount++;
                         else if (userLog.status === 'Trễ') {
                             presentCount++;
@@ -2224,8 +2228,6 @@
                     return false;
                 });
 
-                const detailStarted = meetingHasStarted(m);
-
                 requiredUsers.forEach(user => {
                     const userId = user.id;
                     const userLog = logsMap[userId];
@@ -2238,10 +2240,7 @@
                     const [eH, eM] = m.endTime.split(':').map(Number);
                     const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
 
-                    if (!detailStarted) {
-                        status = 'Chưa diễn ra';
-                        ciTimeStr = '---';
-                    } else if (userLog) {
+                    if (userLog && isValidCheckIn(userLog, m)) {
                         status = userLog.status;
                         ciTimeStr = userLog.checkInTime ? new Date(userLog.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '---';
                     } else {

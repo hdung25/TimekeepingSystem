@@ -193,7 +193,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260719-meetings-v3'></script>
+    <script src='js/db-service.js?v=20260719-meetings-v4'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -269,7 +269,7 @@
     </div>
 
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260719-meetings-v3"></script>
+    <script src="js/main.js?v=20260719-meetings-v4"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
@@ -309,6 +309,16 @@
             const [y, mo, d] = dateStr.split('-').map(Number);
             const [h, mi] = (timeStr || '00:00').split(':').map(Number);
             return new Date(y, mo - 1, d, h, mi, 0);
+        }
+
+        // Một bản ghi điểm danh CHỈ hợp lệ nếu được tạo sau khi khung giờ điểm danh mở.
+        // Vô hiệu hoá các bản ghi "điểm danh sẵn" tạo trước ngày họp (dữ liệu cũ).
+        function mmIsValidCheckIn(log, m) {
+            if (!log || !log.status) return false;
+            if (log.status === 'Chưa điểm danh') return false;
+            if (log.adminOverride) return true;   // admin chỉnh tay -> luôn hợp lệ
+            if (!log.checkInTime) return true;    // không có mốc giờ -> coi như hợp lệ
+            return new Date(log.checkInTime) >= mmMk(m.date, m.checkInStart);
         }
 
         function mmIsInvited(meeting) {
@@ -396,12 +406,11 @@
             upcomingGrid.innerHTML = '';
             pastGrid.innerHTML = '';
 
-            // Stats — chỉ tính khi cuộc họp đã mở điểm danh (bỏ qua bản ghi cũ của họp chưa diễn ra)
+            // Stats — chỉ tính bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh)
             let present = 0, late = 0, absentOrPending = 0;
             meetings.forEach(m => {
-                const ciStart = mmMk(m.date, m.checkInStart);
-                if (now < ciStart) return; // chưa mở → chưa tính
-                const log = statusMap[m.id];
+                const raw = statusMap[m.id];
+                const log = mmIsValidCheckIn(raw, m) ? raw : null;
                 const end = mmMk(m.date, m.endTime);
                 if (log && (log.status === 'Có')) present++;
                 else if (log && log.status === 'Trễ') { present++; late++; }
@@ -478,7 +487,8 @@
             const end = mmMk(m.date, m.endTime);
 
             const card = document.createElement('div');
-            const alreadyDone = !!log;
+            // Chỉ coi là đã điểm danh khi bản ghi hợp lệ (tạo sau khi mở điểm danh)
+            const alreadyDone = mmIsValidCheckIn(log, m);
             card.className = 'hero-card' + (alreadyDone ? ' done' : '');
             if (!alreadyDone) card.style.animation = 'pulse-live 2.5s infinite';
 
@@ -527,12 +537,10 @@
 
             const now = new Date();
             const end = mmMk(m.date, m.endTime);
+            const validLog = mmIsValidCheckIn(log, m) ? log : null;
             let statusHtml;
-            if (kind === 'upcoming') {
-                // Cuộc họp chưa mở điểm danh → luôn "Chưa điểm danh" (bỏ qua bản ghi cũ nếu có)
-                statusHtml = mmStatusPill('Chưa điểm danh');
-            } else if (log) {
-                statusHtml = mmStatusPill(log.status);
+            if (validLog) {
+                statusHtml = mmStatusPill(validLog.status);
             } else if (kind === 'past' && now > end) {
                 statusHtml = mmStatusPill('Vắng không phép');
             } else {
