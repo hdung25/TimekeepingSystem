@@ -193,7 +193,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js'></script>
+    <script src='js/db-service.js?v=20260719-meetings-v3'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -269,7 +269,7 @@
     </div>
 
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260719-meetings-v2"></script>
+    <script src="js/main.js?v=20260719-meetings-v3"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
@@ -279,6 +279,21 @@
         let mmCountdownTimer = null;
 
         const MONTHS_VN = ["Tháng 01","Tháng 02","Tháng 03","Tháng 04","Tháng 05","Tháng 06","Tháng 07","Tháng 08","Tháng 09","Tháng 10","Tháng 11","Tháng 12"];
+
+        // Bộ icon SVG (thay cho emoji) — kế thừa màu chữ qua currentColor
+        function svgIcon(paths, size) {
+            size = size || 14;
+            return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; flex-shrink:0;">${paths}</svg>`;
+        }
+        const ICON = {
+            cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+            clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+            timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 1"/><line x1="9" y1="2" x2="15" y2="2"/>',
+            users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+            globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+            pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+            hourglass: '<path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4A2 2 0 0 0 7 17.8V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4A2 2 0 0 0 17 6.2V2"/>',
+        };
 
         function mmUpdateMonthLabel() {
             document.getElementById('mymeet-month').innerText = `${MONTHS_VN[mmCurrentDate.getMonth()]}, ${mmCurrentDate.getFullYear()}`;
@@ -327,8 +342,8 @@
                 const title = meeting.title || '';
                 t = title.startsWith('[Online]') ? 'online' : (title.startsWith('[Trực tiếp]') ? 'direct' : '');
             }
-            if (t === 'online') return '<span class="meet-pill" style="background:#DBEAFE;color:#1D4ED8;">🌐 Online</span>';
-            if (t === 'direct') return '<span class="meet-pill" style="background:#D1FAE5;color:#047857;">📍 Trực tiếp</span>';
+            if (t === 'online') return `<span class="meet-pill" style="background:#DBEAFE;color:#1D4ED8;">${svgIcon(ICON.globe)} Online</span>`;
+            if (t === 'direct') return `<span class="meet-pill" style="background:#D1FAE5;color:#047857;">${svgIcon(ICON.pin)} Trực tiếp</span>`;
             return '';
         }
 
@@ -381,9 +396,11 @@
             upcomingGrid.innerHTML = '';
             pastGrid.innerHTML = '';
 
-            // Stats
+            // Stats — chỉ tính khi cuộc họp đã mở điểm danh (bỏ qua bản ghi cũ của họp chưa diễn ra)
             let present = 0, late = 0, absentOrPending = 0;
             meetings.forEach(m => {
+                const ciStart = mmMk(m.date, m.checkInStart);
+                if (now < ciStart) return; // chưa mở → chưa tính
                 const log = statusMap[m.id];
                 const end = mmMk(m.date, m.endTime);
                 if (log && (log.status === 'Có')) present++;
@@ -425,7 +442,7 @@
             if (actionable.length > 0) {
                 actionable.forEach(m => todayGrid.appendChild(mmHeroCard(m, statusMap[m.id])));
             } else {
-                todayGrid.innerHTML = `<div class="empty-state">Hiện không có cuộc họp nào cần điểm danh. 🎉</div>`;
+                todayGrid.innerHTML = `<div class="empty-state">Hiện không có cuộc họp nào cần điểm danh.</div>`;
             }
 
             // Upcoming
@@ -489,15 +506,15 @@
                         <div style="font-size:0.72rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; opacity:0.85;">Họp định kỳ hôm nay</div>
                         <div style="font-size:1.25rem; font-weight:800; margin-top:4px; line-height:1.3;">${mmCleanTitle(m)}</div>
                     </div>
-                    ${!alreadyDone ? `<span class="countdown-badge" data-countdown="${m.id}" data-close="${ciClose.getTime()}" data-end="${end.getTime()}">⏳ --</span>` : ''}
+                    ${!alreadyDone ? `<span class="countdown-badge" data-countdown="${m.id}" data-close="${ciClose.getTime()}" data-end="${end.getTime()}">${svgIcon(ICON.hourglass)} --</span>` : ''}
                 </div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap; position:relative; z-index:1;">
-                    ${mmTypeBadge(m).replace('meet-pill','meet-pill').replace('background:#DBEAFE;color:#1D4ED8;','background:rgba(255,255,255,0.2);color:white;').replace('background:#D1FAE5;color:#047857;','background:rgba(255,255,255,0.2);color:white;')}
-                    <span class="meet-pill" style="background:rgba(255,255,255,0.2);color:white;">👥 ${mmDeptLabel(m)}</span>
+                    ${mmTypeBadge(m).replace('background:#DBEAFE;color:#1D4ED8;','background:rgba(255,255,255,0.2);color:white;').replace('background:#D1FAE5;color:#047857;','background:rgba(255,255,255,0.2);color:white;')}
+                    <span class="meet-pill" style="background:rgba(255,255,255,0.2);color:white;">${svgIcon(ICON.users)} ${mmDeptLabel(m)}</span>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; gap:1.25rem; font-size:0.85rem; opacity:0.95; position:relative; z-index:1;">
-                    <span>🕒 Họp: <strong>${m.startTime} - ${m.endTime}</strong></span>
-                    <span>⏱️ Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span>
+                    <span style="display:inline-flex; align-items:center; gap:5px;">${svgIcon(ICON.clock)} Họp: <strong>${m.startTime} - ${m.endTime}</strong></span>
+                    <span style="display:inline-flex; align-items:center; gap:5px;">${svgIcon(ICON.timer)} Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span>
                 </div>
                 <div style="position:relative; z-index:1;">${actionHtml}</div>
             `;
@@ -511,7 +528,10 @@
             const now = new Date();
             const end = mmMk(m.date, m.endTime);
             let statusHtml;
-            if (log) {
+            if (kind === 'upcoming') {
+                // Cuộc họp chưa mở điểm danh → luôn "Chưa điểm danh" (bỏ qua bản ghi cũ nếu có)
+                statusHtml = mmStatusPill('Chưa điểm danh');
+            } else if (log) {
                 statusHtml = mmStatusPill(log.status);
             } else if (kind === 'past' && now > end) {
                 statusHtml = mmStatusPill('Vắng không phép');
@@ -526,11 +546,11 @@
                 </div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
                     ${mmTypeBadge(m)}
-                    <span class="meet-pill" style="background:#EEF2FF;color:#4338CA;">👥 ${mmDeptLabel(m)}</span>
+                    <span class="meet-pill" style="background:#EEF2FF;color:#4338CA;">${svgIcon(ICON.users)} ${mmDeptLabel(m)}</span>
                 </div>
-                <div class="meet-row">📅 <span>${mmFormatDate(m.date)}</span></div>
-                <div class="meet-row">🕒 <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
-                <div class="meet-row">⏱️ <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
+                <div class="meet-row">${svgIcon(ICON.cal)} <span>${mmFormatDate(m.date)}</span></div>
+                <div class="meet-row">${svgIcon(ICON.clock)} <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
+                <div class="meet-row">${svgIcon(ICON.timer)} <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
             `;
             return card;
         }
@@ -548,7 +568,7 @@
                 const mi = Math.floor((diff % 3600) / 60);
                 const s = diff % 60;
                 const txt = h > 0 ? `${h}h${String(mi).padStart(2,'0')}m` : `${mi}:${String(s).padStart(2,'0')}`;
-                el.innerHTML = `⏳ ${prefix}${txt}`;
+                el.innerHTML = `${svgIcon(ICON.hourglass)} ${prefix}${txt}`;
             });
         }
 

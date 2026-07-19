@@ -1653,7 +1653,7 @@ window.checkAndRenderMeetingBanner = async function() {
                             </h3>
                             <div style="font-size: 0.85rem; color: #5B21B6; opacity: 0.9;">
                                 <span style="display:inline-block; margin-right: 1.5rem;"><strong>Bộ phận:</strong> ${deptLabel}</span>
-                                <span style="display:inline-block; margin-right: 1.5rem;">🕒 ${timeRange}</span>
+                                <span style="display:inline-flex; align-items:center; gap:4px; margin-right: 1.5rem;">${window.getIconHtml('clock', {width: '14', height: '14'})} ${timeRange}</span>
                             </div>
                         </div>
                         <div>
@@ -1696,9 +1696,9 @@ window.checkAndRenderMeetingBanner = async function() {
                                 Lịch Họp Định Kỳ: ${meeting.title || 'Họp bộ phận'}
                             </h3>
                             <div style="font-size: 0.85rem; color: #5B21B6; opacity: 0.9;">
-                                <span style="display:inline-block; margin-right: 1.25rem;"><strong>Bộ phận:</strong> ${deptLabel}</span>
-                                <span style="display:inline-block; margin-right: 1.25rem;">🕒 ${timeRange}</span>
-                                <span style="display:inline-block;">⏱️ Điểm danh: ${ciRange}</span>
+                                <span style="display:inline-flex; align-items:center; gap:4px; margin-right: 1.25rem;"><strong>Bộ phận:</strong> ${deptLabel}</span>
+                                <span style="display:inline-flex; align-items:center; gap:4px; margin-right: 1.25rem;">${window.getIconHtml('clock', {width: '14', height: '14'})} ${timeRange}</span>
+                                <span style="display:inline-flex; align-items:center; gap:4px;">${window.getIconHtml('clock', {width: '14', height: '14'})} Điểm danh: ${ciRange}</span>
                             </div>
                         </div>
                         <div>
