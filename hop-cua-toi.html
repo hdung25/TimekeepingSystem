@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Họp Của Tôi - Hệ Thống Chấm Công</title>
+    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="css/style.css?v=20260621-lotus">
+
+    <style>
+        .mymeet-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.75rem;
+        }
+
+        .mymeet-stat {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.1rem 1.25rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .mymeet-stat .label {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .mymeet-stat .value {
+            font-size: 1.9rem;
+            font-weight: 800;
+            margin-top: 0.35rem;
+            line-height: 1;
+        }
+
+        .section-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin: 1.75rem 0 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mymeet-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.1rem;
+        }
+
+        /* Hero card — cuộc họp cần điểm danh hôm nay */
+        .hero-card {
+            position: relative;
+            overflow: hidden;
+            border-radius: 18px;
+            padding: 1.5rem;
+            color: white;
+            background: linear-gradient(135deg, #059669 0%, #047857 55%, #065F46 100%);
+            box-shadow: 0 12px 30px rgba(5, 150, 105, 0.28);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: -40px;
+            right: -30px;
+            width: 160px;
+            height: 160px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 50%;
+        }
+
+        .hero-card.done {
+            background: linear-gradient(135deg, #6B7280 0%, #4B5563 100%);
+            box-shadow: 0 12px 30px rgba(75, 85, 99, 0.25);
+        }
+
+        .hero-checkin-btn {
+            width: 100%;
+            padding: 1rem;
+            border-radius: 14px;
+            border: none;
+            font-size: 1.05rem;
+            font-weight: 800;
+            cursor: pointer;
+            background: white;
+            color: #047857;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+        }
+
+        .hero-checkin-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+        }
+
+        .hero-checkin-btn:disabled {
+            background: rgba(255, 255, 255, 0.35);
+            color: rgba(255, 255, 255, 0.85);
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* Card thường (sắp tới / đã qua) */
+        .meet-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.15rem;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 0.7rem;
+            border-left: 4px solid #7C3AED;
+        }
+
+        .meet-card.past { border-left-color: #D1D5DB; }
+
+        .meet-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .meet-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .countdown-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.18);
+            padding: 5px 12px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 0.82rem;
+            backdrop-filter: blur(4px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2.5rem 1rem;
+            color: var(--text-muted);
+            background: white;
+            border: 1px dashed var(--border-color);
+            border-radius: 14px;
+        }
+
+        @keyframes pulse-live {
+            0%, 100% { box-shadow: 0 12px 30px rgba(5, 150, 105, 0.28); }
+            50% { box-shadow: 0 12px 40px rgba(5, 150, 105, 0.5); }
+        }
+
+        @media (max-width: 640px) {
+            .mymeet-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+
+    <!-- Firebase SDK (Compat) -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+
+    <!-- App Config -->
+    <script src='js/firebase-config.js'></script>
+    <script src='js/db-service.js'></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <img src="images/TUDUYTRE.jpg" alt="Logo"
+                    style="height: 40px; margin-right: 0.5rem; border-radius: 4px;">
+                <span style="font-size: 0.9rem; font-weight: 700;">NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            </div>
+            <nav id="sidebar-nav">
+                <!-- Rendered by main.js -->
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header style="margin-bottom: 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+                        Họp Của Tôi
+                    </h1>
+                    <p style="color: var(--text-muted);">Điểm danh họp định kỳ & theo dõi lịch họp của bạn</p>
+                </div>
+                <div class="month-navigator" style="display: inline-flex; align-items: center; background: white; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 4px; box-shadow: var(--shadow-sm);">
+                    <button type="button" class="month-nav-btn" onclick="myMeetChangeMonth(-1)" style="background: transparent; border: none; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-weight: 700; color: var(--text-muted);">&lt;</button>
+                    <span id="mymeet-month" style="padding: 0 1rem; font-weight: 700; min-width: 130px; text-align: center;">Tháng --, ----</span>
+                    <button type="button" class="month-nav-btn" onclick="myMeetChangeMonth(1)" style="background: transparent; border: none; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-weight: 700; color: var(--text-muted);">&gt;</button>
+                </div>
+            </header>
+
+            <!-- Stats -->
+            <div class="mymeet-stats" id="mymeet-stats">
+                <div class="mymeet-stat"><div class="label">Cuộc họp tháng này</div><div class="value" style="color:#7C3AED;" id="st-total">--</div></div>
+                <div class="mymeet-stat"><div class="label">Đã tham dự</div><div class="value" style="color:#059669;" id="st-present">--</div></div>
+                <div class="mymeet-stat"><div class="label">Đi trễ</div><div class="value" style="color:#D97706;" id="st-late">--</div></div>
+                <div class="mymeet-stat"><div class="label">Vắng / Chưa ĐD</div><div class="value" style="color:#EF4444;" id="st-absent">--</div></div>
+            </div>
+
+            <!-- Actionable today -->
+            <div id="today-section">
+                <div class="section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Cần điểm danh hôm nay
+                </div>
+                <div class="mymeet-grid" id="today-grid"></div>
+            </div>
+
+            <!-- Upcoming -->
+            <div id="upcoming-section" style="display:none;">
+                <div class="section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    Sắp tới
+                </div>
+                <div class="mymeet-grid" id="upcoming-grid"></div>
+            </div>
+
+            <!-- Past / history -->
+            <div id="past-section" style="display:none;">
+                <div class="section-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 13.5"/></svg>
+                    Đã qua
+                </div>
+                <div class="mymeet-grid" id="past-grid"></div>
+            </div>
+
+            <!-- Global loading / empty -->
+            <div id="mymeet-loading" class="empty-state" style="margin-top: 1rem;">Đang tải lịch họp của bạn...</div>
+        </main>
+    </div>
+
+    <script src="js/ui-service.js"></script>
+    <script src="js/main.js?v=20260719-makeup-cal-v1"></script>
+    <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
+
+    <script>
+        let mmCurrentDate = new Date();
+        let mmUserId = null;
+        let mmUserSpecsUpper = '';
+        let mmCountdownTimer = null;
+
+        const MONTHS_VN = ["Tháng 01","Tháng 02","Tháng 03","Tháng 04","Tháng 05","Tháng 06","Tháng 07","Tháng 08","Tháng 09","Tháng 10","Tháng 11","Tháng 12"];
+
+        function mmUpdateMonthLabel() {
+            document.getElementById('mymeet-month').innerText = `${MONTHS_VN[mmCurrentDate.getMonth()]}, ${mmCurrentDate.getFullYear()}`;
+        }
+
+        function mmFormatDate(dateStr) {
+            if (!dateStr) return '';
+            const p = dateStr.slice(0, 10).split('-');
+            return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dateStr;
+        }
+
+        function mmMk(dateStr, timeStr) {
+            const [y, mo, d] = dateStr.split('-').map(Number);
+            const [h, mi] = (timeStr || '00:00').split(':').map(Number);
+            return new Date(y, mo - 1, d, h, mi, 0);
+        }
+
+        function mmIsInvited(meeting) {
+            if (Array.isArray(meeting.attendees) && meeting.attendees.length > 0) {
+                return meeting.attendees.includes(mmUserId);
+            }
+            const deptKey = (meeting.department || '').toUpperCase();
+            if (deptKey === 'TG TA') return mmUserSpecsUpper.includes('TG TA');
+            if (deptKey === 'TG T-TV') return mmUserSpecsUpper.includes('TG T-TV');
+            if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return mmUserSpecsUpper.includes('TOÁN TƯ DUY') || mmUserSpecsUpper.includes('TTD');
+            if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return mmUserSpecsUpper.includes('TIẾP TÂN') || mmUserSpecsUpper.includes('TT');
+            return false;
+        }
+
+        function mmStatusPill(status) {
+            const map = {
+                'Có': { bg: '#D1FAE5', color: '#047857', label: 'Có mặt' },
+                'Trễ': { bg: '#FEF3C7', color: '#B45309', label: 'Đi trễ' },
+                'Vắng phép': { bg: '#E0E7FF', color: '#4338CA', label: 'Vắng phép' },
+                'Vắng đột xuất': { bg: '#FFE4E6', color: '#BE123C', label: 'Vắng đột xuất' },
+                'Vắng không phép': { bg: '#FEE2E2', color: '#DC2626', label: 'Vắng không phép' },
+                'Chưa điểm danh': { bg: '#F3F4F6', color: '#6B7280', label: 'Chưa điểm danh' },
+            };
+            const s = map[status] || map['Chưa điểm danh'];
+            return `<span class="meet-pill" style="background:${s.bg};color:${s.color};">${s.label}</span>`;
+        }
+
+        function mmTypeBadge(meeting) {
+            let t = meeting.type;
+            if (!t) {
+                const title = meeting.title || '';
+                t = title.startsWith('[Online]') ? 'online' : (title.startsWith('[Trực tiếp]') ? 'direct' : '');
+            }
+            if (t === 'online') return '<span class="meet-pill" style="background:#DBEAFE;color:#1D4ED8;">🌐 Online</span>';
+            if (t === 'direct') return '<span class="meet-pill" style="background:#D1FAE5;color:#047857;">📍 Trực tiếp</span>';
+            return '';
+        }
+
+        function mmCleanTitle(meeting) {
+            let title = meeting.title || 'Họp định kỳ';
+            if (title.startsWith('[Online] ')) title = title.substring(9);
+            else if (title.startsWith('[Trực tiếp] ')) title = title.substring(12);
+            return title;
+        }
+
+        function mmDeptLabel(meeting) {
+            return meeting.department === 'CUSTOM' ? 'Tự chọn thành viên' : meeting.department;
+        }
+
+        async function mmLoad() {
+            const loadingEl = document.getElementById('mymeet-loading');
+            loadingEl.style.display = 'block';
+            loadingEl.innerText = 'Đang tải lịch họp của bạn...';
+
+            const year = mmCurrentDate.getFullYear();
+            const month = mmCurrentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+            try {
+                const allMeetings = await DBService.getMeetingsForMonth(monthStr);
+                const myMeetings = (allMeetings || []).filter(mmIsInvited);
+
+                // Lấy trạng thái điểm danh của tôi cho từng cuộc họp
+                const statusMap = {};
+                await Promise.all(myMeetings.map(async (m) => {
+                    statusMap[m.id] = await DBService.getMyMeetingStatus(m.id, mmUserId);
+                }));
+
+                mmRender(myMeetings, statusMap);
+            } catch (err) {
+                console.error("Lỗi tải họp của tôi:", err);
+                loadingEl.style.display = 'block';
+                loadingEl.innerText = 'Lỗi tải lịch họp. Vui lòng thử lại.';
+            }
+        }
+
+        function mmRender(meetings, statusMap) {
+            const now = new Date();
+            const todayGrid = document.getElementById('today-grid');
+            const upcomingGrid = document.getElementById('upcoming-grid');
+            const pastGrid = document.getElementById('past-grid');
+            const loadingEl = document.getElementById('mymeet-loading');
+
+            todayGrid.innerHTML = '';
+            upcomingGrid.innerHTML = '';
+            pastGrid.innerHTML = '';
+
+            // Stats
+            let present = 0, late = 0, absentOrPending = 0;
+            meetings.forEach(m => {
+                const log = statusMap[m.id];
+                const end = mmMk(m.date, m.endTime);
+                if (log && (log.status === 'Có')) present++;
+                else if (log && log.status === 'Trễ') { present++; late++; }
+                else if (log && (log.status === 'Vắng phép' || log.status === 'Vắng đột xuất' || log.status === 'Vắng không phép')) absentOrPending++;
+                else if (now > end) absentOrPending++; // đã kết thúc mà chưa điểm danh
+            });
+            document.getElementById('st-total').innerText = meetings.length;
+            document.getElementById('st-present').innerText = present;
+            document.getElementById('st-late').innerText = late;
+            document.getElementById('st-absent').innerText = absentOrPending;
+
+            // Phân loại
+            const actionable = []; // đang trong khung [checkInStart, endTime] hoặc đã điểm danh hôm nay
+            const upcoming = [];
+            const past = [];
+
+            meetings.forEach(m => {
+                const ciStart = mmMk(m.date, m.checkInStart);
+                const end = mmMk(m.date, m.endTime);
+                const log = statusMap[m.id];
+
+                if (now >= ciStart && now <= end) {
+                    actionable.push(m);
+                } else if (now < ciStart) {
+                    upcoming.push(m);
+                } else {
+                    past.push(m);
+                }
+            });
+
+            // Sắp xếp
+            const byDateTime = (a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime);
+            actionable.sort(byDateTime);
+            upcoming.sort(byDateTime);
+            past.sort((a, b) => (b.date + b.startTime).localeCompare(a.date + a.startTime));
+
+            // Render actionable (hero)
+            if (actionable.length > 0) {
+                actionable.forEach(m => todayGrid.appendChild(mmHeroCard(m, statusMap[m.id])));
+            } else {
+                todayGrid.innerHTML = `<div class="empty-state">Hiện không có cuộc họp nào cần điểm danh. 🎉</div>`;
+            }
+
+            // Upcoming
+            const upSection = document.getElementById('upcoming-section');
+            if (upcoming.length > 0) {
+                upSection.style.display = 'block';
+                upcoming.forEach(m => upcomingGrid.appendChild(mmNormalCard(m, statusMap[m.id], 'upcoming')));
+            } else {
+                upSection.style.display = 'none';
+            }
+
+            // Past
+            const pastSection = document.getElementById('past-section');
+            if (past.length > 0) {
+                pastSection.style.display = 'block';
+                past.forEach(m => pastGrid.appendChild(mmNormalCard(m, statusMap[m.id], 'past')));
+            } else {
+                pastSection.style.display = 'none';
+            }
+
+            loadingEl.style.display = 'none';
+
+            // Countdown updater cho các thẻ actionable
+            if (mmCountdownTimer) clearInterval(mmCountdownTimer);
+            mmCountdownTimer = setInterval(mmTickCountdowns, 1000);
+            mmTickCountdowns();
+        }
+
+        function mmHeroCard(m, log) {
+            const now = new Date();
+            const ciStart = mmMk(m.date, m.checkInStart);
+            const ciClose = mmMk(m.date, m.checkInClose);
+            const end = mmMk(m.date, m.endTime);
+
+            const card = document.createElement('div');
+            const alreadyDone = !!log;
+            card.className = 'hero-card' + (alreadyDone ? ' done' : '');
+            if (!alreadyDone) card.style.animation = 'pulse-live 2.5s infinite';
+
+            let actionHtml = '';
+            if (alreadyDone) {
+                const t = log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+                actionHtml = `
+                    <div style="background: rgba(255,255,255,0.15); border-radius: 14px; padding: 0.9rem 1rem; display: flex; align-items: center; gap: 10px; font-weight: 700;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <span>Đã điểm danh: ${log.status === 'Trễ' ? 'Đi trễ' : (log.status === 'Có' ? 'Có mặt' : log.status)}${t ? ' lúc ' + t : ''}</span>
+                    </div>`;
+            } else {
+                const willBeLate = now > ciClose;
+                const label = willBeLate ? 'Điểm danh (sẽ tính Trễ)' : 'Điểm danh ngay';
+                actionHtml = `
+                    <button class="hero-checkin-btn" data-mid="${m.id}" onclick="mmCheckIn('${m.id}', this)" ${willBeLate ? 'style="color:#B45309;"' : ''}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        ${label}
+                    </button>`;
+            }
+
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; position:relative; z-index:1;">
+                    <div>
+                        <div style="font-size:0.72rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; opacity:0.85;">Họp định kỳ hôm nay</div>
+                        <div style="font-size:1.25rem; font-weight:800; margin-top:4px; line-height:1.3;">${mmCleanTitle(m)}</div>
+                    </div>
+                    ${!alreadyDone ? `<span class="countdown-badge" data-countdown="${m.id}" data-close="${ciClose.getTime()}" data-end="${end.getTime()}">⏳ --</span>` : ''}
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; position:relative; z-index:1;">
+                    ${mmTypeBadge(m).replace('meet-pill','meet-pill').replace('background:#DBEAFE;color:#1D4ED8;','background:rgba(255,255,255,0.2);color:white;').replace('background:#D1FAE5;color:#047857;','background:rgba(255,255,255,0.2);color:white;')}
+                    <span class="meet-pill" style="background:rgba(255,255,255,0.2);color:white;">👥 ${mmDeptLabel(m)}</span>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:1.25rem; font-size:0.85rem; opacity:0.95; position:relative; z-index:1;">
+                    <span>🕒 Họp: <strong>${m.startTime} - ${m.endTime}</strong></span>
+                    <span>⏱️ Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span>
+                </div>
+                <div style="position:relative; z-index:1;">${actionHtml}</div>
+            `;
+            return card;
+        }
+
+        function mmNormalCard(m, log, kind) {
+            const card = document.createElement('div');
+            card.className = 'meet-card' + (kind === 'past' ? ' past' : '');
+
+            const now = new Date();
+            const end = mmMk(m.date, m.endTime);
+            let statusHtml;
+            if (log) {
+                statusHtml = mmStatusPill(log.status);
+            } else if (kind === 'past' && now > end) {
+                statusHtml = mmStatusPill('Vắng không phép');
+            } else {
+                statusHtml = mmStatusPill('Chưa điểm danh');
+            }
+
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                    <div style="font-weight:700; font-size:1rem; color:var(--text-main); line-height:1.35;">${mmCleanTitle(m)}</div>
+                    ${statusHtml}
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    ${mmTypeBadge(m)}
+                    <span class="meet-pill" style="background:#EEF2FF;color:#4338CA;">👥 ${mmDeptLabel(m)}</span>
+                </div>
+                <div class="meet-row">📅 <span>${mmFormatDate(m.date)}</span></div>
+                <div class="meet-row">🕒 <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
+                <div class="meet-row">⏱️ <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
+            `;
+            return card;
+        }
+
+        function mmTickCountdowns() {
+            const now = Date.now();
+            document.querySelectorAll('[data-countdown]').forEach(el => {
+                const close = Number(el.dataset.close);
+                const end = Number(el.dataset.end);
+                let target, prefix;
+                if (now < close) { target = close; prefix = 'Còn '; }
+                else { target = end; prefix = 'Trễ · còn '; }
+                let diff = Math.max(0, Math.floor((target - now) / 1000));
+                const h = Math.floor(diff / 3600);
+                const mi = Math.floor((diff % 3600) / 60);
+                const s = diff % 60;
+                const txt = h > 0 ? `${h}h${String(mi).padStart(2,'0')}m` : `${mi}:${String(s).padStart(2,'0')}`;
+                el.innerHTML = `⏳ ${prefix}${txt}`;
+            });
+        }
+
+        window.mmCheckIn = async function(meetingId, btn) {
+            if (btn) { btn.disabled = true; btn.innerHTML = 'Đang điểm danh...'; }
+            try {
+                const meeting = await DBService.getMeetingsForMonth(`${mmCurrentDate.getFullYear()}-${String(mmCurrentDate.getMonth()+1).padStart(2,'0')}`)
+                    .then(list => list.find(x => x.id === meetingId));
+                if (!meeting) {
+                    // fallback: đọc trực tiếp
+                }
+                const now = new Date();
+                let mObj = meeting;
+                if (!mObj) {
+                    if (btn) { btn.disabled = false; }
+                    alert('Không tìm thấy cuộc họp.');
+                    return;
+                }
+                const ciStart = mmMk(mObj.date, mObj.checkInStart);
+                const ciClose = mmMk(mObj.date, mObj.checkInClose);
+                const end = mmMk(mObj.date, mObj.endTime);
+
+                if (now < ciStart) { alert('Chưa tới giờ điểm danh.'); if (btn) btn.disabled = false; return; }
+                if (now > end) { alert('Cuộc họp đã kết thúc, không thể điểm danh.'); if (btn) btn.disabled = false; return; }
+
+                const status = now <= ciClose ? 'Có' : 'Trễ';
+                const userName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Nhân viên';
+
+                await DBService.selfCheckInMeeting(meetingId, mmUserId, userName, status);
+
+                if (typeof UIService !== 'undefined' && UIService.toast) {
+                    UIService.toast(`Điểm danh thành công! Trạng thái: ${status === 'Trễ' ? 'Đi trễ' : 'Có mặt'}`, 'success');
+                }
+                await mmLoad();
+            } catch (err) {
+                console.error(err);
+                alert('Lỗi điểm danh: ' + err.message);
+                if (btn) btn.disabled = false;
+            }
+        };
+
+        window.myMeetChangeMonth = function(offset) {
+            mmCurrentDate.setMonth(mmCurrentDate.getMonth() + offset);
+            mmUpdateMonthLabel();
+            mmLoad();
+        };
+
+        // Khởi tạo
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.waitAuth) await window.waitAuth();
+
+            mmUserId = localStorage.getItem('currentUserId');
+            if (!mmUserId) {
+                // main.js sẽ tự chuyển hướng về login nếu chưa đăng nhập
+                return;
+            }
+
+            mmUpdateMonthLabel();
+
+            // Xác định chuyên môn của tôi (ưu tiên bản ghi admin đã lưu)
+            try {
+                const users = await DBService.getUsers();
+                const me = users.find(u => u.id === mmUserId);
+                let specLabel = '';
+                const monthStr = `${mmCurrentDate.getFullYear()}-${String(mmCurrentDate.getMonth()+1).padStart(2,'0')}`;
+                try {
+                    const logged = await DBService.getMonthlyMeetings(monthStr);
+                    if (logged?.records?.[mmUserId]?.chuyen_mon) specLabel = logged.records[mmUserId].chuyen_mon;
+                } catch(e) {}
+                if (!specLabel && me && window.formatUserSpecialty) specLabel = window.formatUserSpecialty(me);
+                mmUserSpecsUpper = (specLabel || '').toUpperCase();
+            } catch (e) {
+                console.warn('Không xác định được chuyên môn:', e);
+            }
+
+            await mmLoad();
+
+            if (window.lucide) window.lucide.createIcons();
+        });
+    </script>
+</body>
+
+</html>

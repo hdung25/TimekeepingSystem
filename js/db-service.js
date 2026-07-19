@@ -3105,6 +3105,40 @@ const DBService = {
         }
     },
 
+    // Nhân viên TỰ điểm danh: CHỈ ghi vào meeting_attendance (rules cho phép mọi user đăng nhập ghi).
+    // KHÔNG đụng tới meetings_log (chỉ admin mới ghi được — tránh lỗi permission-denied ở phía nhân viên).
+    // Bảng lương/điểm danh của admin sẽ tự phản ánh qua fallback đọc meeting_attendance trong lưới.
+    selfCheckInMeeting: async (meetingId, userId, userName, status) => {
+        try {
+            const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
+            const checkInTime = new Date().toISOString();
+            await attendanceRef.set({
+                meetingId,
+                userId,
+                userName,
+                status,
+                checkInTime,
+                selfCheckIn: true,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            return { checkInTime, status };
+        } catch (error) {
+            console.error("[Meetings] Error self check-in:", error);
+            throw error;
+        }
+    },
+
+    // Lấy trạng thái điểm danh của 1 user trong 1 cuộc họp (đọc trực tiếp theo id ghép)
+    getMyMeetingStatus: async (meetingId, userId) => {
+        try {
+            const doc = await db.collection('meeting_attendance').doc(`${meetingId}_${userId}`).get();
+            return doc.exists ? { id: doc.id, ...doc.data() } : null;
+        } catch (error) {
+            console.error("[Meetings] Error getting my meeting status:", error);
+            return null;
+        }
+    },
+
     updateMeetingAttendanceStatus: async (meetingId, userId, userName, status) => {
         try {
             const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);

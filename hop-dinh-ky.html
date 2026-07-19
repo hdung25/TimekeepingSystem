@@ -161,6 +161,107 @@
             z-index: 10000;
             animation: fadeIn 0.2s ease forwards;
         }
+
+        /* ===== Meetings Card Grid (Lịch Đã Tạo) ===== */
+        .meetings-card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .meeting-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.25rem;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+            border-top: 4px solid #7C3AED;
+        }
+
+        .meeting-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .meeting-card .mc-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #1F2937;
+            line-height: 1.35;
+        }
+
+        .meeting-card .mc-info-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .mc-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .mc-progress-track {
+            width: 100%;
+            height: 8px;
+            background: #F3F4F6;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .mc-progress-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #34D399 0%, #059669 100%);
+            transition: width 0.6s ease;
+        }
+
+        .mc-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: auto;
+            padding-top: 0.5rem;
+        }
+
+        .mc-btn {
+            flex: 1;
+            padding: 0.55rem 0.75rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            transition: opacity 0.2s;
+        }
+
+        .mc-btn:hover { opacity: 0.88; }
+
+        @keyframes pulse-live {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.35); }
+            50% { box-shadow: 0 0 0 5px rgba(5, 150, 105, 0); }
+        }
+
+        @media (max-width: 640px) {
+            .meetings-card-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
@@ -197,6 +298,10 @@
                         <button type="button" class="btn" onclick="openCreateMeetingModal()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-circle"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                             Tạo Lịch Họp
+                        </button>
+                        <button type="button" class="btn" onclick="showMeetingsList()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg>
+                            Lịch Đã Tạo
                         </button>
                         <button type="button" class="btn" onclick="showMeetingsStats()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bar-chart-2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -391,6 +496,36 @@
                 </div>
             </div>
 
+            <!-- Meetings List (Lịch Đã Tạo) View -->
+            <div id="meetings-list-view" style="display: none; padding-bottom: 2rem;">
+                <header class="page-header" style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h1 style="font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                            <button type="button" class="month-nav-btn" onclick="hideMeetingsList()" style="border: 1px solid var(--border-color); background: white; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer;">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                            </button>
+                            Các Cuộc Họp Đã Tạo
+                        </h1>
+                        <p style="color: var(--text-muted);">Danh sách lịch họp trong tháng — theo dõi tiến độ điểm danh & quản lý</p>
+                    </div>
+                    <div class="header-actions" style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <button type="button" class="btn" onclick="openCreateMeetingModal()" style="padding: 0.6rem 1.25rem; font-weight: 600; background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); color: white; display: inline-flex; align-items: center; gap: 6px; border: none; cursor: pointer; border-radius: 8px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+                            Tạo Lịch Họp
+                        </button>
+                        <div class="month-navigator">
+                            <button type="button" class="month-nav-btn" onclick="changeMonth(-1)">&lt;</button>
+                            <span class="month-title-display" id="month-display-list">Tháng --, ----</span>
+                            <button type="button" class="month-nav-btn" onclick="changeMonth(1)">&gt;</button>
+                        </div>
+                    </div>
+                </header>
+
+                <div id="meetings-list-grid" class="meetings-card-grid">
+                    <div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">Đang tải danh sách cuộc họp...</div>
+                </div>
+            </div>
+
             <!-- Create Meeting Modal -->
             <div id="create-meeting-modal" class="modal" style="display: none; align-items: center; justify-content: center; z-index: 2000;">
                 <div class="modal-content" style="max-width: 500px; width: 95%; max-height: 90vh; overflow-y: auto; border-radius: 12px; padding: 1.5rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-xl); background: white;">
@@ -474,8 +609,29 @@
                                     <input type="time" id="meeting-ci-close" class="filter-input" required style="padding: 8px 12px; font-size: 0.9rem; border-color: #FCA5A5; height: 38px;">
                                 </div>
                             </div>
+
+                            <!-- Hình thức điểm danh -->
+                            <div style="border-top: 1px dashed var(--border-color); padding-top: 1rem;">
+                                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Hình thức điểm danh</label>
+                                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                    <label class="attendance-mode-option" style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.6rem 0.75rem; border: 1.5px solid #A7F3D0; background: #ECFDF5; border-radius: 8px; cursor: pointer;">
+                                        <input type="radio" name="attendance-mode" value="self" checked style="margin-top: 2px; width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer;">
+                                        <span>
+                                            <span style="display: block; font-weight: 700; font-size: 0.85rem; color: #047857;">Nhân viên tự điểm danh <span style="font-weight: 500; font-size: 0.72rem; background: #059669; color: white; padding: 1px 6px; border-radius: 10px; margin-left: 4px;">Khuyến nghị</span></span>
+                                            <span style="display: block; font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">Nhân viên tự bấm điểm danh trong khung giờ. Hệ thống tự tính Có / Trễ theo giờ thực tế.</span>
+                                        </span>
+                                    </label>
+                                    <label class="attendance-mode-option" style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.6rem 0.75rem; border: 1.5px solid var(--border-color); background: white; border-radius: 8px; cursor: pointer;">
+                                        <input type="radio" name="attendance-mode" value="auto" style="margin-top: 2px; width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer;">
+                                        <span>
+                                            <span style="display: block; font-weight: 700; font-size: 0.85rem; color: var(--text-main);">Điểm danh sẵn tất cả là "Có"</span>
+                                            <span style="display: block; font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">Đánh dấu toàn bộ người tham dự là Có ngay khi tạo. Dùng khi họp trực tiếp không cần bấm.</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
-                        
+
                         <div style="display: flex; gap: 1rem;">
                             <button type="button" class="btn" style="flex: 1; background: #E5E7EB; color: #374151; font-weight: 600;" onclick="closeCreateMeetingModal()">Hủy</button>
                             <button type="submit" class="btn btn-primary" style="flex: 1; font-weight: 600; background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%); border: none;">Tạo Cuộc Họp</button>
@@ -557,7 +713,29 @@
                     autoSelectAttendeesByDept(e.target.value);
                 });
             }
+
+            // Làm nổi bật lựa chọn hình thức điểm danh
+            document.querySelectorAll('input[name="attendance-mode"]').forEach(radio => {
+                radio.addEventListener('change', updateAttendanceModeStyles);
+            });
         });
+
+        function updateAttendanceModeStyles() {
+            document.querySelectorAll('input[name="attendance-mode"]').forEach(radio => {
+                const box = radio.closest('.attendance-mode-option');
+                if (!box) return;
+                if (radio.checked) {
+                    box.style.borderColor = '#059669';
+                    box.style.background = '#ECFDF5';
+                    box.style.boxShadow = '0 0 0 2px rgba(5,150,105,0.12)';
+                } else {
+                    box.style.borderColor = 'var(--border-color)';
+                    box.style.background = 'white';
+                    box.style.boxShadow = 'none';
+                }
+            });
+        }
+        window.updateAttendanceModeStyles = updateAttendanceModeStyles;
 
         let currentDate = new Date(); // Month context
         let employeesList = []; // Holds list of active users
@@ -570,16 +748,32 @@
             ];
             const title = `${monthsVN[currentDate.getMonth()]}, ${currentDate.getFullYear()}`;
             document.getElementById('month-display').innerText = title;
+            const listDisplay = document.getElementById('month-display-list');
+            if (listDisplay) listDisplay.innerText = title;
         }
 
         async function changeMonth(offset) {
             currentDate.setMonth(currentDate.getMonth() + offset);
             updateMonthDisplay();
-            
-            // Show loading state
+
+            // Nếu đang xem "Lịch Đã Tạo" → chỉ tải lại danh sách cuộc họp
+            const listView = document.getElementById('meetings-list-view');
+            if (listView && listView.style.display === 'block') {
+                await renderMeetingsListView();
+                return;
+            }
+
+            // Nếu đang xem Thống Kê → tải lại thống kê
+            const statsView = document.getElementById('meetings-stats-view');
+            if (statsView && statsView.style.display === 'block') {
+                await loadMeetingsStats();
+                return;
+            }
+
+            // Mặc định: lưới điểm danh chính
             const tbody = document.getElementById('meetings-tbody');
             tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu tháng mới...</td></tr>';
-            
+
             await renderMeetingsGrid();
         }
 
@@ -796,30 +990,38 @@
                 const cs3_val = savedRecord.so_to_cs3 !== undefined ? savedRecord.so_to_cs3 : 0;
 
                 // Helper to resolve auto attendance status
+                // Xét TẤT CẢ cuộc họp đúng bộ phận mà user này được mời (attendees) —
+                // ưu tiên trạng thái đã điểm danh; nếu có họp đã kết thúc mà chưa điểm danh → Vắng không phép.
                 function resolveAutoStatus(dept, defaultVal) {
-                    const deptMeetings = monthlyMeetingsList.filter(m => m.department === dept);
+                    const deptMeetings = monthlyMeetingsList.filter(m =>
+                        m.department === dept &&
+                        (!Array.isArray(m.attendees) || m.attendees.length === 0 || m.attendees.includes(userId))
+                    );
                     if (deptMeetings.length === 0) {
                         return defaultVal;
                     }
-                    
-                    const meeting = deptMeetings[0];
-                    const logs = monthlyAttendanceMap[meeting.id] || [];
-                    const userLog = logs.find(l => l.userId === userId);
-                    
-                    if (userLog) {
-                        return userLog.status;
-                    } else {
-                        const now = new Date();
+
+                    const now = new Date();
+                    let sawEndedWithoutCheckIn = false;
+
+                    for (const meeting of deptMeetings) {
+                        const logs = monthlyAttendanceMap[meeting.id] || [];
+                        const userLog = logs.find(l => l.userId === userId);
+
+                        if (userLog && userLog.status && userLog.status !== 'Chưa điểm danh') {
+                            return userLog.status; // Đã điểm danh — ưu tiên dùng trạng thái thực tế
+                        }
+
                         const [_y, _m, _d] = meeting.date.split('-').map(Number);
                         const [eH, eM] = meeting.endTime.split(':').map(Number);
                         const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
-                        
-                        if (now > mEnd) {
-                            return "Vắng không phép";
-                        } else {
-                            return defaultVal;
-                        }
+                        if (now > mEnd) sawEndedWithoutCheckIn = true;
                     }
+
+                    if (sawEndedWithoutCheckIn) {
+                        return "Vắng không phép";
+                    }
+                    return defaultVal;
                 }
 
                 // Smart default for meetings attendance based on active specialty + auto attendance logs
@@ -1279,7 +1481,12 @@
             if (deptSelect) deptSelect.value = 'TG TA';
             
             autoSelectAttendeesByDept('TG TA');
-            
+
+            // Reset hình thức điểm danh về mặc định (tự điểm danh)
+            const selfRadio = document.querySelector('input[name="attendance-mode"][value="self"]');
+            if (selfRadio) selfRadio.checked = true;
+            updateAttendanceModeStyles();
+
             document.getElementById('create-meeting-modal').style.display = 'flex';
         }
         window.openCreateMeetingModal = openCreateMeetingModal;
@@ -1337,22 +1544,29 @@
                     attendees
                 };
 
+                // Hình thức điểm danh: 'self' = nhân viên tự bấm | 'auto' = đánh dấu Có sẵn
+                const attendanceMode = (document.querySelector('input[name="attendance-mode"]:checked')?.value) || 'self';
+
                 const meetingId = await DBService.createMeeting(meetingData);
-                
-                // Map attendees to user details (name & specialty)
-                const attendeeDetails = attendees.map(userId => {
-                    const u = employeesList.find(x => x.id === userId);
-                    return {
-                        id: userId,
-                        name: u ? (u.name || u.username) : "Nhân viên",
-                        specialty: u ? formatUserSpecialty(u) : ""
-                    };
-                });
-                
-                // Perform bulk check-in (marks "Có" instantly on board & salary settings)
-                await DBService.checkInMeetingBulk(meetingId, attendeeDetails, "Có");
-                
-                UIService.toast("Tạo lịch họp và điểm danh thành công!", "success");
+
+                if (attendanceMode === 'auto') {
+                    // Map attendees to user details (name & specialty)
+                    const attendeeDetails = attendees.map(userId => {
+                        const u = employeesList.find(x => x.id === userId);
+                        return {
+                            id: userId,
+                            name: u ? (u.name || u.username) : "Nhân viên",
+                            specialty: u ? formatUserSpecialty(u) : ""
+                        };
+                    });
+                    // Bulk check-in — đánh dấu "Có" ngay trên bảng & bảng lương
+                    await DBService.checkInMeetingBulk(meetingId, attendeeDetails, "Có");
+                    UIService.toast("Tạo lịch họp và điểm danh sẵn tất cả thành công!", "success");
+                } else {
+                    // Chế độ tự điểm danh: không đánh dấu sẵn, nhân viên sẽ tự bấm ở trang "Họp Của Tôi"
+                    UIService.toast(`Đã tạo lịch họp! ${attendees.length} nhân sự có thể tự điểm danh trong khung giờ.`, "success");
+                }
+
                 closeCreateMeetingModal();
                 
                 // Refresh main grid
@@ -1374,6 +1588,7 @@
         // 2. View Toggle
         function showMeetingsStats() {
             document.getElementById('main-grid-view').style.display = 'none';
+            document.getElementById('meetings-list-view').style.display = 'none';
             document.getElementById('meetings-stats-view').style.display = 'block';
             loadMeetingsStats();
         }
@@ -1381,6 +1596,171 @@
         function hideMeetingsStats() {
             document.getElementById('meetings-stats-view').style.display = 'none';
             document.getElementById('main-grid-view').style.display = 'block';
+        }
+
+        // ===== Lịch Đã Tạo view =====
+        function showMeetingsList() {
+            document.getElementById('main-grid-view').style.display = 'none';
+            document.getElementById('meetings-stats-view').style.display = 'none';
+            document.getElementById('meetings-list-view').style.display = 'block';
+            renderMeetingsListView();
+        }
+        window.showMeetingsList = showMeetingsList;
+
+        function hideMeetingsList() {
+            document.getElementById('meetings-list-view').style.display = 'none';
+            document.getElementById('main-grid-view').style.display = 'block';
+        }
+        window.hideMeetingsList = hideMeetingsList;
+
+        // Trạng thái cuộc họp theo thời gian thực
+        function getMeetingTimeStatus(meeting) {
+            const now = new Date();
+            const [y, mo, d] = meeting.date.split('-').map(Number);
+            const mk = (t) => { const [h, mi] = (t || '00:00').split(':').map(Number); return new Date(y, mo - 1, d, h, mi, 0); };
+            const ciStart = mk(meeting.checkInStart);
+            const ciClose = mk(meeting.checkInClose);
+            const end = mk(meeting.endTime);
+
+            if (now < ciStart) return { key: 'upcoming', label: 'Sắp diễn ra', bg: '#EEF2FF', color: '#4338CA', live: false };
+            if (now >= ciStart && now < ciClose) return { key: 'checkin', label: 'Đang điểm danh', bg: '#D1FAE5', color: '#047857', live: true };
+            if (now >= ciClose && now < end) return { key: 'ongoing', label: 'Đang họp', bg: '#FEF3C7', color: '#B45309', live: false };
+            return { key: 'ended', label: 'Đã kết thúc', bg: '#F3F4F6', color: '#6B7280', live: false };
+        }
+
+        // Số người dự kiến của cuộc họp (attendees hoặc theo bộ phận)
+        function requiredCountForMeeting(m) {
+            if (Array.isArray(m.attendees) && m.attendees.length > 0) return m.attendees.length;
+            return employeesList.filter(user => {
+                const specs = formatUserSpecialty(user).toUpperCase();
+                const deptKey = (m.department || '').toUpperCase();
+                if (deptKey === 'TG TA') return specs.includes('TG TA');
+                if (deptKey === 'TG T-TV') return specs.includes('TG T-TV');
+                if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return specs.includes('TOÁN TƯ DUY') || specs.includes('TTD');
+                if (deptKey === 'TIẾP TÂN' || deptKey === 'TT') return specs.includes('TIẾP TÂN') || specs.includes('TT');
+                return false;
+            }).length;
+        }
+
+        async function renderMeetingsListView() {
+            const grid = document.getElementById('meetings-list-grid');
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">Đang tải danh sách cuộc họp...</div>';
+
+            try {
+                // Đảm bảo đã có danh sách nhân sự để tính số người dự kiến
+                if (employeesList.length === 0) {
+                    await loadEmployeesAndMeetings();
+                }
+
+                const meetings = await DBService.getMeetingsForMonth(monthStr);
+
+                if (!meetings || meetings.length === 0) {
+                    grid.innerHTML = `
+                        <div style="grid-column: 1/-1; text-align: center; padding: 3.5rem 1rem; color: var(--text-muted);">
+                            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 0.75rem;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <p style="font-weight: 700; font-size: 1.05rem; color: var(--text-main); margin-bottom: 0.25rem;">Chưa có cuộc họp nào trong tháng này</p>
+                            <p style="font-size: 0.9rem;">Nhấn "Tạo Lịch Họp" để lên lịch cuộc họp đầu tiên.</p>
+                        </div>`;
+                    return;
+                }
+
+                // Lấy điểm danh cho từng cuộc họp
+                const attendanceByMeeting = {};
+                await Promise.all(meetings.map(async (m) => {
+                    attendanceByMeeting[m.id] = await DBService.getMeetingAttendance(m.id);
+                }));
+
+                grid.innerHTML = '';
+                meetings.forEach(m => {
+                    const status = getMeetingTimeStatus(m);
+                    const logs = attendanceByMeeting[m.id] || [];
+                    const presentCount = logs.filter(l => l.status === 'Có' || l.status === 'Trễ').length;
+                    const required = requiredCountForMeeting(m);
+                    const pct = required > 0 ? Math.round((presentCount / required) * 100) : 0;
+
+                    let displayTitle = m.title || 'Họp định kỳ';
+                    const mType = m.type || (displayTitle.startsWith('[Online]') ? 'online' : (displayTitle.startsWith('[Trực tiếp]') ? 'direct' : ''));
+                    if (mType === 'online' && displayTitle.startsWith('[Online] ')) displayTitle = displayTitle.substring(9);
+                    else if (mType === 'direct' && displayTitle.startsWith('[Trực tiếp] ')) displayTitle = displayTitle.substring(12);
+
+                    const typeBadge = mType === 'online'
+                        ? '<span class="mc-pill" style="background:#DBEAFE;color:#1D4ED8;">🌐 Online</span>'
+                        : (mType === 'direct' ? '<span class="mc-pill" style="background:#D1FAE5;color:#047857;">📍 Trực tiếp</span>' : '');
+
+                    const deptLabel = m.department === 'CUSTOM' ? 'Tự chọn thành viên' : m.department;
+
+                    const card = document.createElement('div');
+                    card.className = 'meeting-card';
+                    if (status.live) card.style.animation = 'pulse-live 2s infinite';
+
+                    card.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                            <div class="mc-title">${displayTitle}</div>
+                            <span class="mc-pill" style="background:${status.bg}; color:${status.color};">${status.live ? '<span style="width:6px;height:6px;border-radius:50%;background:'+status.color+';display:inline-block;"></span>' : ''}${status.label}</span>
+                        </div>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                            ${typeBadge}
+                            <span class="mc-pill" style="background:#EEF2FF;color:#4338CA;">👥 ${deptLabel}</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:5px;">
+                            <div class="mc-info-row">📅 <span>${formatDateVN(m.date)}</span></div>
+                            <div class="mc-info-row">🕒 <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
+                            <div class="mc-info-row">⏱️ <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
+                        </div>
+                        <div>
+                            <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:5px;">
+                                <span style="color:var(--text-muted);">Đã điểm danh</span>
+                                <span style="font-weight:700; color:#047857;">${presentCount}/${required} người</span>
+                            </div>
+                            <div class="mc-progress-track"><div class="mc-progress-fill" style="width:${pct}%;"></div></div>
+                        </div>
+                        <div class="mc-actions">
+                            <button class="mc-btn" style="background:#EDE9FE; color:#6D28D9;" onclick="viewMeetingAttendanceFromList('${m.id}')">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                Xem điểm danh
+                            </button>
+                            <button class="mc-btn" style="background:#FEE2E2; color:#DC2626; flex:0 0 auto;" onclick="handleDeleteMeeting('${m.id}')" title="Xóa cuộc họp">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            } catch (err) {
+                console.error("Error rendering meetings list:", err);
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 3rem 1rem; color: #EF4444;">Lỗi tải danh sách cuộc họp. Vui lòng thử lại.</div>';
+            }
+        }
+        window.renderMeetingsListView = renderMeetingsListView;
+
+        // Chuyển sang view Thống Kê và mở đúng cuộc họp
+        async function viewMeetingAttendanceFromList(meetingId) {
+            showMeetingsStats();
+            // Chờ danh sách stats tải xong rồi chọn cuộc họp
+            let tries = 0;
+            const trySelect = () => {
+                if (typeof activeMeetingsInStats !== 'undefined' && activeMeetingsInStats.some(m => m.id === meetingId)) {
+                    selectMeetingForStats(meetingId);
+                    const card = document.querySelector(`.meeting-stats-card[data-meeting-id="${meetingId}"]`);
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else if (tries++ < 30) {
+                    setTimeout(trySelect, 100);
+                }
+            };
+            setTimeout(trySelect, 150);
+        }
+        window.viewMeetingAttendanceFromList = viewMeetingAttendanceFromList;
+
+        // Định dạng ngày dd/mm/yyyy
+        function formatDateVN(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.slice(0, 10).split('-');
+            if (parts.length !== 3) return dateStr;
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
         }
 
         // 3. Stats logic
@@ -1688,8 +2068,16 @@
             try {
                 await DBService.deleteMeeting(meetingId);
                 UIService.toast("Đã xóa cuộc họp thành công!", "info");
-                
-                await loadMeetingsStats();
+
+                // Refresh view đang mở
+                const listView = document.getElementById('meetings-list-view');
+                if (listView && listView.style.display === 'block') {
+                    await renderMeetingsListView();
+                }
+                const statsView = document.getElementById('meetings-stats-view');
+                if (statsView && statsView.style.display === 'block') {
+                    await loadMeetingsStats();
+                }
                 await renderMeetingsGrid();
             } catch (err) {
                 alert("Lỗi khi xóa: " + err.message);
