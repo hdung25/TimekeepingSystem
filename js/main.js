@@ -1,4 +1,4 @@
-const APP_VERSION = '20260718-makeup-v2';
+const APP_VERSION = '20260719-makeup-cal-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
