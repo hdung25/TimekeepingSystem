@@ -39,7 +39,7 @@
 
     // 2. Check Role Access checks
     // Admin Only Pages
-    const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html', 'nhat-ky-ca.html'];
+    const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html', 'nhat-ky-ca.html', 'tuong-trinh.html'];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
     const hasAssistantAccess = currentRoles.some(r => r === 'assistant');
