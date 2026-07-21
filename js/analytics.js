@@ -248,6 +248,13 @@ function selectAllStaffCompare(selectAll) {
     updateStaffComparison();
 }
 
+// Trạng thái bộ lọc biểu đồ so sánh
+let _cmpMetric = 'hours';   // 'hours' | 'sessions'
+let _cmpLimit = 15;         // 0 = tất cả
+
+window.setCompareMetric = function (v) { _cmpMetric = v; updateStaffComparison(); };
+window.setCompareLimit = function (v) { _cmpLimit = parseInt(v, 10) || 0; updateStaffComparison(); };
+
 function updateStaffComparison() {
     if (!_cachedMonthData) return;
     const checkboxes = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]:checked');
@@ -468,33 +475,48 @@ function renderWeeklyHours(data) {
 // CHART: Staff Comparison (Multi-Select)
 // ============================
 function renderStaffComparison(allLogs, users) {
-    const comparison = ChartService.getAllStaffComparison(allLogs, users);
-    const filtered = comparison.filter(d => d.hours > 0);
+    const metric = _cmpMetric === 'sessions' ? 'sessions' : 'hours';
+    const unit = metric === 'sessions' ? 'ca' : 'giờ';
+    const axisLabel = metric === 'sessions' ? 'Số ca' : 'Giờ làm';
 
-    if (!filtered.length) { showNoData('chart-staff-comparison'); return; }
+    const comparison = ChartService.getAllStaffComparison(allLogs, users);
+    // Sắp xếp giảm dần theo tiêu chí đang chọn, bỏ người có 0, rồi lấy Top N.
+    let ranked = comparison.filter(d => (d[metric] || 0) > 0).sort((a, b) => (b[metric] || 0) - (a[metric] || 0));
+    if (_cmpLimit > 0) ranked = ranked.slice(0, _cmpLimit);
+
+    if (!ranked.length) { showNoData('chart-staff-comparison'); return; }
+
+    // Chiều cao động để thanh luôn đủ dày, dễ đọc (không nhồi 70 thanh bé xíu).
+    const wrap = document.getElementById('cmp-chart-wrap');
+    if (wrap) wrap.style.height = Math.max(240, ranked.length * 34 + 70) + 'px';
+
+    // Một màu xanh duy nhất; người dẫn đầu đậm hơn để nổi bật (không cầu vồng).
+    const barColors = ranked.map((_, i) => (i === 0 ? '#059669' : '#34D399'));
 
     createChart('chart-staff-comparison', {
         type: 'bar',
         data: {
-            labels: filtered.map(d => d.name),
+            labels: ranked.map(d => d.name),
             datasets: [{
-                label: 'Tổng giờ',
-                data: filtered.map(d => d.hours),
-                backgroundColor: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
+                label: axisLabel,
+                data: ranked.map(d => d[metric]),
+                backgroundColor: barColors,
                 borderWidth: 0,
-                borderRadius: 8,
+                borderRadius: 6,
                 borderSkipped: false,
-                barThickness: Math.max(20, Math.min(40, 300 / Math.max(filtered.length, 1)))
+                barThickness: 22,
+                maxBarThickness: 26
             }]
         },
         options: {
             indexAxis: 'y',
+            maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     ...tooltipStyle,
                     callbacks: {
-                        label: (ctx) => `  ${ctx.raw} giờ  •  ${filtered[ctx.dataIndex].sessions} ca`
+                        label: (ctx) => `  ${ranked[ctx.dataIndex].hours} giờ  •  ${ranked[ctx.dataIndex].sessions} ca`
                     }
                 }
             },
@@ -502,11 +524,11 @@ function renderStaffComparison(allLogs, users) {
                 x: {
                     beginAtZero: true,
                     grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
-                    title: { display: true, text: 'Giờ', font: { size: 11 }, color: '#9CA3AF' }
+                    title: { display: true, text: axisLabel, font: { size: 11 }, color: '#9CA3AF' }
                 },
                 y: {
                     grid: { display: false },
-                    ticks: { font: { size: 12, weight: '500' } }
+                    ticks: { font: { size: 12, weight: '500' }, autoSkip: false }
                 }
             }
         }

@@ -19,8 +19,8 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/auth-guard.js?v=20260721-analytics-v1'></script> <!-- Security Guard -->
-    <script src='js/db-service.js?v=20260721-analytics-v1'></script>
+    <script src='js/auth-guard.js?v=20260721-analytics-v2'></script> <!-- Security Guard -->
+    <script src='js/db-service.js?v=20260721-analytics-v2'></script>
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js'></script>
@@ -432,6 +432,42 @@
                         gap: 1.25rem;
                     }
 
+                    .cmp-controls {
+                        display: flex;
+                        gap: 1rem;
+                        flex-wrap: wrap;
+                        margin-bottom: 1.1rem;
+                    }
+
+                    .cmp-ctl {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 4px;
+                        font-size: 0.72rem;
+                        font-weight: 700;
+                        color: var(--text-muted);
+                        text-transform: uppercase;
+                        letter-spacing: 0.3px;
+                    }
+
+                    .cmp-ctl select {
+                        font-family: inherit;
+                        font-size: 0.9rem;
+                        font-weight: 600;
+                        color: var(--text-color);
+                        padding: 0.5rem 0.75rem;
+                        border: 1.5px solid var(--border-color);
+                        border-radius: 10px;
+                        background: #fff;
+                        cursor: pointer;
+                        min-width: 150px;
+                    }
+
+                    .cmp-ctl select:focus {
+                        outline: none;
+                        border-color: var(--primary-color);
+                    }
+
                     .charts-grid .full-width {
                         grid-column: 1 / -1;
                     }
@@ -634,7 +670,7 @@
                                 chọn</button>
                         </div>
                         <div id="staff-compare-checkboxes" style="
-                            display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem;
+                            display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;
                             max-height: 120px; overflow-y: auto; padding: 0.75rem;
                             background: var(--bg-body); border-radius: 10px; border: 1px solid var(--border-color);
                         ">
@@ -642,7 +678,25 @@
                                 placeholder="Tìm nhân viên..." oninput="filterCompareCheckboxes(this.value)"
                                 style="margin-bottom: 0.25rem; flex: 1 1 100%;">
                         </div>
-                        <div style="position: relative; height: 300px;">
+                        <div class="cmp-controls">
+                            <label class="cmp-ctl">
+                                <span>Sắp xếp theo</span>
+                                <select id="cmp-metric" onchange="setCompareMetric(this.value)">
+                                    <option value="hours">Tổng giờ làm</option>
+                                    <option value="sessions">Số ca</option>
+                                </select>
+                            </label>
+                            <label class="cmp-ctl">
+                                <span>Hiển thị</span>
+                                <select id="cmp-limit" onchange="setCompareLimit(this.value)">
+                                    <option value="10">Top 10</option>
+                                    <option value="15" selected>Top 15</option>
+                                    <option value="20">Top 20</option>
+                                    <option value="0">Tất cả</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div id="cmp-chart-wrap" style="position: relative; height: 480px;">
                             <canvas id="chart-staff-comparison"></canvas>
                         </div>
                     </div>
@@ -654,7 +708,7 @@
     <script src="js/ui-service.js"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/analytics.js"></script> <!-- Charts -->
-    <script src="js/main.js?v=20260721-analytics-v1"></script>
+    <script src="js/main.js?v=20260721-analytics-v2"></script>
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
