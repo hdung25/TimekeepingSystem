@@ -1,4 +1,4 @@
-const APP_VERSION = '20260721-meeting-rsvp-v1';
+const APP_VERSION = '20260721-analytics-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
@@ -2800,7 +2800,7 @@ window.openAnnouncementComposer = async function () {
   </div>
   <div style="padding:0.9rem 1.4rem;border-top:1px solid #E5E7EB;display:flex;gap:0.6rem;justify-content:flex-end;">
     <button onclick="document.getElementById('ann-composer-overlay').remove()" style="padding:0.6rem 1.2rem;background:#F3F4F6;border:none;border-radius:10px;cursor:pointer;font-weight:600;">Hủy</button>
-    <button id="ann-send-btn" onclick="sendAnnouncementNow()" style="padding:0.6rem 1.4rem;background:#6366F1;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:6px;">✈️ Gửi thông báo</button>
+    <button id="ann-send-btn" onclick="sendAnnouncementNow()" style="padding:0.6rem 1.4rem;background:#6366F1;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Gửi thông báo</button>
   </div>
 </div>`;
     document.body.appendChild(overlay);
@@ -2891,7 +2891,7 @@ window.sendAnnouncementNow = async function () {
     } catch (e) {
         console.error('[Announcement] Send error:', e);
         alert('Lỗi gửi thông báo: ' + (e.message || e));
-        if (btn) { btn.disabled = false; btn.innerText = '✈️ Gửi thông báo'; }
+        if (btn) { btn.disabled = false; btn.innerText = 'Gửi thông báo'; }
     }
 };
 

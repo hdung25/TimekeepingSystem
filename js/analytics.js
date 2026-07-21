@@ -124,7 +124,7 @@ async function loadAnalyticsTab() {
 
         const elapsed = Math.round(performance.now() - t0);
         const timing = document.getElementById('analytics-timing');
-        if (timing) timing.textContent = `⚡ ${elapsed}ms`;
+        if (timing) timing.textContent = `Tải trong ${elapsed}ms`;
 
     } catch (e) {
         console.error('[Analytics] Error:', e);
@@ -144,36 +144,35 @@ function renderSummaryCards(stats) {
     const container = document.getElementById('analytics-summary');
     if (!container) return;
 
-    container.innerHTML = `
-        <div class="analytics-stat-card" style="--accent: #3B82F6">
-            <div class="analytics-stat-icon">👥</div>
-            <div>
-                <div class="analytics-stat-value">${stats.totalStaff}</div>
-                <div class="analytics-stat-label">Trợ giảng</div>
+    const svg = (paths) => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+    const IC = {
+        users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+        clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+        layers: '<rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/>',
+        cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+        gauge: '<path d="M12 22a10 10 0 1 0-10-10"/><path d="M12 12l4-2"/>',
+        activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+    };
+    // Chỉ số dẫn xuất (tính từ số có sẵn — không gọi thêm dữ liệu)
+    const avgPerStaff = stats.totalStaff > 0 ? (stats.totalHours / stats.totalStaff).toFixed(1) : '0';
+    const avgSessionsDay = stats.activeDays > 0 ? Math.round(stats.totalSessions / stats.activeDays) : 0;
+
+    const card = (accent, icon, value, label) => `
+        <div class="analytics-stat-card" style="--accent: ${accent}">
+            <div class="analytics-stat-icon" style="color:${accent}">${svg(icon)}</div>
+            <div class="asc-body">
+                <div class="analytics-stat-value">${value}</div>
+                <div class="analytics-stat-label">${label}</div>
             </div>
-        </div>
-        <div class="analytics-stat-card" style="--accent: #10B981">
-            <div class="analytics-stat-icon">⏱️</div>
-            <div>
-                <div class="analytics-stat-value">${stats.totalHours}</div>
-                <div class="analytics-stat-label">Tổng giờ làm</div>
-            </div>
-        </div>
-        <div class="analytics-stat-card" style="--accent: #8B5CF6">
-            <div class="analytics-stat-icon">📋</div>
-            <div>
-                <div class="analytics-stat-value">${stats.totalSessions}</div>
-                <div class="analytics-stat-label">Tổng ca</div>
-            </div>
-        </div>
-        <div class="analytics-stat-card" style="--accent: #F59E0B">
-            <div class="analytics-stat-icon">📅</div>
-            <div>
-                <div class="analytics-stat-value">${stats.activeDays}</div>
-                <div class="analytics-stat-label">Ngày hoạt động</div>
-            </div>
-        </div>
-    `;
+        </div>`;
+
+    container.innerHTML =
+        card('#3B82F6', IC.users, stats.totalStaff, 'Trợ giảng') +
+        card('#10B981', IC.clock, stats.totalHours, 'Tổng giờ làm') +
+        card('#8B5CF6', IC.layers, stats.totalSessions, 'Tổng ca') +
+        card('#F59E0B', IC.cal, stats.activeDays, 'Ngày hoạt động') +
+        card('#0EA5E9', IC.gauge, avgPerStaff, 'TB giờ / người') +
+        card('#EC4899', IC.activity, avgSessionsDay, 'TB ca / ngày');
 }
 
 // ============================
@@ -527,7 +526,7 @@ function showNoData(canvasId) {
     ctx.fillStyle = '#D1D5DB';
     ctx.font = '13px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('📭 Chưa có dữ liệu', w / 2, h / 2 - 8);
+    ctx.fillText('Chưa có dữ liệu', w / 2, h / 2 - 8);
     ctx.fillStyle = '#E5E7EB';
     ctx.font = '11px Inter, sans-serif';
     ctx.fillText('Hãy chấm công để hiển thị biểu đồ', w / 2, h / 2 + 12);
