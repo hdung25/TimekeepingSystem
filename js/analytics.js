@@ -117,10 +117,7 @@ async function loadAnalyticsTab() {
         // === RENDER CHARTS (all from cached data) ===
         renderOverallPunctuality(allLogs, schedules, staffUsers);
         renderStaffComparison(allLogs, users); // Default: all staff
-
-        // Late trend (multi-month, async)
-        const lateTrend = await ChartService.getLateTrend(3);
-        renderLateTrend(lateTrend);
+        renderLeaderboards(allLogs, schedules, staffUsers); // Bảng nổi bật & cần chú ý
 
         const elapsed = Math.round(performance.now() - t0);
         const timing = document.getElementById('analytics-timing');
@@ -251,9 +248,26 @@ function selectAllStaffCompare(selectAll) {
 // Trạng thái bộ lọc biểu đồ so sánh
 let _cmpMetric = 'hours';   // 'hours' | 'sessions'
 let _cmpLimit = 15;         // 0 = tất cả
+let _cmpRole = 'all';       // 'all' | 'gv' | 'tt'
+
+const CMP_ROLE_GROUPS = {
+    gv: ['giao-vien', 'teacher', 'teaching_assistant', 'assistant', 'senior_assistant'],
+    tt: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff']
+};
+
+function cmpUserRoles(u) {
+    return (Array.isArray(u.roles) && u.roles.length > 0) ? u.roles : [u.role || ''];
+}
+
+function cmpUserInRole(u, group) {
+    if (group === 'all') return true;
+    const wanted = CMP_ROLE_GROUPS[group] || [];
+    return cmpUserRoles(u).some(r => wanted.includes(r));
+}
 
 window.setCompareMetric = function (v) { _cmpMetric = v; updateStaffComparison(); };
 window.setCompareLimit = function (v) { _cmpLimit = parseInt(v, 10) || 0; updateStaffComparison(); };
+window.setCompareRole = function (v) { _cmpRole = v; updateStaffComparison(); };
 
 function updateStaffComparison() {
     if (!_cachedMonthData) return;
@@ -479,7 +493,9 @@ function renderStaffComparison(allLogs, users) {
     const unit = metric === 'sessions' ? 'ca' : 'giờ';
     const axisLabel = metric === 'sessions' ? 'Số ca' : 'Giờ làm';
 
-    const comparison = ChartService.getAllStaffComparison(allLogs, users);
+    // Lọc theo vai trò (giáo viên / tiếp tân / tất cả) trước khi tính so sánh.
+    const roleUsers = users.filter(u => cmpUserInRole(u, _cmpRole));
+    const comparison = ChartService.getAllStaffComparison(allLogs, roleUsers);
     // Sắp xếp giảm dần theo tiêu chí đang chọn, bỏ người có 0, rồi lấy Top N.
     let ranked = comparison.filter(d => (d[metric] || 0) > 0).sort((a, b) => (b[metric] || 0) - (a[metric] || 0));
     if (_cmpLimit > 0) ranked = ranked.slice(0, _cmpLimit);
@@ -533,6 +549,42 @@ function renderStaffComparison(allLogs, users) {
             }
         }
     });
+}
+
+// ============================
+// Leaderboards: nổi bật & cần chú ý
+// ============================
+function lbEsc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function renderLbList(id, rows, valFn, warn) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!rows.length) { el.innerHTML = '<li class="lb-empty">Chưa có dữ liệu tháng này.</li>'; return; }
+    el.innerHTML = rows.map((r, i) => `
+        <li class="lb-item${i === 0 ? ' top' : ''}">
+            <span class="lb-rank">${i + 1}</span>
+            <span class="lb-name">${lbEsc(r.name)}</span>
+            <span class="lb-val${warn ? ' warn' : ''}">${valFn(r)}</span>
+        </li>`).join('');
+}
+
+function renderLeaderboards(allLogs, schedules, staffUsers) {
+    const cmp = ChartService.getAllStaffComparison(allLogs, staffUsers); // [{name,hours,sessions}]
+    const hoursByName = {};
+    cmp.forEach(d => { hoursByName[d.name] = d.hours; });
+
+    const rows = staffUsers.map(u => {
+        const p = ChartService.getStaffPunctuality(allLogs, schedules, u.id);
+        const name = u.name || u.username || 'N/A';
+        return { name, hours: hoursByName[name] || 0, late: p.late, absent: p.absent };
+    });
+
+    const diligent = rows.filter(r => r.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 5);
+    const attention = rows.filter(r => (r.late + r.absent) > 0)
+        .sort((a, b) => (b.late + b.absent) - (a.late + a.absent)).slice(0, 5);
+
+    renderLbList('lb-diligent', diligent, r => `${r.hours} giờ`, false);
+    renderLbList('lb-attention', attention, r => `${r.late} trễ · ${r.absent} vắng`, true);
 }
 
 // ============================

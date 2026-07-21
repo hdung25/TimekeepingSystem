@@ -1,4 +1,4 @@
-const APP_VERSION = '20260721-analytics-v2';
+const APP_VERSION = '20260721-analytics-v3';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
