@@ -3128,6 +3128,55 @@ const DBService = {
         }
     },
 
+    // Nhân viên XÁC NHẬN tham gia họp (RSVP) — ghi vào meeting_attendance (staff ghi được).
+    // willAttend=false + lý do -> đánh 'Vắng phép' ngay (trừ khi sau đó vẫn điểm danh thì
+    // selfCheckInMeeting ghi đè 'Có'/'Trễ'). willAttend=true -> chỉ lưu ý định, chưa đổi status;
+    // nếu trước đó lỡ 'Vắng phép' do bấm không đi thì xoá để về trạng thái chờ điểm danh.
+    selfRsvpMeeting: async (meetingId, userId, userName, willAttend, reason) => {
+        try {
+            const ref = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
+            const data = {
+                meetingId, userId, userName,
+                rsvp: willAttend ? 'yes' : 'no',
+                rsvpReason: willAttend ? '' : (reason || ''),
+                rsvpAt: new Date().toISOString(),
+                selfRsvp: true,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            if (!willAttend) {
+                data.status = 'Vắng phép';
+            } else {
+                const cur = await ref.get();
+                if (cur.exists && cur.data().status === 'Vắng phép') {
+                    data.status = firebase.firestore.FieldValue.delete();
+                }
+            }
+            await ref.set(data, { merge: true });
+            return { rsvp: data.rsvp };
+        } catch (error) {
+            console.error("[Meetings] Error self RSVP:", error);
+            throw error;
+        }
+    },
+
+    // Chốt "Vắng không phép": họp đã kết thúc, nhân viên bấm ĐI (rsvp yes) nhưng KHÔNG điểm danh.
+    // Chỉ ghi khi chưa có status hợp lệ (không đè lên 'Có'/'Trễ'/'Vắng phép'/admin sửa).
+    resolveMeetingNoShow: async (meetingId, userId, userName) => {
+        try {
+            const ref = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
+            await ref.set({
+                meetingId, userId, userName,
+                status: 'Vắng không phép',
+                autoNoShow: true,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            return true;
+        } catch (error) {
+            console.error("[Meetings] Error resolve no-show:", error);
+            return false;
+        }
+    },
+
     // GPS cho điểm danh HỌP — họp tổ chức tại Cơ Sở 1, nên ưu tiên kiểm tra đúng CS1;
     // nếu CS1 chưa cấu hình toạ độ thì chấp nhận bất kỳ cơ sở nào (giống chấm công).
     // Chưa cấu hình GPS nào -> trả false (bỏ qua kiểm tra, không chặn điểm danh).

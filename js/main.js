@@ -1,4 +1,4 @@
-const APP_VERSION = '20260721-meeting-gps-v1';
+const APP_VERSION = '20260721-meeting-rsvp-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;

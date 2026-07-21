@@ -139,6 +139,32 @@
             gap: 6px;
         }
 
+        /* RSVP (xác nhận tham gia) */
+        .rsvp-box { margin-top: 4px; padding-top: 0.8rem; border-top: 1px dashed var(--border-color); }
+        .rsvp-q { font-size: 0.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.55rem; }
+        .rsvp-row { display: flex; gap: 8px; }
+        .rsvp-btn { flex: 1; padding: 0.65rem 0.5rem; border-radius: 11px; font-size: 0.85rem; font-weight: 700; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: all .15s; }
+        .rsvp-yes { background: #ECFDF5; color: #047857; border: 1.5px solid #6EE7B7; }
+        .rsvp-yes:hover { background: #059669; color: white; border-color: #059669; }
+        .rsvp-no { background: white; color: #B45309; border: 1.5px solid #FCD34D; }
+        .rsvp-no:hover { background: #FFFBEB; }
+        .rsvp-state { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 600; padding: 0.6rem 0.75rem; border-radius: 11px; }
+        .rsvp-state.yes { background: #ECFDF5; color: #047857; }
+        .rsvp-state.no { background: #FFFBEB; color: #B45309; }
+        .rsvp-change { background: none; border: none; color: var(--text-muted); font-size: 0.76rem; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; margin-top: 0.4rem; padding: 0; }
+        .rsvp-change:hover { color: var(--primary-color); }
+        .mm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+        .mm-modal { background: white; border-radius: 18px; max-width: 420px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; }
+        .mm-modal-h { padding: 1.1rem 1.3rem; border-bottom: 1px solid var(--border-color); font-weight: 800; font-size: 1.05rem; color: var(--text-main); }
+        .mm-modal-b { padding: 1.2rem 1.3rem; }
+        .mm-modal-b textarea { width: 100%; box-sizing: border-box; padding: 0.7rem 0.85rem; border: 1.5px solid var(--border-color); border-radius: 12px; font-size: 0.9rem; font-family: inherit; resize: vertical; outline: none; }
+        .mm-modal-b textarea:focus { border-color: var(--primary-color); }
+        .mm-modal-f { padding: 0 1.3rem 1.2rem; display: flex; gap: 0.6rem; }
+        .mm-modal-f button { flex: 1; padding: 0.75rem; border-radius: 12px; font-weight: 700; font-family: inherit; cursor: pointer; border: none; font-size: 0.9rem; }
+        .mm-cancel { background: #F3F4F6; color: #374151; }
+        .mm-confirm { background: #059669; color: white; }
+        .mm-confirm:hover { background: #047857; }
+
         /* Card thường (sắp tới / đã qua) */
         .meet-card {
             background: white;
@@ -211,7 +237,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260721-meeting-gps-v1'></script>
+    <script src='js/db-service.js?v=20260721-meeting-rsvp-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -287,7 +313,7 @@
     </div>
 
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260721-meeting-gps-v1"></script>
+    <script src="js/main.js?v=20260721-meeting-rsvp-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
@@ -311,6 +337,7 @@
             globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
             pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
             hourglass: '<path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4A2 2 0 0 0 7 17.8V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4A2 2 0 0 0 17 6.2V2"/>',
+            check: '<polyline points="20 6 9 17 4 12"/>',
         };
 
         function mmUpdateMonthLabel() {
@@ -423,6 +450,20 @@
             todayGrid.innerHTML = '';
             upcomingGrid.innerHTML = '';
             pastGrid.innerHTML = '';
+
+            // CHỐT VẮNG KHÔNG PHÉP: họp đã kết thúc, đã bấm ĐI (rsvp yes) nhưng không điểm danh.
+            // Ghi 1 lần vào meeting_attendance để admin thấy; lần sau status đã là VKP nên bỏ qua.
+            meetings.forEach(m => {
+                const raw = statusMap[m.id];
+                if (!raw) return;
+                const end = mmMk(m.date, m.endTime);
+                const attended = mmIsValidCheckIn(raw, m) && (raw.status === 'Có' || raw.status === 'Trễ');
+                const alreadyResolved = ['Vắng phép', 'Vắng đột xuất', 'Vắng không phép'].includes(raw.status) || raw.adminOverride;
+                if (now > end && raw.rsvp === 'yes' && !attended && !alreadyResolved) {
+                    raw.status = 'Vắng không phép'; // cập nhật local để hiển thị/stat ngay
+                    DBService.resolveMeetingNoShow(m.id, mmUserId, raw.userName || '').catch(() => {});
+                }
+            });
 
             // Stats — chỉ tính bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh)
             let present = 0, late = 0, absentOrPending = 0;
@@ -577,10 +618,9 @@
                 <div class="meet-row">${svgIcon(ICON.cal)} <span>${mmFormatDate(m.date)}</span></div>
                 <div class="meet-row">${svgIcon(ICON.clock)} <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
                 <div class="meet-row">${svgIcon(ICON.timer)} <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
-                ${(kind === 'upcoming' && !validLog) ? `
-                <button class="meet-preview-btn" disabled>
-                    ${svgIcon(ICON.timer)} Điểm danh mở lúc ${m.checkInStart} · ${mmFormatDate(m.date)}
-                </button>` : ''}
+                ${kind === 'upcoming' ? `
+                ${!validLog ? `<button class="meet-preview-btn" disabled>${svgIcon(ICON.timer)} Điểm danh mở lúc ${m.checkInStart} · ${mmFormatDate(m.date)}</button>` : ''}
+                ${mmRsvpArea(m, log)}` : ''}
             `;
             return card;
         }
@@ -601,6 +641,85 @@
                 el.innerHTML = `${svgIcon(ICON.hourglass)} ${prefix}${txt}`;
             });
         }
+
+        // Khu vực RSVP: hiển thị theo trạng thái xác nhận & điểm danh hiện tại.
+        // Đã điểm danh (Có/Trễ) -> không cần RSVP. Chưa -> cho xác nhận Đi / Báo vắng.
+        function mmRsvpArea(m, log) {
+            const attended = log && (log.status === 'Có' || log.status === 'Trễ') && mmIsValidCheckIn(log, m);
+            if (attended) return '';
+            const rsvp = log && log.rsvp;
+            if (rsvp === 'yes') {
+                return `<div class="rsvp-box">
+                    <div class="rsvp-state yes">${svgIcon(ICON.check || '')}<span>Bạn đã xác nhận THAM GIA cuộc họp</span></div>
+                    <button class="rsvp-change" onclick="mmRsvpNo('${m.id}')">Đổi sang báo vắng</button>
+                </div>`;
+            }
+            if (rsvp === 'no') {
+                const reason = (log && log.rsvpReason) ? log.rsvpReason : '';
+                return `<div class="rsvp-box">
+                    <div class="rsvp-state no">${svgIcon(ICON.timer)}<span>Bạn đã BÁO VẮNG (có phép)</span></div>
+                    ${reason ? `<div style="font-size:0.76rem;color:var(--text-muted);margin-top:0.35rem;">Lý do: ${mmEsc(reason)}</div>` : ''}
+                    <button class="rsvp-change" onclick="mmRsvpYes('${m.id}', null)">Đổi sang xác nhận tham gia</button>
+                </div>`;
+            }
+            return `<div class="rsvp-box">
+                <div class="rsvp-q">Bạn có tham gia cuộc họp này không?</div>
+                <div class="rsvp-row">
+                    <button class="rsvp-btn rsvp-yes" onclick="mmRsvpYes('${m.id}', this)">${svgIcon(ICON.users)} Xác nhận tham gia</button>
+                    <button class="rsvp-btn rsvp-no" onclick="mmRsvpNo('${m.id}')">Báo vắng</button>
+                </div>
+            </div>`;
+        }
+
+        function mmEsc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        window.mmRsvpYes = async function(meetingId, btn) {
+            if (btn) { btn.disabled = true; btn.innerHTML = 'Đang lưu...'; }
+            try {
+                const userName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Nhân viên';
+                await DBService.selfRsvpMeeting(meetingId, mmUserId, userName, true, '');
+                if (typeof UIService !== 'undefined' && UIService.toast) UIService.toast('Đã xác nhận tham gia. Nhớ điểm danh khi tới giờ họp nhé!', 'success');
+                await mmLoad();
+            } catch (err) { console.error(err); alert('Lỗi: ' + err.message); if (btn) btn.disabled = false; }
+        };
+
+        window.mmRsvpNo = function(meetingId) {
+            const old = document.getElementById('mm-rsvp-modal');
+            if (old) old.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'mm-rsvp-modal';
+            overlay.className = 'mm-overlay';
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+            overlay.innerHTML = `
+                <div class="mm-modal">
+                    <div class="mm-modal-h">Báo vắng cuộc họp</div>
+                    <div class="mm-modal-b">
+                        <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.6rem;line-height:1.5;">
+                            Vui lòng ghi rõ lý do không tham gia. Yêu cầu sẽ được ghi nhận là <strong style="color:#4338CA;">Vắng có phép</strong>.
+                        </div>
+                        <textarea id="mm-rsvp-reason" rows="3" placeholder="VD: Bận việc gia đình, đi công tác..."></textarea>
+                    </div>
+                    <div class="mm-modal-f">
+                        <button class="mm-cancel" onclick="document.getElementById('mm-rsvp-modal').remove()">Hủy</button>
+                        <button class="mm-confirm" onclick="mmRsvpNoConfirm('${meetingId}', this)">Xác nhận báo vắng</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            setTimeout(() => { const t = document.getElementById('mm-rsvp-reason'); if (t) t.focus(); }, 50);
+        };
+
+        window.mmRsvpNoConfirm = async function(meetingId, btn) {
+            const reason = (document.getElementById('mm-rsvp-reason').value || '').trim();
+            if (!reason) { alert('Vui lòng ghi rõ lý do vắng.'); return; }
+            if (btn) { btn.disabled = true; btn.innerText = 'Đang lưu...'; }
+            try {
+                const userName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Nhân viên';
+                await DBService.selfRsvpMeeting(meetingId, mmUserId, userName, false, reason);
+                const modal = document.getElementById('mm-rsvp-modal'); if (modal) modal.remove();
+                if (typeof UIService !== 'undefined' && UIService.toast) UIService.toast('Đã ghi nhận báo vắng (có phép).', 'success');
+                await mmLoad();
+            } catch (err) { console.error(err); alert('Lỗi: ' + err.message); if (btn) { btn.disabled = false; btn.innerText = 'Xác nhận báo vắng'; } }
+        };
 
         window.mmCheckIn = async function(meetingId, btn) {
             if (btn) { btn.disabled = true; btn.innerHTML = 'Đang điểm danh...'; }
