@@ -3128,6 +3128,34 @@ const DBService = {
         }
     },
 
+    // GPS cho điểm danh HỌP — họp tổ chức tại Cơ Sở 1, nên ưu tiên kiểm tra đúng CS1;
+    // nếu CS1 chưa cấu hình toạ độ thì chấp nhận bất kỳ cơ sở nào (giống chấm công).
+    // Chưa cấu hình GPS nào -> trả false (bỏ qua kiểm tra, không chặn điểm danh).
+    assertMeetingLocationAllowed: async () => {
+        const settings = await DBService.getSystemSettings();
+        const campuses = getConfiguredGPSCampuses(settings);
+        if (campuses.length === 0) return false;
+        let coords;
+        try {
+            coords = await getBrowserLocation();
+        } catch (e) {
+            console.error("Location meeting check error:", e);
+            // Giữ nguyên cách nói "IP mạng/Wifi" như chấm công — không lộ là GPS.
+            throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.");
+        }
+        const cs1 = campuses.find(c => c.name === 'CS1');
+        const targets = cs1 ? [cs1] : campuses;
+        const ok = targets.some(campus => {
+            const dist = calculateDistanceInMeters(coords.latitude, coords.longitude, campus.lat, campus.lng);
+            const allowedRadius = campus.radius + Math.min(coords.accuracy || 0, 250);
+            return dist <= allowedRadius;
+        });
+        if (!ok) {
+            throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.");
+        }
+        return true;
+    },
+
     // Lấy trạng thái điểm danh của 1 user trong 1 cuộc họp (đọc trực tiếp theo id ghép)
     getMyMeetingStatus: async (meetingId, userId) => {
         try {
