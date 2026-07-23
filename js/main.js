@@ -1,4 +1,4 @@
-const APP_VERSION = '20260725-hour-cap-v1';
+const APP_VERSION = '20260725-hour-cap-v2';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;

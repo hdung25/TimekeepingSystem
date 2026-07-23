@@ -1782,6 +1782,21 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     }
                 }
 
+                // TRẦN AN TOÀN cho ca ngoài lịch / ca thêm (chống tính dư do giờ rộng bất thường):
+                //  - Có ca gần trong lịch → không quá giờ ca gần + 60p.
+                //  - Không có ca gần → chặn ở mức hợp lý tối đa 12h/ca (chắc chắn là dữ liệu lỗi).
+                // Tăng ca duyệt & thưởng 10p cộng RIÊNG bên dưới.
+                let _maxUnmatched;
+                if (USE_SCHED && nearestSchedStart && nearestSchedEnd) {
+                    _maxUnmatched = (nearestSchedEnd - nearestSchedStart) / 60000 + 60;
+                } else {
+                    _maxUnmatched = 12 * 60;
+                }
+                if (duration > _maxUnmatched) {
+                    duration = Math.max(0, Math.round(_maxUnmatched));
+                    tooltip += ` | Đã giới hạn (chống tính dư)`;
+                }
+
                 // BONUS 10P cho unmatched session
                 b10DataU = bonus10Map[String(s.id)];
                 b10StatusU = b10DataU ? b10DataU.status : null;
