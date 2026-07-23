@@ -193,26 +193,47 @@ function populateCompareCheckboxes(staffUsers) {
     const container = document.getElementById('staff-compare-checkboxes');
     if (!container) return;
 
-    // Preserve search input if it exists
-    const searchInput = container.querySelector('#compare-search');
-    const searchHTML = searchInput ? searchInput.outerHTML : '';
-
-    container.innerHTML = searchHTML + staffUsers
+    // Ô tìm kiếm nay nằm NGOÀI vùng cuộn (không bị trôi mất) nên chỉ render danh sách.
+    container.innerHTML = staffUsers
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
         .map(u => `
-            <label class="compare-staff-label" style="
-                display: flex; align-items: center; gap: 0.4rem;
-                padding: 0.35rem 0.7rem; border-radius: 8px;
-                background: #fff; border: 1px solid var(--border-color);
-                cursor: pointer; font-size: 0.82rem; color: var(--text-color);
-                transition: all 0.2s; user-select: none;
-            " onmouseover="this.style.borderColor='var(--primary-color)'" onmouseout="this.style.borderColor='var(--border-color)'">
-                <input type="checkbox" value="${u.id}" checked
-                    onchange="updateStaffComparison()"
-                    style="accent-color: var(--primary-color); cursor: pointer;">
-                ${u.name || u.username || u.id}
+            <label class="compare-staff-label">
+                <input type="checkbox" value="${u.id}" checked onchange="updateStaffComparison()">
+                <span>${u.name || u.username || u.id}</span>
             </label>
         `).join('');
+
+    updateCompareCount();
+}
+
+// Thu gọn / mở danh sách chọn nhân viên
+window.toggleComparePicker = function () {
+    const panel = document.getElementById('cmp-panel');
+    const btn = document.getElementById('cmp-toggle');
+    if (!panel) return;
+    const opening = panel.style.display === 'none';
+    panel.style.display = opening ? 'block' : 'none';
+    if (btn) {
+        const label = opening ? 'Đóng danh sách' : 'Chọn nhân viên';
+        const icon = btn.querySelector('svg');
+        btn.textContent = ' ' + label;
+        if (icon) btn.prepend(icon);
+    }
+    if (opening) {
+        const s = document.getElementById('compare-search');
+        if (s) setTimeout(() => s.focus(), 50);
+    }
+};
+
+// Hiển thị tóm tắt "đang so sánh bao nhiêu người"
+function updateCompareCount() {
+    const all = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]');
+    const sel = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]:checked');
+    const el = document.getElementById('cmp-count');
+    if (!el) return;
+    el.textContent = (all.length > 0 && sel.length === all.length)
+        ? `tất cả ${all.length} nhân viên`
+        : `${sel.length} / ${all.length} nhân viên`;
 }
 
 // Search/filter analytics staff select
@@ -271,6 +292,7 @@ window.setCompareRole = function (v) { _cmpRole = v; updateStaffComparison(); };
 
 function updateStaffComparison() {
     if (!_cachedMonthData) return;
+    updateCompareCount();
     const checkboxes = document.querySelectorAll('#staff-compare-checkboxes input[type="checkbox"]:checked');
     const selectedIds = new Set([...checkboxes].map(cb => cb.value));
 

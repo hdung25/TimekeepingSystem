@@ -19,8 +19,8 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/auth-guard.js?v=20260722-meeting-card-v2'></script> <!-- Security Guard -->
-    <script src='js/db-service.js?v=20260722-meeting-card-v2'></script>
+    <script src='js/auth-guard.js?v=20260722-cmp-picker-v1'></script> <!-- Security Guard -->
+    <script src='js/db-service.js?v=20260722-cmp-picker-v1'></script>
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js'></script>
@@ -497,6 +497,128 @@
 
                     @media (max-width: 600px) { .lb-wrap { grid-template-columns: 1fr; gap: 1rem; } }
 
+                    /* Khối chọn nhân viên so sánh (thu gọn mặc định) */
+                    .cmp-picker { margin-bottom: 1.1rem; }
+
+                    .cmp-picker-bar {
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 1rem;
+                        flex-wrap: wrap;
+                        padding: 0.7rem 0.9rem;
+                        background: var(--bg-body);
+                        border: 1px solid var(--border-color);
+                        border-radius: 12px;
+                    }
+
+                    .cmp-sum { font-size: 0.85rem; color: var(--text-muted); }
+                    .cmp-sum strong { color: var(--text-color); font-weight: 700; }
+
+                    .cmp-toggle-btn {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        padding: 0.5rem 0.95rem;
+                        border-radius: 10px;
+                        border: 1.5px solid var(--primary-color);
+                        background: #fff;
+                        color: var(--primary-color);
+                        font-family: inherit;
+                        font-size: 0.85rem;
+                        font-weight: 700;
+                        cursor: pointer;
+                        transition: all 0.15s;
+                    }
+
+                    .cmp-toggle-btn:hover { background: var(--primary-color); color: #fff; }
+
+                    .cmp-panel {
+                        margin-top: 0.7rem;
+                        padding: 0.9rem;
+                        background: #fff;
+                        border: 1px solid var(--border-color);
+                        border-radius: 12px;
+                    }
+
+                    .cmp-tools {
+                        display: flex;
+                        gap: 0.6rem;
+                        align-items: center;
+                        margin-bottom: 0.75rem;
+                    }
+
+                    .cmp-tools input {
+                        flex: 1;
+                        min-width: 0;
+                        padding: 0.55rem 0.8rem;
+                        border: 1.5px solid var(--border-color);
+                        border-radius: 10px;
+                        font-family: inherit;
+                        font-size: 0.88rem;
+                        outline: none;
+                    }
+
+                    .cmp-tools input:focus { border-color: var(--primary-color); }
+
+                    .cmp-tool-btns { display: flex; gap: 0.4rem; flex-shrink: 0; }
+
+                    .cmp-tool-btns button {
+                        padding: 0.5rem 0.8rem;
+                        border-radius: 9px;
+                        border: 1.5px solid var(--border-color);
+                        background: #fff;
+                        color: var(--text-muted);
+                        font-family: inherit;
+                        font-size: 0.8rem;
+                        font-weight: 700;
+                        cursor: pointer;
+                        white-space: nowrap;
+                    }
+
+                    .cmp-tool-btns button:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
+                    .cmp-list {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+                        gap: 8px;
+                        max-height: 300px;
+                        overflow-y: auto;
+                        padding: 0.2rem;
+                    }
+
+                    .compare-staff-label {
+                        display: flex;
+                        align-items: center;
+                        gap: 9px;
+                        min-height: 42px;
+                        padding: 0.5rem 0.7rem;
+                        border-radius: 10px;
+                        background: #fff;
+                        border: 1.5px solid var(--border-color);
+                        cursor: pointer;
+                        font-size: 0.85rem;
+                        color: var(--text-color);
+                        user-select: none;
+                        transition: all 0.15s;
+                    }
+
+                    .compare-staff-label:hover { border-color: var(--primary-color); background: #F0FDF4; }
+
+                    .compare-staff-label input {
+                        accent-color: var(--primary-color);
+                        width: 17px;
+                        height: 17px;
+                        cursor: pointer;
+                        flex-shrink: 0;
+                    }
+
+                    .compare-staff-label span {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+
                     .cmp-controls {
                         display: flex;
                         gap: 1rem;
@@ -631,16 +753,23 @@
                             gap: 1rem;
                         }
 
-                        #staff-compare-checkboxes {
-                            max-height: 100px !important;
-                            padding: 0.5rem !important;
-                            gap: 0.4rem !important;
+                        .cmp-list {
+                            grid-template-columns: 1fr;
+                            max-height: 240px;
                         }
 
-                        #staff-compare-checkboxes label {
-                            font-size: 0.75rem !important;
-                            padding: 0.3rem 0.5rem !important;
+                        .cmp-picker-bar {
+                            flex-direction: column;
+                            align-items: stretch;
+                            gap: 0.6rem;
                         }
+
+                        .cmp-toggle-btn { width: 100%; justify-content: center; }
+
+                        .cmp-tools { flex-direction: column; align-items: stretch; }
+                        .cmp-tool-btns { display: grid; grid-template-columns: 1fr 1fr; }
+                        .cmp-ctl select { min-width: 0; width: 100%; }
+                        .cmp-ctl { flex: 1 1 100%; }
                     }
 
                     @media (max-width: 480px) {
@@ -730,25 +859,26 @@
                     <!-- Row 3: Staff Comparison with Multi-Select (BOTTOM) -->
                     <div class="chart-panel full-width">
                         <h3><span class="chart-icon"><i data-lucide="bar-chart-2"></i></span> So Sánh Nhân Viên</h3>
-                        <div
-                            style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                            <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">Chọn nhân viên để so
-                                sánh:</p>
-                            <button onclick="selectAllStaffCompare(true)" class="btn"
-                                style="font-size: 0.78rem; padding: 0.3rem 0.75rem; border-radius: 8px;">Chọn tất
-                                cả</button>
-                            <button onclick="selectAllStaffCompare(false)" class="btn"
-                                style="font-size: 0.78rem; padding: 0.3rem 0.75rem; border-radius: 8px;">Bỏ
-                                chọn</button>
-                        </div>
-                        <div id="staff-compare-checkboxes" style="
-                            display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;
-                            max-height: 120px; overflow-y: auto; padding: 0.75rem;
-                            background: var(--bg-body); border-radius: 10px; border: 1px solid var(--border-color);
-                        ">
-                            <input type="text" class="list-search-input" id="compare-search"
-                                placeholder="Tìm nhân viên..." oninput="filterCompareCheckboxes(this.value)"
-                                style="margin-bottom: 0.25rem; flex: 1 1 100%;">
+                        <div class="cmp-picker">
+                            <div class="cmp-picker-bar">
+                                <span class="cmp-sum">Đang so sánh: <strong id="cmp-count">--</strong></span>
+                                <button type="button" class="cmp-toggle-btn" id="cmp-toggle"
+                                    onclick="toggleComparePicker()">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+                                    Chọn nhân viên
+                                </button>
+                            </div>
+                            <div id="cmp-panel" class="cmp-panel" style="display: none;">
+                                <div class="cmp-tools">
+                                    <input type="text" id="compare-search" placeholder="Tìm nhân viên..."
+                                        oninput="filterCompareCheckboxes(this.value)">
+                                    <div class="cmp-tool-btns">
+                                        <button type="button" onclick="selectAllStaffCompare(true)">Chọn tất cả</button>
+                                        <button type="button" onclick="selectAllStaffCompare(false)">Bỏ chọn</button>
+                                    </div>
+                                </div>
+                                <div id="staff-compare-checkboxes" class="cmp-list"></div>
+                            </div>
                         </div>
                         <div class="cmp-controls">
                             <label class="cmp-ctl">
@@ -788,7 +918,7 @@
     <script src="js/ui-service.js"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/analytics.js"></script> <!-- Charts -->
-    <script src="js/main.js?v=20260722-meeting-card-v2"></script>
+    <script src="js/main.js?v=20260722-cmp-picker-v1"></script>
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
