@@ -1,4 +1,4 @@
-const APP_VERSION = '20260721-analytics-v3';
+const APP_VERSION = '20260722-meeting-network-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;

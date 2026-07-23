@@ -237,7 +237,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260721-analytics-v3'></script>
+    <script src='js/db-service.js?v=20260722-meeting-network-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -313,7 +313,7 @@
     </div>
 
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260721-analytics-v3"></script>
+    <script src="js/main.js?v=20260722-meeting-network-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
@@ -338,6 +338,7 @@
             pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
             hourglass: '<path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4A2 2 0 0 0 7 17.8V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4A2 2 0 0 0 17 6.2V2"/>',
             check: '<polyline points="20 6 9 17 4 12"/>',
+            wifi: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
         };
 
         function mmUpdateMonthLabel() {
@@ -580,6 +581,7 @@
                 <div style="display:flex; gap:6px; flex-wrap:wrap; position:relative; z-index:1;">
                     ${mmTypeBadge(m).replace('background:#DBEAFE;color:#1D4ED8;','background:rgba(255,255,255,0.2);color:white;').replace('background:#D1FAE5;color:#047857;','background:rgba(255,255,255,0.2);color:white;')}
                     <span class="meet-pill" style="background:rgba(255,255,255,0.2);color:white;">${svgIcon(ICON.users)} ${mmDeptLabel(m)}</span>
+                    <span class="meet-pill" style="background:rgba(255,255,255,0.2);color:white;">${svgIcon(ICON.wifi)} ${m.requireNetwork !== false ? 'Cần đúng IP mạng' : 'Điểm danh từ xa'}</span>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; gap:1.25rem; font-size:0.85rem; opacity:0.95; position:relative; z-index:1;">
                     <span style="display:inline-flex; align-items:center; gap:5px;">${svgIcon(ICON.clock)} Họp: <strong>${m.startTime} - ${m.endTime}</strong></span>
@@ -614,6 +616,9 @@
                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
                     ${mmTypeBadge(m)}
                     <span class="meet-pill" style="background:#EEF2FF;color:#4338CA;">${svgIcon(ICON.users)} ${mmDeptLabel(m)}</span>
+                    ${m.requireNetwork !== false
+                        ? `<span class="meet-pill" style="background:#EFF6FF;color:#1D4ED8;" title="Phải kết nối đúng Wifi của cơ sở mới điểm danh được">${svgIcon(ICON.wifi)} Cần đúng IP mạng</span>`
+                        : `<span class="meet-pill" style="background:#F3F4F6;color:#6B7280;" title="Có thể điểm danh từ xa">${svgIcon(ICON.wifi)} Điểm danh từ xa</span>`}
                 </div>
                 <div class="meet-row">${svgIcon(ICON.cal)} <span>${mmFormatDate(m.date)}</span></div>
                 <div class="meet-row">${svgIcon(ICON.clock)} <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
@@ -743,14 +748,18 @@
                 if (now < ciStart) { alert('Chưa tới giờ điểm danh.'); if (btn) btn.disabled = false; return; }
                 if (now > end) { alert('Cuộc họp đã kết thúc, không thể điểm danh.'); if (btn) btn.disabled = false; return; }
 
-                // XÁC MINH VỊ TRÍ (giống chấm công) — nói là "IP mạng/Wifi", không lộ GPS
-                if (btn) btn.innerHTML = 'Đang kiểm tra mạng...';
-                try {
-                    await DBService.assertMeetingLocationAllowed();
-                } catch (gpsErr) {
-                    alert(gpsErr.message || 'IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.');
-                    if (btn) { btn.disabled = false; btn.innerHTML = 'Điểm danh ngay'; }
-                    return;
+                // XÁC MINH VỊ TRÍ (giống chấm công) — nói là "IP mạng/Wifi", không lộ GPS.
+                // Chỉ kiểm tra khi admin BẬT "Bắt buộc đúng IP mạng" lúc tạo họp.
+                // Họp cũ chưa có trường này (undefined) -> mặc định VẪN kiểm tra cho an toàn.
+                if (mObj.requireNetwork !== false) {
+                    if (btn) btn.innerHTML = 'Đang kiểm tra mạng...';
+                    try {
+                        await DBService.assertMeetingLocationAllowed();
+                    } catch (gpsErr) {
+                        alert(gpsErr.message || 'IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.');
+                        if (btn) { btn.disabled = false; btn.innerHTML = 'Điểm danh ngay'; }
+                        return;
+                    }
                 }
                 if (btn) btn.innerHTML = 'Đang điểm danh...';
 

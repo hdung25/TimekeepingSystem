@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v84-analytics3';
+const CACHE_NAME = 'tdt-chamcong-v85-meeting-network';
 
 const STATIC_ASSETS = [
     '/',
@@ -19,14 +19,14 @@ const STATIC_ASSETS = [
     '/css/style.css?v=20260705-mobile-schedule-actions',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260717-gv-absence-v1',
-    '/js/main.js?v=20260721-analytics-v3',
+    '/js/main.js?v=20260722-meeting-network-v1',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260721-analytics-v3',
+    '/js/db-service.js?v=20260722-meeting-network-v1',
     '/js/report.js?v=20260717-gv-absence-v1',
     '/js/evaluation-service.js?v=20260718-admin-truth-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js',
-    '/js/auth-guard.js?v=20260721-analytics-v3',
+    '/js/auth-guard.js?v=20260722-meeting-network-v1',
     '/js/chart-service.js',
     '/js/analytics.js',
     '/js/schedule.js?v=20260717-gv-absence-v1',

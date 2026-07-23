@@ -270,7 +270,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260721-analytics-v3'></script>
+    <script src='js/db-service.js?v=20260722-meeting-network-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -628,6 +628,14 @@
                                             <span style="display: block; font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">Đánh dấu toàn bộ người tham dự là Có ngay khi tạo. Dùng khi họp trực tiếp không cần bấm.</span>
                                         </span>
                                     </label>
+
+                                    <label id="require-network-box" style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.6rem 0.75rem; border: 1.5px solid #BFDBFE; background: #EFF6FF; border-radius: 8px; cursor: pointer; margin-top: 0.2rem;">
+                                        <input type="checkbox" id="meeting-require-network" checked style="margin-top: 2px; width: 16px; height: 16px; accent-color: #2563EB; cursor: pointer;">
+                                        <span>
+                                            <span style="display: block; font-weight: 700; font-size: 0.85rem; color: #1D4ED8;">Bắt buộc đúng IP mạng của cơ sở</span>
+                                            <span style="display: block; font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">Nhân viên chỉ điểm danh được khi đang kết nối mạng tại cơ sở. Bỏ chọn nếu họp online hoặc cho phép điểm danh từ xa.</span>
+                                        </span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -677,7 +685,7 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260721-analytics-v3"></script>
+    <script src="js/main.js?v=20260722-meeting-network-v1"></script>
     <script src="js/auth-helper.js"></script>
     
     <script>
@@ -1489,6 +1497,10 @@
             if (selfRadio) selfRadio.checked = true;
             updateAttendanceModeStyles();
 
+            // Mặc định: bắt buộc đúng IP mạng cơ sở
+            const reqNet = document.getElementById('meeting-require-network');
+            if (reqNet) reqNet.checked = true;
+
             document.getElementById('create-meeting-modal').style.display = 'flex';
         }
         window.openCreateMeetingModal = openCreateMeetingModal;
@@ -1534,6 +1546,9 @@
                 // Online vs Direct: prefix title
                 const formattedTitle = meetingType === 'online' ? `[Online] ${title}` : `[Trực tiếp] ${title}`;
 
+                // Bắt buộc đúng IP mạng cơ sở khi nhân viên điểm danh (bỏ chọn = cho điểm danh từ xa)
+                const requireNetwork = !!document.getElementById('meeting-require-network')?.checked;
+
                 const meetingData = {
                     title: formattedTitle,
                     type: meetingType,
@@ -1543,6 +1558,7 @@
                     endTime,
                     checkInStart,
                     checkInClose,
+                    requireNetwork,
                     attendees
                 };
 
