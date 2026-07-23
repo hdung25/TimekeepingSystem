@@ -828,6 +828,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += _subjectLabel ? ` - Lớp: ${_subjectLabel}` : ' - Bấm để chọn vai trò tính lương';
                     }
 
+                    // TRẦN AN TOÀN cho 1 ca dạy: không tính quá GIỜ LỊCH + biên 60 phút.
+                    // Chặn ca admin sửa giờ rộng bất thường / dữ liệu lỗi (VD 07:00–21:00 cho lớp 2h)
+                    // làm phồng tổng giờ; vẫn cho phép chạy trội hợp lý (VD lớp 1h30, làm 1h40).
+                    // Giờ lịch đã tính theo cả chuỗi lớp GỘP. Tăng ca duyệt & thưởng 10p cộng RIÊNG bên dưới.
+                    const _maxTeachingMinutes = schedDuration + 60;
+                    if (minutes > _maxTeachingMinutes) {
+                        minutes = Math.max(0, Math.round(_maxTeachingMinutes));
+                        tooltip += ` | Đã giới hạn theo giờ lịch (chống tính dư)`;
+                    }
+
                     // BONUS 10P (từ request được duyệt)
                     if (b10StatusT === 'approved' || matchedSession.bonus10) {
                         minutes += 10;
@@ -1299,6 +1309,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         const overMins = Math.round((actualEnd - schedEnd) / 60000);
                         tooltip += ` | Ra muộn ${overMins}p`;
                     }
+                }
+
+                // TRẦN AN TOÀN cho ca tiếp tân: không tính quá giờ lịch ca (đã theo chuỗi gộp) + biên 60p.
+                // Chặn ca admin sửa giờ rộng bất thường làm phồng tổng giờ. Tăng ca duyệt cộng RIÊNG bên dưới.
+                const _maxRecepMinutes = schedDuration + 60;
+                if (minutes > _maxRecepMinutes) {
+                    minutes = Math.max(0, Math.round(_maxRecepMinutes));
+                    tooltip += ` | Đã giới hạn theo giờ lịch (chống tính dư)`;
                 }
 
                 // Force receptionist role details on the cloned chip session data (Issue 2)
