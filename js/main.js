@@ -1,4 +1,4 @@
-const APP_VERSION = '20260722-meeting-network-v1';
+const APP_VERSION = '20260722-meeting-card-v2';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;

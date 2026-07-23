@@ -165,20 +165,60 @@
         .mm-confirm { background: #059669; color: white; }
         .mm-confirm:hover { background: #047857; }
 
-        /* Card thường (sắp tới / đã qua) */
+        /* Card thường (sắp tới / đã qua) — đồng bộ ngôn ngữ với hero card */
         .meet-card {
+            position: relative;
+            overflow: hidden;
             background: white;
             border: 1px solid var(--border-color);
-            border-radius: 14px;
-            padding: 1.15rem;
-            box-shadow: var(--shadow-sm);
+            border-left: 4px solid #7C3AED;
+            border-radius: 18px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
             display: flex;
             flex-direction: column;
-            gap: 0.7rem;
-            border-left: 4px solid #7C3AED;
+            gap: 1rem;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
         }
 
+        .meet-card::before {
+            content: '';
+            position: absolute;
+            top: -40px;
+            right: -30px;
+            width: 160px;
+            height: 160px;
+            background: rgba(124, 58, 237, 0.06);
+            border-radius: 50%;
+        }
+
+        .meet-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 32px rgba(17, 24, 39, 0.1);
+        }
+
+        .meet-card>* { position: relative; z-index: 1; }
+
         .meet-card.past { border-left-color: #D1D5DB; }
+        .meet-card.past::before { background: rgba(107, 114, 128, 0.06); }
+
+        .meet-kicker {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #7C3AED;
+        }
+
+        .meet-card.past .meet-kicker { color: var(--text-muted); }
+
+        .meet-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            margin-top: 4px;
+            line-height: 1.3;
+            color: var(--text-main);
+        }
 
         .meet-pill {
             display: inline-flex;
@@ -227,6 +267,9 @@
 
         @media (max-width: 640px) {
             .mymeet-grid { grid-template-columns: 1fr; }
+            .meet-card { padding: 1.15rem; border-radius: 16px; gap: 0.85rem; }
+            .hero-card { padding: 1.25rem; border-radius: 16px; }
+            .meet-title { font-size: 1.1rem; }
         }
     </style>
 
@@ -237,7 +280,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260722-meeting-network-v1'></script>
+    <script src='js/db-service.js?v=20260722-meeting-card-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -313,7 +356,7 @@
     </div>
 
     <script src="js/ui-service.js"></script>
-    <script src="js/main.js?v=20260722-meeting-network-v1"></script>
+    <script src="js/main.js?v=20260722-meeting-card-v2"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
@@ -609,8 +652,11 @@
             }
 
             card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-                    <div style="font-weight:700; font-size:1rem; color:var(--text-main); line-height:1.35;">${mmCleanTitle(m)}</div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+                    <div>
+                        <div class="meet-kicker">${kind === 'past' ? 'Đã diễn ra' : 'Họp sắp tới'}</div>
+                        <div class="meet-title">${mmCleanTitle(m)}</div>
+                    </div>
                     ${statusHtml}
                 </div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
@@ -620,12 +666,15 @@
                         ? `<span class="meet-pill" style="background:#EFF6FF;color:#1D4ED8;" title="Phải kết nối đúng Wifi của cơ sở mới điểm danh được">${svgIcon(ICON.wifi)} Cần đúng IP mạng</span>`
                         : `<span class="meet-pill" style="background:#F3F4F6;color:#6B7280;" title="Có thể điểm danh từ xa">${svgIcon(ICON.wifi)} Điểm danh từ xa</span>`}
                 </div>
-                <div class="meet-row">${svgIcon(ICON.cal)} <span>${mmFormatDate(m.date)}</span></div>
-                <div class="meet-row">${svgIcon(ICON.clock)} <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
-                <div class="meet-row">${svgIcon(ICON.timer)} <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
-                ${kind === 'upcoming' ? `
-                ${!validLog ? `<button class="meet-preview-btn" disabled>${svgIcon(ICON.timer)} Điểm danh mở lúc ${m.checkInStart} · ${mmFormatDate(m.date)}</button>` : ''}
-                ${mmRsvpArea(m, log)}` : ''}
+                <div style="display:flex; flex-direction:column; gap:0.45rem;">
+                    <div class="meet-row">${svgIcon(ICON.cal)} <span>${mmFormatDate(m.date)}</span></div>
+                    <div class="meet-row">${svgIcon(ICON.clock)} <span>Họp: <strong style="color:var(--text-main);">${m.startTime} - ${m.endTime}</strong></span></div>
+                    <div class="meet-row">${svgIcon(ICON.timer)} <span>Điểm danh: ${m.checkInStart} - ${m.checkInClose}</span></div>
+                </div>
+                ${kind === 'upcoming' ? `<div style="display:flex; flex-direction:column; gap:0.5rem;">
+                    ${!validLog ? `<button class="meet-preview-btn" disabled>${svgIcon(ICON.timer)} Điểm danh mở lúc ${m.checkInStart} · ${mmFormatDate(m.date)}</button>` : ''}
+                    ${mmRsvpArea(m, log)}
+                </div>` : ''}
             `;
             return card;
         }
