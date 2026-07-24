@@ -1263,6 +1263,10 @@ async function renderMonthReport(date, forceServer = false) {
             if (dateKey >= todayKey) return;
             const sched = scheduleMap[dateKey] || {};
             sessions.forEach(s => {
+                // KHÔNG đụng vào ca admin đã sửa tay: trước đây khối này thấy cờ
+                // autoClosedReason (hoặc giờ ra 23:59) là ghi đè giờ ra của admin về giờ tan ca
+                // /23:59 ngay trong bộ nhớ mỗi lần tải trang -> admin lưu xong vẫn thấy giá trị cũ.
+                if (s.isAdminEdited) return;
                 if (s.id && (!s.checkOut || s.autoClosedReason === 'stale_session' || (s.checkOut && s.checkOut.includes('T23:59:00')))) {
                     // Tìm giờ kết thúc lịch cho session này
                     let correctEndISO = null;

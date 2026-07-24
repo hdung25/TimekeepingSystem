@@ -1340,6 +1340,11 @@ const DBService = {
                 delete session.linkedClassStart;
                 delete session.linkedReceptionistShift;
 
+                // QUAN TRỌNG: admin đã sửa giờ tay -> bỏ cờ auto-close.
+                // Nếu giữ cờ này, khối auto-close (report.js) sẽ coi ca vẫn "quên ra ca"
+                // và GHI ĐÈ giờ ra của admin về giờ tan ca/23:59 ở lần tải trang sau.
+                delete session.autoClosedReason;
+
                 // Merge new data
                 Object.assign(session, newData);
 
