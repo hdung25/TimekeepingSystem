@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v90-admin-edit-fix';
+const CACHE_NAME = 'tdt-chamcong-v91-shift-coverage';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,7 +23,7 @@ const STATIC_ASSETS = [
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260725-admin-edit-fix-v1',
     '/js/report.js?v=20260725-admin-edit-fix-v1',
-    '/js/evaluation-service.js?v=20260725-admin-edit-fix-v1',
+    '/js/evaluation-service.js?v=20260726-shift-coverage-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js',
     '/js/auth-guard.js?v=20260725-admin-edit-fix-v1',

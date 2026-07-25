@@ -13,6 +13,7 @@
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
     <script src='js/db-service.js?v=20260725-admin-edit-fix-v1'></script>
+    <script src='js/evaluation-service.js?v=20260726-shift-coverage-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -211,12 +212,7 @@ async function loadMonth(){
 
         dates.forEach(k=>{
             const sess=attMap[k]||[];
-            const covered=(s,e)=>sess.some(x=>{
-                if(!x.checkIn||x.isAbsent)return false;
-                const ci=new Date(x.checkIn),co=x.checkOut?new Date(x.checkOut):ci;
-                return ci<new Date(k+'T'+e+':00')&&co>new Date(k+'T'+s+':00');
-            });
-            const busy=new Set((reqMap[k]||[]).filter(r=>r.status==='pending'||r.status==='approved').map(r=>r.shiftLabel));
+            const busy=new Set((reqMap[k]||[]).filter(r=>r.status==='pending').map(r=>r.shiftLabel));
             const shifts=[];
             schedRes.filter(r=>r.k===k).forEach(r=>SECS.forEach(sec=>(r.v[sec]||[]).forEach(row=>{
                 if(!row.start||!row.end)return;
@@ -231,9 +227,10 @@ async function loadMonth(){
                 shifts.push({kind:'tt',branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:'Tiếp Tân ('+RS[sk].l+')'});
             }));
             shifts.sort((a,b)=>a.start.localeCompare(b.start));
-            shifts.forEach(s=>{
+            const coverage=window.matchScheduledShiftCoverage(shifts,sess,k);
+            shifts.forEach((s,i)=>{
                 s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
-                s.done=covered(s.start,s.end);
+                s.done=!!coverage[i];
                 s.pending=busy.has(s.lbl);
             });
             if(shifts.length)monthMap[k]={shifts:shifts,miss:shifts.filter(s=>!s.done&&!s.pending).length,pend:shifts.filter(s=>s.pending).length};

@@ -1,4 +1,4 @@
-// evaluation-service.js — Pure Data & Calculation Logic — v2026.04.15c
+// evaluation-service.js — Pure Data & Calculation Logic — v2026.07.26-shift-coverage
 // Tách từ report.js — Chứa logic tính toán lương, đánh giá, và xử lý dữ liệu thuần túy.
 // Không chứa bất kỳ DOM manipulation nào.
 //
@@ -216,6 +216,96 @@ function collapseOverlappingSegments(segments, y, m, d) {
     return out;
 }
 
+// Ghép trạng thái "đã chấm công" cho danh sách ca theo nguyên tắc một phiên chỉ
+// thuộc một chuỗi ca LIỀN KỀ. Phiên 15:30–21:00 đã ghép với ca 15:30–17:00
+// không được nhảy qua khoảng nghỉ 17:00–18:00 để che hai ca tối.
+// Trả về mảng boolean theo đúng thứ tự đầu vào.
+function matchScheduledShiftCoverage(shifts, attendanceSessions, dateStr) {
+    const result = (Array.isArray(shifts) ? shifts : []).map(() => false);
+    if (!dateStr || result.length === 0) return result;
+
+    const [year, month, day] = String(dateStr).split('-').map(Number);
+    if (![year, month, day].every(Number.isFinite)) return result;
+
+    const todayKey = typeof getLocalDateKey === 'function'
+        ? getLocalDateKey(new Date())
+        : new Date().toISOString().split('T')[0];
+    const isPastDay = dateStr < todayKey;
+
+    const toLocalDate = (timeStr) => {
+        if (!timeStr || !String(timeStr).includes(':')) return null;
+        const [hour, minute] = String(timeStr).split(':').map(Number);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+        return new Date(year, month - 1, day, hour, minute, 0, 0);
+    };
+
+    const sessionStates = (Array.isArray(attendanceSessions) ? attendanceSessions : [])
+        .map((session, index) => {
+            if (!session || session.isAbsent) return null;
+            const checkIn = safeDate(session.checkIn || session.start);
+            if (!checkIn) return null;
+            let checkOut = safeDate(session.checkOut);
+            if (!checkOut && !isPastDay) checkOut = new Date();
+            return {
+                session,
+                index,
+                checkIn,
+                checkOut,
+                used: false,
+                lastShiftEnd: null
+            };
+        })
+        .filter(Boolean);
+
+    const orderedShifts = (Array.isArray(shifts) ? shifts : [])
+        .map((shift, index) => ({ ...shift, _inputIndex: index }))
+        .filter(shift => shift.start && shift.end)
+        .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+
+    const overlapsEnough = (state, shiftStart, shiftEnd) => {
+        const effectiveOut = state.checkOut || shiftEnd; // ngày cũ quên checkout: tự khép theo ca
+        const overlapMs = Math.min(effectiveOut.getTime(), shiftEnd.getTime()) -
+            Math.max(state.checkIn.getTime(), shiftStart.getTime());
+        return overlapMs >= 10 * 60 * 1000;
+    };
+
+    orderedShifts.forEach(shift => {
+        const shiftStart = toLocalDate(shift.start);
+        const shiftEnd = toLocalDate(shift.end);
+        if (!shiftStart || !shiftEnd || shiftEnd <= shiftStart) return;
+
+        // Một phiên đã nhận ca trước chỉ được đi tiếp nếu ca kế tiếp liền đúng mốc giờ.
+        let state = sessionStates.find(item =>
+            item.used &&
+            item.lastShiftEnd === shift.start &&
+            (!item.checkOut || item.checkOut > shiftStart) &&
+            overlapsEnough(item, shiftStart, shiftEnd)
+        );
+
+        if (!state) {
+            const exactLinked = sessionStates.find(item =>
+                !item.used &&
+                item.session.linkedClassStart &&
+                item.session.linkedClassStart === shift.start
+            );
+
+            state = exactLinked || sessionStates.find(item => {
+                if (item.used || item.session.linkedClassStart) return false;
+                const startDistance = Math.abs(item.checkIn.getTime() - shiftStart.getTime());
+                return startDistance < 60 * 60 * 1000 && overlapsEnough(item, shiftStart, shiftEnd);
+            });
+        }
+
+        if (!state) return;
+        result[shift._inputIndex] = true;
+        state.used = true;
+        state.lastShiftEnd = shift.end;
+    });
+
+    return result;
+}
+window.matchScheduledShiftCoverage = matchScheduledShiftCoverage;
+
 function getClassObservationSummary(observations, staffId, cls, secKey, classIndex, dateStr) {
     const activeItems = (Array.isArray(observations) ? observations : []).filter(item => {
         if (!item || item.status === 'cancelled') return false;
@@ -412,6 +502,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     branch: c._branch || '', 
                     secKey: sk, 
                     idx: i,
+                    compositeKey: ck,
+                    originalIdx,
                     lop: c.lop || '',
                     lopId: c.lopId || '',
                     schedMinutes: Math.max(0, schedMinutes)
@@ -431,6 +523,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 start: _a.start,
                 end: _a.end,
                 branch: _a.branch,
+                secKey: _a.secKey,
+                idx: _a.idx,
+                compositeKey: _a.compositeKey,
+                originalIdx: _a.originalIdx,
                 lop: _a.lop,
                 lopId: _a.lopId,
                 schedMinutes: _a.schedMinutes
@@ -447,6 +543,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         start: _b.start,
                         end: _b.end,
                         branch: _b.branch,
+                        secKey: _b.secKey,
+                        idx: _b.idx,
+                        compositeKey: _b.compositeKey,
+                        originalIdx: _b.originalIdx,
                         lop: _b.lop,
                         lopId: _b.lopId,
                         schedMinutes: _b.schedMinutes
@@ -540,15 +640,27 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // Priority 3: Proximity match within 60 min of class start
             // FIX: dùng local time thay vì ISO string (tránh UTC parse gây lệch 7h)
             const [_sy, _sm, _sd] = dateStr.split('-').map(Number);
-            const [_sH, _sM] = cls.start.split(':').map(Number);
-            const schedStart = new Date(_sy, _sm - 1, _sd, _sH, _sM, 0, 0);
-            const _effectiveEndStr = _mergedEnd || cls.end;
-            const [_eH, _eM] = _effectiveEndStr.split(':').map(Number);
-            const schedEnd = new Date(_sy, _sm - 1, _sd, _eH, _eM, 0, 0);
+            const _toClassDate = (timeStr) => {
+                const [hour, minute] = String(timeStr).split(':').map(Number);
+                return new Date(_sy, _sm - 1, _sd, hour, minute, 0, 0);
+            };
+            let _displayStartStr = cls.start;
+            let _effectiveEndStr = _mergedEnd || cls.end;
+            let schedStart = _toClassDate(_displayStartStr);
+            let schedEnd = _toClassDate(_effectiveEndStr);
+            let _splitAbsentSegments = [];
+            let _workedChainSegments = _chainSegments;
+
+            const _chainStarts = new Set(
+                (_chainSegments && _chainSegments.length > 0
+                    ? _chainSegments.map(seg => seg.start)
+                    : [cls.start])
+            );
+            const _chainStartDates = [..._chainStarts].map(_toClassDate);
 
             let matchedSession = attendanceSessions.find(s => {
                 if (usedSessionIdsTeaching.has(s.id)) return false;
-                return s.linkedClassStart === cls.start; // Exact link preserved after admin edit
+                return s.linkedClassStart && _chainStarts.has(s.linkedClassStart);
             });
 
             if (!matchedSession) {
@@ -569,27 +681,96 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (s.linkedClassStart) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
-                    const diffMs = Math.abs(checkIn - schedStart);
-                    return diffMs < 60 * 60 * 1000;
+                    const minDiffMs = Math.min(..._chainStartDates.map(start => Math.abs(checkIn - start)));
+                    return minDiffMs < 60 * 60 * 1000;
                 });
             }
 
+            let _matchedTeachingSessions = [];
             if (matchedSession) {
-                usedSessionIdsTeaching.add(matchedSession.id);
-                _matchedTimeSlots.add(`${cls.start}_${cls.end}`);
-                
-                // Consume all other teaching sessions overlapping with this time window
+                _matchedTeachingSessions.push(matchedSession);
+
+                // Gom các phiên còn lại thuộc cùng chuỗi ca. Trước đây các phiên này bị
+                // đánh dấu "đã dùng" nhưng phút làm chỉ lấy từ phiên đầu, làm mất công ca 2.
                 attendanceSessions.forEach(s => {
                     if (usedSessionIdsTeaching.has(s.id)) return;
-                    if (s.linkedClassStart) return; // Already linked to another class
+                    if (_matchedTeachingSessions.some(item => item.id === s.id)) return;
+                    if (s.isAbsent) return;
+                    if (s.linkedClassStart && !_chainStarts.has(s.linkedClassStart)) return;
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return;
                     const checkOut = safeDate(s.checkOut);
-                    if (!checkOut) return;
-                    if (checkIn < schedEnd && checkOut > schedStart) {
-                        usedSessionIdsTeaching.add(s.id);
+                    const overlapsChain = checkOut && checkIn < schedEnd && checkOut > schedStart;
+                    const isNearChainStart = Math.min(..._chainStartDates.map(start => Math.abs(checkIn - start))) <
+                        60 * 60 * 1000;
+                    if (overlapsChain || isNearChainStart) {
+                        _matchedTeachingSessions.push(s);
                     }
                 });
+
+                _matchedTeachingSessions.forEach(s => usedSessionIdsTeaching.add(s.id));
+                (_chainSegments || [{ start: cls.start, end: cls.end }]).forEach(seg => {
+                    _matchedTimeSlots.add(`${seg.start}_${seg.end}`);
+                });
+
+                // Hai yêu cầu chấm bù cho hai ca kề nhau tạo hai session riêng. Dùng
+                // khoảng bao từ phiên sớm nhất tới phiên muộn nhất để tính đủ chuỗi ca.
+                const _workedSessions = _matchedTeachingSessions.filter(s => !s.isAbsent);
+                if (_workedSessions.length > 0 && matchedSession.isAbsent) {
+                    matchedSession = _workedSessions[0];
+                }
+                if (_workedSessions.length > 1 && _workedSessions.every(s => safeDate(s.checkOut))) {
+                    const _starts = _workedSessions.map(s => safeDate(s.checkIn || s.start)).filter(Boolean);
+                    const _ends = _workedSessions.map(s => safeDate(s.checkOut)).filter(Boolean);
+                    if (_starts.length === _workedSessions.length && _ends.length === _workedSessions.length) {
+                        const _combinedStart = new Date(Math.min(..._starts.map(d => d.getTime())));
+                        const _combinedEnd = new Date(Math.max(..._ends.map(d => d.getTime())));
+                        matchedSession = {
+                            ...matchedSession,
+                            start: _combinedStart.toISOString(),
+                            checkIn: _combinedStart.toISOString(),
+                            checkOut: _combinedEnd.toISOString(),
+                            isAdminEdited: _workedSessions.every(s => !!s.isAdminEdited),
+                            _combinedSessionIds: _workedSessions.map(s => s.id)
+                        };
+                    }
+                }
+
+                // Nếu chuỗi ca chỉ được chấm một phần, giữ phần đã làm và sinh chip Vắng
+                // riêng cho ca con còn thiếu (VD 18:00–19:30 có công, 19:30–21:00 vắng).
+                if (_chainSegments && _chainSegments.length > 1 && !matchedSession.isAbsent) {
+                    const _todayKey = typeof getLocalDateKey === 'function'
+                        ? getLocalDateKey(new Date())
+                        : new Date().toISOString().split('T')[0];
+                    const _isPastDay = dateStr < _todayKey;
+                    const _segmentWorked = (seg) => {
+                        const segStart = _toClassDate(seg.start);
+                        const segEnd = _toClassDate(seg.end);
+                        return _workedSessions.some(s => {
+                            const checkIn = safeDate(s.checkIn || s.start);
+                            if (!checkIn || checkIn >= segEnd) return false;
+                            if (checkIn - segStart > LATE_ABSENT_THRESHOLD_MS) return false;
+                            let checkOut = safeDate(s.checkOut);
+                            if (!checkOut) checkOut = _isPastDay ? segEnd : new Date();
+                            const overlapMs = Math.min(checkOut.getTime(), segEnd.getTime()) -
+                                Math.max(checkIn.getTime(), segStart.getTime());
+                            return overlapMs >= 10 * 60 * 1000;
+                        });
+                    };
+
+                    const _workedSegments = _chainSegments.filter(_segmentWorked);
+                    _splitAbsentSegments = _chainSegments.filter(seg => !_segmentWorked(seg));
+                    if (_workedSegments.length > 0 && _splitAbsentSegments.length > 0) {
+                        _workedSegments.sort((a, b) => a.start.localeCompare(b.start));
+                        _workedChainSegments = _workedSegments;
+                        _displayStartStr = _workedSegments[0].start;
+                        _effectiveEndStr = _workedSegments[_workedSegments.length - 1].end;
+                        schedStart = _toClassDate(_displayStartStr);
+                        schedEnd = _toClassDate(_effectiveEndStr);
+                    } else {
+                        _splitAbsentSegments = [];
+                    }
+                }
             }
 
             // 3. Determine Status
@@ -611,9 +792,34 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             } else {
                 _labelBranchSuffix = branchShort;
             }
-            let label = `${cls.start}–${_effectiveEndStr}${_labelBranchSuffix}`;
+            let label = `${_displayStartStr}–${_effectiveEndStr}${_labelBranchSuffix}`;
             let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
             if (_mergedEnd) tooltip += _isCrossBranch ? ` (2 ca gộp – ${(_chainBranches || []).map(b => b.toUpperCase()).join('/')})` : ` (2 ca gộp)`;
+
+            const _splitAbsentAfter = [];
+            _splitAbsentSegments.forEach(seg => {
+                const segBranch = seg.branch ? ` ${seg.branch.toUpperCase()}` : '';
+                const absentChip = {
+                    text: `${seg.start}–${seg.end}${segBranch}${seg.lop ? ` (${seg.lop})` : ''} (V)`,
+                    class: 'chip-gray',
+                    paidMinutes: 0,
+                    tooltip: 'Không có dữ liệu chấm công cho ca con trong chuỗi ca liên tiếp (Vắng)',
+                    sessionId: null,
+                    schedData: { start: seg.start, end: seg.end, lop: seg.lop, lopId: seg.lopId },
+                    isClickable: true,
+                    isWarning: true,
+                    isTeaching: true,
+                    isSplitAbsent: true,
+                    chipFilterName: normalizeChipFilterName(seg.lop),
+                    classStart: seg.start,
+                    classEnd: seg.end,
+                    classCompositeKey: seg.compositeKey || null,
+                    classSectionKey: seg.secKey,
+                    classIndex: seg.originalIdx !== undefined ? seg.originalIdx : seg.idx
+                };
+                if (seg.start < _displayStartStr) chips.push(absentChip);
+                else _splitAbsentAfter.push(absentChip);
+            });
 
             const schedDuration = (schedEnd - schedStart) / 60000;
             const now = new Date();
@@ -752,8 +958,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     // Determine combined subject label for merged teaching shifts
                     let mergedSubjectNames = '';
-                    if (_chainSegments && _chainSegments.length > 0) {
-                        const lops = _chainSegments.map(seg => seg.lop).filter(Boolean);
+                    if (_workedChainSegments && _workedChainSegments.length > 0) {
+                        const lops = _workedChainSegments.map(seg => seg.lop).filter(Boolean);
                         mergedSubjectNames = [...new Set(lops)].join(' + ');
                     }
 
@@ -938,6 +1144,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     shiftObservationIds: observationSummary.ids,
                     shiftObservationNotes: observationSummary.notes
                 });
+                if (_splitAbsentAfter.length > 0) chips.push(..._splitAbsentAfter);
 
             } else {
                 // --- CASE B: NO ATTENDANCE ---
@@ -991,8 +1198,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else {
                     // Nếu đã có session khớp ở branch khác cùng giờ → bỏ qua, không sinh chip Vắng
                     if (_matchedTimeSlots.has(`${cls.start}_${cls.end}`)) return;
-                    // Cùng giờ đó GV có chấm công đi làm (dạy/hỗ trợ lớp khác) → không tính vắng
-                    if (hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) return;
+                    // Chỉ phiên CHƯA được ghép cho ca trước mới được dùng để chứng minh
+                    // đang dạy/hỗ trợ lớp khác. Nếu không, một phiên 15:30–21:00 đã
+                    // thuộc ca 15:30 sẽ che sai các ca tối sau khoảng nghỉ.
+                    const availableWorkSessions = attendanceSessions.filter(
+                        session => !usedSessionIdsTeaching.has(session.id)
+                    );
+                    if (hasOverlappingWorkSession(availableWorkSessions, dateStr, cls.start, cls.end)) return;
                     chips.push({
                         text: label + ' (V)',
                         class: 'chip-gray',
