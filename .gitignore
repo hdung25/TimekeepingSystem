@@ -8,3 +8,4 @@ debug_checkout.txt
 debug_shift.txt
 node_modules/
 test-automation/node_modules/
+.env*
