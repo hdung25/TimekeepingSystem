@@ -9,3 +9,6 @@ debug_shift.txt
 node_modules/
 test-automation/node_modules/
 .env*
+
+# Local secrets / env — never commit
+.env.local

@@ -1288,8 +1288,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
         // Find matching attendance session
         const matchedSession = attendanceSessions.find(s => {
-            if (usedSessionIdsReceptionist.has(s.id)) return false;
-
             // FIX bug Ánh: session do admin thêm tay từ chip Vắng đã link cứng vào ca này
             // → match thẳng, bỏ qua kiểm tra khung giờ (vì admin có thể đã nhập giờ lệch).
             if (s.linkedReceptionistShift && s.linkedReceptionistShift === rs.shift) {
@@ -1298,12 +1296,26 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             const checkIn = safeDate(s.checkIn || s.start);
             if (!checkIn) return false;
+            const checkOut = safeDate(s.checkOut);
+
+            // KHỚP-TRÙM (ngày làm LIÊN TỤC nhiều ca khác chức năng — VD tiếp tân → dạy → tiếp tân):
+            // 1 lần chấm công có giờ RA bao trùm khung giờ ca này (chồng ≥ 10 phút) thì khớp,
+            // KỂ CẢ khi session đã dùng cho ca tiếp tân khác trong ngày. Nhờ vậy sáng chấm 1 lần
+            // + ra chiều sẽ tự phủ cả ca sáng, ca dạy (nhánh dạy đã xử riêng) và ca chiều, không báo
+            // vắng oan. Mỗi ca chỉ tính phần giờ NẰM TRONG khung ca của nó + đã trừ giờ dạy trùng,
+            // nên không cộng trùng.
+            if (checkOut) {
+                const ovStart = Math.max(checkIn.getTime(), schedStart.getTime());
+                const ovEnd = Math.min(checkOut.getTime(), schedEnd.getTime());
+                if (ovEnd - ovStart >= 10 * 60 * 1000) return true;
+            }
+
+            // Các cách khớp cũ: chỉ nhận session CHƯA bị dùng cho ca tiếp tân khác.
+            if (usedSessionIdsReceptionist.has(s.id)) return false;
 
             if (rs.isFixedShift) {
                 // Ca Cố Định: Sử dụng logic bao trùm khung giờ
-                if (s.checkOut) {
-                    const checkOut = safeDate(s.checkOut);
-                    if (!checkOut) return false;
+                if (checkOut) {
                     return checkIn <= schedEnd && checkOut >= schedStart;
                 } else {
                     // Session đang mở (chưa checkout): match nếu checkIn trong khung ±90p
