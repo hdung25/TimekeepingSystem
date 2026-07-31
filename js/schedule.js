@@ -220,9 +220,11 @@ function renderDayTabs() {
             if (index !== selectedDayIndex) btn.style.backgroundColor = '#F3F4F6';
         }
 
+        // Dùng class thay cho font-size inline: bản mobile cần thu nhỏ để đủ 7 ngày trên
+        // một màn hình, mà style inline thì CSS không đè được.
         btn.innerHTML = `
-            <div>${dayName}</div>
-            <div style="font-size: 0.75rem; color: ${index === selectedDayIndex ? 'white' : 'var(--text-muted)'}">${formatDateDayOnly(tabDate)}</div>
+            <div class="day-tab-name">${dayName}</div>
+            <div class="day-tab-date" style="color: ${index === selectedDayIndex ? 'white' : 'var(--text-muted)'}">${formatDateDayOnly(tabDate)}</div>
             ${holidayHtml}
             ${closureHtml}
         `;
@@ -351,7 +353,7 @@ async function renderTable() {
                             onchange="toggleSectionClosure('${dateKey}', '${section.key}', this.checked)"
                             style="cursor: ${isPast ? 'not-allowed' : 'pointer'}; width: 15px; height: 15px;">
                         <span style="${isClosed ? 'color: #DC2626; font-weight: bold;' : 'color: #047857; font-weight: bold;'}">
-                            ${isClosed ? '🔴 Đã tắt ca' : '🟢 Ca hoạt động'}
+                            <span class="shift-state-dot">${isClosed ? '🔴' : '🟢'}</span> ${isClosed ? 'Đã tắt ca' : 'Ca hoạt động'}
                         </span>
                     </label>
                 </div>
@@ -485,8 +487,8 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
 
     // fieldType của GV thay thế được viết là 'gvThayTe' (thiếu chữ h) nên nhãn trên bản mobile
     // trước đây hiện nhầm thành "GV chinh" — so theo isGV cho chắc.
-    const label = isGV ? 'GV chinh' : 'GV thay the';
-    return `<td data-label="${label}"><div class="gv-multi-btn" onclick="${clickFn}">
+    const label = isGV ? 'GV chính' : 'GV thay thế';
+    return `<td data-field="${isGV ? 'gv' : 'gvtt'}" data-label="${label}"><div class="gv-multi-btn" onclick="${clickFn}">
         <div class="gv-name-display">${nameHtml}</div>
         ${isAdmin ? '<span class="gv-edit-icon">✏</span>' : ''}
     </div></td>`;
@@ -495,10 +497,13 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
 // Ô giờ: chỉ người sửa được lịch mới cần ô nhập; người xem thấy chữ "07:30" gọn hơn nhiều.
 // lang="vi" ép trình duyệt hiển thị 24h thay vì "07:30 AM" (rộng và khó đọc).
 function renderTimeCell(label, value, canEdit, compositeKey, caType, index, field) {
+    // data-field: khoá ASCII cố định để CSS (bản mobile) bắt đúng ô — không phụ thuộc dấu
+    // tiếng Việt trong data-label, tránh lỗi selector khi file bị lệch bảng mã.
+    const fieldKey = field === 'start' ? 'start' : 'end';
     if (!canEdit) {
-        return `<td data-label="${label}"><span class="time-text">${value || '—'}</span></td>`;
+        return `<td data-field="${fieldKey}" data-label="${label}"><span class="time-text">${value || '—'}</span></td>`;
     }
-    return `<td data-label="${label}"><input type="time" lang="vi" class="table-input time-input" value="${value || ''}"
+    return `<td data-field="${fieldKey}" data-label="${label}"><input type="time" lang="vi" class="table-input time-input" value="${value || ''}"
         onchange="updateRow('${compositeKey}', '${caType}', ${index}, '${field}', this.value)"></td>`;
 }
 
@@ -515,13 +520,13 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     // === SỐ HS FIELD ===
     let soHSCell = '';
     if (rowIsAdmin) {
-        soHSCell = `<td data-label="So HS"><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
+        soHSCell = `<td data-field="hs" data-label="Số HS"><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
             style="width:60px;text-align:center;"
             onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', parseInt(this.value)||0)"></td>`;
     } else {
         const hs = data.soHS || '';
         const hsStyle = hs > 10 ? 'color:var(--primary-color);font-weight:700;' : 'color:var(--text-muted);';
-        soHSCell = `<td data-label="So HS" style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${hs || '—'}</span></td>`;
+        soHSCell = `<td data-field="hs" data-label="Số HS" style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${hs || '—'}</span></td>`;
     }
 
     // === ACTION CELL ===
@@ -530,7 +535,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     if (rowIsAdmin) {
         const checkedAttr = isClassClosed ? 'checked' : '';
         actionCell = `
-            <td data-label="Thao tác" style="text-align: center; white-space: nowrap;">
+            <td data-field="action" data-label="Thao tác" style="text-align: center; white-space: nowrap;">
                 <div style="display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;">
                     <label class="class-closure-toggle" style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.75rem; color: ${isClassClosed ? '#EF4444' : '#6B7280'}; font-weight: 600; user-select: none;" title="Tắt lớp này">
                         <input type="checkbox" ${checkedAttr} 
@@ -548,9 +553,9 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             </td>`;
     } else {
         if (isClassClosed) {
-            actionCell = `<td data-label="Thao tác" style="text-align: center;"><span style="color: #EF4444; font-size: 0.75rem; font-weight: bold; background: #FEE2E2; padding: 2px 6px; border-radius: 4px;">Đã tắt</span></td>`;
+            actionCell = `<td data-field="action" data-label="Thao tác" style="text-align: center;"><span style="color: #EF4444; font-size: 0.75rem; font-weight: bold; background: #FEE2E2; padding: 2px 6px; border-radius: 4px;">Đã tắt</span></td>`;
         } else {
-            actionCell = `<td data-label="Thao tác"></td>`;
+            actionCell = `<td data-field="action" data-label="Thao tác"></td>`;
         }
     }
 
@@ -558,13 +563,13 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     const lopVal = (data.lop || '').replace(/"/g, '&quot;');
     let lopCell = '';
     if (rowIsAdmin) {
-        lopCell = `<td data-label="Mon / Lop"><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
+        lopCell = `<td data-field="subject" data-label="Môn / Lớp"><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
             list="subject-list"
             onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)"></td>`;
     } else {
         const subjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
         const dotHtml = subjectColor ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${subjectColor};margin-right:4px;"></span>` : '';
-        lopCell = `<td data-label="Mon / Lop" style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
+        lopCell = `<td data-field="subject" data-label="Môn / Lớp" style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
@@ -574,15 +579,15 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     return `
         <tr style="${rowBg}">
-            <td data-label="SS" style="text-align: center;">${index + 1}</td>
-            ${renderTimeCell('Bat dau', data.start, rowIsAdmin, compositeKey, caType, index, 'start')}
-            ${renderTimeCell('Ket thuc', data.end, rowIsAdmin, compositeKey, caType, index, 'end')}
+            <td data-field="ss" data-label="SS" style="text-align: center;">${index + 1}</td>
+            ${renderTimeCell('Bắt đầu', data.start, rowIsAdmin, compositeKey, caType, index, 'start')}
+            ${renderTimeCell('Kết thúc', data.end, rowIsAdmin, compositeKey, caType, index, 'end')}
             ${lopCell}
-            <td data-label="Phòng"><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
+            <td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
             ${gvCell}
             ${gvTTCell}
             ${soHSCell}
-            <td data-label="Ghi chú"><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
+            <td data-field="note" data-label="Ghi chú"><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
             ${actionCell}
         </tr>
     `;
