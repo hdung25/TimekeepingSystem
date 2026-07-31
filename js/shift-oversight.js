@@ -192,9 +192,11 @@
         SHIFT_SECTIONS[state.shiftKey].forEach(sectionKey => {
             (schedule[sectionKey] || []).forEach((cls, classIndex) => {
                 if (!cls?.start || !cls?.end || cls.isClosed === true) return;
-                const teacherIds = cls.gvThayTheId
-                    ? [cls.gvThayTheId]
-                    : [cls.gvId, ...(cls.registeredTeachers || []).map(item => item.id)].filter(Boolean);
+                // Lớp có thể xếp nhiều GV → lấy cả danh sách, không chỉ người đầu tiên
+                const substituteIds = [...getScheduledSubstituteIds(cls)];
+                const teacherIds = substituteIds.length > 0
+                    ? substituteIds
+                    : [...getScheduledMainTeacherIds(cls), ...(cls.registeredTeachers || []).map(item => item.id)].filter(Boolean);
                 const uniqueTeacherIds = [...new Set(teacherIds)];
 
                 if (uniqueTeacherIds.length === 0) {

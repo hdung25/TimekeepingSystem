@@ -21,6 +21,47 @@ function getVietnamDateFromHM(dateKey, hmStr) {
     return new Date(utcDate.getTime() - 7 * 60 * 60 * 1000);
 }
 
+// ===== Nhận diện GV của 1 lớp trong lịch (hỗ trợ lớp xếp NHIỀU GV) =====
+// Trang xếp lịch lưu danh sách GV ở gvList / gvThayTeList (bản viết cũ: gvThayTheList);
+// gvId / gvThayTheId chỉ giữ NGƯỜI ĐẦU TIÊN cho tương thích ngược. Nếu chỗ nào chỉ so gvId
+// thì GV thứ 2 của lớp coi như không có ca → tự vào/tự ra, Bảng Công bắt admin chọn lại chức vụ.
+function _collectScheduleTeacherIds(cls, listFields, singleFields) {
+    const ids = new Set();
+    if (!cls) return ids;
+    listFields.forEach(field => {
+        const list = cls[field];
+        if (Array.isArray(list)) list.forEach(g => { if (g && g.id) ids.add(g.id); });
+    });
+    singleFields.forEach(field => { if (cls[field]) ids.add(cls[field]); });
+    return ids;
+}
+
+function getScheduledMainTeacherIds(cls) {
+    return _collectScheduleTeacherIds(cls, ['gvList'], ['gvId']);
+}
+
+function getScheduledSubstituteIds(cls) {
+    return _collectScheduleTeacherIds(cls, ['gvThayTeList', 'gvThayTheList'], ['gvThayTeId', 'gvThayTheId']);
+}
+
+function isScheduledMainTeacher(cls, staffId) {
+    return !!staffId && getScheduledMainTeacherIds(cls).has(staffId);
+}
+
+function isScheduledSubstitute(cls, staffId) {
+    return !!staffId && getScheduledSubstituteIds(cls).has(staffId);
+}
+
+function hasScheduledSubstitute(cls) {
+    return getScheduledSubstituteIds(cls).size > 0;
+}
+
+// GV được xếp cho lớp (GV chính, GV thay thế, hoặc tự nhận lớp)
+function isAssignedToClass(cls, staffId) {
+    return isScheduledMainTeacher(cls, staffId) ||
+        isScheduledSubstitute(cls, staffId) ||
+        ((cls && cls.registeredTeachers) || []).some(t => t.id === staffId);
+}
 
 async function resolveDDNS(domain) {
     if (!domain || domain.trim() === '') return null;
@@ -693,9 +734,7 @@ const DBService = {
 
             classSections.forEach(section => {
                 (schedule[section] || []).forEach(cls => {
-                    const isAssigned = (cls.gvId && cls.gvId === userId) ||
-                        (cls.gvThayTheId && cls.gvThayTheId === userId) ||
-                        (cls.registeredTeachers || []).some(t => t.id === userId);
+                    const isAssigned = isAssignedToClass(cls, userId);
                     if (!isAssigned) return;
 
                     const shiftStart = toLocalTime(cls.start);

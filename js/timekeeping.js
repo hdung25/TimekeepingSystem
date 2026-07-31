@@ -255,7 +255,7 @@ function renderTodayClasses() {
             sections.forEach(sec => {
                 if (todaySchedule[sec]) {
                     todaySchedule[sec].forEach((cls, idx) => {
-                        const isRegistered = (cls.gvId && cls.gvId === currentUserId) ||
+                        const isRegistered = isScheduledMainTeacher(cls, currentUserId) ||
                             (cls.registeredTeachers || []).some(t => t.id === currentUserId);
                         if (!isRegistered) return;
                         classes.push({
@@ -314,9 +314,7 @@ function createClassCard(cls, compositeKey) {
 
     const currentUserId = localStorage.getItem('currentUserId');
     const registeredTeachers = cls.registeredTeachers || [];
-    const isRegistered = (cls.gvId && cls.gvId === currentUserId) ||
-        (cls.gvThayTheId && cls.gvThayTheId === currentUserId) ||
-        registeredTeachers.some(t => t.id === currentUserId);
+    const isRegistered = isAssignedToClass(cls, currentUserId);
 
     // Branch badge
     const branchLabel = cls._branch ? cls._branch.toUpperCase() : 'CS1';

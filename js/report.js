@@ -1276,8 +1276,8 @@ async function renderMonthReport(date, forceServer = false) {
                         const staffClasses = [];
                         sections.forEach(sec => {
                             (sched[sec] || []).forEach(cls => {
-                                const isAssigned = (cls.gvId && cls.gvId === staffId) ||
-                                    (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
+                                const isAssigned = isScheduledMainTeacher(cls, staffId) ||
+                                    isScheduledSubstitute(cls, staffId) ||
                                     (cls.registeredTeachers || []).some(t => t.id === staffId);
                                 if (isAssigned && cls.start && cls.end) {
                                     staffClasses.push(cls);
@@ -1398,8 +1398,8 @@ async function renderMonthReport(date, forceServer = false) {
         const staffClasses = [];
         ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(sec => {
             (todaySchedule[sec] || []).forEach(cls => {
-                const isRegistered = (cls.gvId && cls.gvId === staffId) ||
-                    (cls.gvThayTheId && cls.gvThayTheId === staffId) ||
+                const isRegistered = isScheduledMainTeacher(cls, staffId) ||
+                    isScheduledSubstitute(cls, staffId) ||
                     (cls.registeredTeachers || []).some(t => t.id === staffId);
                 if (isRegistered && cls.start && cls.end) {
                     staffClasses.push(cls);
@@ -1674,7 +1674,9 @@ async function renderMonthReport(date, forceServer = false) {
                 observationNoteHtml = `<small style="display:block;margin-top:4px;font-size:0.72rem;font-weight:600;line-height:1.35;color:#9A3412;white-space:normal">Lý do: ${escapeReportHtml(shortReason)}</small>`;
             }
 
-            div.innerHTML = `<span style="min-width:0">${chip.text}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
+            const chipDisplayText = absenceChipDisplayText(chip, _cachedStaffNotes);
+
+            div.innerHTML = `<span style="min-width:0">${chipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
@@ -1990,13 +1992,16 @@ async function renderMonthReport(date, forceServer = false) {
                 div.appendChild(b10Btn);
             }
 
-            div.title = `${chip.tooltip} (${chip.paidMinutes}m)`;
+            const chipTooltip = (chip.isVDX && classifyAbsentChip(chip, _cachedStaffNotes) === 'VP')
+                ? String(chip.tooltip || '').replace('Vắng đột xuất', 'Vắng phép (trợ lý đã đánh dấu)')
+                : chip.tooltip;
+            div.title = `${chipTooltip} (${chip.paidMinutes}m)`;
 
             // Look for existing saved fixed shift or selected one
             const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
             chip.isFixedShift = isFixed;
             if (isFixed && !window.isFixedShiftMode) {
-                div.innerHTML = `<span>${chip.text} <b>(CĐ)</b>${badgeHtml}</span>`;
+                div.innerHTML = `<span>${chipDisplayText} <b>(CĐ)</b>${badgeHtml}</span>`;
                 div.style.border = '2px solid #8B5CF6';
             }
 
@@ -5373,14 +5378,30 @@ function classifyAbsentChip(chip, notesMap) {
         return 'VP';
     }
     const dateStr = chip.dateStr;
-    const noteText = (notesMap[dateStr] || '').toLowerCase().trim();
-    if (chip.isVDX || noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) {
+    const noteText = ((notesMap || {})[dateStr] || '').toLowerCase().trim();
+    // Ghi chú ngày (do trợ lý/admin đánh dấu) là SỰ THẬT — phải thắng cờ chip.isVDX.
+    // chip.isVDX chỉ là suy đoán "có GV thay thế → vắng đột xuất"; trước đây nó được xét
+    // trước nên trợ lý sửa thành Vắng phép mà bên GV vẫn hiện Vắng đột xuất.
+    if (noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) {
         return 'VDX';
     }
     if (noteText.includes('phép') || noteText.includes('vp') || noteText.includes(' p ') || noteText.endsWith(' p') || noteText.startsWith('p ')) {
         return 'VP';
     }
+    if (chip.isVDX) {
+        return 'VDX';
+    }
     return 'VKP';
+}
+
+// Nhãn hiển thị của chip vắng: chip do hệ thống sinh ra luôn ghi "VĐX:", nhưng nếu ghi chú ngày
+// nói Vắng phép thì phải đổi nhãn cho khớp Bảng Công (không sửa chip.text gốc để lần render sau
+// vẫn phân loại lại được từ đầu).
+function absenceChipDisplayText(chip, notesMap) {
+    if (!chip || !chip.isVDX || !chip.text) return chip ? chip.text : '';
+    return classifyAbsentChip(chip, notesMap) === 'VP'
+        ? chip.text.replace('VĐX:', 'VP:')
+        : chip.text;
 }
 
 function bindMoneyInputFormatters() {

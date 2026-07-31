@@ -339,6 +339,9 @@ function getClassObservationSummary(observations, staffId, cls, secKey, classInd
     };
 }
 
+// isScheduledMainTeacher / isScheduledSubstitute / hasScheduledSubstitute: định nghĩa ở
+// db-service.js (nạp trước mọi trang) — dùng chung để lớp nhiều GV không bị sót GV thứ 2.
+
 function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = []) {
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
@@ -352,7 +355,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     sections.forEach(sk => {
         (schedule[sk] || []).forEach((c, idx) => {
             if (!c.start || !c.end) return;
-            const isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+            const isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
             const ck = c._compositeKey || null;
             const originalIdx = c._originalIndex !== undefined ? c._originalIndex : idx;
             if (isOriginalVDX) {
@@ -378,11 +381,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         sections.forEach(sk => {
             (schedule[sk] || []).forEach((c, i) => {
                 if (!c.start || !c.end) return;
-                const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
-                const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+                const _isSubstitute = isScheduledSubstitute(c, staffId);
+                const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
-                        (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId)
+                        (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
                     ));
                 if (_isReg) {
                     rawRegisteredClasses.push({
@@ -438,11 +441,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         sections.forEach(sk => {
             localSchedule[sk] = [];
             (schedule[sk] || []).forEach((c, i) => {
-                const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
-                const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+                const _isSubstitute = isScheduledSubstitute(c, staffId);
+                const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
-                        (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId)
+                        (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
                     ));
 
                 if (!_isReg) {
@@ -476,11 +479,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (!c.start || !c.end) return; // skip malformed rows missing start/end
                 if (c.isClosed === true) return; // skip explicitly closed classes
                 // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
-                const _isSubstitute = c.gvThayTheId && c.gvThayTheId === staffId;
-                const _isOriginalVDX = c.gvThayTheId && c.gvId === staffId;
+                const _isSubstitute = isScheduledSubstitute(c, staffId);
+                const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
-                        (c.registeredTeachers || []).some(t => t.id === staffId) || (c.gvId && c.gvId === staffId)
+                        (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
                     ));
                 if (!_isReg) return;
                 const ck = c._compositeKey || null;
@@ -577,8 +580,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const classes = schedule[secKey] || [];
         classes.forEach((cls, idx) => {
             // 1. Kiểm tra GV thay thế
-            const isSubstitute = cls.gvThayTheId && cls.gvThayTheId === staffId;
-            const isOriginalVDX = cls.gvThayTheId && cls.gvId === staffId;
+            const isSubstitute = isScheduledSubstitute(cls, staffId);
+            const isOriginalVDX = hasScheduledSubstitute(cls) && isScheduledMainTeacher(cls, staffId);
 
             const classCompositeKey = cls._compositeKey || null;
             const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
@@ -612,9 +615,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 return;
             }
 
-            // 2. Check if user is assigned: substitute, admin-set gvId, or legacy registeredTeachers
+            // 2. Check if user is assigned: substitute, admin-set GV chính (mọi GV trong gvList),
+            //    or legacy registeredTeachers
             const isRegistered = isSubstitute ||
-                (cls.gvId && cls.gvId === staffId) ||
+                isScheduledMainTeacher(cls, staffId) ||
                 (cls.registeredTeachers || []).some(t => t.id === staffId);
 
             if (!isRegistered) return; // Skip if not assigned to this class

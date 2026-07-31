@@ -606,9 +606,7 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             sections.forEach(sec => {
                 if (!schedule[sec]) return;
                 schedule[sec].forEach(cls => {
-                    const isAssigned = (cls.gvId && cls.gvId === userId) ||
-                        (cls.gvThayTheId && cls.gvThayTheId === userId) ||
-                        (cls.registeredTeachers || []).some(t => t.id === userId);
+                    const isAssigned = isAssignedToClass(cls, userId);
                     if (!isAssigned) return;
                     allClasses.push({ start: cls.start, end: cls.end, branch });
                 });
@@ -1277,10 +1275,7 @@ async function checkAndAlertUnregistered(userId, userName) {
                 sections.forEach(sec => {
                     if (schedule[sec]) {
                         schedule[sec].forEach(cls => {
-                            const isRegistered = (cls.registeredTeachers || []).some(t => t.id === userId) ||
-                                                (cls.gvId && cls.gvId === userId) ||
-                                                (cls.gvThayTheId && cls.gvThayTheId === userId);
-                            if (isRegistered) hasRegistered = true;
+                            if (isAssignedToClass(cls, userId)) hasRegistered = true;
                         });
                     }
                 });
