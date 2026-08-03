@@ -342,7 +342,10 @@ function getClassObservationSummary(observations, staffId, cls, secKey, classInd
 // isScheduledMainTeacher / isScheduledSubstitute / hasScheduledSubstitute: định nghĩa ở
 // db-service.js (nạp trước mọi trang) — dùng chung để lớp nhiều GV không bị sót GV thứ 2.
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = []) {
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = [], monthFlags = {}) {
+    // Admin hủy 1 ca sớm 10p → khóa 10p của CẢ THÁNG (và cả phụ cấp lớp đông,
+    // xử lý bên report.js). Cờ này do nơi gọi tính sẵn cho cả tháng rồi truyền xuống.
+    const early10PenaltyActive = !!(monthFlags && monthFlags.early10PenaltyActive);
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIdsTeaching = new Set();
@@ -1050,9 +1053,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     // BONUS 10P (từ request được duyệt)
                     if (b10StatusT === 'approved' || matchedSession.bonus10) {
-                        minutes += 10;
-                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
-                        tooltip += ` | Thưởng 10p (đã duyệt)`;
+                        if (early10PenaltyActive) {
+                            label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
+                            tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
+                        } else {
+                            minutes += 10;
+                            label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
+                            tooltip += ` | Thưởng 10p (đã duyệt)`;
+                        }
                     } else if (b10StatusT === 'pending') {
                         label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                         tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
@@ -1577,9 +1585,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 // BONUS 10P (từ request được duyệt)
                 if (b10StatusR === 'approved' || matchedSession.bonus10) {
-                    minutes += 10;
-                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
-                    tooltip += ` | Thưởng 10p (đã duyệt)`;
+                    if (early10PenaltyActive) {
+                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
+                        tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
+                    } else {
+                        minutes += 10;
+                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
+                        tooltip += ` | Thưởng 10p (đã duyệt)`;
+                    }
                 } else if (b10StatusR === 'pending') {
                     label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
@@ -2029,9 +2042,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 b10DataU = bonus10Map[String(s.id)];
                 b10StatusU = b10DataU ? b10DataU.status : null;
                 if (b10StatusU === 'approved' || s.bonus10) {
-                    duration += 10;
-                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
-                    tooltip += ` | Thưởng 10p (đã duyệt)`;
+                    if (early10PenaltyActive) {
+                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
+                        tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
+                    } else {
+                        duration += 10;
+                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
+                        tooltip += ` | Thưởng 10p (đã duyệt)`;
+                    }
                 } else if (b10StatusU === 'pending') {
                     label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;

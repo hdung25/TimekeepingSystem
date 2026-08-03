@@ -1065,6 +1065,22 @@ const DBService = {
         } catch (e) { console.error('deleteSubject error:', e); throw e; }
     },
 
+    // Cập nhật nhiều môn cùng lúc — dùng khi bật/tắt "sớm 10p" cho cả nhóm,
+    // hoặc khi chuyển môn sang nhóm khác. Một batch để không có trạng thái nửa vời.
+    saveSubjectsBatch: async (updates) => {
+        const list = (updates || []).filter(item => item && item.id);
+        if (list.length === 0) return 0;
+        try {
+            const batch = db.batch();
+            list.forEach(({ id, ...fields }) => {
+                batch.set(db.collection('subjects').doc(id), fields, { merge: true });
+            });
+            await batch.commit();
+            DBService._invalidate('subjects_all');
+            return list.length;
+        } catch (e) { console.error('saveSubjectsBatch error:', e); throw e; }
+    },
+
     // 9b. Get all user IDs who have attendance on a given day (for GV absent highlight)
     getDayAttendance: async (dateKey) => {
         try {
@@ -1532,6 +1548,32 @@ const DBService = {
         }
     },
 
+
+    // Đặt cờ bonus10 theo giá trị mong muốn. Dùng khi hệ thống tự duyệt: toggle
+    // sẽ TẮT nhầm nếu ca đã có cờ sẵn (VD ca cũ do admin tặng tay).
+    setSessionBonus10: async (userId, dateKey, sessionId, value) => {
+        const docId = `${dateKey}_${userId}`;
+        const ref = db.collection('attendance_logs').doc(docId);
+        try {
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(ref);
+                if (!doc.exists) throw new Error("Không tìm thấy dữ liệu chấm công ngày này");
+                const data = doc.data();
+                if (!data.sessions) throw new Error("Không tìm thấy phiên làm việc nào");
+                const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
+                if (index === -1) throw new Error("Không tìm thấy phiên làm việc cụ thể");
+
+                data.sessions[index].bonus10 = !!value;
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                t.set(ref, data);
+            });
+            DBService._invalidateAttendance(dateKey, userId);
+            return !!value;
+        } catch (error) {
+            console.error("Error in setSessionBonus10:", error);
+            throw error;
+        }
+    },
 
     toggleSessionBonus10: async (userId, dateKey, sessionId) => {
         const docId = `${dateKey}_${userId}`;
@@ -2830,11 +2872,53 @@ const DBService = {
                 approvedBy: null,
                 approvedAt: null
             });
-            DBService._invalidate('bonus10_requests_staff_');
+            DBService._invalidate('bonus10_requests_');
             console.log('[Bonus10] Request created:', docRef.id);
             return docRef.id;
         } catch (e) {
             console.error('[Bonus10] Error creating:', e);
+            throw e;
+        }
+    },
+
+    // Hệ thống đã tự xác minh đủ điều kiện (môn cho phép + GV chế độ cũ + chấm công
+    // sớm ≥10 phút) nên ghi thẳng trạng thái 'approved'.
+    // KHÔNG dùng create rồi update: firestore.rules chỉ cho admin update
+    // bonus10_requests, trong khi người bấm nút ở đây là giáo viên.
+    createApprovedBonus10Request: async (staffId, staffName, dateKey, sessionId, meta) => {
+        try {
+            const dupSnap = await db.collection('bonus10_requests')
+                .where('staffId', '==', staffId)
+                .where('dateKey', '==', dateKey)
+                .get();
+            const already = dupSnap.docs.some(doc => {
+                const d = doc.data();
+                return String(d.sessionId) === String(sessionId) &&
+                    (d.status === 'pending' || d.status === 'approved');
+            });
+            if (already) throw new Error('Ca này đã được ghi nhận sớm 10p rồi!');
+
+            const docRef = await db.collection('bonus10_requests').add({
+                staffId,
+                staffName: staffName || 'N/A',
+                dateKey,
+                sessionId: String(sessionId),
+                status: 'approved',
+                autoApproved: true,
+                earlyMinutes: (meta && meta.earlyMinutes) || null,
+                checkInAt: (meta && meta.checkInLabel) || null,
+                scheduledStart: (meta && meta.startLabel) || null,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                approvedBy: 'Hệ thống tự duyệt',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            await DBService.setSessionBonus10(staffId, dateKey, sessionId, true);
+            DBService._invalidate('bonus10_requests_');
+            console.log('[Bonus10] Auto-approved:', docRef.id);
+            return docRef.id;
+        } catch (e) {
+            console.error('[Bonus10] Error auto-approving:', e);
             throw e;
         }
     },
@@ -2892,9 +2976,9 @@ const DBService = {
             });
             // 2. Set bonus10 = true on the actual session
             if (staffId && dateKey && sessionId) {
-                await DBService.toggleSessionBonus10(staffId, dateKey, sessionId);
+                await DBService.setSessionBonus10(staffId, dateKey, sessionId, true);
             }
-            DBService._invalidate('bonus10_requests_staff_');
+            DBService._invalidate('bonus10_requests_');
             console.log('[Bonus10] Approved:', requestId);
         } catch (e) {
             console.error('[Bonus10] Error approving:', e);
@@ -2902,11 +2986,40 @@ const DBService = {
         }
     },
 
+    // Admin hủy 1 ca sớm 10p = ĐÁNH DẤU TỪ CHỐI, không xóa bản ghi.
+    // Bản ghi 'rejected' còn lại chính là dấu vết khóa phụ cấp cả tháng
+    // (mất toàn bộ 10p và mất đơn giá lớp đông). Muốn gỡ phạt thì dùng
+    // restoreBonus10Request để xóa hẳn bản ghi này.
     cancelApprovedBonus10: async (requestId, staffId, dateKey, sessionId) => {
         try {
-            // 1. Delete request from collection if it exists
+            // 1. Đánh dấu từ chối — dấu vết này chính là hình phạt của cả tháng.
+            const adminName = localStorage.getItem('currentUserName') || 'Admin';
+            let marked = false;
             if (requestId) {
-                await db.collection('bonus10_requests').doc(requestId).delete();
+                try {
+                    await db.collection('bonus10_requests').doc(requestId).update({
+                        status: 'rejected',
+                        approvedBy: adminName,
+                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    marked = true;
+                } catch (updateErr) {
+                    console.warn('[Bonus10] Không cập nhật được bản ghi cũ, sẽ tạo bản ghi phạt mới.', updateErr);
+                }
+            }
+            // Ca cũ do admin tặng tay không có bản ghi request → vẫn phải tạo dấu vết,
+            // nếu không hình phạt tháng sẽ im lặng biến mất.
+            if (!marked) {
+                await db.collection('bonus10_requests').add({
+                    staffId: staffId,
+                    staffName: 'N/A',
+                    dateKey: dateKey,
+                    sessionId: String(sessionId),
+                    status: 'rejected',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    approvedBy: adminName,
+                    approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
             }
             // 2. Clear bonus10 on the actual session (set it to false)
             const docId = `${dateKey}_${staffId}`;
@@ -2926,7 +3039,7 @@ const DBService = {
                 }
             });
             DBService._invalidateAttendance(dateKey, staffId);
-            DBService._invalidate('bonus10_requests_staff_');
+            DBService._invalidate('bonus10_requests_');
             console.log('[Bonus10] Cancelled approved request:', requestId, sessionId);
         } catch (e) {
             console.error('[Bonus10] Error cancelling approved bonus:', e);
@@ -2941,12 +3054,62 @@ const DBService = {
                 approvedBy: adminName || 'Admin',
                 approvedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            DBService._invalidate('bonus10_requests_staff_');
+            DBService._invalidate('bonus10_requests_');
             console.log('[Bonus10] Rejected:', requestId);
         } catch (e) {
             console.error('[Bonus10] Error rejecting:', e);
             throw e;
         }
+    },
+
+    // Gỡ hình phạt tháng: xóa hẳn các bản ghi 'rejected' của nhân viên trong tháng.
+    // Dùng khi admin bấm nhầm — sau khi gỡ, 10p và phụ cấp lớp đông tính lại bình thường.
+    clearBonus10PenaltyForMonth: async (staffId, monthStr) => {
+        if (!staffId || !monthStr) return 0;
+        try {
+            const snap = await db.collection('bonus10_requests')
+                .where('staffId', '==', staffId)
+                .get();
+            const targets = snap.docs.filter(doc => {
+                const data = doc.data();
+                return data.status === 'rejected' && String(data.dateKey || '').startsWith(monthStr);
+            });
+            if (targets.length === 0) return 0;
+            const batch = db.batch();
+            targets.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            DBService._invalidate('bonus10_requests_');
+            console.log('[Bonus10] Cleared monthly penalty:', staffId, monthStr, targets.length);
+            return targets.length;
+        } catch (e) {
+            console.error('[Bonus10] Error clearing penalty:', e);
+            throw e;
+        }
+    },
+
+    getMonthlyBonus10Requests: async (monthStr, staffId) => {
+        if (!staffId) return [];
+        const cacheKey = `bonus10_requests_month_${staffId}_${monthStr || 'all'}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const snap = await db.collection('bonus10_requests')
+                    .where('staffId', '==', staffId)
+                    .limit(400)
+                    .get();
+                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                return monthStr
+                    ? list.filter(r => r.dateKey && String(r.dateKey).startsWith(monthStr))
+                    : list;
+            } catch (e) {
+                console.warn('[Bonus10] Error getting monthly requests:', e);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
     },
 
     getMonthlyMeetings: async (monthStr) => {

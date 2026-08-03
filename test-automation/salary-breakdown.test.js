@@ -141,6 +141,19 @@ function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 1000
 }
 
 {
+    // Hủy 1 ca sớm 10p cũng khóa đơn giá lớp đông của cả tháng.
+    assert.equal(isStudentCountPenaltyActive({}, [{ bonus10Status: 'rejected' }]), true);
+    const chips = [
+        { paidMinutes: 90, studentCount: 10, studentCountStatus: 'approved' },
+        { paidMinutes: 60, studentCount: 10, studentCountStatus: 'approved', bonus10Status: 'rejected' }
+    ];
+    const groups = aggregate(chips, {}, { 'Tin Học (+10 HS)': 150000 });
+    assert.deepEqual(Object.keys(groups), ['Tin Học']);
+    assert.equal(groups['Tin Học'].minutes, 150);
+    assert.equal(groups['Tin Học'].rate, 100000);
+}
+
+{
     // Phút âm / không hợp lệ không được làm hỏng tổng.
     const [allocation] = getTeachingPayAllocations({}, '', -10, 100000, {}, false);
     assert.equal(allocation.name, 'Chưa phân lớp');

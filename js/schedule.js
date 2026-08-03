@@ -715,8 +715,9 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
 
 async function loadSubjectListForSchedule() {
     try {
-        const subjects = await DBService.getSubjects();
-        window._subjectList = subjects || [];
+        // Nhóm môn (isGroup) chỉ là thư mục trong trang Môn Học — không xếp lịch được.
+        const subjects = (await DBService.getSubjects() || []).filter(s => s.isGroup !== true);
+        window._subjectList = subjects;
         let dl = document.getElementById('subject-list');
         if (!dl) {
             dl = document.createElement('datalist');

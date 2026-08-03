@@ -1036,6 +1036,15 @@ async function renderMonthReport(date, forceServer = false) {
         }
     });
 
+    // Chỉ cần MỘT ca sớm 10p bị admin hủy/từ chối là cả tháng mất 10p
+    // (và mất luôn đơn giá lớp đông — xử lý ở phần tính lương).
+    const early10PenaltyActive = bonus10RequestsList.some(req => req.status === 'rejected');
+    const early10RejectedCount = bonus10RequestsList.filter(req => req.status === 'rejected').length;
+    window.currentMonthEarly10Penalty = early10PenaltyActive;
+    window.currentMonthEarly10RejectedCount = early10RejectedCount;
+    const monthFlags = { early10PenaltyActive };
+    renderEarly10PenaltyBanner(staffId, early10PenaltyActive, early10RejectedCount);
+
     // Build overtimeDateMap: "YYYY-MM-DD" -> { sessionId -> otData }
     const overtimeDateMap = {};
     overtimeRequestsList.forEach(ot => {
@@ -1585,7 +1594,8 @@ async function renderMonthReport(date, forceServer = false) {
             overtimeDateMap[dateStr] || {},
             cancelledShifts,
             bonus10Map,
-            shiftObservationsMap[dateStr] || []
+            shiftObservationsMap[dateStr] || [],
+            monthFlags
         );
         // Inject dateStr so we can auto-save roles later
         chips.forEach(c => {
@@ -1926,7 +1936,12 @@ async function renderMonthReport(date, forceServer = false) {
                         b10Btn.title = 'Đã duyệt - Bấm để hủy duyệt thưởng 10p';
                         b10Btn.onclick = async (e) => {
                             e.stopPropagation();
-                            if (!confirm("Bạn có muốn hủy duyệt thưởng 10p cho ca này không?")) return;
+                            const agreed = await UIService.confirm(
+                                'Hủy thưởng 10p cho ca này?\n\n' +
+                                'Lưu ý: hủy 1 ca sẽ khóa phụ cấp CẢ THÁNG — mất toàn bộ 10p và mất luôn ' +
+                                'đơn giá lớp đông (+N HS) của nhân viên này trong tháng. Có thể gỡ phạt sau.'
+                            );
+                            if (!agreed) return;
                             try {
                                 if (typeof UIService !== 'undefined') UIService.showLoading('Đang hủy duyệt...');
                                 await DBService.cancelApprovedBonus10(chip.bonus10Id, staffId, dateStr, chip.sessionId);
@@ -1977,15 +1992,30 @@ async function renderMonthReport(date, forceServer = false) {
                         b10Btn.disabled = true;
                         b10Btn.title = 'Đang chờ admin duyệt';
                     }
+                } else if (b10Status === 'rejected') {
+                    // Ca bị admin hủy → khóa phụ cấp cả tháng, không cho gửi lại.
+                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Đã hủy';
+                    b10Btn.style.background = '#FEE2E2';
+                    b10Btn.style.color = '#DC2626';
+                    b10Btn.disabled = !isAdminRole2;
+                    b10Btn.title = 'Ca này bị hủy sớm 10p — cả tháng mất 10p và mất đơn giá lớp đông';
+                    if (isAdminRole2) {
+                        b10Btn.style.cursor = 'pointer';
+                        b10Btn.title += ' (bấm để gỡ phạt tháng này)';
+                        b10Btn.onclick = (e) => {
+                            e.stopPropagation();
+                            clearEarly10Penalty(staffId);
+                        };
+                    }
                 } else {
-                    // Chưa có hoặc bị reject → cho submit
+                    // Chưa có → cho nhân viên tự bấm; hệ thống tự kiểm tra & duyệt.
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Sớm';
-                    b10Btn.style.background = b10Status === 'rejected' ? '#FEE2E2' : '#F3F4F6';
-                    b10Btn.style.color = b10Status === 'rejected' ? '#DC2626' : '#6B7280';
-                    b10Btn.title = b10Status === 'rejected' ? 'Bị từ chối — bấm để gửi lại' : 'Yêu cầu thưởng 10p vào sớm';
+                    b10Btn.style.background = '#F3F4F6';
+                    b10Btn.style.color = '#6B7280';
+                    b10Btn.title = 'Bấm để nhận thưởng vào sớm 10 phút (hệ thống tự kiểm tra giờ chấm công)';
                     b10Btn.onclick = (e) => {
                         e.stopPropagation();
-                        submitBonus10Request(chip.sessionId, dateStr, staffId);
+                        submitBonus10Request(chip.sessionId, dateStr, staffId, chip);
                     };
                 }
 
@@ -2500,9 +2530,15 @@ function updateBonusDisplay(amount) {
 // Lớp đông (+N HS) là ĐƠN GIÁ THAY THẾ cho ca đó, KHÔNG phải giờ cộng thêm.
 // Trước đây ca lớp đông bị cộng vào cả dòng môn học gốc lẫn dòng "(+N HS)",
 // làm tổng giờ bị nhân đôi (VD 11h27 thực tế -> hiện 21h25).
+// Hình phạt theo THÁNG: admin từ chối/hủy 1 ca (khai sai sĩ số HOẶC sớm 10p)
+// thì cả tháng mất phụ cấp lớp đông và mất toàn bộ 10p. Logic dùng chung với
+// js/early10.js để trang báo cáo, bảng lương và PDF không lệch nhau.
 function isStudentCountPenaltyActive(monthlySettings, chips) {
+    if (typeof Early10 !== 'undefined' && Early10.isMonthlyBonusPenaltyActive) {
+        return Early10.isMonthlyBonusPenaltyActive(monthlySettings, chips);
+    }
     return !!monthlySettings?.studentCountBonusPenalty ||
-        (chips || []).some(chip => chip?.studentCountStatus === 'rejected');
+        (chips || []).some(chip => chip?.studentCountStatus === 'rejected' || chip?.bonus10Status === 'rejected');
 }
 
 // Trả về danh sách phân bổ [{ name, minutes, rate, isStudentCount }] cho 1 ca dạy.
@@ -4124,8 +4160,9 @@ async function loadAndRenderSubjects(staffId) {
             });
         });
         
-        // 2. Add other subjects from database
-        subjects.forEach(s => {
+        // 2. Add other subjects from database.
+        // Nhóm môn (isGroup) chỉ là thư mục sắp xếp — không phải môn dạy được.
+        subjects.filter(s => s.isGroup !== true).forEach(s => {
             if (!allAvailableSubjects.some(item => item.id === s.id)) {
                 allAvailableSubjects.push({
                     id: s.id,
@@ -4488,10 +4525,15 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveBonus10('${chip.bonus10Id}', '${sessionId}', '${dateKey}', '${staffId}')">Duyệt</button>
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalRejectBonus10('${chip.bonus10Id}')">Từ chối</button>
                     `;
+                } else if (b10Status === 'rejected') {
+                    b10Actions.innerHTML = `
+                        <span style="color: #DC2626; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">✕ Đã hủy — cả tháng mất 10p &amp; lớp đông</span>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #6B7280; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="clearEarly10Penalty('${staffId}')">Gỡ phạt tháng</button>
+                    `;
                 } else {
                     b10Actions.innerHTML = `
                         <span style="color: #6B7280; font-size: 0.9rem; margin-right: 8px;">Chưa yêu cầu</span>
-                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalSubmitBonus10Request('${sessionId}', '${dateKey}', '${staffId}')">Thưởng +10p</button>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalSubmitBonus10Request('${sessionId}', '${dateKey}', '${staffId}')" title="Admin tặng thưởng — bỏ qua kiểm tra tự động">Thưởng +10p</button>
                     `;
                 }
             } else {
@@ -4784,7 +4826,12 @@ window.modalRejectBonus10 = async function(requestId) {
 
 window.modalCancelApprovedBonus10 = async function(requestId, staffId, dateKey, sessionId) {
     try {
-        if (!confirm("Bạn có muốn hủy duyệt thưởng 10p cho ca này không?")) return;
+        const agreed = await UIService.confirm(
+            'Hủy thưởng 10p cho ca này?\n\n' +
+            'Lưu ý: hủy 1 ca sẽ khóa phụ cấp CẢ THÁNG — mất toàn bộ 10p và mất luôn ' +
+            'đơn giá lớp đông (+N HS) của nhân viên này trong tháng. Có thể gỡ phạt sau.'
+        );
+        if (!agreed) return;
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang hủy...');
         await DBService.cancelApprovedBonus10(requestId, staffId, dateKey, sessionId);
         if (typeof UIService !== 'undefined') {
@@ -4804,18 +4851,10 @@ window.modalCancelApprovedBonus10 = async function(requestId, staffId, dateKey, 
 window.modalSubmitBonus10Request = async function(sessionId, dateKey, staffId) {
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang gửi yêu cầu...');
+        // Admin tặng tay: bỏ qua kiểm tra tự động, nhưng vẫn ghi 1 bản ghi đã duyệt
+        // để lịch sử và hình phạt tháng có chỗ bám vào.
         const staffName = getTargetStaffName();
-        await DBService.createBonus10Request(staffId, staffName, dateKey, sessionId);
-        const snap = await db.collection('bonus10_requests')
-            .where('sessionId', '==', sessionId)
-            .where('staffId', '==', staffId)
-            .where('dateKey', '==', dateKey)
-            .get();
-        if (!snap.empty) {
-            const reqId = snap.docs[0].id;
-            const adminName = localStorage.getItem('currentUserName') || 'Admin';
-            await DBService.approveBonus10Request(reqId, adminName, staffId, dateKey, sessionId);
-        }
+        await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, sessionId, null);
         if (typeof UIService !== 'undefined') {
             UIService.hideLoading();
             UIService.toast("Đã tặng thưởng 10p thành công!", "success");
@@ -5218,20 +5257,143 @@ async function submitOvertimeRequest() {
 
 // ================= BONUS 10P UI FUNCTIONS =================
 
-async function submitBonus10Request(sessionId, dateKey, staffId) {
-    const confirmed = await UIService.confirm('Gửi yêu cầu thưởng 10p vào sớm cho ca này?');
+// Kiểm tra 3 điều kiện sớm 10p cho 1 ca: môn cho phép, giáo viên chế độ cũ,
+// và giờ chấm công vào thực tế sớm ít nhất 10 phút so với giờ vào ca.
+async function evaluateEarly10ForChip(chip, staffId) {
+    if (typeof Early10 === 'undefined') {
+        return { ok: false, code: 'missing-module', message: 'Chưa tải được quy tắc sớm 10 phút. Hãy tải lại trang.' };
+    }
+    const [subjects, users] = await Promise.all([
+        DBService.getSubjects().catch(() => []),
+        DBService.getUsers().catch(() => [])
+    ]);
+    const user = users.find(u => u.id === staffId) || null;
+    const session = chip?.sessionData || {};
+    return Early10.evaluateEarly10Request({
+        sessionRole: session.role,
+        subjects,
+        user,
+        checkIn: session.checkIn,
+        classStart: chip?.classStart
+    });
+}
+
+async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
+    // Tháng đang bị khóa phụ cấp thì không cho gửi mới — nếu không sẽ lách được hình phạt.
+    if (window.currentMonthEarly10Penalty) {
+        await UIService.notice(
+            'Tháng này đã có ca sớm 10p bị hủy nên toàn bộ phụ cấp 10p trong tháng bị khóa. ' +
+            'Liên hệ quản lý nếu bạn cho rằng đây là nhầm lẫn.',
+            'Tháng này đang bị khóa phụ cấp', 'error'
+        );
+        return;
+    }
+
+    let verdict = null;
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang kiểm tra điều kiện...');
+        verdict = await evaluateEarly10ForChip(chip, staffId);
+    } finally {
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
+    }
+
+    if (!verdict.ok) {
+        // Không hợp lệ thì chặn ngay, không tạo yêu cầu để admin khỏi phải duyệt rác.
+        await UIService.notice(verdict.message, 'Không đủ điều kiện sớm 10 phút', 'warning');
+        return;
+    }
+
+    const confirmed = await UIService.confirm(
+        `${verdict.message}\n\nXác nhận nhận thưởng sớm 10 phút cho ca này?`
+    );
     if (!confirmed) return;
 
     const staffName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A';
     try {
-        await DBService.createBonus10Request(staffId, staffName, dateKey, sessionId);
-        UIService.toast('Đã gửi yêu cầu! Admin sẽ xem xét và duyệt.', 'success');
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang xử lý...');
+        // Hệ thống đã tự xác minh đủ 3 điều kiện → duyệt luôn, admin không phải bấm.
+        await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, sessionId, verdict);
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
+        UIService.toast(`Đã duyệt tự động: vào sớm ${verdict.earlyMinutes} phút.`, 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
         UIService.toast('Lỗi: ' + e.message, 'error');
     }
 }
+
+// Dải cảnh báo trên lịch tháng: admin (và cả nhân viên) nhìn ra ngay tháng này
+// đang bị khóa phụ cấp, thay vì phải tự thắc mắc sao lương hụt.
+function renderEarly10PenaltyBanner(staffId, active, rejectedCount) {
+    // Đặt NGOÀI khung lịch (khung lịch có min-width 850px và tự cuộn ngang) để
+    // dải cảnh báo không bị kéo rộng ra trên điện thoại.
+    const grid = document.getElementById('calendar-grid');
+    const anchor = (grid && grid.closest('.glass-panel')) || grid;
+    let banner = document.getElementById('early10-penalty-banner');
+
+    if (!active) {
+        if (banner) banner.remove();
+        return;
+    }
+    if (!anchor || !anchor.parentNode) return;
+
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'early10-penalty-banner';
+        banner.style.cssText = 'margin:0 0 1rem;padding:0.85rem 1rem;border-radius:12px;' +
+            'background:#FEF2F2;border:1px solid #FECACA;display:flex;align-items:center;' +
+            'gap:0.75rem;flex-wrap:wrap;';
+        anchor.parentNode.insertBefore(banner, anchor);
+    }
+
+    // localStorage 'currentRole' có thể là chuỗi hoặc JSON array (xem js/auth-guard.js).
+    const roles = (() => {
+        const raw = localStorage.getItem('currentRole');
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch (e) {
+            return raw ? [raw] : [];
+        }
+    })();
+    const isAdmin = roles.some(r => ['admin', 'senior_assistant'].includes(r));
+
+    banner.innerHTML =
+        `<span style="flex:0 0 auto;color:#DC2626;display:flex;">${window.getIconHtml('alert-triangle', { width: '20', height: '20' })}</span>` +
+        `<span style="flex:1;min-width:180px;font-size:0.88rem;color:#7F1D1D;">` +
+            `<b>Tháng này đang bị khóa phụ cấp.</b> ${rejectedCount} ca sớm 10p đã bị hủy nên toàn bộ ` +
+            `thưởng 10p và đơn giá lớp đông (+N HS) trong tháng không được tính.` +
+        `</span>` +
+        (isAdmin
+            ? `<button onclick="clearEarly10Penalty('${staffId}')" style="flex:0 0 auto;padding:0.5rem 0.9rem;` +
+              `border-radius:9px;border:none;cursor:pointer;background:#DC2626;color:#fff;font-weight:700;` +
+              `font-size:0.83rem;">Gỡ phạt tháng này</button>`
+            : '');
+}
+
+// Gỡ hình phạt tháng khi admin bấm nhầm: xóa hết bản ghi 'rejected' của tháng,
+// sau đó 10p và đơn giá lớp đông được tính lại bình thường.
+async function clearEarly10Penalty(staffId) {
+    const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const confirmed = await UIService.confirm(
+        `Gỡ phạt sớm 10p cho tháng ${monthStr}?\n\nSau khi gỡ, các ca đã duyệt 10p và đơn giá lớp đông (+N HS) trong tháng sẽ được tính lại bình thường.`
+    );
+    if (!confirmed) return;
+
+    try {
+        if (typeof UIService !== 'undefined') UIService.showLoading('Đang gỡ phạt...');
+        const removed = await DBService.clearBonus10PenaltyForMonth(staffId, monthStr);
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
+        UIService.toast(removed > 0 ? `Đã gỡ phạt (${removed} ca).` : 'Tháng này không có ca nào bị phạt.', 'success');
+        _cachedStaffId = null;
+        renderMonthReport(currentDate);
+    } catch (e) {
+        if (typeof UIService !== 'undefined') UIService.hideLoading();
+        UIService.toast('Lỗi: ' + e.message, 'error');
+    }
+}
+window.clearEarly10Penalty = clearEarly10Penalty;
 
 async function approveBonus10(requestId, sessionId, dateKey, staffId) {
     const confirmed = await UIService.confirm('Duyệt thưởng 10p cho ca này?');
@@ -6540,6 +6702,9 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 bonus10Map[req.dateKey][req.sessionId] = req;
             }
         });
+        const prevMonthFlags = {
+            early10PenaltyActive: bonus10Records.some(req => req.status === 'rejected')
+        };
 
         const observationMap = {};
         observationRecords.forEach(item => {
@@ -6567,7 +6732,8 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 overtimeDateMap[dateStr] || {},
                 cancelledShifts,
                 bonus10Map[dateStr] || {},
-                observationMap[dateStr] || []
+                observationMap[dateStr] || [],
+                prevMonthFlags
             );
             
             chips.forEach(c => {

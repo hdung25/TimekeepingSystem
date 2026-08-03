@@ -1,546 +1,643 @@
-// Personnel Management Logic
+// ================= TRANG NHÂN SỰ =================
+// Quản lý tài khoản, vai trò, chế độ giáo viên (cũ / mới) và cấu hình lương.
+//
+// teachingMode: 'old' | 'new' | không có (chưa phân loại).
+// Chỉ giáo viên 'old' mới được hưởng thưởng sớm 10 phút — xem js/early10.js.
+// Người chưa phân loại KHÔNG được hưởng, nhưng hiển thị riêng để admin biết còn thiếu ai.
+(function () {
+    'use strict';
 
-document.addEventListener('DOMContentLoaded', async () => {
-    if (window.waitAuth) {
-        await window.waitAuth();
+    var ROLE_LABELS = {
+        admin: 'Quản trị viên',
+        senior_assistant: 'Trợ lý cấp cao',
+        assistant: 'Trợ lý',
+        teaching_assistant: 'Trợ giảng / GV TA',
+        receptionist: 'Tiếp tân',
+        receptionist_assistant: 'Trợ lý tiếp tân',
+        staff: 'Nhân viên'
+    };
+    var ROLE_PRIORITY = ['admin', 'senior_assistant', 'assistant', 'teaching_assistant',
+        'receptionist', 'receptionist_assistant', 'staff'];
+    var RECEP_ROLES = ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'];
+    var TEACH_ROLES = ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'];
+    var AVATAR_COLORS = ['#059669', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#14B8A6', '#EF4444', '#6366F1'];
+
+    var state = {
+        users: [],
+        search: '',
+        filter: 'all',
+        editing: false,
+        mode: '',
+        revealed: {},
+        salaryRates: []
+    };
+
+    // --- Tiện ích ---------------------------------------------------------
+
+    function esc(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
-    renderStaffTable();
 
-    // Live color preview
-    const colorInput = document.getElementById('staff-color');
-    if (colorInput) {
-        colorInput.addEventListener('input', (e) => _updateColorPreview(e.target.value));
+    function stripTones(value) {
+        return String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/đ/g, 'd').replace(/Đ/g, 'D');
     }
-});
 
-// Search/Filter staff table rows
-window.filterStaffTable = function (query) {
-    const normalizedQuery = query.toLowerCase().trim();
-    const rows = document.querySelectorAll('#staff-table-body tr');
-    rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(normalizedQuery) ? '' : 'none';
-    });
-};
+    function rolesOf(user) {
+        if (Array.isArray(user.roles) && user.roles.length > 0) return user.roles;
+        return user.role ? [user.role] : ['staff'];
+    }
 
-function _updateColorPreview(color) {
-    const preview = document.getElementById('staff-color-preview');
-    if (preview) {
+    function modeOf(user) {
+        if (typeof Early10 !== 'undefined') return Early10.getTeachingMode(user);
+        return user && (user.teachingMode === 'old' || user.teachingMode === 'new') ? user.teachingMode : 'unset';
+    }
+
+    function hasRecepRole(user) { return rolesOf(user).some(function (r) { return RECEP_ROLES.indexOf(r) !== -1; }); }
+    function hasTeachRole(user) { return rolesOf(user).some(function (r) { return TEACH_ROLES.indexOf(r) !== -1; }); }
+
+    function initials(name) {
+        var parts = String(name || '?').trim().split(/\s+/);
+        if (parts.length === 1) return parts[0].substr(0, 2).toUpperCase();
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function avatarColor(user) {
+        var key = String(user.id || user.username || '');
+        var sum = 0;
+        for (var i = 0; i < key.length; i++) sum += key.charCodeAt(i);
+        return AVATAR_COLORS[sum % AVATAR_COLORS.length];
+    }
+
+    function formatCurrency(value) {
+        return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
+    }
+
+    // sortUsers gắn thêm _msnv/_msnvStr chỉ để hiển thị — không được ghi xuống Firestore.
+    function cleanUser(user) {
+        var copy = {};
+        Object.keys(user || {}).forEach(function (key) {
+            if (key.charAt(0) !== '_') copy[key] = user[key];
+        });
+        return copy;
+    }
+
+    // --- Lọc & sắp xếp ----------------------------------------------------
+
+    function sortUsers(users) {
+        users.forEach(function (u) {
+            var match = String(u.username || '').match(/\d+$/);
+            u._msnvStr = match ? match[0] : '';
+            u._msnv = match ? parseInt(match[0], 10) : null;
+        });
+        return users.sort(function (a, b) {
+            if (a._msnv !== null && b._msnv !== null) return a._msnv - b._msnv;
+            if (a._msnv !== null) return -1;
+            if (b._msnv !== null) return 1;
+            return String(a.username || '').localeCompare(String(b.username || ''));
+        });
+    }
+
+    function passesFilter(user) {
+        var f = state.filter;
+        if (f === 'all') return true;
+        if (f === 'old' || f === 'new' || f === 'unset') return modeOf(user) === f;
+        if (f === 'teaching') return hasTeachRole(user);
+        if (f === 'recep') return hasRecepRole(user);
+        return true;
+    }
+
+    function matchesSearch(user) {
+        if (!state.search) return true;
+        var needle = stripTones(state.search).toLowerCase();
+        var hay = stripTones([user.name, user.username, user._msnvStr].join(' ')).toLowerCase();
+        return hay.indexOf(needle) !== -1;
+    }
+
+    // --- Render -----------------------------------------------------------
+
+    function renderStats() {
+        var counts = { total: state.users.length, old: 0, new: 0, unset: 0 };
+        state.users.forEach(function (u) { counts[modeOf(u)]++; });
+        var set = function (id, value) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+        set('ns-stat-total', counts.total);
+        set('ns-stat-old', counts.old);
+        set('ns-stat-new', counts.new);
+        set('ns-stat-unset', counts.unset);
+    }
+
+    function roleBadges(user) {
+        return rolesOf(user).map(function (role) {
+            var cls = 'ns-role';
+            if (role === 'admin' || role === 'senior_assistant') cls += ' admin';
+            else if (RECEP_ROLES.indexOf(role) !== -1) cls += ' recep';
+            else cls += ' teach';
+            return '<span class="' + cls + '">' + esc(ROLE_LABELS[role] || role) + '</span>';
+        }).join('');
+    }
+
+    function modeSelector(user) {
+        var mode = modeOf(user);
+        var button = function (value, label) {
+            var active = (value === '' ? mode === 'unset' : mode === value) ? ' active' : '';
+            return '<button type="button" data-mode="' + value + '" class="' + active.trim() + '"' +
+                ' onclick="NhanSu.quickSetMode(\'' + esc(user.id) + '\', \'' + value + '\')">' + label + '</button>';
+        };
+        return '<div class="ns-mode">' +
+            button('old', 'Chế độ cũ') + button('new', 'Chế độ mới') + button('', 'Chưa rõ') +
+            '</div>';
+    }
+
+    function secretRow(user) {
+        var shown = state.revealed[user.id];
+        return '<div class="ns-secret">' +
+            '<span>' + esc(user.username) + '</span><span style="color:#D1D5DB;">·</span>' +
+            '<span>' + (shown ? esc(user.password) : '••••••') + '</span>' +
+            '<button type="button" title="' + (shown ? 'Ẩn mật khẩu' : 'Hiện mật khẩu') + '"' +
+                ' onclick="NhanSu.toggleSecret(\'' + esc(user.id) + '\')">' +
+                '<i data-lucide="' + (shown ? 'eye-off' : 'eye') + '" style="width:15px;height:15px;"></i>' +
+            '</button>' +
+        '</div>';
+    }
+
+    function renderCard(user) {
+        var mode = modeOf(user);
+        var hint = mode === 'old'
+            ? 'Được hưởng <b>sớm 10 phút</b> ở các môn có bật chính sách.'
+            : (mode === 'new'
+                ? 'Không áp dụng chính sách sớm 10 phút.'
+                : 'Chưa phân loại — tạm thời không được hưởng sớm 10 phút.');
+
+        return '' +
+            '<div class="ns-card">' +
+                '<div class="ns-card-top">' +
+                    '<span class="ns-avatar" style="background:' + avatarColor(user) + ';">' + esc(initials(user.name || user.username)) + '</span>' +
+                    '<span class="ns-card-id">' +
+                        '<span class="ns-name">' + esc(user.name || user.username) + '</span>' +
+                        '<span class="ns-meta">' + secretRow(user) + '</span>' +
+                    '</span>' +
+                    '<span class="ns-msnv">' + esc(user._msnvStr || '—') + '</span>' +
+                '</div>' +
+                '<div class="ns-roles">' + roleBadges(user) + '</div>' +
+                modeSelector(user) +
+                '<div class="ns-mode-hint">' + hint + '</div>' +
+                '<div class="ns-card-actions">' +
+                    '<button class="ns-act pay" onclick="NhanSu.openSalarySheet(\'' + esc(user.id) + '\')"><i data-lucide="wallet"></i> Lương</button>' +
+                    '<button class="ns-act" onclick="NhanSu.editStaff(\'' + esc(user.id) + '\')"><i data-lucide="pencil"></i> Sửa</button>' +
+                    '<button class="ns-act danger" onclick="NhanSu.deleteStaff(\'' + esc(user.id) + '\')"><i data-lucide="trash-2"></i> Xóa</button>' +
+                '</div>' +
+            '</div>';
+    }
+
+    function render() {
+        var loading = document.getElementById('ns-loading');
+        if (loading) loading.style.display = 'none';
+        var list = document.getElementById('ns-list');
+        if (!list) return;
+
+        var visible = state.users.filter(function (u) { return passesFilter(u) && matchesSearch(u); });
+
+        list.innerHTML = visible.length > 0
+            ? visible.map(renderCard).join('')
+            : '<div class="ns-empty"><h3>Không tìm thấy nhân viên nào</h3>' +
+              '<p>Thử đổi từ khóa tìm kiếm hoặc bỏ bộ lọc.</p></div>';
+
+        if (window.lucide) window.lucide.createIcons({ root: list });
+        renderStats();
+    }
+
+    async function load() {
+        try {
+            state.users = sortUsers(await DBService.getUsers());
+            render();
+        } catch (e) {
+            var loading = document.getElementById('ns-loading');
+            if (loading) loading.textContent = 'Lỗi tải dữ liệu: ' + e.message;
+        }
+    }
+
+    async function reload() {
+        localStorage.removeItem('users_data');
+        DBService._invalidate('users_all');
+        state.users = sortUsers(await DBService.getUsers());
+        render();
+    }
+
+    // --- Chế độ giáo viên -------------------------------------------------
+
+    async function quickSetMode(userId, mode) {
+        var user = state.users.find(function (u) { return u.id === userId; });
+        if (!user) return;
+        var next = mode === '' ? '' : mode;
+        if ((user.teachingMode || '') === next) return;
+
+        var previous = user.teachingMode || '';
+        user.teachingMode = next;   // cập nhật ngay cho mượt, lỗi thì trả lại
+        render();
+        try {
+            await DBService.saveUser(cleanUser(user));
+            localStorage.removeItem('users_data');
+            DBService._invalidate('users_all');
+            UIService.toast(next === 'old' ? 'Đã đặt "chế độ cũ".'
+                : next === 'new' ? 'Đã đặt "chế độ mới".' : 'Đã bỏ phân loại.', 'success');
+        } catch (e) {
+            user.teachingMode = previous;
+            render();
+            UIService.toast('Lỗi lưu: ' + e.message, 'error');
+        }
+    }
+
+    function setMode(mode) {
+        state.mode = mode;
+        document.querySelectorAll('#ns-mode-seg button').forEach(function (btn) {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+    }
+
+    function toggleSecret(userId) {
+        state.revealed[userId] = !state.revealed[userId];
+        render();
+    }
+
+    // --- Thêm / sửa nhân viên ---------------------------------------------
+
+    function previewColor() {
+        var input = document.getElementById('ns-staff-color');
+        var preview = document.getElementById('ns-color-prev');
+        if (!input || !preview) return;
+        var color = input.value;
         preview.style.background = color;
-        // Auto text color (white for dark bg, black for light bg)
-        const r = parseInt(color.substr(1, 2), 16), g = parseInt(color.substr(3, 2), 16), b = parseInt(color.substr(5, 2), 16);
+        var r = parseInt(color.substr(1, 2), 16);
+        var g = parseInt(color.substr(3, 2), 16);
+        var b = parseInt(color.substr(5, 2), 16);
         preview.style.color = (r * 0.299 + g * 0.587 + b * 0.114) > 150 ? '#000' : '#fff';
     }
-}
 
-let isEditing = false;
+    function openStaffSheet(user) {
+        state.editing = !!user;
+        var form = document.getElementById('ns-staff-form');
+        if (form) form.reset();
 
-async function renderStaffTable() {
-    const tbody = document.getElementById('staff-table-body');
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Đang tải dữ liệu...</td></tr>';
+        document.getElementById('ns-staff-id').value = user ? user.id : '';
+        document.getElementById('ns-staff-name').value = user ? (user.name || '') : '';
+        document.getElementById('ns-staff-username').value = user ? (user.username || '') : '';
+        document.getElementById('ns-staff-password').value = user ? (user.password || '') : '';
+        document.getElementById('ns-staff-color').value = (user && user.scheduleColor) || '#4CAF50';
 
-    // FETCH FROM CLOUD
-    const users = await DBService.getUsers();
+        var checkedRoles = user ? rolesOf(user) : ['staff'];
+        document.querySelectorAll('#ns-roles input[type="checkbox"]').forEach(function (cb) {
+            cb.checked = checkedRoles.indexOf(cb.value) !== -1;
+        });
 
-    // Extract employee numerical codes from usernames and sort them
-    users.forEach(u => {
-        const match = (u.username || '').match(/\d+$/);
-        u.msnvStr = match ? match[0] : '';
-        u.msnv = match ? parseInt(match[0], 10) : null;
-    });
+        setMode(user ? (user.teachingMode === 'old' || user.teachingMode === 'new' ? user.teachingMode : '') : '');
+        previewColor();
 
-    users.sort((a, b) => {
-        if (a.msnv !== null && b.msnv !== null) {
-            return a.msnv - b.msnv;
+        document.getElementById('ns-staff-title').textContent = user ? 'Sửa nhân viên' : 'Thêm nhân viên';
+        document.getElementById('ns-staff-sub').textContent = user
+            ? 'Đổi mật khẩu sẽ đồng bộ sang tài khoản đăng nhập'
+            : 'Tài khoản sẽ được đồng bộ tự động';
+        document.getElementById('ns-staff-sheet').classList.add('open');
+    }
+
+    function closeStaffSheet() {
+        document.getElementById('ns-staff-sheet').classList.remove('open');
+    }
+
+    async function submitStaff(event) {
+        event.preventDefault();
+
+        var id = document.getElementById('ns-staff-id').value;
+        var name = document.getElementById('ns-staff-name').value.trim();
+        var username = document.getElementById('ns-staff-username').value.trim();
+        var password = document.getElementById('ns-staff-password').value.trim();
+
+        var checkedRoles = Array.prototype.slice
+            .call(document.querySelectorAll('#ns-roles input[type="checkbox"]:checked'))
+            .map(function (cb) { return cb.value; });
+
+        if (checkedRoles.length === 0) {
+            UIService.toast('Vui lòng chọn ít nhất 1 vai trò!', 'error');
+            return;
         }
-        if (a.msnv !== null) return -1;
-        if (b.msnv !== null) return 1;
-        return (a.username || '').localeCompare(b.username || '');
-    });
 
-    const ROLE_LABELS = {
-        'admin': 'Quản Trị Viên',
-        'senior_assistant': 'Trợ Lý Cấp Cao',
-        'assistant': 'Trợ Lý',
-        'teaching_assistant': 'Trợ Giảng / GV TA',
-        'receptionist': 'Tiếp Tân',
-        'receptionist_assistant': 'Trợ Lí Tiếp Tân',
-        'staff': 'Nhân Viên'
-    };
+        var primaryRole = ROLE_PRIORITY.find(function (r) { return checkedRoles.indexOf(r) !== -1; }) || checkedRoles[0];
+        var isNew = !state.editing || !id;
+        var existing = id ? state.users.find(function (u) { return u.id === id; }) : null;
 
-    let html = '';
-
-    users.forEach((user, index) => {
-        // Mapped code / MS NV format (display extracted number, or if none, index + 1)
-        const msnvDisplay = user.msnvStr || (index + 1);
-
-        // Lấy TẤT CẢ vai trò từ user.roles[] (đa vai trò)
-        const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0
-            ? user.roles
-            : (user.role ? [user.role] : ['staff']);
-        const roleLabelsStr = userRolesArr
-            .map(r => ROLE_LABELS[r] || r)
-            .join(' · ');
-
-        html += `
-            <tr>
-                <td><span style="font-weight: 600; font-family: monospace; color: var(--text-muted);">${msnvDisplay}</span></td>
-                <td>
-                    <div style="font-weight: 600; color: var(--text-color);">${user.name || user.username}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">${roleLabelsStr}</div>
-                </td>
-                <td><span style="font-family: monospace; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${user.username}</span></td>
-                <td>${user.password}</td>
-                <td style="text-align: right;">
-                    <button class="action-btn" onclick="configureSalary('${user.id}')" title="Cấu hình Lương & Role" style="color: #059669; margin-right: 4px;">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                            <line x1="8" y1="21" x2="16" y2="21"></line>
-                            <line x1="12" y1="17" x2="12" y2="21"></line>
-                        </svg>
-                    </button>
-                    <button class="action-btn" onclick="editStaff('${user.id}')" title="Sửa thông tin cơ bản">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                        </svg>
-                    </button>
-                    <button class="action-btn delete" onclick="deleteStaff('${user.id}')" title="Xóa">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
-                        </svg>
-                    </button>
-                </td>
-            </tr>
-        `;
-    });
-
-    if (html === '') {
-        html = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Chưa có nhân viên nào.</td></tr>';
-    }
-
-    tbody.innerHTML = html;
-}
-
-function openModal() {
-    isEditing = false;
-    document.getElementById('staff-form').reset();
-    document.getElementById('staff-id').value = '';
-    document.querySelectorAll('#staff-roles-checkboxes input[type="checkbox"]').forEach(cb => {
-        cb.checked = (cb.value === 'staff');
-    });
-    document.getElementById('staff-color').value = '#4CAF50';
-    _updateColorPreview('#4CAF50');
-    document.getElementById('modal-title').innerText = 'Thêm Nhân Viên';
-
-    document.getElementById('staff-modal').style.display = 'flex';
-}
-
-function closeModal() {
-    document.getElementById('staff-modal').style.display = 'none';
-}
-
-async function editStaff(userId) {
-    isEditing = true;
-
-    // Fetch fresh data or pass user object? Fetch is safer.
-    const users = await DBService.getUsers();
-    const user = users.find(u => u.id === userId);
-
-    if (!user) return;
-
-    // Load User Data
-    document.getElementById('staff-id').value = user.id;
-    document.getElementById('staff-name').value = user.name || '';
-    document.getElementById('staff-username').value = user.username;
-    document.getElementById('staff-password').value = user.password;
-    
-    // Set checkboxes theo roles array
-    const userRoles = Array.isArray(user.roles) && user.roles.length > 0
-        ? user.roles
-        : (user.role ? [user.role] : ['staff']);
-    document.querySelectorAll('#staff-roles-checkboxes input[type="checkbox"]').forEach(cb => {
-        cb.checked = userRoles.includes(cb.value);
-    });
-
-    document.getElementById('staff-color').value = user.scheduleColor || '#4CAF50';
-    _updateColorPreview(user.scheduleColor || '#4CAF50');
-
-    // settings removed
-
-    document.getElementById('modal-title').innerText = 'Chỉnh Sửa Nhân Viên';
-    document.getElementById('staff-modal').style.display = 'flex';
-}
-
-async function handleStaffSubmit(e) {
-    e.preventDefault();
-
-    const id = document.getElementById('staff-id').value;
-    const name = document.getElementById('staff-name').value;
-    const username = document.getElementById('staff-username').value.trim();
-    const password = document.getElementById('staff-password').value.trim();
-
-    const checkedRoles = Array.from(
-        document.querySelectorAll('#staff-roles-checkboxes input[type="checkbox"]:checked')
-    ).map(cb => cb.value);
-
-    if (checkedRoles.length === 0) {
-        if (typeof UIService !== 'undefined') UIService.toast('Vui lòng chọn ít nhất 1 vai trò!', 'error');
-        else alert('Vui lòng chọn ít nhất 1 vai trò!');
-        return;
-    }
-
-    // role = role ưu tiên cao nhất (backward compat cho các logic cũ còn dùng .role)
-    const ROLE_PRIORITY = ['admin','senior_assistant','assistant','teaching_assistant','receptionist','receptionist_assistant','staff'];
-    const primaryRole = ROLE_PRIORITY.find(r => checkedRoles.includes(r)) || checkedRoles[0];
-
-    const scheduleColor = document.getElementById('staff-color').value;
-
-    // Legacy salary fields removed
-    const salary_config = {};
-
-    let userPayload = {
-        username,
-        password,
-        name,
-        salary_config,
-        role: primaryRole,
-        roles: checkedRoles,
-        scheduleColor
-    };
-
-    const isNew = !isEditing || !id;
-
-    if (isNew) {
-        // Create
-        userPayload.id = 'nv_' + Date.now();
-        userPayload.createdAt = new Date().toISOString();
-    } else {
-        // Update
-        userPayload.id = id;
-    }
-
-    // AUTH SYNC LOGIC
-    const btn = document.querySelector('#staff-modal .btn-primary');
-    const oldText = btn.innerText;
-    btn.innerText = "Đang xử lý Auth...";
-    btn.disabled = true;
-
-    try {
-        if (typeof AuthHelper === 'undefined') {
-            throw new Error("Lỗi hệ thống: AuthHelper chưa được tải.");
-        }
+        var payload = {
+            username: username,
+            password: password,
+            name: name,
+            role: primaryRole,
+            roles: checkedRoles,
+            teachingMode: state.mode,
+            scheduleColor: document.getElementById('ns-staff-color').value,
+            // Giữ nguyên cấu hình lương đã có — form này không đụng tới nó.
+            salary_config: (existing && existing.salary_config) || {}
+        };
 
         if (isNew) {
-            // 1. Create in Firebase Auth
-            await AuthHelper.createUser(username, password);
+            payload.id = 'nv_' + Date.now();
+            payload.createdAt = new Date().toISOString();
         } else {
-            // 2. Update/Sync in Firebase Auth
-            // We need the OLD password to login and change to NEW password.
-            // Fetch current DB data to get old password
-            const users = await DBService.getUsers();
-            const oldUser = users.find(u => u.id === id);
-
-            if (oldUser) {
-                // Try to sync/update password
-                await AuthHelper.syncUser(username, oldUser.password, password);
-            }
+            payload.id = id;
         }
 
-        // 3. Save to Firestore
-        await DBService.saveUser(userPayload);
+        var submitBtn = document.getElementById('ns-staff-submit');
+        var oldLabel = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = 'Đang xử lý...';
 
-        // 4. Invalidate users cache so salary page picks up new employees
-        localStorage.removeItem('users_data');
-
-        UIService.toast("Lưu thành công (Đã đồng bộ Tài khoản)!", "success");
-        closeModal();
-        renderStaffTable();
-    } catch (err) {
-        console.error(err);
-        let msg = err.message;
-
-        // HANDLE ZOMBIE ACCOUNT (Deleted from DB but exists in Auth)
-        if (err.code === 'auth/email-already-in-use') {
-            // Check if user REALLY exists in Firestore
-            const users = await DBService.getUsers();
-            const existingUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-
-            if (existingUser) {
-                msg = "Tên đăng nhập này đã tồn tại trong danh sách nhân viên!";
-            } else {
-                // Not in DB -> It's a "Zombie" Account (Orphaned).
-                // We must "Reclaim" it by verifying we can log in with valid credentials.
-                // Strategy: Try to Sync (Login) with current password (or default).
-                const btn = document.querySelector('#staff-modal .btn-primary');
-                btn.innerText = "Đang khôi phục tài khoản cũ...";
-
-                try {
-                    // Try to Login (Reclaim)
-                    await AuthHelper.syncUser(username, password, password);
-
-                    // If success, user is reclaimed. Proceed to save to Firestore.
-                    await DBService.saveUser(userPayload);
-                    localStorage.removeItem('users_data'); // Invalidate cache
-
-                    UIService.toast("Đã khôi phục tài khoản cũ thành công!", "success");
-                    closeModal();
-                    renderStaffTable();
-                    return; // Done
-                } catch (reclaimErr) {
-                    console.error("Reclaim failed:", reclaimErr);
-                    msg = "Tên đăng nhập này đã tồn tại (Zombie) và mật khẩu không khớp. Vui lòng chọn tên khác.";
-                }
-            }
-        } else if (msg.includes("Mật khẩu hiện tại")) {
-            msg = "Chưa thể cập nhật mật khẩu vì sai pass cũ. Hãy thử tạo mới lại user này.";
-        }
-
-        UIService.toast("Lỗi: " + msg, "error");
-    } finally {
-        const btn = document.querySelector('#staff-modal .btn-primary');
-        if (btn) {
-            btn.innerText = oldText;
-            btn.disabled = false;
-        }
-    }
-}
-
-async function deleteStaff(id) {
-    if (!await UIService.confirm('Bạn có chắc muốn xóa nhân viên này? Dữ liệu lịch sử vẫn còn, nhưng tài khoản sẽ bị vô hiệu hóa.')) return;
-
-    try {
-        // Attempt to delete from Auth as well (Cleaner)
-        // We need to fetch the user first to get their username and current password
-        const users = await DBService.getUsers();
-        const user = users.find(u => u.id === id);
-
-        if (user && user.username && user.password) {
-            // Best effort delete from Auth
-            try {
-                if (typeof AuthHelper !== 'undefined') {
-                    await AuthHelper.deleteUser(user.username, user.password);
-                }
-            } catch (authDelErr) {
-                console.warn("Could not auto-delete auth user (expected if password changed)", authDelErr);
-            }
-        }
-
-        await DBService.deleteUser(id);
-        localStorage.removeItem('users_data'); // Invalidate cache
-        UIService.toast("Đã xóa nhân viên", "success");
-        renderStaffTable();
-    } catch (err) {
-        UIService.toast("Lỗi xóa: " + err.message, "error");
-    }
-}
-
-function formatCurrency(val) {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
-}
-
-// Close modal when clicking outside
-// Close modal when clicking outside
-window.onclick = function (event) {
-    const modal = document.getElementById('staff-modal');
-    const salaryModal = document.getElementById('salary-modal');
-    if (event.target == modal) closeModal();
-    if (event.target == salaryModal) closeSalaryModal();
-}
-
-// ================= SALARY CONFIGURATION (MULTI-ROLE) =================
-
-let currentSalaryRoles = []; // Temporary storage while editing
-
-async function configureSalary(userId) {
-    const users = await DBService.getUsers();
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
-
-    document.getElementById('salary-user-id').value = userId;
-    document.getElementById('salary-modal-subtitle').innerText = `Cấu hình cho nhân viên: ${user.name || user.username}`;
-
-    // Load existing roles or init empty
-    const settings = user.salary_config || {};
-    currentSalaryRoles = settings.roles || [];
-
-    const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-    const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
-    const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-    // Pure receptionist: chỉ có role tiếp tân, KHÔNG có role dạy học
-    const isPureReceptionist = hasReceptionistRole && !hasTeachingRole;
-
-    const rolesSection = document.getElementById('roles-config-section');
-    const recSection = document.getElementById('receptionist-config-section');
-
-    // Hiển thị phần dạy học nếu có role dạy hoặc là đa vai trò
-    if (!isPureReceptionist) {
-        if (rolesSection) rolesSection.style.display = 'block';
-        // Load subjects into the select dropdown
         try {
-            const subjects = await DBService.getSubjects();
-            const sel = document.getElementById('new-subject-select');
-            if (sel) {
-                sel.innerHTML = '<option value="">-- Chọn Môn --</option>' +
-                    subjects.map(s => `<option value="${s.id}" data-name="${s.name.replace(/"/g,'&quot;')}">${s.name}</option>`).join('');
+            if (typeof AuthHelper === 'undefined') throw new Error('Lỗi hệ thống: AuthHelper chưa được tải.');
+
+            if (isNew) {
+                await AuthHelper.createUser(username, password);
+            } else if (existing) {
+                await AuthHelper.syncUser(username, existing.password, password);
             }
-        } catch(e) { console.warn('Could not load subjects for salary modal', e); }
 
-        // Populate general attendance rate
-        const generalAttRate = document.getElementById('general-attendance-rate');
-        if (generalAttRate) generalAttRate.value = settings.attendance_rate || '';
+            await DBService.saveUser(payload);
+            localStorage.removeItem('users_data');
+            UIService.toast('Đã lưu (tài khoản đã đồng bộ).', 'success');
+            closeStaffSheet();
+            await reload();
+        } catch (err) {
+            console.error(err);
+            var message = err.message;
 
-        // Fallback: If no roles but has legacy "rate", create a default Service Role
-        if (currentSalaryRoles.length === 0 && settings.rate) {
-            currentSalaryRoles.push({
-                id: 'default',
-                name: 'Mặc định (Cũ)',
-                rate: settings.rate,
-                isDefault: true
-            });
+            if (err.code === 'auth/email-already-in-use') {
+                var users = await DBService.getUsers();
+                var clash = users.find(function (u) {
+                    return String(u.username || '').toLowerCase() === username.toLowerCase();
+                });
+                if (clash) {
+                    message = 'Tên đăng nhập này đã tồn tại trong danh sách nhân viên!';
+                } else {
+                    // Tài khoản "mồ côi": còn trong Auth nhưng đã xóa khỏi danh sách.
+                    submitBtn.innerHTML = 'Đang khôi phục tài khoản cũ...';
+                    try {
+                        await AuthHelper.syncUser(username, password, password);
+                        await DBService.saveUser(payload);
+                        localStorage.removeItem('users_data');
+                        UIService.toast('Đã khôi phục tài khoản cũ thành công!', 'success');
+                        closeStaffSheet();
+                        await reload();
+                        return;
+                    } catch (reclaimErr) {
+                        console.error('Reclaim failed:', reclaimErr);
+                        message = 'Tên đăng nhập này đã tồn tại và mật khẩu không khớp. Vui lòng chọn tên khác.';
+                    }
+                }
+            } else if (String(message).indexOf('Mật khẩu hiện tại') !== -1) {
+                message = 'Chưa cập nhật được mật khẩu vì sai pass cũ. Hãy thử tạo mới lại user này.';
+            }
+
+            UIService.toast('Lỗi: ' + message, 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = oldLabel;
         }
-    } else {
-        if (rolesSection) rolesSection.style.display = 'none';
     }
 
-    // Hiển thị phần tiếp tân nếu có role tiếp tân (kể cả đa vai trò)
-    if (hasReceptionistRole) {
-        if (recSection) recSection.style.display = 'block';
-        document.getElementById('receptionist-normal-rate').value = settings.receptionist_normal_rate || '';
-        document.getElementById('receptionist-fixed-rate').value = settings.receptionist_fixed_rate || '';
-        document.getElementById('attendance-rate').value = settings.attendance_rate || '';
-    } else {
-        if (recSection) recSection.style.display = 'none';
+    function editStaff(userId) {
+        var user = state.users.find(function (u) { return u.id === userId; });
+        if (user) openStaffSheet(user);
     }
 
-    renderSalaryRoles();
-    document.getElementById('salary-modal').style.display = 'flex';
+    async function deleteStaff(userId) {
+        var user = state.users.find(function (u) { return u.id === userId; });
+        if (!user) return;
+        if (!await UIService.confirm('Xóa nhân viên "' + (user.name || user.username) +
+            '"?\n\nDữ liệu chấm công lịch sử vẫn được giữ, nhưng tài khoản sẽ bị vô hiệu hóa.')) return;
 
-    // Hide add/save for senior_assistant (view-only mode)
-    const currentRole = localStorage.getItem('currentRole');
-    if (currentRole === 'senior_assistant') {
-        const addRoleForm = document.getElementById('new-role-name')?.closest('div[style*="background"]');
-        if (addRoleForm) addRoleForm.style.display = 'none';
-        // Hide save button, keep close button
-        const saveBtn = document.querySelector('#salary-modal .btn-primary');
-        if (saveBtn) saveBtn.style.display = 'none';
-    }
-}
-
-function closeSalaryModal() {
-    document.getElementById('salary-modal').style.display = 'none';
-}
-
-function renderSalaryRoles() {
-    const container = document.getElementById('role-list');
-    if (currentSalaryRoles.length === 0) {
-        container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Chưa có vai trò nào. Hãy thêm mới!</div>';
-        return;
+        try {
+            UIService.showLoading('Đang xóa...');
+            if (user.username && user.password && typeof AuthHelper !== 'undefined') {
+                try { await AuthHelper.deleteUser(user.username, user.password); }
+                catch (authErr) { console.warn('Không tự xóa được tài khoản Auth (bình thường nếu đã đổi mật khẩu)', authErr); }
+            }
+            await DBService.deleteUser(userId);
+            localStorage.removeItem('users_data');
+            UIService.hideLoading();
+            UIService.toast('Đã xóa nhân viên.', 'success');
+            await reload();
+        } catch (err) {
+            UIService.hideLoading();
+            UIService.toast('Lỗi xóa: ' + err.message, 'error');
+        }
     }
 
-    const currentRole = localStorage.getItem('currentRole');
-    const isSalaryHidden = (currentRole === 'senior_assistant');
+    // --- Cấu hình lương ---------------------------------------------------
 
-    let html = '';
-    currentSalaryRoles.forEach((role, index) => {
-        const rateDisplay = isSalaryHidden ? '*** / giờ' : formatCurrency(role.rate) + ' / giờ';
-        html += `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #eee; background: white;">
-                <div>
-                    <div style="font-weight: 600;">${role.name}</div>
-                    <div style="font-size: 0.85rem; color: ${isSalaryHidden ? 'var(--text-muted)' : 'var(--primary-color)'};">${rateDisplay}</div>
-                </div>
-                ${isSalaryHidden ? '' : `<button onclick="removeRole(${index})" style="color: #EF4444; background: none; border: none; cursor: pointer; padding: 4px;">
-                    🗑️ Xóa
-                </button>`}
-            </div>
-        `;
-    });
-    container.innerHTML = html;
-}
+    function renderRates() {
+        var container = document.getElementById('ns-role-list');
+        if (!container) return;
+        var hidden = localStorage.getItem('currentRole') === 'senior_assistant';
 
-function addNewRole() {
-    const subjectSelect = document.getElementById('new-subject-select');
-    const rateInput = document.getElementById('new-role-rate');
-
-    const rate = Number(rateInput.value);
-    if (!subjectSelect || !subjectSelect.value || !rate) {
-        alert("Vui lòng chọn môn học và nhập mức lương!");
-        return;
-    }
-
-    const selectedOption = subjectSelect.options[subjectSelect.selectedIndex];
-    const subjectId = subjectSelect.value;
-    const subjectName = selectedOption.dataset.name || selectedOption.text;
-
-    if (currentSalaryRoles.find(r => r.id === subjectId)) {
-        alert("Môn học này đã được thêm rồi!");
-        return;
-    }
-
-    currentSalaryRoles.push({
-        id: subjectId,
-        name: subjectName,
-        rate: rate,
-        isDefault: currentSalaryRoles.length === 0
-    });
-
-    subjectSelect.value = '';
-    rateInput.value = '';
-
-    renderSalaryRoles();
-}
-
-function removeRole(index) {
-    if (confirm("Chắc chắn xóa vai trò này?")) {
-        currentSalaryRoles.splice(index, 1);
-        renderSalaryRoles();
-    }
-}
-
-async function saveSalaryConfig() {
-    const userId = document.getElementById('salary-user-id').value;
-
-    try {
-        const users = await DBService.getUsers();
-        const user = users.find(u => u.id === userId);
-        if (!user) throw new Error("User Not Found");
-
-        // Merge changes
-        if (!user.salary_config) user.salary_config = {};
-        
-        const _saveRoles = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-        const _hasReceptionistRole = _saveRoles.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
-        const _hasTeachingRole = _saveRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-        const _isPureReceptionist = _hasReceptionistRole && !_hasTeachingRole;
-
-        // Lưu cấu hình tiếp tân nếu có role tiếp tân
-        if (_hasReceptionistRole) {
-            const normalRate = document.getElementById('receptionist-normal-rate').value;
-            const fixedRate = document.getElementById('receptionist-fixed-rate').value;
-            const attRate = document.getElementById('attendance-rate').value;
-            user.salary_config.receptionist_normal_rate = normalRate ? Number(normalRate) : 0;
-            user.salary_config.receptionist_fixed_rate = fixedRate ? Number(fixedRate) : 0;
-            user.salary_config.attendance_rate = attRate ? Number(attRate) : 0;
+        if (state.salaryRates.length === 0) {
+            container.innerHTML = '<div style="padding:0.85rem;text-align:center;color:var(--text-muted);font-size:0.86rem;">Chưa có môn nào. Thêm bên dưới.</div>';
+            return;
         }
 
-        // Lưu cấu hình dạy học nếu có role dạy học
-        if (!_isPureReceptionist) {
-            user.salary_config.roles = currentSalaryRoles;
-            if (!_hasReceptionistRole) {
-                // Chỉ lấy attendance rate từ general nếu không phải tiếp tân
-                const generalAttRate = document.getElementById('general-attendance-rate').value;
-                user.salary_config.attendance_rate = generalAttRate ? Number(generalAttRate) : 0;
+        container.innerHTML = state.salaryRates.map(function (rate, index) {
+            return '<div class="ns-rate-row">' +
+                '<span><span class="ns-rate-name">' + esc(rate.name) + '</span>' +
+                '<span class="ns-rate-val" style="display:block;">' +
+                    (hidden ? '*** / giờ' : formatCurrency(rate.rate) + ' / giờ') + '</span></span>' +
+                (hidden ? '' : '<button type="button" class="ns-act danger" style="flex:0 0 auto;padding:0.4rem 0.7rem;"' +
+                    ' onclick="NhanSu.removeRate(' + index + ')"><i data-lucide="trash-2"></i></button>') +
+            '</div>';
+        }).join('');
+        if (window.lucide) window.lucide.createIcons({ root: container });
+    }
+
+    async function openSalarySheet(userId) {
+        var user = state.users.find(function (u) { return u.id === userId; });
+        if (!user) return;
+
+        document.getElementById('ns-salary-user-id').value = userId;
+        document.getElementById('ns-salary-sub').textContent = user.name || user.username;
+
+        var config = user.salary_config || {};
+        state.salaryRates = Array.isArray(config.roles) ? config.roles.slice() : [];
+
+        var isPureRecep = hasRecepRole(user) && !hasTeachRole(user);
+        var teachingBlock = document.getElementById('ns-teaching-block');
+        var recepBlock = document.getElementById('ns-recep-block');
+        var generalBlock = document.getElementById('ns-general-block');
+
+        teachingBlock.style.display = isPureRecep ? 'none' : '';
+        generalBlock.style.display = isPureRecep ? 'none' : '';
+        recepBlock.style.display = hasRecepRole(user) ? '' : 'none';
+
+        if (!isPureRecep) {
+            try {
+                var subjects = await DBService.getSubjects();
+                // Nhóm môn chỉ là thư mục — không xếp lương cho thư mục.
+                var teachable = subjects.filter(function (s) { return s.isGroup !== true; });
+                var groups = {};
+                subjects.filter(function (s) { return s.isGroup === true; })
+                    .forEach(function (g) { groups[String(g.id)] = g.name; });
+
+                var select = document.getElementById('ns-new-subject');
+                select.innerHTML = '<option value="">-- Chọn môn --</option>' + teachable.map(function (s) {
+                    var groupName = groups[String(s.parentId || '')];
+                    var label = groupName ? groupName + ' › ' + s.name : s.name;
+                    return '<option value="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + esc(label) + '</option>';
+                }).join('');
+            } catch (e) {
+                console.warn('Không tải được danh sách môn học', e);
+            }
+
+            document.getElementById('ns-general-att').value = config.attendance_rate || '';
+
+            // Dữ liệu cũ chỉ có "rate" phẳng → dựng thành 1 dòng để không mất cấu hình.
+            if (state.salaryRates.length === 0 && config.rate) {
+                state.salaryRates.push({ id: 'default', name: 'Mặc định (cũ)', rate: config.rate, isDefault: true });
             }
         }
 
-        await DBService.saveUser(user);
+        if (hasRecepRole(user)) {
+            document.getElementById('ns-recep-normal').value = config.receptionist_normal_rate || '';
+            document.getElementById('ns-recep-fixed').value = config.receptionist_fixed_rate || '';
+            document.getElementById('ns-recep-att').value = config.attendance_rate || '';
+        }
 
-        UIService.toast("Đã lưu cấu hình lương!", "success");
-        closeSalaryModal();
-        renderStaffTable(); // Refresh table UI
-    } catch (e) {
-        alert("Lỗi lưu: " + e.message);
+        renderRates();
+
+        // Trợ lý cấp cao chỉ được xem, không sửa lương.
+        var saveBtn = document.getElementById('ns-salary-save');
+        if (saveBtn) saveBtn.style.display = localStorage.getItem('currentRole') === 'senior_assistant' ? 'none' : '';
+
+        document.getElementById('ns-salary-sheet').classList.add('open');
+        if (window.lucide) window.lucide.createIcons();
     }
-}
+
+    function closeSalarySheet() {
+        document.getElementById('ns-salary-sheet').classList.remove('open');
+    }
+
+    function addRate() {
+        var select = document.getElementById('ns-new-subject');
+        var rateInput = document.getElementById('ns-new-rate');
+        var rate = Number(rateInput.value);
+
+        if (!select.value || !rate) {
+            UIService.toast('Vui lòng chọn môn học và nhập mức lương!', 'error');
+            return;
+        }
+        if (state.salaryRates.some(function (r) { return r.id === select.value; })) {
+            UIService.toast('Môn học này đã được thêm rồi!', 'warning');
+            return;
+        }
+
+        var option = select.options[select.selectedIndex];
+        state.salaryRates.push({
+            id: select.value,
+            name: option.dataset.name || option.text,
+            rate: rate,
+            isDefault: state.salaryRates.length === 0
+        });
+        select.value = '';
+        rateInput.value = '';
+        renderRates();
+    }
+
+    async function removeRate(index) {
+        if (!await UIService.confirm('Xóa mức lương của môn "' + (state.salaryRates[index] || {}).name + '"?')) return;
+        state.salaryRates.splice(index, 1);
+        renderRates();
+    }
+
+    async function saveSalary() {
+        var userId = document.getElementById('ns-salary-user-id').value;
+        try {
+            var user = state.users.find(function (u) { return u.id === userId; });
+            if (!user) throw new Error('Không tìm thấy nhân viên.');
+
+            if (!user.salary_config) user.salary_config = {};
+            var isPureRecep = hasRecepRole(user) && !hasTeachRole(user);
+
+            if (hasRecepRole(user)) {
+                user.salary_config.receptionist_normal_rate = Number(document.getElementById('ns-recep-normal').value) || 0;
+                user.salary_config.receptionist_fixed_rate = Number(document.getElementById('ns-recep-fixed').value) || 0;
+                user.salary_config.attendance_rate = Number(document.getElementById('ns-recep-att').value) || 0;
+            }
+            if (!isPureRecep) {
+                user.salary_config.roles = state.salaryRates;
+                if (!hasRecepRole(user)) {
+                    user.salary_config.attendance_rate = Number(document.getElementById('ns-general-att').value) || 0;
+                }
+            }
+
+            UIService.showLoading('Đang lưu...');
+            await DBService.saveUser(cleanUser(user));
+            localStorage.removeItem('users_data');
+            UIService.hideLoading();
+            UIService.toast('Đã lưu cấu hình lương!', 'success');
+            closeSalarySheet();
+            await reload();
+        } catch (e) {
+            UIService.hideLoading();
+            UIService.toast('Lỗi lưu: ' + e.message, 'error');
+        }
+    }
+
+    // --- Bộ lọc -----------------------------------------------------------
+
+    function setSearch(value) {
+        state.search = String(value || '').trim();
+        render();
+    }
+
+    function setFilter(value) {
+        state.filter = value;
+        document.querySelectorAll('#ns-filters .ns-chip').forEach(function (chip) {
+            chip.classList.toggle('active', chip.dataset.filter === value);
+        });
+        render();
+    }
+
+    window.NhanSu = {
+        openStaffSheet: function (user) { openStaffSheet(user || null); },
+        closeStaffSheet: closeStaffSheet,
+        submitStaff: submitStaff,
+        editStaff: editStaff,
+        deleteStaff: deleteStaff,
+        setMode: setMode,
+        quickSetMode: quickSetMode,
+        toggleSecret: toggleSecret,
+        previewColor: previewColor,
+        openSalarySheet: openSalarySheet,
+        closeSalarySheet: closeSalarySheet,
+        addRate: addRate,
+        removeRate: removeRate,
+        saveSalary: saveSalary,
+        setSearch: setSearch,
+        setFilter: setFilter,
+        _state: state
+    };
+
+    document.addEventListener('DOMContentLoaded', async function () {
+        if (window.waitAuth) await window.waitAuth();
+        load();
+
+        ['ns-staff-sheet', 'ns-salary-sheet'].forEach(function (id) {
+            var sheet = document.getElementById(id);
+            if (sheet) {
+                sheet.addEventListener('click', function (e) {
+                    if (e.target === sheet) sheet.classList.remove('open');
+                });
+            }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { closeStaffSheet(); closeSalarySheet(); }
+        });
+    });
+})();

@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v93-student-count-hours';
+const CACHE_NAME = 'tdt-chamcong-v94-early10-policy';
 
 const STATIC_ASSETS = [
     '/',
@@ -16,20 +16,24 @@ const STATIC_ASSETS = [
     '/cham-bu.html',
     '/nhan-su.html',
     '/he-thong.html',
+    '/mon-hoc.html',
     '/css/style.css?v=20260705-mobile-schedule-actions',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260717-gv-absence-v1',
-    '/js/main.js?v=20260725-admin-edit-fix-v1',
+    '/js/main.js?v=20260803-early10-v1',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260725-admin-edit-fix-v1',
-    '/js/report.js?v=20260803-student-count-hours-v1',
-    '/js/evaluation-service.js?v=20260729-recep-continuous-v1',
+    '/js/db-service.js?v=20260803-early10-v1',
+    '/js/report.js?v=20260803-early10-v1',
+    '/js/evaluation-service.js?v=20260803-early10-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
-    '/js/ui-service.js',
+    '/js/ui-service.js?v=20260803-early10-v1',
+    '/js/early10.js?v=20260803-early10-v1',
+    '/js/mon-hoc.js?v=20260803-early10-v1',
+    '/js/personnel.js?v=20260803-early10-v1',
     '/js/auth-guard.js?v=20260725-admin-edit-fix-v1',
     '/js/chart-service.js',
     '/js/analytics.js',
-    '/js/schedule.js?v=20260717-gv-absence-v1',
+    '/js/schedule.js?v=20260803-early10-v1',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260628-class-closure-specific',
     '/images/TUDUYTRE.jpg',

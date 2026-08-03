@@ -140,6 +140,48 @@ const UIService = {
                 if (e.target === backdrop) close(false);
             };
         });
+    },
+
+    // Popup 1 nút — dùng cho thông báo BẮT BUỘC phải đọc (VD giờ chấm công
+    // không đủ điều kiện sớm 10p). Toast tự biến mất nên không dùng ở đây được.
+    notice(message, title = 'Thông báo', tone = 'warning') {
+        return new Promise((resolve) => {
+            const palette = {
+                warning: { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', icon: 'alert-triangle' },
+                error: { color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', icon: 'x-circle' },
+                success: { color: '#047857', bg: '#ECFDF5', border: '#A7F3D0', icon: 'check-circle' },
+                info: { color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', icon: 'info' }
+            };
+            const theme = palette[tone] || palette.warning;
+            const safeText = String(message == null ? '' : message)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/\n/g, '<br>');
+
+            const backdrop = document.createElement('div');
+            backdrop.className = 'custom-modal-backdrop';
+            backdrop.innerHTML = `
+                <div class="custom-modal-box" style="max-width: 420px;">
+                    <div style="display:flex;align-items:flex-start;gap:0.75rem;margin-bottom:0.85rem;">
+                        <span style="flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;background:${theme.bg};border:1px solid ${theme.border};color:${theme.color};">
+                            <i data-lucide="${theme.icon}" style="width:20px;height:20px;"></i>
+                        </span>
+                        <div style="flex:1;min-width:0;">
+                            <h3 style="margin:0 0 0.35rem;font-size:1rem;font-weight:700;color:${theme.color};">${title}</h3>
+                            <p style="margin:0;color:#4B5563;font-size:0.9rem;line-height:1.55;">${safeText}</p>
+                        </div>
+                    </div>
+                    <div class="custom-modal-actions">
+                        <button id="modal-notice-btn" class="btn btn-primary" style="width:100%;">Đã hiểu</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(backdrop);
+            if (window.lucide) window.lucide.createIcons({ root: backdrop });
+
+            const close = () => { backdrop.remove(); resolve(true); };
+            backdrop.querySelector('#modal-notice-btn').onclick = close;
+            backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+        });
     }
 };
 
