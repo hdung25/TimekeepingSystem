@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node evaluation-service.test.js"
+    "test": "node salary-breakdown.test.js && node evaluation-service.test.js",
+    "test:salary": "node salary-breakdown.test.js"
   },
   "keywords": [],
   "author": "",

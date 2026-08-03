@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v92-recep-continuous';
+const CACHE_NAME = 'tdt-chamcong-v93-student-count-hours';
 
 const STATIC_ASSETS = [
     '/',
@@ -22,7 +22,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260725-admin-edit-fix-v1',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260725-admin-edit-fix-v1',
-    '/js/report.js?v=20260725-admin-edit-fix-v1',
+    '/js/report.js?v=20260803-student-count-hours-v1',
     '/js/evaluation-service.js?v=20260729-recep-continuous-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js',
