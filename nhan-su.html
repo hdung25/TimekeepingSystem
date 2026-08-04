@@ -58,8 +58,40 @@
         /* Danh sách nhân viên */
         .ns-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0.85rem; }
         .ns-card { background: var(--bg-surface); border: 1px solid var(--border-color);
-                   border-radius: var(--radius-lg); padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+                   border-radius: var(--radius-lg); padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;
+                   transition: border-color .15s, box-shadow .15s, background .15s; }
+        .ns-card.selected { border-color: var(--primary-color); background: #F0FDF4;
+                            box-shadow: 0 0 0 1px var(--primary-color); }
         .ns-card-top { display: flex; align-items: flex-start; gap: 0.75rem; }
+
+        /* Ô tick chọn nhiều nhân viên */
+        .ns-check { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 11px; border-radius: 6px;
+                    border: 1.5px solid #D1D5DB; background: var(--bg-surface); cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; color: transparent;
+                    transition: var(--transition-base); }
+        .ns-check:hover { border-color: #9CA3AF; }
+        .ns-check svg { width: 14px; height: 14px; stroke-width: 3.2; }
+        .ns-check.on { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
+        .ns-page.has-selection { padding-bottom: 7.5rem; }
+
+        /* Nhãn diện tin tưởng */
+        .ns-trust { display: inline-flex; align-items: center; gap: 3px; margin-left: 0.4rem;
+                    font-size: 0.66rem; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+                    background: #ECFDF5; color: #047857; vertical-align: middle; }
+
+        /* Thanh thao tác hàng loạt */
+        .ns-selbar { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 900;
+                     padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+                     background: linear-gradient(to top, rgba(255,255,255,.98) 65%, rgba(255,255,255,0)); }
+        .ns-selbar.open { display: block; }
+        .ns-selbar-box { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap;
+                         align-items: center; gap: 0.6rem; background: var(--bg-surface);
+                         border: 1px solid var(--border-color); border-radius: 14px;
+                         padding: 0.6rem 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,.14); }
+        .ns-selbar-count { font-size: 0.9rem; color: var(--text-muted); flex: 1 1 auto; white-space: nowrap; }
+        .ns-selbar-count strong { font-size: 1.15rem; color: var(--primary-color); }
+        .ns-selbar-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+        .ns-selbar-actions .ns-btn { padding: 0.6rem 0.85rem; font-size: 0.85rem; }
         .ns-avatar { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; color: #fff;
                      display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; }
         .ns-card-id { flex: 1; min-width: 0; }
@@ -196,7 +228,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260804-crossrole-v1'></script>
+    <script src='js/db-service.js?v=20260805-trust-multiselect-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -258,13 +290,20 @@
                     <button class="ns-chip" data-filter="unset" onclick="NhanSu.setFilter('unset')">Chưa phân loại</button>
                     <button class="ns-chip" data-filter="teaching" onclick="NhanSu.setFilter('teaching')">Giáo viên / Trợ giảng</button>
                     <button class="ns-chip" data-filter="recep" onclick="NhanSu.setFilter('recep')">Tiếp tân</button>
+                    <button class="ns-chip" data-filter="trusted" onclick="NhanSu.setFilter('trusted')">Diện tin tưởng</button>
+                    <button class="ns-chip" data-filter="untrusted" onclick="NhanSu.setFilter('untrusted')">Chưa xếp diện</button>
                 </div>
+
+                <div class="ns-filters" id="ns-select-head" style="margin-bottom:0.85rem;"></div>
 
                 <div id="ns-loading" style="padding:2.5rem;text-align:center;color:var(--text-muted);">Đang tải dữ liệu...</div>
                 <div class="ns-list" id="ns-list"></div>
             </div>
         </main>
     </div>
+
+    <!-- Thanh thao tác khi chọn nhiều nhân viên -->
+    <div class="ns-selbar" id="ns-selbar"></div>
 
     <!-- Thêm / sửa nhân viên -->
     <div class="ns-sheet" id="ns-staff-sheet">
@@ -397,9 +436,9 @@
 
     <script src="js/ui-service.js?v=20260803-early10-v1"></script>
     <script src="js/early10.js?v=20260803-early10-v1"></script>
-    <script src="js/main.js?v=20260804-crossrole-v1"></script>
+    <script src="js/main.js?v=20260805-trust-multiselect-v1"></script>
     <script src="js/auth-helper.js"></script>
-    <script src="js/personnel.js?v=20260803-early10-v1"></script>
+    <script src="js/personnel.js?v=20260805-trust-multiselect-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

@@ -1388,72 +1388,36 @@ async function renderMonthReport(date, forceServer = false) {
         if (s.checkOut || !s.id) return;
         const checkInTime = new Date(s.checkIn || s.start);
 
-        // NGÀY 2 CHỨC NĂNG: gom mốc tan ca của CẢ ca trực lẫn chuỗi lớp dạy rồi chỉ ra ca ở
-        // mốc MUỘN NHẤT. Trước đây hai nhánh chạy độc lập nên ai vừa trực vừa dạy bị ra ca sớm.
-        const autoCloseEnds = [];
+        // NGÀY 2 CHỨC NĂNG: gom CẢ ca trực lẫn lớp dạy thành các khúc việc, rồi ra ca ở cuối
+        // MẠCH LÀM VIỆC LIỀN chứa giờ vào ca (main.js: resolveWorkChainEnd). Khoảng nghỉ dài
+        // — ví dụ ca tối 18:00 — cắt mạch, buổi tối nhân viên vẫn bấm vào ca như bình thường.
+        const workBlocks = [];
 
-        // Check receptionist shifts
-        const todayRecepShifts = receptionistShiftsMap[todayKey] || [];
-        todayRecepShifts.forEach(rs => {
+        // Ca trực
+        (receptionistShiftsMap[todayKey] || []).forEach(rs => {
             const shiftStart = getVietnamDateFromHM(todayKey, rs.start);
             const shiftEnd = getVietnamDateFromHM(todayKey, rs.end);
-            if (!shiftStart || !shiftEnd) return;
-            const belongsToShift = Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 ||
-                (checkInTime >= shiftStart && checkInTime < shiftEnd);
-            if (belongsToShift) autoCloseEnds.push(shiftEnd);
+            if (shiftStart && shiftEnd) workBlocks.push({ start: shiftStart, end: shiftEnd, kind: 'tiep-tan' });
         });
 
-        // Check teacher classes
+        // Lớp dạy được xếp
         const todaySchedule = scheduleMap[todayKey] || {};
-        const staffClasses = [];
         ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(sec => {
             (todaySchedule[sec] || []).forEach(cls => {
                 const isRegistered = isScheduledMainTeacher(cls, staffId) ||
                     isScheduledSubstitute(cls, staffId) ||
                     (cls.registeredTeachers || []).some(t => t.id === staffId);
-                if (isRegistered && cls.start && cls.end) {
-                    staffClasses.push(cls);
-                }
+                if (!isRegistered || !cls.start || !cls.end) return;
+                const clsStart = getVietnamDateFromHM(todayKey, cls.start);
+                const clsEnd = getVietnamDateFromHM(todayKey, cls.end);
+                if (clsStart && clsEnd) workBlocks.push({ start: clsStart, end: clsEnd, kind: 'day' });
             });
         });
 
-        // Find closest starting class within 60 mins window
-        let matchedClass = null;
-        let minDiff = Infinity;
-        staffClasses.forEach(cls => {
-            const clsStart = getVietnamDateFromHM(todayKey, cls.start);
-            const clsEnd = getVietnamDateFromHM(todayKey, cls.end);
-            if (!clsStart || !clsEnd) return;
-
-            const diffMs = Math.abs(checkInTime - clsStart);
-            if (diffMs < 60 * 60 * 1000 && checkInTime < new Date(clsEnd.getTime() + 15 * 60 * 1000)) {
-                if (diffMs < minDiff) {
-                    minDiff = diffMs;
-                    matchedClass = cls;
-                }
-            }
-        });
-
-        if (matchedClass) {
-            // Find the end of any consecutive class chain today
-            let currentEndStr = matchedClass.end;
-            let extended = true;
-            while (extended) {
-                extended = false;
-                for (const cls of staffClasses) {
-                    if (cls.start === currentEndStr) {
-                        currentEndStr = cls.end;
-                        extended = true;
-                        break;
-                    }
-                }
-            }
-            const finalEndDate = getVietnamDateFromHM(todayKey, currentEndStr);
-            if (finalEndDate) autoCloseEnds.push(finalEndDate);
-        }
-
-        if (autoCloseEnds.length === 0) return;
-        const latestEnd = new Date(Math.max(...autoCloseEnds.map(d => d.getTime())));
+        const latestEnd = typeof resolveWorkChainEnd === 'function'
+            ? resolveWorkChainEnd(workBlocks, checkInTime)
+            : null;
+        if (!latestEnd) return;
         if (nowForAutoClose >= latestEnd) {
             DBService.checkOutPersonal(staffId, latestEnd).then(() => {
                 s.checkOut = latestEnd.toISOString();

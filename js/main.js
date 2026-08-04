@@ -479,16 +479,15 @@ async function globalCheckAutoCheckout() {
         // NGÀY LÀM 2 CHỨC NĂNG (vừa tiếp tân vừa dạy):
         // Trước đây code chọn MỘT nhánh theo vai trò chính, nên người vừa trực tiếp tân
         // 07:00–11:00 vừa có lớp 07:30–09:00 bị tự động RA CA lúc 09:00 (hết lớp) dù vẫn
-        // đang trong ca trực → phải bấm vào ca lần 2. Nay dò CẢ HAI nguồn lịch và chỉ ra ca
-        // ở mốc MUỘN NHẤT ⇒ nhân viên chỉ cần bấm vào ca 1 lần, hệ thống tự ra ca đúng giờ.
-        const [recepEnd, classEnd] = await Promise.all([
-            findReceptionistShiftEnd(currentUserId, checkInTime, dateKey),
-            findTeachingChainEnd(currentUserId, checkInTime, dateKey)
+        // đang trong ca trực → phải bấm vào ca lần 2. Nay gom CẢ HAI nguồn lịch (ca trực +
+        // lớp dạy) rồi nối thành MỘT MẠCH LÀM VIỆC LIỀN từ lúc vào ca.
+        const [recepBlocks, classBlocks] = await Promise.all([
+            findReceptionistShiftBlocks(currentUserId, dateKey),
+            findTeachingBlocks(currentUserId, dateKey)
         ]);
 
-        const candidates = [recepEnd, classEnd].filter(Boolean);
-        if (candidates.length === 0) return;
-        const finalEnd = new Date(Math.max(...candidates.map(d => d.getTime())));
+        const finalEnd = resolveWorkChainEnd([...recepBlocks, ...classBlocks], checkInTime);
+        if (!finalEnd) return;
 
         if (now >= finalEnd) {
             console.log(`[GlobalAutoCheckout] Ngày làm kết thúc lúc ${finalEnd.toLocaleTimeString()}. Auto checking out...`);
@@ -505,9 +504,42 @@ async function globalCheckAutoCheckout() {
     }
 }
 
-// Trả về Date giờ tan ca TIẾP TÂN muộn nhất mà phiên chấm công này thuộc về (null nếu không có).
-// Không tự ra ca ở đây — nơi gọi so sánh với nhánh ca dạy rồi mới quyết định.
-async function findReceptionistShiftEnd(userId, checkInTime, dateKey) {
+// Khoảng nghỉ TỐI ĐA giữa hai khúc việc mà vẫn coi là làm liền một mạch.
+// Hai lớp 07:30–09:00 và 09:15–10:45 cách nhau 15p là ra chơi giữa buổi → nối, nhân viên
+// chỉ bấm vào ca 1 lần. Còn ca tối 18:00 cách ca sáng nhiều tiếng thì KHÔNG nối: buổi tối
+// nhân viên vẫn bấm vào ca như bình thường (yêu cầu của Giám đốc).
+const AUTO_CHECKOUT_GAP_MS = 20 * 60 * 1000;
+
+// Từ danh sách các khúc việc trong ngày (ca trực + lớp dạy), tìm mốc tan của MẠCH LÀM VIỆC
+// chứa giờ vào ca. Nối tiếp chừng nào khúc sau bắt đầu trước/ngay sau mốc đang có, gặp
+// khoảng trống dài hơn AUTO_CHECKOUT_GAP_MS thì dừng.
+function resolveWorkChainEnd(blocks, checkInTime) {
+    const list = (blocks || []).filter(b => b && b.start && b.end && b.end > b.start);
+    if (list.length === 0) return null;
+
+    // Khúc "khớp" giờ vào ca: vào quanh giờ bắt đầu (±60p) hoặc vào giữa khúc.
+    const matched = list.filter(b =>
+        Math.abs(checkInTime - b.start) < 60 * 60 * 1000 ||
+        (checkInTime >= b.start && checkInTime < b.end)
+    );
+    if (matched.length === 0) return null;
+
+    let end = new Date(Math.max(...matched.map(b => b.end.getTime())));
+    let extended = true;
+    while (extended) {
+        extended = false;
+        list.forEach(b => {
+            if (b.end <= end) return;
+            if (b.start - end > AUTO_CHECKOUT_GAP_MS) return; // nghỉ dài → hết mạch
+            end = b.end;
+            extended = true;
+        });
+    }
+    return end;
+}
+
+// Trả về danh sách khúc ca TIẾP TÂN của nhân viên trong ngày ([] nếu không có).
+async function findReceptionistShiftBlocks(userId, dateKey) {
     try {
         const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
         const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -560,40 +592,18 @@ async function findReceptionistShiftEnd(userId, checkInTime, dateKey) {
             }
         }
 
-        if (allShifts.length === 0) return null;
-
-        // Merge các ca tiếp giáp (end === start)
-        allShifts.sort((a, b) => a.shiftStart - b.shiftStart);
-        const mergedShifts = [{ ...allShifts[0] }];
-        for (let i = 1; i < allShifts.length; i++) {
-            const prev = mergedShifts[mergedShifts.length - 1];
-            const curr = allShifts[i];
-            if (prev.endStr === curr.startStr) {
-                // Tiếp giáp → merge
-                prev.shiftEnd = curr.shiftEnd;
-                prev.endStr = curr.endStr;
-            } else {
-                mergedShifts.push({ ...curr });
-            }
-        }
-
-        // Tìm shift khớp với checkInTime: vào gần giờ bắt đầu (±60p) HOẶC vào giữa ca
-        // (người vừa dạy xong mới quay lại quầy vẫn thuộc ca trực đang chạy).
-        const matched = mergedShifts.filter(s =>
-            Math.abs(checkInTime - s.shiftStart) < 60 * 60 * 1000 ||
-            (checkInTime >= s.shiftStart && checkInTime < s.shiftEnd)
-        );
-
-        if (matched.length === 0) return null;
-        return new Date(Math.max(...matched.map(s => s.shiftEnd.getTime())));
+        // Việc nối các khúc liền nhau do resolveWorkChainEnd lo — ở đây chỉ trả dữ liệu thô.
+        return allShifts
+            .filter(s => s.shiftStart && s.shiftEnd)
+            .map(s => ({ start: s.shiftStart, end: s.shiftEnd, kind: 'tiep-tan' }));
     } catch (e) {
         console.warn('[GlobalAutoCheckout] Receptionist error:', e);
-        return null;
+        return [];
     }
 }
 
-// Trả về Date giờ kết thúc CHUỖI lớp dạy liên tiếp khớp phiên chấm công (null nếu không có).
-async function findTeachingChainEnd(userId, checkInTime, dateKey) {
+// Trả về danh sách khúc LỚP DẠY nhân viên được xếp trong ngày ([] nếu không có).
+async function findTeachingBlocks(userId, dateKey) {
     try {
         const BRANCHES = ['cs1', 'cs2', 'cs3'];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
@@ -615,52 +625,17 @@ async function findTeachingChainEnd(userId, checkInTime, dateKey) {
             });
         }
 
-        if (allClasses.length === 0) return null;
-
-        // Tìm lớp khớp checkInTime (khoảng cách giờ bắt đầu gần nhất trong vòng 60p, trước khi lớp kết thúc)
-        let matchedClassEnd = null;
-        let matchedClassEndStr = null;
-        let minDiff = Infinity;
-        for (const cls of allClasses) {
-            if (!cls.start || !cls.end) continue;
-            const classStart = getVietnamDateFromHM(dateKey, cls.start);
-            const classEnd = getVietnamDateFromHM(dateKey, cls.end);
-            if (!classStart || !classEnd) continue;
-
-            const diffMs = Math.abs(checkInTime - classStart);
-            if (diffMs < 60 * 60 * 1000 && checkInTime < new Date(classEnd.getTime() + 15 * 60 * 1000)) {
-                if (diffMs < minDiff) {
-                    minDiff = diffMs;
-                    matchedClassEnd = classEnd;
-                    matchedClassEndStr = cls.end;
-                }
-            }
-        }
-
-        if (!matchedClassEnd) return null;
-
-        // Mở rộng matchedClassEnd nếu có ca liên tiếp (end ca trước = start ca sau)
-        // → không auto-checkout giữa chừng khi 2 ca nối tiếp nhau
-        let extended = true;
-        while (extended) {
-            extended = false;
-            for (const cls of allClasses) {
-                if (cls.start === matchedClassEndStr) {
-                    const newEnd = getVietnamDateFromHM(dateKey, cls.end);
-                    if (newEnd && newEnd > matchedClassEnd) {
-                        matchedClassEnd = newEnd;
-                        matchedClassEndStr = cls.end;
-                        extended = true;
-                    }
-                    break;
-                }
-            }
-        }
-
-        return matchedClassEnd;
+        // Nối chuỗi lớp liền nhau do resolveWorkChainEnd lo — ở đây chỉ trả dữ liệu thô.
+        return allClasses
+            .map(cls => ({
+                start: getVietnamDateFromHM(dateKey, cls.start),
+                end: getVietnamDateFromHM(dateKey, cls.end),
+                kind: 'day'
+            }))
+            .filter(b => b.start && b.end);
     } catch (e) {
         console.warn("[GlobalAutoCheckout] Teacher error:", e);
-        return null;
+        return [];
     }
 }
 

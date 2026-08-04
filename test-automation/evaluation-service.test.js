@@ -486,4 +486,65 @@ function observation(lateMinutes) {
     assert.match(withSub.text, /\(Toán 6\).*\(V\)/, 'ca vắng có lớp thì hiện tên lớp');
 }
 
+{
+    // LỖI ẢNH ZALO (ngày 26): phiên bị neo vào một giờ ca KHÔNG CÒN trong lịch
+    // (admin sửa lịch / duyệt chấm bù sai giờ) thì mọi vòng ghép đều từ chối nó →
+    // ca dạy biến mất, chỉ còn chip tím "(Role?)" và tổng giờ hụt.
+    // GV dạy nhiều môn → không có "môn duy nhất" để đoán vai trò, đúng như GV thật.
+    const multiRoleUser = {
+        roles: ['teaching_assistant'],
+        salary_config: {
+            roles: [
+                { id: 'subject-math', name: 'Toán dự thính', rate: 100000 },
+                { id: 'subject-english', name: 'Tiếng Anh', rate: 120000 }
+            ]
+        }
+    };
+    const staleSession = {
+        id: 'sess-stale-link',
+        checkIn: `${dateKey}T07:28:00`,
+        checkOut: `${dateKey}T09:02:00`,
+        linkedClassStart: '07:20' // lịch cũ; ca thật trong lịch bắt đầu 07:30
+    };
+    const chips = context.window.calculateDailyChips(
+        schedule, [staleSession], staffId, dateKey, multiRoleUser
+    );
+    // Chip ca dạy thật luôn mang classStart/classEnd của ô lịch; chip "ca ngoài lịch" thì không.
+    const teach = chips.find(c => c.classStart === '07:30' && c.classEnd === '09:00');
+    assert.ok(teach, 'neo mồ côi không được làm mất chip ca dạy');
+    assert.equal(teach.paidMinutes, 90, 'ca dạy vẫn tính đủ 1h30 theo lịch');
+    assert.match(teach.text, /Toán dự thính/, 'chip hiện đúng môn thay vì (Role?)');
+    assert.ok(
+        !chips.some(c => /Role\?/.test(c.text)),
+        'không còn rơi xuống chip tím (Role?)'
+    );
+
+    // Neo CÒN hiệu lực vẫn phải được tôn trọng như cũ.
+    const liveChips = context.window.calculateDailyChips(
+        schedule,
+        [{ ...staleSession, id: 'sess-live-link', linkedClassStart: '07:30' }],
+        staffId, dateKey, multiRoleUser
+    );
+    assert.ok(
+        liveChips.find(c => c.classStart === '07:30' && c.paidMinutes === 90),
+        'neo đúng giờ vẫn ghép được ca dạy'
+    );
+}
+
+{
+    // Ca admin thêm/chấm bù bị gõ NGƯỢC giờ (vào 15:30, ra 15:16) trước đây in nhãn
+    // "15:30–15:16" khiến người xem tưởng phần mềm lỗi. Nay phải nói thẳng lý do.
+    const reversed = {
+        id: 'sess-reversed',
+        type: 'admin_add',
+        isAdminEdited: true,
+        checkIn: `${dateKey}T15:30:00`,
+        checkOut: `${dateKey}T15:16:00`
+    };
+    const chip = chipsFor(reversed).find(c => c.sessionId === 'sess-reversed');
+    assert.ok(chip, 'ca giờ ngược vẫn phải hiện để admin sửa');
+    assert.match(chip.text, /Giờ ra ≤ giờ vào/, 'chip nêu rõ dữ liệu giờ bị sai');
+    assert.equal(chip.paidMinutes, 0, 'không tính phút cho ca giờ ngược');
+}
+
 console.log('evaluation-service regression tests passed');

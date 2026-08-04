@@ -12,8 +12,8 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260804-crossrole-v1'></script>
-    <script src='js/evaluation-service.js?v=20260804-crossrole-v1'></script>
+    <script src='js/db-service.js?v=20260805-trust-multiselect-v1'></script>
+    <script src='js/evaluation-service.js?v=20260805-trust-multiselect-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -115,8 +115,21 @@ const dkOf=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+Str
 const toMin=t=>{const p=String(t||'').split(':');return (+p[0]||0)*60+(+p[1]||0)};
 const hmOfIso=i=>{const d=new Date(i);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
 
+// DIỆN TIN TƯỞNG (xếp ở trang Nhân Sự). Chỉ người thuộc diện này mới được gom vào nút
+// "Duyệt hàng loạt". Người chưa xếp diện: dù đối chiếu khớp lịch vẫn phải để Quản trị viên /
+// Trợ lý cấp cao mở ra xem rồi bấm duyệt từng mục.
+async function loadTrustedIds(){
+    try{
+        const users=await DBService.getUsers();
+        const s=new Set();
+        (users||[]).forEach(u=>{ if(u&&u.trustLevel==='trusted')s.add(String(u.id)) });
+        return s;
+    }catch(e){ console.warn('[Verdict] không đọc được diện tin tưởng:',e); return new Set() }
+}
+
 async function buildVerdicts(reqs){
     const out={};
+    const trustedIds=await loadTrustedIds();
     const byStaffMonth={};
     reqs.forEach(r=>{
         const m=String(r.dateKey||'').slice(0,7);
@@ -202,7 +215,8 @@ async function buildVerdicts(reqs){
                              rsh.find(x=>x.start===startHM&&x.end===endHM);
             const anyClassAtTime=rows.some(x=>toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end));
 
-            let level,title,reasons=[];
+            const trusted=trustedIds.has(String(r.staffId));
+            let level,title,reasons=[],quick=false;
             if(missing.length){
                 level='warn'; title='Thiếu thông tin';
                 reasons.push('Chưa khai: '+missing.join(', ')+'.');
@@ -210,8 +224,15 @@ async function buildVerdicts(reqs){
                 level='bad'; title='Đã có công trùng giờ';
                 reasons.push('Bảng công đã có ca chồng khung giờ này — duyệt sẽ tính lương 2 lần.');
             }else if(r.type==='scheduled'&&schedMatch){
-                level='ok'; title='Khớp lịch — đủ điều kiện duyệt';
+                level='ok';
                 reasons.push('Ca có trên lịch, đúng người, và chưa được ghi nhận công nào.');
+                if(trusted){
+                    quick=true; title='Khớp lịch — đủ điều kiện duyệt nhanh';
+                    reasons.push('Nhân viên thuộc diện tin tưởng nên nằm trong nhóm duyệt hàng loạt.');
+                }else{
+                    title='Khớp lịch — cần quản lý duyệt tay';
+                    reasons.push('Nhân viên CHƯA được xếp diện tin tưởng (trang Nhân Sự) nên không gom vào nút duyệt hàng loạt — Quản trị viên / Trợ lý cấp cao xem rồi bấm duyệt từng mục.');
+                }
             }else if(r.type==='scheduled'&&!schedMatch){
                 level='bad'; title='Không tìm thấy ca trên lịch';
                 reasons.push('Không có ca đúng khung giờ này của nhân viên trong lịch — cần kiểm tra lại.');
@@ -222,7 +243,7 @@ async function buildVerdicts(reqs){
                 if(anyClassAtTime)reasons.push('Khung giờ này trung tâm CÓ lớp đang diễn ra (hợp lý).');
                 else reasons.push('Khung giờ này không có lớp nào trên lịch — nên hỏi lại.');
             }
-            out[r.id]={level:level,title:title,text:reasons.join(' ')};
+            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted};
         });
     }
     return out;
@@ -255,11 +276,17 @@ window.loadTab=async function(tab){
 
     const groups={};
     curReqs.forEach(r=>{const k=r.batchId||r.id; if(!groups[k])groups[k]=[]; groups[k].push(r)});
-    const okCount=curReqs.filter(r=>(curVerdicts[r.id]||{}).level==='ok').length;
-    const topBar=(tab==='pending'&&okCount>0)
+    // Chỉ gom mục KHỚP LỊCH của người thuộc DIỆN TIN TƯỞNG vào nút duyệt hàng loạt.
+    const okCount=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick).length;
+    const manualOk=curReqs.filter(r=>{const v=curVerdicts[r.id]||{};return v.level==='ok'&&!v.quick}).length;
+    const topBar=(tab==='pending'&&(okCount>0||manualOk>0))
         ? '<div class="grp" style="padding:.85rem 1rem;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
-          '<div style="font-size:.85rem;color:#065F46"><b>'+okCount+' yêu cầu</b> đã đối chiếu khớp lịch và chưa có công — an toàn để duyệt nhanh.</div>'+
-          '<button class="btn b-all" onclick="approveAllEligible()"><i data-lucide="check-check" style="width:15px;height:15px"></i> Duyệt '+okCount+' mục đủ điều kiện</button></div>'
+          '<div style="font-size:.85rem;color:#065F46">'+
+            (okCount>0?'<b>'+okCount+' yêu cầu</b> khớp lịch, chưa có công, của người thuộc <b>diện tin tưởng</b> — an toàn để duyệt nhanh.':'')+
+            (manualOk>0?(okCount>0?'<br>':'')+'<span style="color:#92400E">'+manualOk+' yêu cầu khớp lịch nhưng người gửi chưa được xếp diện tin tưởng — cần xem và duyệt từng mục.</span>':'')+
+          '</div>'+
+          (okCount>0?'<button class="btn b-all" onclick="approveAllEligible()"><i data-lucide="check-check" style="width:15px;height:15px"></i> Duyệt '+okCount+' mục đủ điều kiện</button>':'')+
+          '</div>'
         : '';
     el.innerHTML=Object.keys(groups).map(function(bk){
         const reqs=groups[bk],f=reqs[0];
@@ -292,8 +319,11 @@ window.loadTab=async function(tab){
             if(s.overtimeMinutes>0)metas.push('<span><i data-lucide="plus-circle" style="width:13px;height:13px"></i> Tăng ca '+s.overtimeMinutes+'p</span>');
 
             const v=curVerdicts[r.id];
-            const vHtml=v?('<div class="vd vd-'+v.level+'"><i data-lucide="'+
-                (v.level==='ok'?'shield-check':(v.level==='bad'?'shield-alert':'help-circle'))+
+            // Khớp lịch nhưng người gửi chưa thuộc diện tin tưởng → tô vàng để quản lý biết
+            // phải tự xem, không lẫn với nhóm xanh được duyệt hàng loạt.
+            const vCls=(v&&v.level==='ok'&&!v.quick)?'warn':(v?v.level:'');
+            const vIcon=!v?'':(v.level==='bad'?'shield-alert':(v.quick?'shield-check':(v.level==='ok'?'user-check':'help-circle')));
+            const vHtml=v?('<div class="vd vd-'+vCls+'"><i data-lucide="'+vIcon+
                 '" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i><div><b>Đối chiếu tự động: '+
                 esc(v.title)+'</b><br>'+esc(v.text)+'</div></div>'):'';
             let act='';
@@ -320,9 +350,9 @@ window.loadTab=async function(tab){
 // Duyệt hàng loạt các yêu cầu mà đối chiếu tự động cho kết quả "khớp lịch, chưa có công".
 // Vẫn cần quản lý bấm nút — hệ thống không tự duyệt sau lưng.
 window.approveAllEligible=async function(){
-    const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).level==='ok');
+    const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick);
     if(!list.length)return;
-    if(!confirm('Duyệt '+list.length+' yêu cầu đã đối chiếu KHỚP LỊCH và chưa có công?\nCông sẽ được ghi vào Bảng Công.'))return;
+    if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?\nCông sẽ được ghi vào Bảng Công.'))return;
     let done=0;
     for(const r of list){
         try{ await DBService.approveMakeupRequest(r,adminName()); done++ }

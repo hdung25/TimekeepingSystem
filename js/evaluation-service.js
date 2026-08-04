@@ -531,6 +531,33 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     }
     schedule = processedSchedule;
 
+    // Tập giờ bắt đầu của các ca mà GV này ĐANG được xếp trong ngày.
+    // `linkedClassStart` là cái neo giữa phiên chấm công và ô lịch (admin sửa ca, duyệt
+    // chấm bù). Nếu sau đó lịch đổi giờ / xóa ca / đổi GV thì cái neo trỏ vào hư không:
+    // phiên bị mọi vòng ghép từ chối ("đã neo vào ca khác") nên rơi xuống chip tím
+    // "(Role?)", còn ca trong lịch lại bị ẩn vì đã có phiên chồng giờ → cả ca dạy biến
+    // mất khỏi bảng công. Neo mồ côi phải bị bỏ qua để phiên được ghép theo giờ như thường.
+    const _assignedClassStarts = new Set();
+    sections.forEach(sk => {
+        (schedule[sk] || []).forEach((c, i) => {
+            if (!c || !c.start || !c.end) return;
+            if (c.isClosed === true) return;
+            const _isSubstitute = isScheduledSubstitute(c, staffId);
+            const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
+            const _isReg = _isSubstitute ||
+                (!_isOriginalVDX && (
+                    (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
+                ));
+            if (!_isReg) return;
+            const ck = c._compositeKey || null;
+            const originalIdx = c._originalIndex !== undefined ? c._originalIndex : i;
+            if (ck && cancelledShifts.includes(`${ck}_${sk}_${originalIdx}`)) return;
+            _assignedClassStarts.add(c.start);
+        });
+    });
+    // Phiên có neo còn hiệu lực (giờ neo vẫn ứng với một ca thật của GV trong ngày)
+    const _hasLiveClassLink = (s) => !!(s && s.linkedClassStart && _assignedClassStarts.has(s.linkedClassStart));
+
     // PRE-PROCESS: xây dựng mergeInfo cho các ca liên tiếp (end ca A = start ca B)
     // Không check cùng branch → hỗ trợ merge ca khác cơ sở
     // mergeInfo["secKey_idx"] = { mergedEnd: string, crossBranch: bool } → ca đầu chuỗi
@@ -736,7 +763,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
                     if (usedSessionIdsTeaching.has(s.id)) return false;
-                    if (s.linkedClassStart) return false; // Already linked to another class
+                    if (_hasLiveClassLink(s)) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
                     const checkOut = safeDate(s.checkOut);
@@ -748,7 +775,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
                     if (usedSessionIdsTeaching.has(s.id)) return false;
-                    if (s.linkedClassStart) return false; // Already linked to another class
+                    if (_hasLiveClassLink(s)) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
                     const minDiffMs = Math.min(..._chainStartDates.map(start => Math.abs(checkIn - start)));
@@ -766,7 +793,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (usedSessionIdsTeaching.has(s.id)) return;
                     if (_matchedTeachingSessions.some(item => item.id === s.id)) return;
                     if (s.isAbsent) return;
-                    if (s.linkedClassStart && !_chainStarts.has(s.linkedClassStart)) return;
+                    if (_hasLiveClassLink(s) && !_chainStarts.has(s.linkedClassStart)) return;
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return;
                     const checkOut = safeDate(s.checkOut);
@@ -2049,10 +2076,29 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     return;
                 }
 
-                if (USE_SCHED) {
+                // === GIỜ RA ≤ GIỜ VÀO (dữ liệu hỏng) ===
+                // Ca admin thêm/sửa tay hoặc chấm bù bị gõ ngược giờ (VD vào 15:30, ra 15:16)
+                // trước đây vẫn chạy tiếp và in nhãn "15:30–15:16" — người xem tưởng phần mềm
+                // lỗi, còn ca thì lặng lẽ 0 phút không ai biết vì sao. Nay ghi rõ để admin sửa.
+                if (sessionEnd && sessionEnd <= sessionStart) {
+                    duration = 0;
+                    cssClass = 'chip-orange';
+                    isUnmatchedWarning = true;
+                    isClickable = true;
+                    const _roleSuffixInv = chipSessionData.role
+                        ? ` (${chipSessionData.roleName || chipSessionData.role})`
+                        : '';
+                    label = `${startStr}–${endStr}${_roleSuffixInv} (Giờ ra ≤ giờ vào)`;
+                    tooltip = `Giờ ra (${endStr}) không sau giờ vào (${startStr}) — dữ liệu ca bị sai, ` +
+                        `không tính được phút làm. Bấm để sửa lại giờ cho ca này.`;
+                } else if (USE_SCHED) {
                     // Tính sớm/trễ theo giờ lịch
                     const diffToSched = sessionStart - nearestSchedStart; // + = trễ, - = sớm
                     const schedStartStr = nearestSchedStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    // Mốc đầu HIỂN THỊ trên chip. Ca kết thúc trước cả giờ vào lịch (bấm nhầm vài
+                    // phút) mà lấy giờ lịch làm mốc thì ra khoảng ngược "15:30–15:16" → dùng giờ
+                    // vào thực tế cho nhãn, tooltip vẫn ghi giờ lịch để đối chiếu.
+                    const dispStartStr = sessionEnd <= nearestSchedStart ? startStr : schedStartStr;
                     const effectiveEnd = sessionEnd > nearestSchedEnd ? sessionEnd : nearestSchedEnd;
                     const lateMin = diffToSched >= 60000 ? Math.round(diffToSched / 60000) : 0;
                     const lateSuffix = lateMin > 0 ? ` (T${lateMin}p)` : '';
@@ -2084,7 +2130,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (chipSessionData.role) {
                         const _dnU1 = chipSessionData.roleName || chipSessionData.role;
                         cssClass = lateMin > 0 ? 'chip-orange' : 'chip-green';
-                        label = `${schedStartStr}–${endStr}${lateSuffix} (${_dnU1})`;
+                        label = `${dispStartStr}–${endStr}${lateSuffix} (${_dnU1})`;
                         tooltip += ` - Vai trò: ${_dnU1}`;
                         // Rate cho tiếp tân
                         if ((chipSessionData.role === 'tiep-tan' || chipSessionData.role === 'receptionist') && currentUserContext?.salary_config?.receptionist_normal_rate) {
@@ -2092,7 +2138,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                     } else {
                         cssClass = 'chip-waiting';
-                        label = `${schedStartStr}–${endStr}${lateSuffix} (Role?)`;
+                        label = `${dispStartStr}–${endStr}${lateSuffix} (Role?)`;
                         tooltip += ' - Bấm để chọn vai trò tính lương';
                     }
                 } else {

@@ -17,7 +17,12 @@
         collapsed: {},
         sheetType: 'subject',
         early10: false,
-        loaded: false
+        loaded: false,
+        // id môn đang được tick. Chỉ môn (không phải nhóm) mới chọn được: mọi thao tác
+        // hàng loạt (xếp nhóm, sớm 10p, xóa) đều là thao tác trên môn.
+        selected: {},
+        // true = đang mở ô "Chuyển nhóm" cho cả loạt môn đã chọn, không phải 1 môn
+        moveIsBulk: false
     };
 
     // --- Tiện ích ---------------------------------------------------------
@@ -94,18 +99,45 @@
         return '<span class="mh-badge mh-badge-10p">' + icon('star', 11) + ' Sớm 10p</span>';
     }
 
+    // --- Chọn nhiều ---------------------------------------------------------
+
+    function isSelected(id) { return state.selected[String(id)] === true; }
+
+    function selectedIds() {
+        // Lọc theo danh sách môn hiện có để id của môn vừa bị xóa không còn treo lại.
+        return state.subjects
+            .filter(function (s) { return !isGroup(s) && isSelected(s.id); })
+            .map(function (s) { return String(s.id); });
+    }
+
+    function selectedSubjects() {
+        return state.subjects.filter(function (s) { return !isGroup(s) && isSelected(s.id); });
+    }
+
+    function checkbox(id, checked, mixed) {
+        return '<span class="mh-check' + (checked ? ' on' : '') + (mixed ? ' mixed' : '') + '"' +
+            ' role="checkbox" aria-checked="' + (mixed ? 'mixed' : (checked ? 'true' : 'false')) + '"' +
+            ' data-check-id="' + esc(id) + '">' +
+            (mixed ? '<span class="mh-check-dash"></span>' : icon('check', 13)) +
+            '</span>';
+    }
+
     function renderItem(subject) {
         var color = subject.color || '#059669';
+        var checked = isSelected(subject.id);
         return '' +
-            '<div class="mh-item">' +
+            '<div class="mh-item' + (checked ? ' selected' : '') + '"' +
+                ' onclick="MonHoc.toggleSelect(\'' + esc(subject.id) + '\', event)">' +
+                checkbox(subject.id, checked, false) +
                 '<span class="mh-dot" style="background:' + esc(color) + ';"></span>' +
                 '<div class="mh-item-main">' +
-                    '<div class="mh-item-name">' + esc(subject.name) +
+                    '<div class="mh-item-name">' +
+                        '<span class="mh-item-label">' + esc(subject.name) + '</span>' +
                         (allowsEarly10(subject) ? early10Badge() : '') +
                     '</div>' +
                     (subject.note ? '<div class="mh-item-note">' + esc(subject.note) + '</div>' : '') +
                 '</div>' +
-                '<div class="mh-row-actions">' +
+                '<div class="mh-row-actions" onclick="event.stopPropagation()">' +
                     '<button class="mh-icon-btn ' + (allowsEarly10(subject) ? 'on' : '') + '" title="' +
                         (allowsEarly10(subject) ? 'Đang cho phép sớm 10p — bấm để tắt' : 'Bấm để cho phép sớm 10p') +
                         '" onclick="MonHoc.quickToggleEarly10(\'' + esc(subject.id) + '\')">' + icon('star') + '</button>' +
@@ -114,6 +146,23 @@
                     '<button class="mh-icon-btn danger" title="Xóa" onclick="MonHoc.remove(\'' + esc(subject.id) + '\')">' + icon('trash-2') + '</button>' +
                 '</div>' +
             '</div>';
+    }
+
+    // Ô tick "chọn cả nhóm": tick khi mọi môn ĐANG HIỆN của nhóm đều được chọn,
+    // gạch ngang khi mới chọn một phần. Chỉ tính môn đang hiện để lúc đang lọc/tìm
+    // kiếm, bấm "chọn cả nhóm" không lỡ tay chọn cả những môn không nhìn thấy.
+    function renderBulkHead(scopeId, items) {
+        if (items.length === 0) return '';
+        var picked = items.filter(function (s) { return isSelected(s.id); }).length;
+        var all = picked === items.length;
+        return '<span class="mh-check-wrap" onclick="event.stopPropagation();MonHoc.toggleScope(\'' + esc(scopeId) + '\')"' +
+            ' title="' + (all ? 'Bỏ chọn' : 'Chọn') + ' ' + items.length + ' môn đang hiện">' +
+            checkbox('scope-' + scopeId, picked > 0, picked > 0 && !all) +
+            '</span>';
+    }
+
+    function renderItems(items) {
+        return '<div class="mh-items">' + items.map(renderItem).join('') + '</div>';
     }
 
     function renderGroup(group) {
@@ -129,12 +178,13 @@
         var sub = allChildren.length + ' môn' + (early10Count > 0 ? ' · ' + early10Count + ' môn có sớm 10p' : '');
 
         var body = children.length > 0
-            ? children.map(renderItem).join('')
-            : '<div style="padding:0.9rem 1.6rem;color:var(--text-muted);font-size:0.85rem;">Nhóm này chưa có môn nào.</div>';
+            ? renderItems(children)
+            : '<div style="padding:0.9rem 1rem;color:var(--text-muted);font-size:0.85rem;">Nhóm này chưa có môn nào.</div>';
 
         return '' +
             '<div class="mh-group' + collapsed + '" id="group-' + esc(group.id) + '">' +
                 '<div class="mh-group-head" onclick="MonHoc.toggleGroup(\'' + esc(group.id) + '\')">' +
+                    renderBulkHead(group.id, children) +
                     '<span class="mh-caret">' + icon('chevron-down', 18) + '</span>' +
                     '<span class="mh-folder" style="background:' + esc(color) + '18;color:' + esc(color) + ';">' + icon('folder', 18) + '</span>' +
                     '<span class="mh-group-title">' +
@@ -168,14 +218,15 @@
             html += '' +
                 '<div class="mh-group" id="group-none">' +
                     '<div class="mh-group-head" onclick="MonHoc.toggleGroup(\'' + NO_GROUP + '\')">' +
+                        renderBulkHead(NO_GROUP, ungrouped) +
                         '<span class="mh-caret">' + icon('chevron-down', 18) + '</span>' +
                         '<span class="mh-folder" style="background:#F3F4F6;color:#6B7280;">' + icon('inbox', 18) + '</span>' +
                         '<span class="mh-group-title">' +
                             '<span class="mh-group-name">Chưa xếp nhóm</span>' +
-                            '<span class="mh-group-sub">' + ungrouped.length + ' môn — bấm biểu tượng thư mục để xếp vào nhóm</span>' +
+                            '<span class="mh-group-sub">' + ungrouped.length + ' môn — tick chọn nhiều môn rồi xếp một lượt vào nhóm</span>' +
                         '</span>' +
                     '</div>' +
-                    '<div class="mh-group-body">' + ungrouped.map(renderItem).join('') + '</div>' +
+                    '<div class="mh-group-body">' + renderItems(ungrouped) + '</div>' +
                 '</div>';
             if (state.collapsed[NO_GROUP]) {
                 html = html.replace('<div class="mh-group" id="group-none">', '<div class="mh-group collapsed" id="group-none">');
@@ -198,6 +249,40 @@
         tree.innerHTML = html;
         if (window.lucide) window.lucide.createIcons({ root: tree });
         renderStats();
+        renderSelectionBar();
+    }
+
+    // Thanh thao tác hàng loạt: chỉ hiện khi đã tick ít nhất 1 môn, nổi ở đáy màn
+    // hình để không phải cuộn lên đầu trang mới bấm được.
+    function renderSelectionBar() {
+        var bar = document.getElementById('mh-selbar');
+        if (!bar) return;
+        var page = document.querySelector('.mh-page');
+        var picked = selectedSubjects();
+        if (page) page.classList.toggle('has-selection', picked.length > 0);
+        if (picked.length === 0) {
+            bar.classList.remove('open');
+            bar.innerHTML = '';
+            return;
+        }
+        var allOn = picked.every(allowsEarly10);
+        bar.innerHTML = '' +
+            '<div class="mh-selbar-box">' +
+                '<div class="mh-selbar-count">' +
+                    '<strong>' + picked.length + '</strong> môn đã chọn' +
+                '</div>' +
+                '<div class="mh-selbar-actions">' +
+                    '<button class="mh-btn mh-btn-primary" onclick="MonHoc.openBulkMove()">' +
+                        icon('folder-input', 16) + ' Xếp vào nhóm</button>' +
+                    '<button class="mh-btn mh-btn-ghost" onclick="MonHoc.bulkEarly10(' + (allOn ? 'false' : 'true') + ')">' +
+                        icon('star', 16) + ' ' + (allOn ? 'Tắt sớm 10p' : 'Bật sớm 10p') + '</button>' +
+                    '<button class="mh-btn mh-btn-danger" onclick="MonHoc.bulkRemove()">' +
+                        icon('trash-2', 16) + ' Xóa</button>' +
+                    '<button class="mh-btn mh-btn-cancel" onclick="MonHoc.clearSelection()">Bỏ chọn</button>' +
+                '</div>' +
+            '</div>';
+        bar.classList.add('open');
+        if (window.lucide) window.lucide.createIcons({ root: bar });
     }
 
     function renderStats() {
@@ -480,14 +565,100 @@
         }
     }
 
+    // --- Thao tác hàng loạt -----------------------------------------------
+
+    function toggleSelect(id, event) {
+        if (event) event.stopPropagation();
+        var key = String(id);
+        if (state.selected[key]) delete state.selected[key];
+        else state.selected[key] = true;
+        renderTree();
+    }
+
+    // Tick ô đầu nhóm: còn môn chưa chọn thì chọn hết, đã chọn hết thì bỏ hết.
+    function toggleScope(scopeId) {
+        var items = scopeId === NO_GROUP
+            ? getUngrouped().filter(function (s) { return matchesSearch(s) && passesFilter(s); })
+            : visibleChildren(scopeId);
+        if (items.length === 0) return;
+        var allOn = items.every(function (s) { return isSelected(s.id); });
+        items.forEach(function (s) {
+            if (allOn) delete state.selected[String(s.id)];
+            else state.selected[String(s.id)] = true;
+        });
+        renderTree();
+    }
+
+    function clearSelection() {
+        state.selected = {};
+        renderTree();
+    }
+
+    async function bulkEarly10(next) {
+        var picked = selectedSubjects();
+        if (picked.length === 0) return;
+        if (!await UIService.confirm(
+            (next ? 'Bật' : 'Tắt') + ' sớm 10p cho ' + picked.length + ' môn đã chọn?'
+        )) return;
+        try {
+            UIService.showLoading('Đang áp dụng...');
+            await DBService.saveSubjectsBatch(picked.map(function (s) {
+                return { id: s.id, allowEarly10: !!next };
+            }));
+            UIService.hideLoading();
+            UIService.toast('Đã ' + (next ? 'bật' : 'tắt') + ' sớm 10p cho ' + picked.length + ' môn.', 'success');
+            state.selected = {};
+            await reload();
+        } catch (e) {
+            UIService.hideLoading();
+            UIService.toast('Lỗi: ' + e.message, 'error');
+        }
+    }
+
+    async function bulkRemove() {
+        var picked = selectedSubjects();
+        if (picked.length === 0) return;
+        var names = picked.slice(0, 8).map(function (s) { return s.name; }).join(', ');
+        if (picked.length > 8) names += '… (+' + (picked.length - 8) + ' môn nữa)';
+        if (!await UIService.confirm(
+            'Xóa ' + picked.length + ' môn?\n\n' + names + '\n\nHành động này không thể hoàn tác.'
+        )) return;
+        try {
+            UIService.showLoading('Đang xóa...');
+            await DBService.deleteSubjectsBatch(picked.map(function (s) { return s.id; }));
+            UIService.hideLoading();
+            UIService.toast('Đã xóa ' + picked.length + ' môn.', 'success');
+            state.selected = {};
+            await reload();
+        } catch (e) {
+            UIService.hideLoading();
+            UIService.toast('Lỗi: ' + e.message, 'error');
+        }
+    }
+
     // --- Chuyển nhóm ------------------------------------------------------
 
     function openMove(id) {
         var subject = state.subjects.find(function (s) { return s.id === id; });
         if (!subject) return;
+        state.moveIsBulk = false;
         document.getElementById('mh-move-id').value = id;
         document.getElementById('mh-move-sub').textContent = 'Chuyển "' + subject.name + '" sang nhóm khác';
         fillParentOptions('mh-move-parent', subject.parentId || NO_GROUP, id);
+        document.getElementById('mh-move-sheet').classList.add('open');
+    }
+
+    function openBulkMove() {
+        var picked = selectedSubjects();
+        if (picked.length === 0) return;
+        state.moveIsBulk = true;
+        document.getElementById('mh-move-id').value = '';
+        document.getElementById('mh-move-sub').textContent =
+            'Xếp ' + picked.length + ' môn đã chọn vào một nhóm';
+        // Các môn đang cùng một nhóm thì chọn sẵn nhóm đó, khác nhau thì để trống.
+        var parents = picked.map(function (s) { return String(s.parentId || NO_GROUP); });
+        var same = parents.every(function (p) { return p === parents[0]; });
+        fillParentOptions('mh-move-parent', same ? parents[0] : NO_GROUP, null);
         document.getElementById('mh-move-sheet').classList.add('open');
     }
 
@@ -496,9 +667,32 @@
     }
 
     async function confirmMove() {
-        var id = document.getElementById('mh-move-id').value;
         var value = document.getElementById('mh-move-parent').value;
         var parentId = value === NO_GROUP ? null : value;
+        var group = state.subjects.find(function (s) { return String(s.id) === String(parentId); });
+        var groupName = group ? group.name : 'Chưa xếp nhóm';
+
+        if (state.moveIsBulk) {
+            var picked = selectedSubjects();
+            if (picked.length === 0) { closeMove(); return; }
+            try {
+                UIService.showLoading('Đang chuyển...');
+                await DBService.saveSubjectsBatch(picked.map(function (s) {
+                    return { id: s.id, parentId: parentId };
+                }));
+                UIService.hideLoading();
+                UIService.toast('Đã xếp ' + picked.length + ' môn vào "' + groupName + '".', 'success');
+                state.selected = {};
+                closeMove();
+                await reload();
+            } catch (e) {
+                UIService.hideLoading();
+                UIService.toast('Lỗi: ' + e.message, 'error');
+            }
+            return;
+        }
+
+        var id = document.getElementById('mh-move-id').value;
         try {
             UIService.showLoading('Đang chuyển...');
             await DBService.saveSubject({ id: id, parentId: parentId });
@@ -544,8 +738,14 @@
         quickToggleEarly10: quickToggleEarly10,
         toggleGroupEarly10: toggleGroupEarly10,
         openMove: openMove,
+        openBulkMove: openBulkMove,
         closeMove: closeMove,
         confirmMove: confirmMove,
+        toggleSelect: toggleSelect,
+        toggleScope: toggleScope,
+        clearSelection: clearSelection,
+        bulkEarly10: bulkEarly10,
+        bulkRemove: bulkRemove,
         setSearch: setSearch,
         setFilter: setFilter,
         toggleGroup: toggleGroup,
@@ -567,7 +767,14 @@
             }
         });
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') { closeSheet(); closeMove(); }
+            if (e.key !== 'Escape') return;
+            var sheetOpen = ['mh-sheet', 'mh-move-sheet'].some(function (id) {
+                var el = document.getElementById(id);
+                return el && el.classList.contains('open');
+            });
+            if (sheetOpen) { closeSheet(); closeMove(); return; }
+            // Không có ô nào đang mở → Esc là "bỏ tick hết", khỏi phải bấm từng môn.
+            if (selectedIds().length > 0) clearSelection();
         });
     });
 })();

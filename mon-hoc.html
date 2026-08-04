@@ -73,18 +73,58 @@
                      display: flex; align-items: center; justify-content: center; }
         .mh-folder svg { width: 18px; height: 18px; }
         .mh-group-title { flex: 1; min-width: 0; }
-        .mh-group-name { font-weight: 700; font-size: 0.98rem; overflow: hidden;
+        .mh-group-name { display: block; font-weight: 700; font-size: 0.98rem; overflow: hidden;
                          text-overflow: ellipsis; white-space: nowrap; }
-        .mh-group-sub { font-size: 0.78rem; color: var(--text-muted); margin-top: 1px; }
-        .mh-group-body { border-top: 1px solid #F3F4F6; }
+        .mh-group-sub { display: block; font-size: 0.78rem; color: var(--text-muted); margin-top: 1px;
+                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mh-group-body { border-top: 1px solid #F3F4F6; padding: 0.6rem; }
 
-        /* Dòng môn học */
-        .mh-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.75rem 1rem;
-                   border-bottom: 1px solid #F3F4F6; }
-        .mh-item:last-child { border-bottom: none; }
-        .mh-group-body .mh-item { padding-left: 1.6rem; }
+        /* Danh sách môn xếp NHIỀU CỘT: 65 môn tên ngắn (E1, B1…) mà mỗi môn một dòng
+           thì trang dài lê thê, phải cuộn mãi mới xếp xong nhóm. Số cột tự co theo
+           bề ngang màn hình, điện thoại tự về 1 cột. */
+        .mh-items { display: grid; gap: 0.5rem;
+                    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+
+        /* Ô môn học */
+        .mh-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.7rem;
+                   border: 1px solid var(--border-color); border-radius: 10px;
+                   background: var(--bg-surface); cursor: pointer; min-width: 0;
+                   transition: border-color .15s, background .15s, box-shadow .15s; }
+        .mh-item:hover { border-color: #9CA3AF; }
+        .mh-item.selected { border-color: var(--primary-color); background: #ECFDF5;
+                            box-shadow: 0 0 0 1px var(--primary-color); }
         .mh-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%;
                   box-shadow: 0 0 0 3px rgba(0,0,0,.05); }
+
+        /* Ô tick chọn nhiều */
+        .mh-check { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
+                    border: 1.5px solid #D1D5DB; background: var(--bg-surface);
+                    display: flex; align-items: center; justify-content: center;
+                    color: transparent; transition: var(--transition-base); }
+        .mh-check svg { width: 13px; height: 13px; stroke-width: 3.2; }
+        .mh-check.on { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
+        .mh-check.mixed { background: var(--primary-color); border-color: var(--primary-color); }
+        .mh-check.mixed svg { display: none; }
+        .mh-check-dash { width: 10px; height: 2.5px; border-radius: 2px; background: #fff; }
+        .mh-check-wrap { flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+                         width: 28px; height: 28px; border-radius: 8px; cursor: pointer; }
+        .mh-check-wrap:hover { background: #F3F4F6; }
+
+        /* Thanh thao tác hàng loạt */
+        .mh-selbar { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 900;
+                     padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+                     background: linear-gradient(to top, rgba(255,255,255,.98) 65%, rgba(255,255,255,0)); }
+        .mh-selbar.open { display: block; }
+        .mh-selbar-box { max-width: 1100px; margin: 0 auto; display: flex; flex-wrap: wrap;
+                         align-items: center; gap: 0.6rem; background: var(--bg-surface);
+                         border: 1px solid var(--border-color); border-radius: 14px;
+                         padding: 0.6rem 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,.14); }
+        .mh-selbar-count { font-size: 0.9rem; color: var(--text-muted); flex: 1 1 auto; white-space: nowrap; }
+        .mh-selbar-count strong { font-size: 1.15rem; color: var(--primary-color); }
+        .mh-selbar-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+        .mh-selbar-actions .mh-btn { padding: 0.6rem 0.85rem; font-size: 0.85rem; }
+        .mh-btn-danger { background: #FEE2E2; color: #B91C1C; }
+        .mh-btn-danger:hover { background: #FECACA; }
         .mh-item-main { flex: 1; min-width: 0; }
         .mh-item-name { font-weight: 600; font-size: 0.93rem; display: flex; align-items: center;
                         gap: 0.4rem; flex-wrap: wrap; }
@@ -186,15 +226,27 @@
             .mh-stat-lbl { font-size: 0.63rem; }
             .mh-actions { width: 100%; }
             .mh-actions .mh-btn { flex: 1; }
-            .mh-group-body .mh-item { padding-left: 1rem; }
             .mh-item-note { display: none; }
-            /* Màn hẹp: tên một dòng, nút thao tác xuống dòng dưới cho dễ bấm. */
-            .mh-item { padding: 0.7rem 0.75rem; flex-wrap: wrap; row-gap: 0.55rem; }
-            .mh-item-main { flex: 1 1 calc(100% - 22px); }
-            .mh-row-actions { flex: 1 1 100%; justify-content: flex-end; gap: 0.4rem; }
-            .mh-icon-btn { width: 42px; height: 40px; }
+            .mh-group-body { padding: 0.5rem; }
+            .mh-items { grid-template-columns: 1fr; gap: 0.45rem; }
+            /* Màn hẹp: giữ mọi thứ trên MỘT dòng, tên dài thì cắt bớt. Trước đây nút
+               thao tác xuống dòng riêng làm mỗi môn cao gấp đôi — 65 môn thì cuộn mỏi tay. */
+            .mh-item { padding: 0.5rem 0.55rem; flex-wrap: nowrap; gap: 0.45rem; }
+            .mh-item-main { flex: 1 1 auto; min-width: 0; }
+            .mh-item-name { flex-wrap: nowrap; overflow: hidden; }
+            .mh-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .mh-row-actions { flex: 0 0 auto; gap: 0.15rem; }
+            .mh-icon-btn { width: 36px; height: 36px; }
+            /* Chừa chỗ cho thanh chọn nhiều nổi ở đáy màn hình */
+            .mh-page.has-selection { padding-bottom: 7rem; }
+            .mh-selbar-count { flex: 1 1 100%; }
+            .mh-selbar-actions { flex: 1 1 100%; }
+            .mh-selbar-actions .mh-btn { flex: 1 1 auto; }
+            /* Đầu nhóm trên điện thoại đã thêm ô tick → bỏ icon thư mục cho đỡ chật */
+            .mh-group-head { gap: 0.45rem; padding: 0.75rem 0.7rem; }
+            .mh-group-head .mh-folder { display: none; }
             .mh-group-head .mh-row-actions { flex: 0 0 auto; }
-            .mh-group-head .mh-icon-btn { width: 38px; height: 38px; }
+            .mh-group-head .mh-icon-btn { width: 36px; height: 36px; }
             .mh-sheet.open { align-items: flex-end; padding: 0; }
             .mh-sheet-box { max-width: none; border-radius: var(--radius-xl) var(--radius-xl) 0 0; max-height: 92vh; }
             .mh-sheet-foot { padding-bottom: calc(0.9rem + env(safe-area-inset-bottom)); }
@@ -204,7 +256,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260804-crossrole-v1'></script>
+    <script src='js/db-service.js?v=20260805-trust-multiselect-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -222,7 +274,8 @@
             <div class="mh-head">
                 <div>
                     <h1>Môn Học &amp; Nhóm Môn</h1>
-                    <p>Sắp xếp môn học theo nhóm như thư mục, và chọn môn nào được áp dụng sớm 10 phút</p>
+                    <p>Sắp xếp môn học theo nhóm như thư mục, và chọn môn nào được áp dụng sớm 10 phút.
+                       Bấm vào ô môn để tick chọn nhiều môn, rồi xếp nhóm / bật 10p / xóa một lượt.</p>
                 </div>
             </div>
 
@@ -276,6 +329,9 @@
         </div>
     </main>
 </div>
+
+<!-- Thanh thao tác khi chọn nhiều môn -->
+<div class="mh-selbar" id="mh-selbar"></div>
 
 <!-- Thêm / sửa -->
 <div class="mh-sheet" id="mh-sheet">
@@ -377,8 +433,8 @@
 
 <script src="js/ui-service.js?v=20260803-early10-v1"></script>
 <script src="js/early10.js?v=20260803-early10-v1"></script>
-<script src="js/main.js?v=20260804-crossrole-v1"></script>
-<script src="js/mon-hoc.js?v=20260803-early10-v1"></script>
+<script src="js/main.js?v=20260805-trust-multiselect-v1"></script>
+<script src="js/mon-hoc.js?v=20260805-trust-multiselect-v1"></script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 <script>
     document.addEventListener("DOMContentLoaded", function () {

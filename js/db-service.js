@@ -1081,6 +1081,20 @@ const DBService = {
         } catch (e) { console.error('saveSubjectsBatch error:', e); throw e; }
     },
 
+    // Xóa nhiều môn cùng lúc (chọn nhiều trên trang Môn Học). Một batch để tránh
+    // xóa được nửa chừng rồi lỗi, dẫn tới danh sách nửa cũ nửa mới.
+    deleteSubjectsBatch: async (ids) => {
+        const list = (ids || []).filter(Boolean);
+        if (list.length === 0) return 0;
+        try {
+            const batch = db.batch();
+            list.forEach(id => { batch.delete(db.collection('subjects').doc(id)); });
+            await batch.commit();
+            DBService._invalidate('subjects_all');
+            return list.length;
+        } catch (e) { console.error('deleteSubjectsBatch error:', e); throw e; }
+    },
+
     // 9b. Get all user IDs who have attendance on a given day (for GV absent highlight)
     getDayAttendance: async (dateKey) => {
         try {

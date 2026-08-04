@@ -29,8 +29,15 @@
         editing: false,
         mode: '',
         revealed: {},
-        salaryRates: []
+        salaryRates: [],
+        // id nhân viên đang tick — dùng cho thao tác hàng loạt (xếp diện tin tưởng…)
+        selected: {}
     };
+
+    // DIỆN TIN TƯỞNG: nhân viên được xếp diện này thì tường trình "khớp lịch" của họ nằm
+    // trong nhóm duyệt nhanh hàng loạt. Người chưa xếp diện vẫn phải để Quản trị viên /
+    // Trợ lý cấp cao xem và bấm duyệt từng mục.
+    function isTrusted(user) { return !!user && user.trustLevel === 'trusted'; }
 
     // --- Tiện ích ---------------------------------------------------------
 
@@ -106,6 +113,8 @@
         if (f === 'old' || f === 'new' || f === 'unset') return modeOf(user) === f;
         if (f === 'teaching') return hasTeachRole(user);
         if (f === 'recep') return hasRecepRole(user);
+        if (f === 'trusted') return isTrusted(user);
+        if (f === 'untrusted') return !isTrusted(user);
         return true;
     }
 
@@ -173,12 +182,22 @@
                 ? 'Không áp dụng chính sách sớm 10 phút.'
                 : 'Chưa phân loại — tạm thời không được hưởng sớm 10 phút.');
 
+        var picked = state.selected[String(user.id)] === true;
+        var trusted = isTrusted(user);
+
         return '' +
-            '<div class="ns-card">' +
+            '<div class="ns-card' + (picked ? ' selected' : '') + '">' +
                 '<div class="ns-card-top">' +
+                    '<span class="ns-check' + (picked ? ' on' : '') + '" role="checkbox" aria-checked="' + picked + '"' +
+                        ' title="Chọn để thao tác hàng loạt"' +
+                        ' onclick="NhanSu.toggleSelect(\'' + esc(user.id) + '\')">' +
+                        '<i data-lucide="check" style="width:13px;height:13px;"></i></span>' +
                     '<span class="ns-avatar" style="background:' + avatarColor(user) + ';">' + esc(initials(user.name || user.username)) + '</span>' +
                     '<span class="ns-card-id">' +
-                        '<span class="ns-name">' + esc(user.name || user.username) + '</span>' +
+                        '<span class="ns-name">' + esc(user.name || user.username) +
+                            (trusted ? '<span class="ns-trust" title="Tường trình khớp lịch của người này được duyệt nhanh hàng loạt">' +
+                                '<i data-lucide="shield-check" style="width:12px;height:12px;"></i> Tin tưởng</span>' : '') +
+                        '</span>' +
                         '<span class="ns-meta">' + secretRow(user) + '</span>' +
                     '</span>' +
                     '<span class="ns-msnv">' + esc(user._msnvStr || '—') + '</span>' +
@@ -202,6 +221,14 @@
 
         var visible = state.users.filter(function (u) { return passesFilter(u) && matchesSearch(u); });
 
+        var head = document.getElementById('ns-select-head');
+        if (head) {
+            var allOn = visible.length > 0 && visible.every(function (u) { return state.selected[String(u.id)]; });
+            head.innerHTML = visible.length === 0 ? '' :
+                '<button class="ns-chip' + (allOn ? ' active' : '') + '" onclick="NhanSu.toggleSelectAll()">' +
+                (allOn ? 'Bỏ chọn ' : 'Chọn tất cả ') + visible.length + ' người đang hiện</button>';
+        }
+
         list.innerHTML = visible.length > 0
             ? visible.map(renderCard).join('')
             : '<div class="ns-empty"><h3>Không tìm thấy nhân viên nào</h3>' +
@@ -209,6 +236,100 @@
 
         if (window.lucide) window.lucide.createIcons({ root: list });
         renderStats();
+        renderSelectionBar();
+    }
+
+    // --- Chọn nhiều & xếp diện tin tưởng ----------------------------------
+
+    function selectedUsers() {
+        return state.users.filter(function (u) { return state.selected[String(u.id)] === true; });
+    }
+
+    function renderSelectionBar() {
+        var bar = document.getElementById('ns-selbar');
+        if (!bar) return;
+        var picked = selectedUsers();
+        var page = document.querySelector('.ns-page');
+        if (page) page.classList.toggle('has-selection', picked.length > 0);
+        if (picked.length === 0) {
+            bar.classList.remove('open');
+            bar.innerHTML = '';
+            return;
+        }
+        var allTrusted = picked.every(isTrusted);
+        bar.innerHTML = '' +
+            '<div class="ns-selbar-box">' +
+                '<div class="ns-selbar-count"><strong>' + picked.length + '</strong> người đã chọn</div>' +
+                '<div class="ns-selbar-actions">' +
+                    (allTrusted ? '' :
+                        '<button class="ns-btn ns-btn-primary" onclick="NhanSu.bulkTrust(true)">' +
+                        '<i data-lucide="shield-check" style="width:16px;height:16px;"></i> Xếp diện tin tưởng</button>') +
+                    '<button class="ns-btn ns-btn-cancel" onclick="NhanSu.bulkTrust(false)">' +
+                        '<i data-lucide="shield-off" style="width:16px;height:16px;"></i> Bỏ diện tin tưởng</button>' +
+                    '<button class="ns-btn ns-btn-cancel" onclick="NhanSu.clearSelection()">Bỏ chọn</button>' +
+                '</div>' +
+            '</div>';
+        bar.classList.add('open');
+        if (window.lucide) window.lucide.createIcons({ root: bar });
+    }
+
+    function toggleSelect(userId) {
+        var key = String(userId);
+        if (state.selected[key]) delete state.selected[key];
+        else state.selected[key] = true;
+        render();
+    }
+
+    function toggleSelectAll() {
+        var visible = state.users.filter(function (u) { return passesFilter(u) && matchesSearch(u); });
+        if (visible.length === 0) return;
+        var allOn = visible.every(function (u) { return state.selected[String(u.id)]; });
+        visible.forEach(function (u) {
+            if (allOn) delete state.selected[String(u.id)];
+            else state.selected[String(u.id)] = true;
+        });
+        render();
+    }
+
+    function clearSelection() {
+        state.selected = {};
+        render();
+    }
+
+    async function bulkTrust(trusted) {
+        var picked = selectedUsers();
+        if (picked.length === 0) return;
+        var changed = picked.filter(function (u) { return isTrusted(u) !== !!trusted; });
+        if (changed.length === 0) {
+            UIService.toast('Những người đã chọn vốn đã ' + (trusted ? 'thuộc' : 'không thuộc') + ' diện tin tưởng.', 'info');
+            return;
+        }
+        var names = changed.slice(0, 8).map(function (u) { return u.name || u.username; }).join(', ');
+        if (changed.length > 8) names += '… (+' + (changed.length - 8) + ' người nữa)';
+        if (!await UIService.confirm(
+            (trusted ? 'Xếp' : 'Bỏ') + ' diện tin tưởng cho ' + changed.length + ' người?\n\n' + names +
+            (trusted
+                ? '\n\nTường trình KHỚP LỊCH của họ sẽ nằm trong nhóm duyệt nhanh hàng loạt.'
+                : '\n\nTường trình của họ sẽ luôn cần Quản trị viên / Trợ lý cấp cao duyệt từng mục.')
+        )) return;
+
+        try {
+            UIService.showLoading('Đang lưu...');
+            for (var i = 0; i < changed.length; i++) {
+                changed[i].trustLevel = trusted ? 'trusted' : '';
+                await DBService.saveUser(cleanUser(changed[i]));
+            }
+            localStorage.removeItem('users_data');
+            DBService._invalidate('users_all');
+            UIService.hideLoading();
+            UIService.toast('Đã cập nhật diện tin tưởng cho ' + changed.length + ' người.', 'success');
+            state.selected = {};
+            await reload();
+        } catch (e) {
+            UIService.hideLoading();
+            UIService.toast('Lỗi lưu: ' + e.message, 'error');
+            await reload();
+        }
     }
 
     async function load() {
@@ -621,6 +742,10 @@
         saveSalary: saveSalary,
         setSearch: setSearch,
         setFilter: setFilter,
+        toggleSelect: toggleSelect,
+        toggleSelectAll: toggleSelectAll,
+        clearSelection: clearSelection,
+        bulkTrust: bulkTrust,
         _state: state
     };
 
