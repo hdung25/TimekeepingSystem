@@ -20,7 +20,15 @@ const context = {
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
-    }
+    },
+    // Ba helper này định nghĩa ở db-service.js (trang web nạp trước evaluation-service).
+    // Trong test phải stub lại, nếu không calculateDailyChips ném ReferenceError.
+    isScheduledMainTeacher: (cls, id) =>
+        cls.gvId === id || (cls.gvList || []).some(g => g.id === id),
+    isScheduledSubstitute: (cls, id) =>
+        cls.gvThayTheId === id || (cls.gvThayTheList || []).some(g => g.id === id),
+    hasScheduledSubstitute: cls =>
+        !!cls.gvThayTheId || (cls.gvThayTheList || []).length > 0
 };
 vm.createContext(context);
 vm.runInContext(source, context);
@@ -377,6 +385,105 @@ function observation(lateMinutes) {
         '2026-07-25'
     );
     assert.deepEqual(Array.from(coverage), [true, true]);
+}
+
+{
+    // LỖI ẢNH 1: phiên đã được chip ca DẠY dùng rồi bị sinh thêm chip "Ca Ngoài Lịch"
+    // màu cam "10:24–???" (do cờ autoClosedReason + yêu cầu tăng ca đang chờ duyệt).
+    // Nhân viên vừa được ghi nhận ĐÚNG lại vừa thấy một dòng cảnh báo SAI cùng một ca.
+    const recepUser = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: { roles: [{ id: 'subject-math', name: 'Toán dự thính', rate: 100000 }] }
+    };
+    const chips = context.window.calculateDailyChips(
+        schedule,
+        [{
+            id: 'auto-closed',
+            checkIn: '2026-07-14T07:24:00+07:00',
+            checkOut: '2026-07-14T09:00:00+07:00',
+            autoClosedReason: 'stale_session'
+        }],
+        staffId,
+        dateKey,
+        recepUser,
+        [],
+        { 'auto-closed': { id: 'ot1', status: 'pending' } }
+    );
+    assert.equal(chips.length, 1, 'chỉ còn 1 chip — không sinh bản sao "Ca Ngoài Lịch"');
+    assert.doesNotMatch(chips[0].text, /–\?\?\?/, 'không hiện giờ ra "???" khi ca đã tự đóng đúng giờ');
+    assert.equal(chips[0].isTeaching, true);
+}
+
+{
+    // YÊU CẦU KHÁCH (ảnh 2/3): ngày vừa trực tiếp tân vừa dạy — chỉ bấm VÀO CA 1 lần.
+    // Ca trực 07:00–11:00, lớp dạy 07:30–09:00 → dạy 1h30, tiếp tân 2h30, và ngày làm
+    // được cắt thành 3 khúc để admin sửa từng phần.
+    const mixedUser = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: {
+            roles: [{ id: 'subject-math', name: 'Toán 6', rate: 100000 }],
+            receptionist_normal_rate: 30000
+        }
+    };
+    const mixedSchedule = {
+        morning1: [{
+            start: '07:30', end: '09:00', lop: 'Toán 6', lopId: 'subject-math',
+            gvId: staffId, registeredTeachers: [],
+            _branch: 'cs1', _compositeKey: 'cs1__2026-07-14', _originalIndex: 0
+        }]
+    };
+    const chips = context.window.calculateDailyChips(
+        mixedSchedule,
+        [{
+            id: 'one-checkin',
+            checkIn: '2026-07-14T07:00:00+07:00',
+            checkOut: '2026-07-14T11:00:00+07:00'
+        }],
+        staffId,
+        dateKey,
+        mixedUser,
+        [{ shift: 'morning', label: 'SÁNG', start: '07:00', end: '11:00', branch: 'cs1' }]
+    );
+
+    const teach = chips.find(c => c.isTeaching && c.paidMinutes > 0);
+    const recep = chips.find(c => c.isReceptionist && c.paidMinutes > 0);
+    assert.ok(teach && recep, 'phải có cả chip dạy lẫn chip tiếp tân');
+    assert.equal(teach.paidMinutes, 90, 'dạy 1h30');
+    assert.equal(recep.paidMinutes, 150, 'tiếp tân 2h30 (4h − 1h30 dạy)');
+
+    const segs = recep.daySegments;
+    assert.equal(segs.length, 3, 'ngày làm được cắt thành 3 khúc');
+    assert.equal(
+        segs.map(s => s.start + '-' + s.end + '/' + s.kind).join(' | '),
+        '07:00-07:30/tiep-tan | 07:30-09:00/day | 09:00-11:00/tiep-tan'
+    );
+    assert.match(recep.text, /−1h30p dạy/, 'chip ghi rõ đã trừ giờ dạy');
+    // chip ca dạy cũng thấy được bảng chia khúc để mở cùng ô chi tiết
+    assert.equal(teach.daySegments.length, 3);
+}
+
+{
+    // LỖI ẢNH 5: ca vắng phải ghi rõ LỚP. Nếu lịch chưa điền lớp thì phải nói thẳng.
+    const noSubjectSchedule = {
+        morning1: [{
+            start: '09:15', end: '10:45', lop: '', lopId: '',
+            gvId: staffId, registeredTeachers: [],
+            _branch: 'cs1', _compositeKey: 'cs1__2026-07-14', _originalIndex: 0
+        }],
+        morning2: [{
+            start: '14:30', end: '16:00', lop: 'Toán 6', lopId: 'subject-math',
+            gvId: staffId, registeredTeachers: [],
+            _branch: 'cs1', _compositeKey: 'cs1__2026-07-14', _originalIndex: 0
+        }]
+    };
+    const chips = context.window.calculateDailyChips(
+        noSubjectSchedule, [], staffId, dateKey, user
+    );
+    const noSub = chips.find(c => c.text.includes('09:15'));
+    const withSub = chips.find(c => c.text.includes('14:30'));
+    assert.match(noSub.text, /CHƯA CHỌN LỚP/, 'ca thiếu lớp được nêu rõ trên bảng công');
+    assert.equal(noSub.missingSubject, true);
+    assert.match(withSub.text, /\(Toán 6\).*\(V\)/, 'ca vắng có lớp thì hiện tên lớp');
 }
 
 console.log('evaluation-service regression tests passed');

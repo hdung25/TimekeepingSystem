@@ -12,8 +12,8 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260803-early10-v1'></script>
-    <script src='js/evaluation-service.js?v=20260803-early10-v1'></script>
+    <script src='js/db-service.js?v=20260804-crossrole-v1'></script>
+    <script src='js/evaluation-service.js?v=20260804-crossrole-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -76,7 +76,9 @@
         .f{font-size:.74rem;font-weight:700;color:var(--mut);letter-spacing:.03em;display:block;margin:.65rem 0 4px}
         input,select,textarea{width:100%;padding:.6rem .75rem;border:1.5px solid var(--ln);border-radius:10px;font-size:.9rem;font-family:inherit;outline:none;background:white}
         input:focus,select:focus,textarea:focus{border-color:var(--p)}
-        .g2{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+        .g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem}
+        .rq{color:var(--dan);font-weight:800}
+        .warnbox{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:.6rem .75rem;font-size:.76rem;color:#92400E;line-height:1.5;margin-bottom:.7rem}
         .chk{display:flex;align-items:center;gap:8px;font-size:.85rem;margin-top:.6rem;cursor:pointer}
         .chk input{width:16px;height:16px;accent-color:var(--p)}
         .note{background:var(--info-s);border-radius:12px;padding:.75rem .9rem;font-size:.76rem;color:#1E40AF;line-height:1.55;margin-top:.9rem}
@@ -128,25 +130,44 @@
         <div class="card" id="p-extra" style="display:none">
             <h2 class="ch"><i data-lucide="clock" style="width:17px;height:17px"></i> Khai ca ngoài lịch</h2>
             <div class="g2">
-                <div><label class="f">NGÀY</label><input type="date" id="ex-date"></div>
-                <div><label class="f">VAI TRÒ</label><select id="ex-role"></select></div>
+                <div><label class="f">NGÀY <span class="rq">*</span></label><input type="date" id="ex-date"></div>
+                <div><label class="f">VAI TRÒ <span class="rq">*</span></label><select id="ex-role" onchange="onExtraRoleChange()"></select></div>
             </div>
             <div class="g2">
-                <div><label class="f">TRẠNG THÁI</label>
+                <div><label class="f">CƠ SỞ <span class="rq">*</span></label>
+                    <select id="ex-branch">
+                        <option value="">— Chọn cơ sở —</option>
+                        <option value="cs1">CS1</option><option value="cs2">CS2</option><option value="cs3">CS3</option>
+                    </select></div>
+                <div id="ex-shift-box"><label class="f">CA TRỰC <span class="rq">*</span></label>
+                    <select id="ex-shift">
+                        <option value="">— Chọn ca —</option>
+                        <option value="morning">Sáng</option><option value="afternoon">Chiều</option><option value="evening">Tối</option>
+                    </select></div>
+                <div id="ex-subject-box"><label class="f">MÔN / LỚP <span class="rq">*</span></label>
+                    <input type="text" id="ex-subject" list="ex-subject-list" placeholder="VD: Toán 6" autocomplete="off">
+                    <datalist id="ex-subject-list"></datalist></div>
+            </div>
+            <div class="g2">
+                <div><label class="f">TRẠNG THÁI <span class="rq">*</span></label>
                     <select id="ex-status" onchange="document.getElementById('ex-times').style.display=this.value==='absent'?'none':'grid'">
                         <option value="worked">Đi làm</option><option value="absent">Vắng (ghi nhận vắng)</option>
                     </select></div>
-                <div><label class="f">TĂNG CA (PHÚT)</label><input type="number" id="ex-ot" min="0" step="5" placeholder="0"></div>
+                <div><label class="f">PHÒNG (nếu có)</label><input type="text" id="ex-room" placeholder="VD: P.201"></div>
             </div>
             <div class="g2" id="ex-times">
-                <div><label class="f">GIỜ VÀO</label><input type="time" id="ex-in"></div>
-                <div><label class="f">GIỜ RA</label><input type="time" id="ex-out"></div>
+                <div><label class="f">GIỜ VÀO <span class="rq">*</span></label><input type="time" id="ex-in"></div>
+                <div><label class="f">GIỜ RA <span class="rq">*</span></label><input type="time" id="ex-out"></div>
+            </div>
+            <div class="g2">
+                <div><label class="f">TĂNG CA (PHÚT)</label><input type="number" id="ex-ot" min="0" step="5" placeholder="0"></div>
+                <div><label class="f">AI PHÂN CÔNG / DUYỆT MIỆNG <span class="rq">*</span></label><input type="text" id="ex-approver" placeholder="VD: Chị Ngọc – quản lý CS1"></div>
             </div>
             <label class="chk"><input type="checkbox" id="ex-b10"> Xin Sớm 10 phút (thưởng 10p)</label>
-            <label class="f">LÝ DO / TƯỜNG TRÌNH</label>
-            <textarea id="ex-reason" rows="2" placeholder="VD: Được nhờ hỗ trợ lớp đột xuất, chưa có trên lịch..."></textarea>
+            <label class="f">LÝ DO / TƯỜNG TRÌNH <span class="rq">*</span></label>
+            <textarea id="ex-reason" rows="2" placeholder="VD: Được nhờ dạy thay lớp Toán 6 lúc 09:15, chưa kịp xếp lên lịch..."></textarea>
             <button class="btn b-main" style="margin-top:.9rem" onclick="submitExtra()">Gửi yêu cầu</button>
-            <div class="note"><b>Lưu ý</b>Ca này sẽ hiển thị dạng "Ca Thêm" sau khi admin duyệt. Nếu bạn có 2 vai trò, hãy chọn đúng vai trò để tính lương chính xác.</div>
+            <div class="note"><b>Lưu ý</b>Ca ngoài lịch phải ghi ĐỦ: cơ sở, môn/lớp (hoặc ca trực), giờ vào–ra và người phân công. Thiếu thông tin thì quản lý không có căn cứ để duyệt và ca sẽ bị từ chối.</div>
         </div>
 
         <div class="card">
@@ -187,6 +208,25 @@ function fillRoles(){
     if(gv)o+='<option value="gv">Giáo viên / Trợ giảng</option>';
     if(tt)o+='<option value="tiep-tan">Tiếp tân</option>';
     document.getElementById('ex-role').innerHTML=o||'<option value="gv">Nhân viên</option>';
+    onExtraRoleChange();
+}
+
+// Ca ngoài lịch: GV phải khai Môn/Lớp, tiếp tân phải khai Ca trực → admin mới có căn cứ duyệt
+// và hệ thống mới áp được đúng đơn giá.
+window.onExtraRoleChange=function(){
+    const isTT=document.getElementById('ex-role').value==='tiep-tan';
+    const sub=document.getElementById('ex-subject-box'),sh=document.getElementById('ex-shift-box');
+    if(sub)sub.style.display=isTT?'none':'block';
+    if(sh)sh.style.display=isTT?'block':'none';
+};
+
+async function fillSubjectList(){
+    try{
+        const subjects=(await DBService.getSubjects()||[]).filter(s=>s.isGroup!==true);
+        document.getElementById('ex-subject-list').innerHTML=
+            subjects.map(s=>'<option value="'+esc(s.name)+'"></option>').join('');
+        window._subjectsCB=subjects;
+    }catch(e){console.warn('[ChamBu] Không tải được danh sách môn:',e)}
 }
 
 async function loadMonth(){
@@ -201,6 +241,24 @@ async function loadMonth(){
         const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
         const reqs=await DBService.getMyMakeupRequests(me);
         const reqMap={}; reqs.forEach(r=>{if(!reqMap[r.dateKey])reqMap[r.dateKey]=[];reqMap[r.dateKey].push(r)});
+        // QUY TẮC GĐ: chấm công bù CHỈ dành cho ca VẮNG KHÔNG PHÉP (nhiều khi chỉ là quên chấm
+        // công). Ca đã được ghi nhận Vắng phép / Vắng đột xuất thì KHÔNG được chấm bù.
+        // Nguồn xác định "đã có phép":
+        //   1. cancelled_shifts  → nhân viên/trợ lý đã báo vắng trước (vắng phép)
+        //   2. daily_notes       → ghi chú ngày có chữ "phép" / "đột xuất"
+        //   3. session.isAbsent  → admin đã cập nhật ca đó là vắng
+        //   4. gvThayThe         → lớp đã có GV thay thế (vắng đột xuất)
+        let cancelled=[],notes={};
+        try{ cancelled=await DBService.getCancelledShifts(mStr,me) }catch(e){}
+        try{ notes=await DBService.getDailyNotes(me)||{} }catch(e){}
+        const cancelledSet=new Set(cancelled);
+        const excusedNote=(k)=>{
+            const n=String(notes[k]||'').toLowerCase();
+            if(!n)return '';
+            if(n.includes('đột xuất')||n.includes('vdx')||n.includes('đx'))return 'Vắng đột xuất';
+            if(n.includes('phép')||n.includes('vp'))return 'Vắng phép';
+            return '';
+        };
         const dates=[];
         for(let d=1;d<=daysIn;d++){const k=mStr+'-'+String(d).padStart(2,'0'); if(k<=todayK)dates.push(k)}
         const schedRes=await Promise.all(dates.flatMap(k=>BRS.map(b=>
@@ -210,30 +268,47 @@ async function loadMonth(){
         const recRes=await Promise.all([...mons].flatMap(mk=>BRS.map(b=>
             DBService.getReceptionistSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,v:v||{}})).catch(()=>({mk:mk,b:b,v:{}})))));
 
+        const noteExcuse=(k)=>excusedNote(k);
         dates.forEach(k=>{
             const sess=attMap[k]||[];
             const busy=new Set((reqMap[k]||[]).filter(r=>r.status==='pending').map(r=>r.shiftLabel));
+            const dayExcuse=noteExcuse(k);
             const shifts=[];
-            schedRes.filter(r=>r.k===k).forEach(r=>SECS.forEach(sec=>(r.v[sec]||[]).forEach(row=>{
+            schedRes.filter(r=>r.k===k).forEach(r=>SECS.forEach(sec=>(r.v[sec]||[]).forEach((row,idx)=>{
                 if(!row.start||!row.end)return;
                 if(!((row.gvId===me)||(row.gvThayTheId===me)||(row.registeredTeachers||[]).some(t=>t.id===me)))return;
-                shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,label:row.lop||'Ca dạy'});
+                // Lớp đã có GV thay thế mà mình là GV chính → Vắng đột xuất, không chấm bù được
+                const hasSub=!!(row.gvThayTheId||(row.gvThayTheList||[]).length>0);
+                const iAmMain=(row.gvId===me)||(row.gvList||[]).some(g=>g.id===me);
+                let excuse=dayExcuse;
+                if(!excuse&&hasSub&&iAmMain&&row.gvThayTheId!==me)excuse='Vắng đột xuất (đã có GV thay)';
+                if(!excuse&&cancelledSet.has(r.b+'__'+k+'_'+sec+'_'+idx))excuse='Vắng phép (đã báo trước)';
+                shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,
+                             label:row.lop||'CHƯA CHỌN LỚP',noSubject:!String(row.lop||'').trim(),excuse:excuse});
             })));
             const d=new Date(k+'T12:00:00'),w=d.getDay(),mo=new Date(d);mo.setDate(d.getDate()-w+(w===0?-6:1));
             const mk=dk(mo),dayk=DK[w===0?6:w-1];
             recRes.filter(r=>r.mk===mk).forEach(r=>Object.keys(RS).forEach(sk=>{
                 const en=((r.v[sk]||{})[dayk]||[]).find(x=>x.id===me); if(!en)return;
                 const cf=(r.v._shiftConfig&&r.v._shiftConfig[sk])||{};
-                shifts.push({kind:'tt',branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:'Tiếp Tân ('+RS[sk].l+')'});
+                let excuse=dayExcuse;
+                if(!excuse&&cancelledSet.has(r.b+'_'+mk+'_'+sk+'_'+dayk))excuse='Vắng phép (đã báo trước)';
+                shifts.push({kind:'tt',branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:'Tiếp Tân ('+RS[sk].l+')',excuse:excuse});
             }));
             shifts.sort((a,b)=>a.start.localeCompare(b.start));
             const coverage=window.matchScheduledShiftCoverage(shifts,sess,k);
+            // Admin đã cập nhật ca thành "Vắng" → là vắng có xác nhận, không chấm bù được
+            const adminAbsent=sess.some(s=>s&&s.isAbsent);
             shifts.forEach((s,i)=>{
                 s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
                 s.done=!!coverage[i];
                 s.pending=busy.has(s.lbl);
+                if(!s.excuse&&adminAbsent&&!s.done)s.excuse='Đã ghi nhận Vắng (quản lý cập nhật)';
+                s.locked=!!s.excuse;
             });
-            if(shifts.length)monthMap[k]={shifts:shifts,miss:shifts.filter(s=>!s.done&&!s.pending).length,pend:shifts.filter(s=>s.pending).length};
+            if(shifts.length)monthMap[k]={shifts:shifts,
+                miss:shifts.filter(s=>!s.done&&!s.pending&&!s.locked).length,
+                pend:shifts.filter(s=>s.pending).length};
         });
         renderCal();
     }catch(e){console.error(e);grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#EF4444;padding:1.2rem;font-size:.82rem">Lỗi tải lịch: '+esc(e.message||e)+'</div>'}
@@ -276,8 +351,13 @@ function renderDay(){
         let bdg,cls='',act='';
         if(s.done){bdg='<span class="bdg b-g">Đã chấm công</span>';cls=' off'}
         else if(s.pending){bdg='<span class="bdg b-i">Chờ duyệt</span>';cls=' off'}
+        else if(s.locked){
+             // Vắng đã có xác nhận (phép / đột xuất / quản lý cập nhật) → KHÔNG cho chấm bù
+             bdg='<span class="bdg b-r">'+esc(s.excuse)+'</span>';cls=' off';
+             act='<div class="warnbox" style="margin:0">Ca này đã được ghi nhận <b>'+esc(s.excuse)+'</b> nên không áp dụng chấm công bù. Chấm bù chỉ dành cho ca <b>vắng không phép</b> (ví dụ quên chấm công). Nếu ghi nhận sai, vui lòng báo quản lý sửa lại.</div>'}
         else{bdg='<span class="bdg b-w">Chưa chấm công</span>';
              act='<button class="btn b-pick'+(on?' on':'')+'" onclick="togglePick('+i+')">'+(on?'Đã chọn':'Chọn chấm bù')+'</button>'}
+        if(s.noSubject)act='<div class="warnbox" style="margin:0">Lịch ca này <b>chưa điền Môn/Lớp</b> nên hệ thống không tính được lương. Vui lòng báo người xếp lịch bổ sung trước khi xin chấm bù.</div>'+act;
         const letter=s.kind==='tt'?'T':String(s.label||'C').trim().charAt(0).toUpperCase();
         return '<div class="sc'+cls+(on?' pick':'')+'">'+
             '<div class="sc-t">'+s.start+'<small>'+s.end+'</small></div>'+
@@ -307,12 +387,15 @@ window.submitSched=async function(){
     if(!reason){alert('Vui lòng ghi lý do tường trình.');return}
     const info=monthMap[selDate];
     const sel=[...picked].map(i=>info.shifts[i]);
+    const blocked=sel.find(s=>s.locked);
+    if(blocked){alert('Ca '+blocked.lbl+' đã được ghi nhận "'+blocked.excuse+'" nên không chấm bù được.');return}
     if(!confirm('Gửi yêu cầu chấm bù '+sel.length+' ca ngày '+selDate+'?'))return;
     try{
         await DBService.createMakeupRequests(sel.map(function(s){return{
             staffId:uid(),staffName:uname(),type:'scheduled',dateKey:selDate,branch:s.branch,shiftLabel:s.lbl,
+            className:s.kind==='tt'?'':s.label, shiftStart:s.start, shiftEnd:s.end, shiftKind:s.kind,
             session:{checkIn:iso(selDate,s.start),checkOut:iso(selDate,s.end),
-                     role:s.kind==='tt'?'tiep-tan':null,roleName:s.kind==='tt'?'Tiếp Tân':null},
+                     role:s.kind==='tt'?'tiep-tan':null,roleName:s.kind==='tt'?'Tiếp Tân':(s.label||null)},
             reason:reason}}));
         alert('Đã gửi '+sel.length+' yêu cầu. Chờ admin duyệt.');
         const keep=selDate; picked.clear(); reasonCache='';
@@ -323,26 +406,48 @@ window.submitSched=async function(){
 window.submitExtra=async function(){
     const d=document.getElementById('ex-date').value,st=document.getElementById('ex-status').value;
     const rv=document.getElementById('ex-role').value;
+    const br=document.getElementById('ex-branch').value;
     const ti=document.getElementById('ex-in').value,to=document.getElementById('ex-out').value;
     const ot=parseInt(document.getElementById('ex-ot').value)||0;
     const b10=document.getElementById('ex-b10').checked;
     const rs=document.getElementById('ex-reason').value.trim();
+    const tt=rv==='tiep-tan';
+    const subj=(document.getElementById('ex-subject').value||'').trim();
+    const shk=document.getElementById('ex-shift').value;
+    const room=(document.getElementById('ex-room').value||'').trim();
+    const appr=(document.getElementById('ex-approver').value||'').trim();
+
+    // BẮT BUỘC ĐỦ THÔNG TIN — admin duyệt "Ngoài lịch" mà không biết lớp/cơ sở nào thì
+    // không kiểm chứng được và cũng không tính được lương cho ca đó.
     if(!d){alert('Vui lòng chọn ngày.');return}
+    if(!br){alert('Vui lòng chọn Cơ sở.');return}
+    if(!tt&&!subj){alert('Vui lòng ghi rõ Môn / Lớp đã dạy.');return}
+    if(tt&&!shk){alert('Vui lòng chọn Ca trực (Sáng / Chiều / Tối).');return}
     if(st==='worked'&&(!ti||!to)){alert('Vui lòng nhập giờ vào và giờ ra.');return}
     if(st==='worked'&&to<=ti){alert('Giờ ra phải sau giờ vào.');return}
+    if(!appr){alert('Vui lòng ghi ai đã phân công / duyệt miệng ca này.');return}
     if(!rs){alert('Vui lòng ghi lý do tường trình.');return}
-    const tt=rv==='tiep-tan';
-    if(!confirm('Gửi yêu cầu ca ngoài lịch ngày '+d+'?'))return;
+
+    const SHIFT_VN={morning:'Sáng',afternoon:'Chiều',evening:'Tối'};
+    const what=tt?('Tiếp Tân ca '+(SHIFT_VN[shk]||shk)):subj;
+    const label=(st==='absent'?'Vắng':(ti+'–'+to))+' '+br.toUpperCase()+' ('+what+')'+(room?' – '+room:'');
+    if(!confirm('Gửi yêu cầu ca ngoài lịch ngày '+d+'?\n'+label))return;
     try{
+        const matched=(window._subjectsCB||[]).find(s=>s.name===subj);
         await DBService.createMakeupRequests([{
-            staffId:uid(),staffName:uname(),type:'unscheduled',dateKey:d,branch:'',
-            shiftLabel:(st==='absent'?'Vắng':(ti+'–'+to))+(tt?' (Tiếp Tân)':' (GV/TG)'),
+            staffId:uid(),staffName:uname(),type:'unscheduled',dateKey:d,branch:br,
+            className:tt?'':subj, classId:matched?matched.id:'', room:room,
+            shiftKey:tt?shk:'', approvedBy:appr,
+            shiftLabel:label,
             session:{checkIn:st==='worked'?iso(d,ti):iso(d,'12:00'),checkOut:st==='worked'?iso(d,to):null,
-                     role:tt?'tiep-tan':null,roleName:tt?'Tiếp Tân':'Giáo viên / Trợ giảng',
+                     role:tt?'tiep-tan':(matched?matched.id:null),
+                     roleName:tt?'Tiếp Tân':(subj||'Giáo viên / Trợ giảng'),
+                     linkedReceptionistShift:tt?shk:null,
                      isAbsent:st==='absent',bonus10:b10,overtimeMinutes:ot},
             reason:rs}]);
         alert('Đã gửi yêu cầu. Chờ admin duyệt.');
         document.getElementById('ex-reason').value='';document.getElementById('ex-ot').value='';
+        document.getElementById('ex-approver').value='';document.getElementById('ex-room').value='';
         document.getElementById('ex-b10').checked=false; loadMy();
     }catch(e){alert('Lỗi gửi: '+(e.message||e))}
 };
@@ -374,7 +479,7 @@ document.addEventListener('DOMContentLoaded',async function(){
     if(window.waitAuth){try{await window.waitAuth()}catch(e){}}
     const t=new Date(); curY=t.getFullYear(); curM=t.getMonth();
     document.getElementById('ex-date').value=dk(t);
-    fillRoles(); loadMy(); await loadMonth();
+    fillRoles(); fillSubjectList(); loadMy(); await loadMonth();
     if(window.lucide)lucide.createIcons();
 });
 </script>

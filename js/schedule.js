@@ -561,15 +561,24 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     // === CỘT LỚP (Môn học datalist) ===
     const lopVal = (data.lop || '').replace(/"/g, '&quot;');
+    // Ca đã có GV nhưng CHƯA có Môn/Lớp → Bảng Công không áp được đơn giá, chip hiện
+    // "(CHƯA CHỌN LỚP)". Đánh dấu đỏ ngay trên lịch để người xếp lịch bổ sung.
+    const _hasAnyTeacher = !!(data.gvId || data.gvThayTheId ||
+        (data.gvList || []).length > 0 || (data.gvThayTheList || []).length > 0 ||
+        (data.registeredTeachers || []).length > 0);
+    const _missingSubject = !String(data.lop || '').trim() && _hasAnyTeacher;
+    const _missingBadge = _missingSubject
+        ? `<div style="margin-top:3px;font-size:0.68rem;font-weight:700;color:#B91C1C;background:#FEE2E2;border-radius:4px;padding:1px 5px;display:inline-block;">⚠ Thiếu Môn/Lớp — không tính lương được</div>`
+        : '';
     let lopCell = '';
     if (rowIsAdmin) {
         lopCell = `<td data-field="subject" data-label="Môn / Lớp"><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
-            list="subject-list"
-            onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)"></td>`;
+            list="subject-list" style="${_missingSubject ? 'border:1.5px solid #EF4444;background:#FEF2F2;' : ''}"
+            onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)">${_missingBadge}</td>`;
     } else {
         const subjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
         const dotHtml = subjectColor ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${subjectColor};margin-right:4px;"></span>` : '';
-        lopCell = `<td data-field="subject" data-label="Môn / Lớp" style="font-size:0.875rem;">${dotHtml}${data.lop || ''}</td>`;
+        lopCell = `<td data-field="subject" data-label="Môn / Lớp" style="font-size:0.875rem;">${dotHtml}${data.lop || ''}${_missingBadge}</td>`;
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
@@ -688,6 +697,13 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
         return;
     }
 
+    // Ca chưa điền Môn/Lớp thì Bảng Công không biết áp đơn giá nào → chip hiện "(CHƯA CHỌN LỚP)"
+    // và giờ đó không tính được lương. Chặn ngay từ khâu nhận lớp.
+    if (!String(row.lop || '').trim()) {
+        alert("Ca này chưa có Môn / Lớp. Vui lòng nhờ người xếp lịch điền Môn/Lớp trước khi nhận lớp — nếu không, giờ dạy sẽ không tính được lương.");
+        return;
+    }
+
     // TIME VALIDATION — extract pure dateKey for Date parsing
     if (endTimeStr) {
         const pureDateKey = compositeKey.includes('__') ? compositeKey.split('__')[1] : compositeKey;
@@ -781,6 +797,12 @@ window.openGVPicker = function (compositeKey, caType, index, fieldType) {
         const row = dayData[caType][index];
         if (isScheduleTimePast(compositeKey, row.start)) {
             alert("Không thể chỉnh sửa nhân sự của lớp học đã qua trong quá khứ!");
+            return;
+        }
+        // Bắt buộc có Môn/Lớp trước khi gán GV: thiếu lớp thì Bảng Công không áp được đơn giá,
+        // ca vắng cũng chỉ hiện "09:15–10:45 CS1 (V)" — admin không biết vắng lớp nào để duyệt.
+        if (!String(row.lop || '').trim()) {
+            alert("Vui lòng chọn Môn / Lớp cho ca này trước khi xếp giáo viên.\n(Thiếu Môn/Lớp thì hệ thống không tính được lương cho ca đó.)");
             return;
         }
         const currentList = getGVList(row, fieldType);

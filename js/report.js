@@ -1329,8 +1329,11 @@ async function renderMonthReport(date, forceServer = false) {
                             }
                         }
 
-                        // 2. Nếu không khớp ca dạy, kiểm tra ca Tiếp Tân (Receptionist shifts)
-                        if (!correctEndISO && receptionistShiftsMap[dateKey]) {
+                        // 2. Kiểm tra ca Tiếp Tân (Receptionist shifts).
+                        // NGÀY 2 CHỨC NĂNG: trước đây chỉ chạy khi KHÔNG khớp ca dạy, nên người
+                        // trực 07:00–11:00 mà có lớp 07:30–09:00 bị khép ca lúc 09:00 → mất công
+                        // ca trực buổi còn lại. Nay luôn kiểm tra và lấy mốc MUỘN NHẤT.
+                        if (receptionistShiftsMap[dateKey]) {
                             let matchedRecepShift = null;
                             let minRecepDiff = Infinity;
                             receptionistShiftsMap[dateKey].forEach(rs => {
@@ -1355,7 +1358,10 @@ async function renderMonthReport(date, forceServer = false) {
                             if (matchedRecepShift) {
                                 const finalEndDate = getVietnamDateFromHM(dateKey, matchedRecepShift.end);
                                 if (finalEndDate) {
-                                    correctEndISO = finalEndDate.toISOString();
+                                    // Lấy mốc muộn hơn giữa "hết chuỗi lớp dạy" và "hết ca trực"
+                                    if (!correctEndISO || finalEndDate.toISOString() > correctEndISO) {
+                                        correctEndISO = finalEndDate.toISOString();
+                                    }
                                 }
                             }
                         }
@@ -1382,25 +1388,20 @@ async function renderMonthReport(date, forceServer = false) {
         if (s.checkOut || !s.id) return;
         const checkInTime = new Date(s.checkIn || s.start);
 
+        // NGÀY 2 CHỨC NĂNG: gom mốc tan ca của CẢ ca trực lẫn chuỗi lớp dạy rồi chỉ ra ca ở
+        // mốc MUỘN NHẤT. Trước đây hai nhánh chạy độc lập nên ai vừa trực vừa dạy bị ra ca sớm.
+        const autoCloseEnds = [];
+
         // Check receptionist shifts
         const todayRecepShifts = receptionistShiftsMap[todayKey] || [];
-        let shiftEnded = false;
         todayRecepShifts.forEach(rs => {
             const shiftStart = getVietnamDateFromHM(todayKey, rs.start);
             const shiftEnd = getVietnamDateFromHM(todayKey, rs.end);
-            if (shiftStart && shiftEnd) {
-                if (Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 && nowForAutoClose >= shiftEnd) {
-                    shiftEnded = true;
-                }
-            }
+            if (!shiftStart || !shiftEnd) return;
+            const belongsToShift = Math.abs(checkInTime - shiftStart) < 60 * 60 * 1000 ||
+                (checkInTime >= shiftStart && checkInTime < shiftEnd);
+            if (belongsToShift) autoCloseEnds.push(shiftEnd);
         });
-        if (shiftEnded) {
-            DBService.checkOutPersonal(staffId).then(() => {
-                s.checkOut = nowForAutoClose.toISOString();
-                console.log(`[Report AutoClose] Auto-closed today's overdue session for ${staffId}`);
-            }).catch(e => console.warn('[Report AutoClose] Error:', e));
-            return;
-        }
 
         // Check teacher classes
         const todaySchedule = scheduleMap[todayKey] || {};
@@ -1448,12 +1449,16 @@ async function renderMonthReport(date, forceServer = false) {
                 }
             }
             const finalEndDate = getVietnamDateFromHM(todayKey, currentEndStr);
-            if (finalEndDate && nowForAutoClose >= finalEndDate) {
-                DBService.checkOutPersonal(staffId).then(() => {
-                    s.checkOut = nowForAutoClose.toISOString();
-                    console.log(`[Report AutoClose] Auto-closed today's overdue class session for ${staffId}`);
-                }).catch(e => console.warn('[Report AutoClose] Error:', e));
-            }
+            if (finalEndDate) autoCloseEnds.push(finalEndDate);
+        }
+
+        if (autoCloseEnds.length === 0) return;
+        const latestEnd = new Date(Math.max(...autoCloseEnds.map(d => d.getTime())));
+        if (nowForAutoClose >= latestEnd) {
+            DBService.checkOutPersonal(staffId, latestEnd).then(() => {
+                s.checkOut = latestEnd.toISOString();
+                console.log(`[Report AutoClose] Auto-closed today's overdue session for ${staffId} at ${latestEnd.toLocaleTimeString()}`);
+            }).catch(e => console.warn('[Report AutoClose] Error:', e));
         }
     });
 
@@ -4453,6 +4458,55 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             r.checked = !isFixed;
         }
     });
+
+    // --- TIÊU ĐỀ PHỤ: cho biết đang sửa ca nào của ngày nào ---
+    const subtitleEl = document.getElementById('edit-modal-subtitle');
+    if (subtitleEl) {
+        const plainChipText = String(chip.text || '').replace(/<[^>]*>/g, '').trim();
+        const kindLabel = isReceptionist ? 'Ca tiếp tân' : 'Ca dạy';
+        subtitleEl.innerText = `${kindLabel} · ${dateKey}${plainChipText ? ' · ' + plainChipText : ''}`;
+    }
+
+    // --- CHI TIẾT CA TRONG NGÀY (ngày vừa trực tiếp tân vừa dạy) ---
+    // Quy tắc GĐ: KHÔNG gộp cứng thành 1 chip. Ngày làm được cắt thành từng khúc, mỗi khúc
+    // tính đúng đơn giá của nó; ô này cho admin thấy đủ các khúc để đối chiếu khi chỉnh sửa.
+    const breakdownBox = document.getElementById('edit-day-breakdown');
+    const breakdownList = document.getElementById('edit-day-breakdown-list');
+    const breakdownTotal = document.getElementById('edit-day-breakdown-total');
+    if (breakdownBox && breakdownList) {
+        const segs = Array.isArray(chip.daySegments) ? chip.daySegments : [];
+        if (segs.length > 1 && segs.some(s => s.kind === 'day')) {
+            const fmt = (mins) => {
+                const h = Math.floor(mins / 60), m = mins % 60;
+                return h > 0 ? `${h}h${m > 0 ? m + 'p' : ''}` : `${m}p`;
+            };
+            const recepMin = segs.filter(s => s.kind === 'tiep-tan').reduce((a, s) => a + s.minutes, 0);
+            const teachMin = segs.filter(s => s.kind === 'day').reduce((a, s) => a + s.minutes, 0);
+
+            breakdownList.innerHTML = segs.map((seg, i) => {
+                const isTeach = seg.kind === 'day';
+                const accent = isTeach ? '#B45309' : '#3730A3';
+                const bg = isTeach ? '#FEF3C7' : '#FFFFFF';
+                const border = isTeach ? '#FCD34D' : '#C7D2FE';
+                const tag = isTeach ? 'DẠY' : 'TIẾP TÂN';
+                return `<div style="display:flex;align-items:center;gap:10px;background:${bg};border:1px solid ${border};border-radius:9px;padding:0.5rem 0.7rem;">
+                    <span style="font-size:0.72rem;font-weight:800;color:${accent};min-width:64px;">${tag}</span>
+                    <span style="font-weight:700;font-size:0.9rem;color:#111827;min-width:104px;">${escapeReportHtml(seg.start)}–${escapeReportHtml(seg.end)}</span>
+                    <span style="flex:1;min-width:0;font-size:0.85rem;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeReportHtml(seg.label || '')}</span>
+                    <span style="font-size:0.82rem;font-weight:700;color:${accent};">${fmt(seg.minutes)}</span>
+                </div>`;
+            }).join('');
+
+            if (breakdownTotal) {
+                breakdownTotal.innerText = `Tiếp tân ${fmt(recepMin)} · Dạy ${fmt(teachMin)}`;
+            }
+            breakdownBox.style.display = 'block';
+        } else {
+            breakdownBox.style.display = 'none';
+            breakdownList.innerHTML = '';
+            if (breakdownTotal) breakdownTotal.innerText = '';
+        }
+    }
 
     // --- TÁCH CA GỘP: chỉ hiện với ca tiếp tân gộp từ nhiều ca con ---
     const splitContainer = document.getElementById('edit-split-subshift-container');

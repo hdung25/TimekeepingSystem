@@ -1926,6 +1926,15 @@ const DBService = {
         };
         if (s.isAbsent) sessionData.isAbsent = true;
         if (s.bonus10) sessionData.bonus10 = true;
+        // Neo ca vừa duyệt vào đúng ô lịch để Bảng Công không phải đoán:
+        //  - ca có lịch  → linkedClassStart = giờ bắt đầu ca đã chọn
+        //  - ca tiếp tân → linkedReceptionistShift = sáng/chiều/tối
+        if (s.linkedReceptionistShift) sessionData.linkedReceptionistShift = s.linkedReceptionistShift;
+        else if (req.shiftKind === 'tt' && req.shiftKey) sessionData.linkedReceptionistShift = req.shiftKey;
+        else if (req.shiftStart) sessionData.linkedClassStart = req.shiftStart;
+        if (req.branch) sessionData.branch = req.branch;
+        if (req.className) sessionData.className = req.className;
+        if (req.room) sessionData.room = req.room;
         const sid = await DBService.addSession(req.staffId, req.dateKey, sessionData);
 
         if (s.overtimeMinutes > 0) {

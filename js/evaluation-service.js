@@ -216,6 +216,69 @@ function collapseOverlappingSegments(segments, y, m, d) {
     return out;
 }
 
+// NGÀY LÀM 2 CHỨC NĂNG (vừa tiếp tân vừa dạy) — chia khung ca tiếp tân thành các KHÚC.
+// VD: ca tiếp tân 07:00–11:00, trong đó có lớp dạy 07:30–09:00 →
+//     [07:00–07:30 tiếp tân] [07:30–09:00 dạy] [09:00–11:00 tiếp tân].
+// Nhân viên vẫn CHỈ bấm vào ca 1 lần; hệ thống tự cắt khúc để mỗi phần được tính đúng đơn giá
+// (không gộp thành 1 chip cứng, admin sửa từng khúc được). Trả về mảng đã sắp theo giờ.
+function buildCrossRoleDaySegments(windowStart, windowEnd, teachingShifts, y, m, d) {
+    const segments = [];
+    if (!windowStart || !windowEnd || windowEnd <= windowStart) return segments;
+
+    const hm = (dt) => `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+    const toDate = (t) => {
+        const parts = String(t).split(':');
+        return new Date(y, m - 1, d, parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+    };
+
+    // Chuẩn hoá + gộp các lớp dạy chồng giờ, cắt về trong khung ca tiếp tân
+    const teaching = (teachingShifts || [])
+        .map(ts => ({
+            start: new Date(Math.max(windowStart.getTime(), toDate(ts.start).getTime())),
+            end: new Date(Math.min(windowEnd.getTime(), toDate(ts.end).getTime())),
+            lop: ts.lop || ''
+        }))
+        .filter(ts => ts.end > ts.start)
+        .sort((a, b) => a.start - b.start);
+
+    const mergedTeaching = [];
+    teaching.forEach(ts => {
+        const prev = mergedTeaching[mergedTeaching.length - 1];
+        if (prev && ts.start <= prev.end) {
+            if (ts.end > prev.end) prev.end = ts.end;
+            if (ts.lop && !prev.lops.includes(ts.lop)) prev.lops.push(ts.lop);
+        } else {
+            mergedTeaching.push({ start: ts.start, end: ts.end, lops: ts.lop ? [ts.lop] : [] });
+        }
+    });
+
+    let cursor = windowStart;
+    mergedTeaching.forEach(ts => {
+        if (ts.start > cursor) {
+            segments.push({
+                start: hm(cursor), end: hm(ts.start),
+                minutes: Math.round((ts.start - cursor) / 60000),
+                kind: 'tiep-tan', label: 'Tiếp Tân'
+            });
+        }
+        segments.push({
+            start: hm(ts.start), end: hm(ts.end),
+            minutes: Math.round((ts.end - ts.start) / 60000),
+            kind: 'day', label: ts.lops.join(' + ') || 'Ca dạy'
+        });
+        if (ts.end > cursor) cursor = ts.end;
+    });
+    if (windowEnd > cursor) {
+        segments.push({
+            start: hm(cursor), end: hm(windowEnd),
+            minutes: Math.round((windowEnd - cursor) / 60000),
+            kind: 'tiep-tan', label: 'Tiếp Tân'
+        });
+    }
+    return segments;
+}
+window.buildCrossRoleDaySegments = buildCrossRoleDaySegments;
+
 // Ghép trạng thái "đã chấm công" cho danh sách ca theo nguyên tắc một phiên chỉ
 // thuộc một chuỗi ca LIỀN KỀ. Phiên 15:30–21:00 đã ghép với ca 15:30–17:00
 // không được nhảy qua khoảng nghỉ 17:00–18:00 để che hai ca tối.
@@ -800,16 +863,28 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 _labelBranchSuffix = branchShort;
             }
             let label = `${_displayStartStr}–${_effectiveEndStr}${_labelBranchSuffix}`;
-            let tooltip = `Lớp ${cls.lop || '?'}${branchTag}`;
+            // Tên lớp/môn của ca theo lịch (gộp cả chuỗi ca liên tiếp). Chip VẮNG và chip SẮP TỚI
+            // trước đây chỉ ghi giờ + cơ sở nên bảng công hiện "09:15–10:45 CS1 (V)" — admin không
+            // biết vắng lớp nào để duyệt/tính lương. Nay luôn kèm tên lớp; nếu lịch chưa điền lớp
+            // thì ghi rõ "(CHƯA CHỌN LỚP)" để người xếp lịch biết mà bổ sung.
+            const _schedLops = (_chainSegments && _chainSegments.length > 0)
+                ? [...new Set(_chainSegments.map(seg => seg.lop).filter(Boolean))]
+                : (cls.lop ? [cls.lop] : []);
+            const _schedSubjectLabel = _schedLops.length > 0 ? _schedLops.join(' + ') : '';
+            const _schedSubjectSuffix = _schedSubjectLabel
+                ? ` (${_schedSubjectLabel})`
+                : ' (CHƯA CHỌN LỚP)';
+            let tooltip = `Lớp ${cls.lop || 'CHƯA CHỌN LỚP — lịch thiếu môn/lớp'}${branchTag}`;
             if (_mergedEnd) tooltip += _isCrossBranch ? ` (2 ca gộp – ${(_chainBranches || []).map(b => b.toUpperCase()).join('/')})` : ` (2 ca gộp)`;
 
             const _splitAbsentAfter = [];
             _splitAbsentSegments.forEach(seg => {
                 const segBranch = seg.branch ? ` ${seg.branch.toUpperCase()}` : '';
                 const absentChip = {
-                    text: `${seg.start}–${seg.end}${segBranch}${seg.lop ? ` (${seg.lop})` : ''} (V)`,
+                    text: `${seg.start}–${seg.end}${segBranch}${seg.lop ? ` (${seg.lop})` : ' (CHƯA CHỌN LỚP)'} (V)`,
                     class: 'chip-gray',
                     paidMinutes: 0,
+                    missingSubject: !seg.lop,
                     tooltip: 'Không có dữ liệu chấm công cho ca con trong chuỗi ca liên tiếp (Vắng)',
                     sessionId: null,
                     schedData: { start: seg.start, end: seg.end, lop: seg.lop, lopId: seg.lopId },
@@ -1119,10 +1194,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         teachingSessionsMap[matchedSession.id] = [];
                     }
                     teachingMinutesMap[matchedSession.id] += minutes;
-                    teachingSessionsMap[matchedSession.id].push({
-                        start: cls.start,
-                        end: cls.end,
-                        paidMinutes: minutes
+                    // Ghi ĐỦ các ca con thực làm của chuỗi ca gộp (trước đây chỉ ghi ca đầu
+                    // `cls.start–cls.end` nên ngày vừa dạy vừa trực bị trừ thiếu giờ dạy →
+                    // giờ tiếp tân bị cộng dư). Kèm tên lớp để ô chi tiết hiển thị từng khúc.
+                    const _teachSegs = (_workedChainSegments && _workedChainSegments.length > 0)
+                        ? _workedChainSegments
+                        : [{ start: _displayStartStr, end: _effectiveEndStr, lop: cls.lop || '' }];
+                    _teachSegs.forEach(seg => {
+                        teachingSessionsMap[matchedSession.id].push({
+                            start: seg.start,
+                            end: seg.end,
+                            lop: seg.lop || cls.lop || '',
+                            paidMinutes: minutes
+                        });
                     });
                 }
 
@@ -1191,10 +1275,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // Kiểm tra nếu GV đã nhận lớp (registeredTeachers có user) nhưng chưa check-in
                     // → Tạo chip-future để hiển thị "Đã nhận lớp, chờ chấm công" = Sắp tới
                     chips.push({
-                        text: label,
+                        text: label + _schedSubjectSuffix,
                         class: 'chip-future',
                         paidMinutes: 0,
-                        tooltip: `Đã nhận lớp - chờ chấm công | Lớp ${cls.lop || '?'}${branchTag}`,
+                        tooltip: `Đã nhận lớp - chờ chấm công | Lớp ${_schedSubjectLabel || 'CHƯA CHỌN LỚP'}${branchTag}`,
+                        missingSubject: !_schedSubjectLabel,
                         sessionId: null,
                         schedData: { start: cls.start, end: cls.end, lop: cls.lop, phong: cls.phong },
                         isClickable: false,
@@ -1218,15 +1303,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     );
                     if (hasOverlappingWorkSession(availableWorkSessions, dateStr, cls.start, cls.end)) return;
                     chips.push({
-                        text: label + ' (V)',
+                        text: label + _schedSubjectSuffix + ' (V)',
                         class: 'chip-gray',
                         paidMinutes: 0,
-                        tooltip: 'Không có dữ liệu chấm công (Vắng)',
+                        tooltip: _schedSubjectLabel
+                            ? `Không có dữ liệu chấm công (Vắng) — Lớp ${_schedSubjectLabel}`
+                            : 'Không có dữ liệu chấm công (Vắng) — LỊCH CHƯA ĐIỀN MÔN/LỚP nên không tính được lương. Vui lòng bổ sung lớp trong Lịch Làm.',
                         sessionId: null,
                         schedData: { start: cls.start, end: cls.end, lop: cls.lop, lopId: cls.lopId },
                         isClickable: true,
                         isWarning: true,
                         isTeaching: true,
+                        missingSubject: !_schedSubjectLabel,
                         chipFilterName: normalizeChipFilterName(cls.lop),
                         classStart: cls.start,
                         classEnd: cls.end,
@@ -1348,6 +1436,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             let cssClass = 'chip-blue';
             let isClickable = false;
             let isLate = false;
+            // Các khúc trong ngày (tiếp tân / dạy) — dùng cho ô "Chi tiết ca trong ngày" ở popup sửa
+            let _daySegments = [];
 
             const b10DataR = bonus10Map[String(matchedSession.id)];
             const b10StatusR = b10DataR ? b10DataR.status : null;
@@ -1464,22 +1554,18 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 minutes = Math.max(0, Math.round((effectiveEndR - effectiveStartR) / 60000));
 
                 // Subtract overlapping teaching minutes! (Issue 1)
+                // NGÀY 2 CHỨC NĂNG: khung ca tiếp tân bị lớp dạy "khoét" ra. Cắt khung thành các
+                // khúc rồi chỉ cộng khúc tiếp tân → 1 lần bấm vào ca vẫn ra đúng: dạy tính giá
+                // dạy, tiếp tân tính giá tiếp tân, không đoạn nào bị tính 2 lần.
                 const teachingShifts = teachingSessionsMap[matchedSession.id] || [];
-                let overlappingTeachingMinutes = 0;
-                teachingShifts.forEach(ts => {
-                    const tsStartParts = ts.start.split(':');
-                    const tsEndParts = ts.end.split(':');
-                    const tsStart = new Date(_ry, _rm - 1, _rd, parseInt(tsStartParts[0], 10), parseInt(tsStartParts[1], 10), 0, 0);
-                    const tsEnd = new Date(_ry, _rm - 1, _rd, parseInt(tsEndParts[0], 10), parseInt(tsEndParts[1], 10), 0, 0);
-                    
-                    const recepStart = matchedSession.isAdminEdited ? actualStart : schedStart;
-                    const recepEnd = matchedSession.isAdminEdited ? actualEnd : schedEnd;
-                    const overlapStart = new Date(Math.max(recepStart.getTime(), tsStart.getTime()));
-                    const overlapEnd = new Date(Math.min(recepEnd.getTime(), tsEnd.getTime()));
-                    if (overlapStart < overlapEnd) {
-                        overlappingTeachingMinutes += Math.max(0, Math.round((overlapEnd - overlapStart) / 60000));
-                    }
-                });
+                const _recepWinStart = matchedSession.isAdminEdited ? actualStart : schedStart;
+                const _recepWinEnd = matchedSession.isAdminEdited ? actualEnd : schedEnd;
+                _daySegments = buildCrossRoleDaySegments(
+                    _recepWinStart, _recepWinEnd, teachingShifts, _ry, _rm, _rd
+                );
+                const overlappingTeachingMinutes = _daySegments
+                    .filter(seg => seg.kind === 'day')
+                    .reduce((sum, seg) => sum + seg.minutes, 0);
                 minutes = Math.max(0, minutes - overlappingTeachingMinutes);
 
                 const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
@@ -1619,21 +1705,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (isPastDayR || now > schedEnd) {
                     minutes = schedDuration;
 
-                    // Subtract overlapping teaching minutes! (Issue 1)
+                    // Subtract overlapping teaching minutes! (Issue 1) — xem chú thích ở nhánh có giờ ra
                     const teachingShifts = teachingSessionsMap[matchedSession.id] || [];
-                    let overlappingTeachingMinutes = 0;
-                    teachingShifts.forEach(ts => {
-                        const tsStartParts = ts.start.split(':');
-                        const tsEndParts = ts.end.split(':');
-                        const tsStart = new Date(_ry, _rm - 1, _rd, parseInt(tsStartParts[0], 10), parseInt(tsStartParts[1], 10), 0, 0);
-                        const tsEnd = new Date(_ry, _rm - 1, _rd, parseInt(tsEndParts[0], 10), parseInt(tsEndParts[1], 10), 0, 0);
-                        
-                        const overlapStart = new Date(Math.max(schedStart.getTime(), tsStart.getTime()));
-                        const overlapEnd = new Date(Math.min(schedEnd.getTime(), tsEnd.getTime()));
-                        if (overlapStart < overlapEnd) {
-                            overlappingTeachingMinutes += Math.max(0, Math.round((overlapEnd - overlapStart) / 60000));
-                        }
-                    });
+                    _daySegments = buildCrossRoleDaySegments(
+                        schedStart, schedEnd, teachingShifts, _ry, _rm, _rd
+                    );
+                    const overlappingTeachingMinutes = _daySegments
+                        .filter(seg => seg.kind === 'day')
+                        .reduce((sum, seg) => sum + seg.minutes, 0);
                     minutes = Math.max(0, minutes - overlappingTeachingMinutes);
 
                     cssClass = 'chip-green';
@@ -1652,6 +1731,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (currentUserContext?.salary_config?.receptionist_normal_rate) {
                     chipSessionData.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
                 }
+            }
+
+            // Ngày vừa trực vừa dạy: ghi rõ ngay trên chip là đã trừ mấy giờ dạy, để admin/nhân
+            // viên không tưởng "ca 07:00–11:00 mà chỉ được 2h30 là hệ thống tính thiếu".
+            const _teachingSegs = _daySegments.filter(seg => seg.kind === 'day');
+            if (_teachingSegs.length > 0) {
+                const _tMin = _teachingSegs.reduce((sum, seg) => sum + seg.minutes, 0);
+                const _tH = Math.floor(_tMin / 60), _tM = _tMin % 60;
+                const _tStr = _tH > 0 ? `${_tH}h${_tM > 0 ? _tM + 'p' : ''}` : `${_tM}p`;
+                label += ` (−${_tStr} dạy)`;
+                tooltip += ` | Ngày làm 2 chức năng: đã trừ ${_tStr} giờ dạy (${_teachingSegs.map(s => `${s.start}–${s.end} ${s.label}`).join(', ')}) — phần dạy tính ở chip riêng`;
             }
 
             // === OVERTIME INTEGRATION (Receptionist) ===
@@ -1692,6 +1782,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 mergedSegments: rs.mergedSegments || null,
                 allSubShifts: _fullSubShifts, // full danh sách ca con gốc (cho ô sửa tách ca)
                 splitAbsentStarts: _splitAbsentStartsForChip, // ca con đang bị coi là vắng (auto/tay)
+                daySegments: _daySegments, // các khúc trong ngày: tiếp tân / dạy (popup sửa hiển thị)
                 bonus10Status: b10StatusR,
                 bonus10Id: b10DataR ? b10DataR.id : null
             });
@@ -1939,7 +2030,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             let b10DataU, b10StatusU;
 
-            if (s.checkOut && s.autoClosedReason !== 'stale_session' && !s.checkOut.includes('T23:59:00')) {
+            // Ca tự-đóng (autoClosedReason='stale_session') GIỜ ĐÃ được khép đúng theo giờ tan
+            // ca/lớp trong lịch, nên vẫn là giờ ra HỢP LỆ. Trước đây khối này loại luôn mọi ca
+            // stale → chip hiện "10:24–???" (cam, cảnh báo) dù ca đó đã có giờ ra 16:30 và đã
+            // được tính đủ ở chip xanh → nhân viên hoang mang "vừa đúng vừa sai".
+            // Chỉ ca bị khép về 23:59 (không dò được lịch) mới coi là "quên check-out".
+            if (s.checkOut && !s.checkOut.includes('T23:59:00')) {
                 const sessionEnd = safeDate(s.checkOut);
                 const endStr = sessionEnd ? sessionEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
@@ -2107,7 +2203,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
 
             const paidMinutes = Math.max(0, Math.round(duration + otMinutesU));
-            if (isUsedForTeaching && paidMinutes < 30 && !otPendingU) {
+            // Phiên đã được dùng cho chip ca DẠY: chỉ sinh thêm chip "phần dư" khi thật sự còn
+            // thời gian chưa được tính (>=30p, VD sáng dạy xong ở lại trực tiếp tân).
+            // `duration` ở đây ĐÃ trừ số phút dạy. Không dùng paidMinutes (đã cộng tăng ca) và
+            // KHÔNG miễn trừ cho tăng ca đang chờ duyệt: yêu cầu tăng ca/thưởng 10p vốn đã hiển
+            // thị ngay trên chip ca dạy gốc, nên chip dư chỉ là bản sao gây nhiễu bảng công.
+            if (isUsedForTeaching && Math.round(duration) < 30) {
                 return;
             }
 
@@ -2135,6 +2236,22 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             });
         }
     });
+
+    // NGÀY 2 CHỨC NĂNG: chép bảng chia khúc sang chip ca DẠY cùng phiên, để admin bấm vào bất
+    // kỳ chip nào của ngày đó cũng thấy đủ 3 khúc (trực – dạy – trực) trong ô chỉnh sửa.
+    {
+        const segsBySession = {};
+        chips.forEach(c => {
+            if (c.sessionId && Array.isArray(c.daySegments) && c.daySegments.length > 1) {
+                segsBySession[String(c.sessionId)] = c.daySegments;
+            }
+        });
+        chips.forEach(c => {
+            if (!c.daySegments && c.sessionId && segsBySession[String(c.sessionId)]) {
+                c.daySegments = segsBySession[String(c.sessionId)];
+            }
+        });
+    }
 
     // FIX 5: Sort chips by start time (morning → evening)
     chips.sort((a, b) => {

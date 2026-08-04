@@ -12,7 +12,8 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260803-early10-v1'></script>
+    <script src='js/db-service.js?v=20260804-crossrole-v1'></script>
+    <script src='js/evaluation-service.js?v=20260804-crossrole-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -60,6 +61,12 @@
         .b-all:hover{background:var(--p-s)}
         .btn:disabled{opacity:.5;cursor:not-allowed}
         .empty{text-align:center;color:var(--mut);padding:2.5rem 1rem;background:white;border-radius:16px;border:1px solid var(--ln)}
+        .vd{border-radius:9px;padding:.5rem .7rem;font-size:.77rem;line-height:1.5;margin:.5rem 0 .6rem;display:flex;gap:7px;align-items:flex-start}
+        .vd b{font-weight:800}
+        .vd-ok{background:var(--p-s);color:#065F46;border:1px solid #A7F3D0}
+        .vd-warn{background:var(--warn-s);color:#92400E;border:1px solid #FDE68A}
+        .vd-bad{background:var(--dan-s);color:#991B1B;border:1px solid #FCA5A5}
+        .miss{background:var(--dan-s);color:#991B1B;font-weight:700;padding:1px 6px;border-radius:5px;font-size:.72rem}
         .empty i{width:34px;height:34px;color:#D1D5DB;margin-bottom:.6rem}
         @media(max-width:520px){.sc-t{min-width:66px;font-size:.84rem}.grp-h{align-items:flex-start}}
     </style>
@@ -79,7 +86,7 @@
     </div>
 
 <script>
-let curTab='pending',curReqs=[];
+let curTab='pending',curReqs=[],curVerdicts={};
 const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const adminName=()=>localStorage.getItem('userFullName')||localStorage.getItem('currentUser')||'Admin';
 const ft=i=>i?new Date(i).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'--:--';
@@ -92,6 +99,133 @@ function guardAdmin(){
         alert('Trang này chỉ dành cho quản lý.'); window.location.href='nhan-vien.html'; return false;
     }
     return true;
+}
+
+// ================= ĐỐI CHIẾU TỰ ĐỘNG (đề xuất kiểm duyệt) =================
+// Máy KHÔNG tự duyệt thay quản lý. Máy chỉ đối chiếu những gì kiểm chứng được bằng dữ liệu và
+// đưa ra ĐỀ XUẤT + lý do, để quản lý bấm duyệt nhanh những ca rõ ràng và soi kỹ ca đáng ngờ.
+//   - 'ok'   : ca CÓ trên lịch, đúng người, và chưa hề có công → chỉ là quên chấm công.
+//   - 'warn' : không kiểm chứng được bằng dữ liệu (ca ngoài lịch) hoặc thiếu thông tin bắt buộc.
+//   - 'bad'  : mâu thuẫn dữ liệu (đã có công rồi / ca không tồn tại trên lịch / trùng giờ ca khác).
+const SECS_TT=['morning1','morning2','afternoon1','afternoon2','evening1','evening2'];
+const BRS_TT=['cs1','cs2','cs3'];
+const RS_TT={morning:{s:'07:00',e:'11:30'},afternoon:{s:'14:00',e:'18:00'},evening:{s:'18:00',e:'21:30'}};
+const DK_TT=['mon','tue','wed','thu','fri','sat','sun'];
+const dkOf=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const toMin=t=>{const p=String(t||'').split(':');return (+p[0]||0)*60+(+p[1]||0)};
+const hmOfIso=i=>{const d=new Date(i);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+
+async function buildVerdicts(reqs){
+    const out={};
+    const byStaffMonth={};
+    reqs.forEach(r=>{
+        const m=String(r.dateKey||'').slice(0,7);
+        if(!m||!r.staffId)return;
+        const k=r.staffId+'|'+m;
+        (byStaffMonth[k]=byStaffMonth[k]||[]).push(r);
+    });
+
+    for(const key of Object.keys(byStaffMonth)){
+        const [staffId,mStr]=key.split('|');
+        const group=byStaffMonth[key];
+        let attMap={};
+        try{
+            const logs=await DBService.getMonthlyAttendance(mStr,staffId);
+            logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
+        }catch(e){}
+
+        const dates=[...new Set(group.map(r=>r.dateKey).filter(Boolean))];
+        const schedByDate={},recepByDate={};
+        for(const dkey of dates){
+            const rows=[];
+            for(const b of BRS_TT){
+                let v=null; try{ v=await DBService.getSchedule(b+'__'+dkey) }catch(e){}
+                if(!v)continue;
+                SECS_TT.forEach(sec=>(v[sec]||[]).forEach(row=>{
+                    if(!row.start||!row.end)return;
+                    rows.push({branch:b,start:row.start,end:row.end,lop:row.lop||'',
+                        mine:(row.gvId===staffId)||(row.gvThayTheId===staffId)||
+                             (row.gvList||[]).some(g=>g.id===staffId)||
+                             (row.gvThayTheList||[]).some(g=>g.id===staffId)||
+                             (row.registeredTeachers||[]).some(t=>t.id===staffId)});
+                }));
+            }
+            schedByDate[dkey]=rows;
+
+            const d=new Date(dkey+'T12:00:00'),w=d.getDay(),mo=new Date(d);
+            mo.setDate(d.getDate()-w+(w===0?-6:1));
+            const mk=dkOf(mo),dayk=DK_TT[w===0?6:w-1];
+            const rshifts=[];
+            for(const b of BRS_TT){
+                let v=null; try{ v=await DBService.getReceptionistSchedule(b+'__'+mk) }catch(e){}
+                if(!v)continue;
+                Object.keys(RS_TT).forEach(sk=>{
+                    const en=((v[sk]||{})[dayk]||[]).find(x=>x.id===staffId); if(!en)return;
+                    const cf=(v._shiftConfig&&v._shiftConfig[sk])||{};
+                    rshifts.push({branch:b,shift:sk,
+                        start:en.customStart||cf.start||RS_TT[sk].s,
+                        end:en.customEnd||cf.end||RS_TT[sk].e});
+                });
+            }
+            recepByDate[dkey]=rshifts;
+        }
+
+        group.forEach(r=>{
+            const s=r.session||{};
+            const sess=attMap[r.dateKey]||[];
+            const missing=[];
+            if(!r.branch)missing.push('cơ sở');
+            const isTT=s.role==='tiep-tan';
+            if(r.type!=='scheduled'){
+                if(!isTT&&!r.className)missing.push('môn/lớp');
+                if(isTT&&!r.shiftKey)missing.push('ca trực');
+                if(!r.approvedBy)missing.push('người phân công');
+            }
+            if(!s.isAbsent&&(!s.checkIn||!s.checkOut))missing.push('giờ vào/ra');
+
+            // 1) Đã có công chồng giờ chưa? (chống chấm bù trùng)
+            let overlapped=false;
+            if(s.checkIn&&s.checkOut){
+                const a1=new Date(s.checkIn).getTime(),a2=new Date(s.checkOut).getTime();
+                overlapped=sess.some(x=>{
+                    if(!x||x.isAbsent||!x.checkIn)return false;
+                    const b1=new Date(x.checkIn).getTime();
+                    const b2=x.checkOut?new Date(x.checkOut).getTime():b1;
+                    return Math.min(a2,b2)-Math.max(a1,b1)>=10*60*1000;
+                });
+            }
+
+            // 2) Ca có thật trên lịch và đúng người không?
+            const startHM=s.checkIn?hmOfIso(s.checkIn):'',endHM=s.checkOut?hmOfIso(s.checkOut):'';
+            const rows=schedByDate[r.dateKey]||[],rsh=recepByDate[r.dateKey]||[];
+            const schedMatch=rows.find(x=>x.mine&&x.start===startHM&&x.end===endHM)||
+                             rsh.find(x=>x.start===startHM&&x.end===endHM);
+            const anyClassAtTime=rows.some(x=>toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end));
+
+            let level,title,reasons=[];
+            if(missing.length){
+                level='warn'; title='Thiếu thông tin';
+                reasons.push('Chưa khai: '+missing.join(', ')+'.');
+            }else if(overlapped){
+                level='bad'; title='Đã có công trùng giờ';
+                reasons.push('Bảng công đã có ca chồng khung giờ này — duyệt sẽ tính lương 2 lần.');
+            }else if(r.type==='scheduled'&&schedMatch){
+                level='ok'; title='Khớp lịch — đủ điều kiện duyệt';
+                reasons.push('Ca có trên lịch, đúng người, và chưa được ghi nhận công nào.');
+            }else if(r.type==='scheduled'&&!schedMatch){
+                level='bad'; title='Không tìm thấy ca trên lịch';
+                reasons.push('Không có ca đúng khung giờ này của nhân viên trong lịch — cần kiểm tra lại.');
+            }else{
+                level='warn'; title='Ngoài lịch — cần quản lý xác nhận';
+                reasons.push('Ca không có trên lịch nên hệ thống không tự đối chiếu được.');
+                if(r.approvedBy)reasons.push('Nhân viên khai người phân công: '+r.approvedBy+'.');
+                if(anyClassAtTime)reasons.push('Khung giờ này trung tâm CÓ lớp đang diễn ra (hợp lý).');
+                else reasons.push('Khung giờ này không có lớp nào trên lịch — nên hỏi lại.');
+            }
+            out[r.id]={level:level,title:title,text:reasons.join(' ')};
+        });
+    }
+    return out;
 }
 
 async function refreshPendingCount(){
@@ -112,8 +246,21 @@ window.loadTab=async function(tab){
         if(window.lucide)lucide.createIcons();
         return;
     }
+    // Đối chiếu tự động trước khi vẽ (chỉ tab chờ duyệt mới cần)
+    curVerdicts={};
+    if(tab==='pending'){
+        el.innerHTML='<div class="empty">Đang đối chiếu dữ liệu lịch & bảng công...</div>';
+        try{ curVerdicts=await buildVerdicts(curReqs) }catch(e){ console.warn('[Verdict]',e) }
+    }
+
     const groups={};
     curReqs.forEach(r=>{const k=r.batchId||r.id; if(!groups[k])groups[k]=[]; groups[k].push(r)});
+    const okCount=curReqs.filter(r=>(curVerdicts[r.id]||{}).level==='ok').length;
+    const topBar=(tab==='pending'&&okCount>0)
+        ? '<div class="grp" style="padding:.85rem 1rem;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
+          '<div style="font-size:.85rem;color:#065F46"><b>'+okCount+' yêu cầu</b> đã đối chiếu khớp lịch và chưa có công — an toàn để duyệt nhanh.</div>'+
+          '<button class="btn b-all" onclick="approveAllEligible()"><i data-lucide="check-check" style="width:15px;height:15px"></i> Duyệt '+okCount+' mục đủ điều kiện</button></div>'
+        : '';
     el.innerHTML=Object.keys(groups).map(function(bk){
         const reqs=groups[bk],f=reqs[0];
         const t=f.createdAt&&f.createdAt.seconds?new Date(f.createdAt.seconds*1000).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'}):'';
@@ -130,9 +277,25 @@ window.loadTab=async function(tab){
             if(!isAbs&&s.checkIn&&s.checkOut)mins=Math.round((new Date(s.checkOut)-new Date(s.checkIn))/60000);
             const metas=[];
             if(mins>0)metas.push('<span><i data-lucide="clock" style="width:13px;height:13px"></i> '+(mins>=60?Math.floor(mins/60)+'h'+(mins%60?(mins%60)+'p':''):mins+'p')+'</span>');
+            // Thông tin ĐỦ để quản lý kiểm duyệt: cơ sở – lớp/ca – phòng – người phân công
+            metas.push(r.branch
+                ? '<span><i data-lucide="map-pin" style="width:13px;height:13px"></i> '+esc(String(r.branch).toUpperCase())+'</span>'
+                : '<span class="miss">Thiếu cơ sở</span>');
+            if(r.className)metas.push('<span><i data-lucide="book-open" style="width:13px;height:13px"></i> '+esc(r.className)+'</span>');
+            else if(r.shiftKey)metas.push('<span><i data-lucide="book-open" style="width:13px;height:13px"></i> Ca '+esc({morning:'Sáng',afternoon:'Chiều',evening:'Tối'}[r.shiftKey]||r.shiftKey)+'</span>');
+            else if(isEx)metas.push('<span class="miss">Thiếu môn/lớp</span>');
+            if(r.room)metas.push('<span><i data-lucide="door-open" style="width:13px;height:13px"></i> '+esc(r.room)+'</span>');
             if(s.roleName)metas.push('<span><i data-lucide="user" style="width:13px;height:13px"></i> '+esc(s.roleName)+'</span>');
+            if(r.approvedBy)metas.push('<span><i data-lucide="user-check" style="width:13px;height:13px"></i> '+esc(r.approvedBy)+'</span>');
+            else if(isEx)metas.push('<span class="miss">Thiếu người phân công</span>');
             if(s.bonus10)metas.push('<span><i data-lucide="star" style="width:13px;height:13px"></i> Sớm 10p</span>');
             if(s.overtimeMinutes>0)metas.push('<span><i data-lucide="plus-circle" style="width:13px;height:13px"></i> Tăng ca '+s.overtimeMinutes+'p</span>');
+
+            const v=curVerdicts[r.id];
+            const vHtml=v?('<div class="vd vd-'+v.level+'"><i data-lucide="'+
+                (v.level==='ok'?'shield-check':(v.level==='bad'?'shield-alert':'help-circle'))+
+                '" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i><div><b>Đối chiếu tự động: '+
+                esc(v.title)+'</b><br>'+esc(v.text)+'</div></div>'):'';
             let act='';
             if(tab==='pending')act='<div class="acts"><button class="btn b-ok" onclick="approveOne(\''+r.id+'\')"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt</button>'+
                 '<button class="btn b-no" onclick="rejectOne(\''+r.id+'\')"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối</button></div>';
@@ -144,13 +307,29 @@ window.loadTab=async function(tab){
                 '<div class="sc-sb">'+dateStr+'</div></div>'+
                 '<span class="bdg '+(isEx?'b-e':'b-s')+'">'+(isEx?'Ngoài lịch':'Có lịch')+'</span></div>'+
                 (metas.length?'<div class="sc-meta">'+metas.join('')+'</div>':'')+
-                '<div class="why"><b>Lý do:</b> '+esc(r.reason||'(không ghi)')+'</div>'+act+'</div></div>';
+                '<div class="why"><b>Lý do:</b> '+esc(r.reason||'(không ghi)')+'</div>'+vHtml+act+'</div></div>';
         }).join('');
         return '<div class="grp"><div class="grp-h"><div class="who"><div class="av">'+esc(initial)+'</div>'+
             '<div><div class="n">'+esc(f.staffName||f.staffId)+'</div><div class="s">Gửi lúc '+t+' · '+reqs.length+' yêu cầu</div></div></div>'+
             bulk+'</div><div class="body">'+rows+'</div></div>';
     }).join('');
+    el.innerHTML=topBar+el.innerHTML;
     if(window.lucide)lucide.createIcons();
+};
+
+// Duyệt hàng loạt các yêu cầu mà đối chiếu tự động cho kết quả "khớp lịch, chưa có công".
+// Vẫn cần quản lý bấm nút — hệ thống không tự duyệt sau lưng.
+window.approveAllEligible=async function(){
+    const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).level==='ok');
+    if(!list.length)return;
+    if(!confirm('Duyệt '+list.length+' yêu cầu đã đối chiếu KHỚP LỊCH và chưa có công?\nCông sẽ được ghi vào Bảng Công.'))return;
+    let done=0;
+    for(const r of list){
+        try{ await DBService.approveMakeupRequest(r,adminName()); done++ }
+        catch(e){ alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break }
+    }
+    alert('Đã duyệt '+done+'/'+list.length+' yêu cầu.');
+    loadTab(curTab); refreshPendingCount();
 };
 
 window.approveOne=async function(id){

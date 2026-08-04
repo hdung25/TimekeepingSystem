@@ -474,29 +474,40 @@ async function globalCheckAutoCheckout() {
         if (!openSession) return; // No open session → nothing to auto-close
 
         // 2. Determine when the user's current shift/class ends
-        const roleRaw = localStorage.getItem('currentRole') || 'staff';
-        let rolesAC = [];
-        try { const p = JSON.parse(roleRaw); rolesAC = Array.isArray(p) ? p : [roleRaw]; }
-        catch(e) { rolesAC = [roleRaw]; }
         const checkInTime = new Date(openSession.checkIn || openSession.start);
 
-        const isReceptionistRole = rolesAC.some(r =>
-            ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(r)
-        );
+        // NGÀY LÀM 2 CHỨC NĂNG (vừa tiếp tân vừa dạy):
+        // Trước đây code chọn MỘT nhánh theo vai trò chính, nên người vừa trực tiếp tân
+        // 07:00–11:00 vừa có lớp 07:30–09:00 bị tự động RA CA lúc 09:00 (hết lớp) dù vẫn
+        // đang trong ca trực → phải bấm vào ca lần 2. Nay dò CẢ HAI nguồn lịch và chỉ ra ca
+        // ở mốc MUỘN NHẤT ⇒ nhân viên chỉ cần bấm vào ca 1 lần, hệ thống tự ra ca đúng giờ.
+        const [recepEnd, classEnd] = await Promise.all([
+            findReceptionistShiftEnd(currentUserId, checkInTime, dateKey),
+            findTeachingChainEnd(currentUserId, checkInTime, dateKey)
+        ]);
 
-        if (isReceptionistRole) {
-            // === RECEPTIONIST: find shift end based on schedule ===
-            await autoCheckoutReceptionist(currentUserId, checkInTime, now, dateKey);
-        } else {
-            // === TEACHER/STAFF: find class end from schedule ===
-            await autoCheckoutTeacher(currentUserId, checkInTime, now, dateKey);
+        const candidates = [recepEnd, classEnd].filter(Boolean);
+        if (candidates.length === 0) return;
+        const finalEnd = new Date(Math.max(...candidates.map(d => d.getTime())));
+
+        if (now >= finalEnd) {
+            console.log(`[GlobalAutoCheckout] Ngày làm kết thúc lúc ${finalEnd.toLocaleTimeString()}. Auto checking out...`);
+            // Truyền đúng mốc tan ca để không ghi nhận dư phút sau khi hết ca
+            await DBService.checkOutPersonal(currentUserId, finalEnd);
+            if (typeof UIService !== 'undefined' && UIService.toast) {
+                UIService.toast('Đã tự động Ra Ca (hết giờ làm hôm nay)', 'success');
+            }
+            if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+            if (typeof renderTodayChips === 'function') renderTodayChips();
         }
     } catch (e) {
         console.warn("[GlobalAutoCheckout] Error:", e);
     }
 }
 
-async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
+// Trả về Date giờ tan ca TIẾP TÂN muộn nhất mà phiên chấm công này thuộc về (null nếu không có).
+// Không tự ra ca ở đây — nơi gọi so sánh với nhánh ca dạy rồi mới quyết định.
+async function findReceptionistShiftEnd(userId, checkInTime, dateKey) {
     try {
         const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
         const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -511,9 +522,11 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
             return date;
         };
 
-        const monday = getMonday(now);
+        const [_acY, _acM, _acD] = dateKey.split('-').map(Number);
+        const dayDate = new Date(_acY, _acM - 1, _acD);
+        const monday = getMonday(dayDate);
         const mondayKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
-        const dayOfWeek = now.getDay();
+        const dayOfWeek = dayDate.getDay();
         const dayIdx = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
         const dayKey = DAY_KEYS_MAP[dayIdx];
 
@@ -547,7 +560,7 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
             }
         }
 
-        if (allShifts.length === 0) return;
+        if (allShifts.length === 0) return null;
 
         // Merge các ca tiếp giáp (end === start)
         allShifts.sort((a, b) => a.shiftStart - b.shiftStart);
@@ -564,34 +577,23 @@ async function autoCheckoutReceptionist(userId, checkInTime, now, dateKey) {
             }
         }
 
-        // Tìm shift khớp với checkInTime (±60p của shift start)
-        const matchedShift = mergedShifts.find(s => {
-            const diffMs = Math.abs(checkInTime - s.shiftStart);
-            return diffMs < 60 * 60 * 1000;
-        });
+        // Tìm shift khớp với checkInTime: vào gần giờ bắt đầu (±60p) HOẶC vào giữa ca
+        // (người vừa dạy xong mới quay lại quầy vẫn thuộc ca trực đang chạy).
+        const matched = mergedShifts.filter(s =>
+            Math.abs(checkInTime - s.shiftStart) < 60 * 60 * 1000 ||
+            (checkInTime >= s.shiftStart && checkInTime < s.shiftEnd)
+        );
 
-        if (!matchedShift) return;
-
-        // Checkout đúng giờ kết thúc ca
-        if (now >= matchedShift.shiftEnd) {
-            console.log(`[GlobalAutoCheckout] Receptionist shift ended at ${matchedShift.shiftEnd.toLocaleTimeString()}. Auto checking out...`);
-            await DBService.checkOutPersonal(userId);
-            if (typeof UIService !== 'undefined' && UIService.toast) {
-                UIService.toast('Đã tự động Ra Ca (hết giờ ca tiếp tân)', 'success');
-            }
-            if (typeof renderGlobalCheckIn === 'function') {
-                await renderGlobalCheckIn();
-            }
-            if (typeof renderTodayChips === 'function') {
-                renderTodayChips();
-            }
-        }
+        if (matched.length === 0) return null;
+        return new Date(Math.max(...matched.map(s => s.shiftEnd.getTime())));
     } catch (e) {
         console.warn('[GlobalAutoCheckout] Receptionist error:', e);
+        return null;
     }
 }
 
-async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
+// Trả về Date giờ kết thúc CHUỖI lớp dạy liên tiếp khớp phiên chấm công (null nếu không có).
+async function findTeachingChainEnd(userId, checkInTime, dateKey) {
     try {
         const BRANCHES = ['cs1', 'cs2', 'cs3'];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
@@ -613,7 +615,7 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             });
         }
 
-        if (allClasses.length === 0) return;
+        if (allClasses.length === 0) return null;
 
         // Tìm lớp khớp checkInTime (khoảng cách giờ bắt đầu gần nhất trong vòng 60p, trước khi lớp kết thúc)
         let matchedClassEnd = null;
@@ -635,7 +637,7 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             }
         }
 
-        if (!matchedClassEnd) return;
+        if (!matchedClassEnd) return null;
 
         // Mở rộng matchedClassEnd nếu có ca liên tiếp (end ca trước = start ca sau)
         // → không auto-checkout giữa chừng khi 2 ca nối tiếp nhau
@@ -655,21 +657,10 @@ async function autoCheckoutTeacher(userId, checkInTime, now, dateKey) {
             }
         }
 
-        if (now >= matchedClassEnd) {
-            console.log(`[GlobalAutoCheckout] Class(es) ended at ${matchedClassEnd.toLocaleTimeString()}. Auto checking out...`);
-            await DBService.checkOutPersonal(userId, matchedClassEnd);
-            if (typeof UIService !== 'undefined' && UIService.toast) {
-                UIService.toast("Đã tự động Ra Ca (hết giờ lớp)", "success");
-            }
-            if (typeof renderGlobalCheckIn === 'function') {
-                await renderGlobalCheckIn();
-            }
-            if (typeof renderTodayChips === 'function') {
-                renderTodayChips();
-            }
-        }
+        return matchedClassEnd;
     } catch (e) {
         console.warn("[GlobalAutoCheckout] Teacher error:", e);
+        return null;
     }
 }
 
