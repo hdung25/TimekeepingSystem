@@ -188,7 +188,7 @@
         return '' +
             '<div class="ns-card' + (picked ? ' selected' : '') + '">' +
                 '<div class="ns-card-top">' +
-                    '<span class="ns-check' + (picked ? ' on' : '') + '" role="checkbox" aria-checked="' + picked + '"' +
+                    '<span class="ns-pick' + (picked ? ' on' : '') + '" role="checkbox" aria-checked="' + picked + '"' +
                         ' title="Chọn để thao tác hàng loạt"' +
                         ' onclick="NhanSu.toggleSelect(\'' + esc(user.id) + '\')">' +
                         '<i data-lucide="check" style="width:13px;height:13px;"></i></span>' +

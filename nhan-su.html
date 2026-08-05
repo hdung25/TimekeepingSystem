@@ -64,14 +64,17 @@
                             box-shadow: 0 0 0 1px var(--primary-color); }
         .ns-card-top { display: flex; align-items: flex-start; gap: 0.75rem; }
 
-        /* Ô tick chọn nhiều nhân viên */
-        .ns-check { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 11px; border-radius: 6px;
-                    border: 1.5px solid #D1D5DB; background: var(--bg-surface); cursor: pointer;
-                    display: flex; align-items: center; justify-content: center; color: transparent;
-                    transition: var(--transition-base); }
-        .ns-check:hover { border-color: #9CA3AF; }
-        .ns-check svg { width: 14px; height: 14px; stroke-width: 3.2; }
-        .ns-check.on { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
+        /* Ô tick chọn nhiều nhân viên trên thẻ.
+           KHÔNG đặt tên .ns-check — tên đó đã thuộc về ô chọn Vai Trò Hệ Thống trong ô
+           "Thêm nhân viên" (label + input). Dùng chung tên làm nhãn vai trò biến mất và
+           không tick được vai trò nào. */
+        .ns-pick { flex: 0 0 auto; width: 22px; height: 22px; margin-top: 11px; border-radius: 6px;
+                   border: 1.5px solid #D1D5DB; background: var(--bg-surface); cursor: pointer;
+                   display: flex; align-items: center; justify-content: center; color: transparent;
+                   transition: var(--transition-base); }
+        .ns-pick:hover { border-color: #9CA3AF; }
+        .ns-pick svg { width: 14px; height: 14px; stroke-width: 3.2; }
+        .ns-pick.on { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
         .ns-page.has-selection { padding-bottom: 7.5rem; }
 
         /* Nhãn diện tin tưởng */
@@ -438,7 +441,7 @@
     <script src="js/early10.js?v=20260803-early10-v1"></script>
     <script src="js/main.js?v=20260805-trust-multiselect-v1"></script>
     <script src="js/auth-helper.js"></script>
-    <script src="js/personnel.js?v=20260805-trust-multiselect-v1"></script>
+    <script src="js/personnel.js?v=20260805-role-picker-fix-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

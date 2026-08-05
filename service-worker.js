@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v97-no-dup-session';
+const CACHE_NAME = 'tdt-chamcong-v98-role-picker-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -29,7 +29,7 @@ const STATIC_ASSETS = [
     '/js/ui-service.js?v=20260803-early10-v1',
     '/js/early10.js?v=20260803-early10-v1',
     '/js/mon-hoc.js?v=20260805-trust-multiselect-v1',
-    '/js/personnel.js?v=20260805-trust-multiselect-v1',
+    '/js/personnel.js?v=20260805-role-picker-fix-v1',
     '/js/auth-guard.js?v=20260725-admin-edit-fix-v1',
     '/js/chart-service.js',
     '/js/analytics.js',
