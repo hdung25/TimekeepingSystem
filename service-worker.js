@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v99-group10p-fix';
+const CACHE_NAME = 'tdt-chamcong-v100-note-owner-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,7 +23,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260805-trust-multiselect-v1',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260805-group10p-fix-v1',
-    '/js/report.js?v=20260805-no-dup-session-v1',
+    '/js/report.js?v=20260805-note-owner-fix-v1',
     '/js/evaluation-service.js?v=20260805-no-double-pay-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260803-early10-v1',

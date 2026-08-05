@@ -846,6 +846,9 @@ function getHolidayName(dateStr) {
 // Cache for current staff's notes (loaded from Firestore)
 let _cachedStaffNotes = {};
 let _cachedStaffId = null;
+// Chủ sở hữu của _cachedStaffNotes. Không bao giờ ghi ghi chú xuống Firestore khi biến
+// này không khớp người đang chọn — xem saveCalendarNote.
+let _cachedNotesOwnerId = null;
 
 function renderPersonalTimesheet() {
     renderMonthReport(currentDate);
@@ -955,13 +958,18 @@ async function renderMonthReport(date, forceServer = false) {
     }
 
     // 0.1 Load Daily Notes from Firestore (cache for this render cycle)
+    // _cachedNotesOwnerId ghi RÕ ghi chú đang giữ là của AI. Thiếu nó thì lúc admin đổi
+    // người trên ô chọn (không tải lại trang), ghi chú của người trước vẫn nằm trong bộ
+    // nhớ và có thể bị ghi đè sang người sau — đúng vụ "ghi chú lộn qua người khác".
     if (_cachedStaffId !== staffId) {
         try {
             _cachedStaffNotes = await DBService.getDailyNotes(staffId);
+            _cachedNotesOwnerId = staffId;
             _cachedStaffId = staffId;
         } catch (e) {
             console.error("Error loading notes from Firestore:", e);
             _cachedStaffNotes = {};
+            _cachedNotesOwnerId = null; // KHÔNG nhận vơ là ghi chú của người này
         }
     }
 
@@ -3745,13 +3753,28 @@ window.saveHeaderRevenues = saveHeaderRevenues;
 
 let currentNoteDateKey = null;
 
-function openNoteModal(dateKey) {
+async function openNoteModal(dateKey) {
     currentNoteDateKey = dateKey;
     currentEvalIndex = null;
 
-    // Use cached notes from Firestore
+    const staffId = getTargetStaffId();
     document.getElementById('note-modal-title').innerText = `Ghi Chú Ngày ${dateKey}`;
-    document.getElementById('note-content').value = _cachedStaffNotes[dateKey] || '';
+    // Chỉ dùng bộ nhớ khi nó ĐÚNG là ghi chú của người đang chọn; nếu không thì đọc lại,
+    // để ô ghi chú không bao giờ hiện nội dung của người khác.
+    let text = '';
+    if (_cachedNotesOwnerId && staffId && String(_cachedNotesOwnerId) === String(staffId)) {
+        text = _cachedStaffNotes[dateKey] || '';
+    } else if (staffId) {
+        try {
+            const fresh = await DBService.getDailyNotes(staffId) || {};
+            _cachedStaffNotes = fresh;
+            _cachedNotesOwnerId = staffId;
+            text = fresh[dateKey] || '';
+        } catch (e) {
+            console.error('Error loading notes for modal:', e);
+        }
+    }
+    document.getElementById('note-content').value = text;
     document.getElementById('note-modal').style.display = 'flex';
 }
 
@@ -3785,15 +3808,38 @@ async function saveCalendarNote() {
     const staffId = getTargetStaffId();
     const note = document.getElementById('note-content').value.trim();
 
-    // Update local cache immediately
-    if (note) _cachedStaffNotes[currentNoteDateKey] = note;
-    else delete _cachedStaffNotes[currentNoteDateKey];
+    if (!staffId) {
+        alert('Chưa xác định được nhân viên nên chưa lưu được ghi chú. Vui lòng chọn lại nhân viên.');
+        return;
+    }
 
-    // Save to Firestore
+    // saveDailyNotes GHI ĐÈ CẢ TÀI LIỆU. Trước đây hàm này đẩy thẳng `_cachedStaffNotes`
+    // — bộ nhớ dùng chung cho mọi nhân viên — nên nếu bộ nhớ còn đang giữ ghi chú của
+    // người trước (admin vừa đổi người, hoặc lần tải ghi chú bị lỗi/chưa xong) thì toàn
+    // bộ ghi chú người A bị ghi sang người B, còn ghi chú thật của B thì mất trắng.
+    // Nay luôn đọc lại ghi chú CỦA ĐÚNG NGƯỜI ĐANG CHỌN rồi chỉ sửa duy nhất một ngày.
+    let notesOfTarget;
     try {
-        await DBService.saveDailyNotes(staffId, _cachedStaffNotes);
+        notesOfTarget = { ...(await DBService.getDailyNotes(staffId) || {}) };
+    } catch (e) {
+        console.error('Error loading notes before save:', e);
+        alert('Không đọc được ghi chú hiện có của nhân viên này nên CHƯA lưu gì cả ' +
+              '(tránh ghi đè mất ghi chú cũ). Vui lòng kiểm tra mạng rồi thử lại.');
+        return;
+    }
+
+    if (note) notesOfTarget[currentNoteDateKey] = note;
+    else delete notesOfTarget[currentNoteDateKey];
+
+    try {
+        await DBService.saveDailyNotes(staffId, notesOfTarget);
+        _cachedStaffNotes = notesOfTarget;
+        _cachedNotesOwnerId = staffId;
+        _cachedStaffId = staffId;
     } catch (e) {
         console.error('Error saving note to Firestore:', e);
+        alert('Lỗi lưu ghi chú: ' + (e.message || e));
+        return;
     }
 
     closeNoteModal();
