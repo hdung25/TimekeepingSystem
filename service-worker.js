@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v98-role-picker-fix';
+const CACHE_NAME = 'tdt-chamcong-v99-group10p-fix';
 
 const STATIC_ASSETS = [
     '/',
@@ -22,13 +22,13 @@ const STATIC_ASSETS = [
     '/css/shift-oversight.css?v=20260717-gv-absence-v1',
     '/js/main.js?v=20260805-trust-multiselect-v1',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260805-no-dup-session-v1',
+    '/js/db-service.js?v=20260805-group10p-fix-v1',
     '/js/report.js?v=20260805-no-dup-session-v1',
     '/js/evaluation-service.js?v=20260805-no-double-pay-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260803-early10-v1',
     '/js/early10.js?v=20260803-early10-v1',
-    '/js/mon-hoc.js?v=20260805-trust-multiselect-v1',
+    '/js/mon-hoc.js?v=20260805-group10p-fix-v1',
     '/js/personnel.js?v=20260805-role-picker-fix-v1',
     '/js/auth-guard.js?v=20260725-admin-edit-fix-v1',
     '/js/chart-service.js',

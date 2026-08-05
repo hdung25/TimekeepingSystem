@@ -79,6 +79,14 @@
                         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .mh-group-body { border-top: 1px solid #F3F4F6; padding: 0.6rem; }
 
+        /* Dải cảnh báo nhóm bật 10p nhưng môn con chưa bật */
+        .mh-group-warn { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem;
+                         padding: 0.6rem 1rem; background: #FFFBEB; border-top: 1px solid #FDE68A;
+                         color: #92400E; font-size: 0.82rem; line-height: 1.5; }
+        .mh-group-warn svg { width: 15px; height: 15px; flex: 0 0 auto; }
+        .mh-group-warn span { flex: 1 1 200px; min-width: 0; }
+        .mh-group-warn .mh-btn { padding: 0.45rem 0.8rem; font-size: 0.8rem; flex: 0 0 auto; }
+
         /* Danh sách môn xếp NHIỀU CỘT: 65 môn tên ngắn (E1, B1…) mà mỗi môn một dòng
            thì trang dài lê thê, phải cuộn mãi mới xếp xong nhóm. Số cột tự co theo
            bề ngang màn hình, điện thoại tự về 1 cột. */
@@ -256,7 +264,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260805-no-dup-session-v1'></script>
+    <script src='js/db-service.js?v=20260805-group10p-fix-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -434,7 +442,7 @@
 <script src="js/ui-service.js?v=20260803-early10-v1"></script>
 <script src="js/early10.js?v=20260803-early10-v1"></script>
 <script src="js/main.js?v=20260805-trust-multiselect-v1"></script>
-<script src="js/mon-hoc.js?v=20260805-trust-multiselect-v1"></script>
+<script src="js/mon-hoc.js?v=20260805-group10p-fix-v1"></script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 <script>
     document.addEventListener("DOMContentLoaded", function () {

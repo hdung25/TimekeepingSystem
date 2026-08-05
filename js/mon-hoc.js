@@ -169,13 +169,30 @@
         var children = visibleChildren(group.id);
         var allChildren = getChildren(group.id);
         // Khi đang tìm kiếm/lọc, nhóm không có môn nào khớp và bản thân nhóm cũng
-        // không khớp thì ẩn hẳn cho gọn.
-        if (children.length === 0 && !(matchesSearch(group) && state.filter === 'all')) return '';
+        // không khớp thì ẩn hẳn cho gọn. NGOẠI LỆ: lọc "Cho phép 10p" mà nhóm có bật 10p
+        // thì vẫn hiện, để người dùng thấy lời giải thích "nhóm bật nhưng môn con chưa bật"
+        // thay vì một trang trống không hiểu vì sao.
+        var keepForEarly10 = state.filter === 'early10' && allowsEarly10(group) && matchesSearch(group);
+        if (children.length === 0 && !keepForEarly10 &&
+            !(matchesSearch(group) && state.filter === 'all')) return '';
 
         var color = group.color || '#3B82F6';
         var collapsed = state.collapsed[group.id] ? ' collapsed' : '';
         var early10Count = allChildren.filter(allowsEarly10).length;
         var sub = allChildren.length + ' môn' + (early10Count > 0 ? ' · ' + early10Count + ' môn có sớm 10p' : '');
+
+        // CẢNH BÁO LỆCH CHÍNH SÁCH: cờ "sớm 10p" tính lương đọc ở TỪNG MÔN, nhóm cha chỉ
+        // là chỗ bật cho nhanh. Bật ở nhóm rồi mới chuyển môn vào (hoặc bỏ qua câu hỏi áp
+        // dụng) là nhóm ghi "có 10p" mà môn con thì không → giáo viên bấm sớm 10p bị từ
+        // chối và không ai hiểu vì sao. Nói thẳng ra đây kèm nút áp dụng một lần.
+        var mismatch = allowsEarly10(group) ? (allChildren.length - early10Count) : 0;
+        var warn = mismatch > 0
+            ? '<div class="mh-group-warn">' + icon('alert-triangle', 14) +
+              '<span>Nhóm đang bật <b>sớm 10p</b> nhưng <b>' + mismatch + ' môn</b> bên trong chưa được bật — ' +
+              'ca dạy các môn đó sẽ KHÔNG được cộng 10p.</span>' +
+              '<button class="mh-btn mh-btn-ghost" onclick="event.stopPropagation();MonHoc.applyGroupEarly10(\'' + esc(group.id) + '\')">' +
+              'Áp dụng cho ' + mismatch + ' môn</button></div>'
+            : '';
 
         var body = children.length > 0
             ? renderItems(children)
@@ -197,6 +214,7 @@
                         '<button class="mh-icon-btn danger" title="Xóa nhóm" onclick="MonHoc.remove(\'' + esc(group.id) + '\')">' + icon('trash-2') + '</button>' +
                     '</span>' +
                 '</div>' +
+                warn +
                 '<div class="mh-group-body">' + body + '</div>' +
             '</div>';
     }
@@ -538,6 +556,33 @@
         }
     }
 
+    // Ghi cờ 10p của nhóm xuống các môn con còn lệch (nút trên dải cảnh báo).
+    async function applyGroupEarly10(groupId) {
+        var group = state.subjects.find(function (s) { return s.id === groupId; });
+        if (!group) return;
+        var next = allowsEarly10(group);
+        var mismatched = getChildren(groupId).filter(function (c) { return allowsEarly10(c) !== next; });
+        if (mismatched.length === 0) {
+            UIService.toast('Các môn trong nhóm đã đồng bộ rồi.', 'info');
+            return;
+        }
+        if (!await UIService.confirm(
+            (next ? 'Bật' : 'Tắt') + ' sớm 10p cho ' + mismatched.length + ' môn trong nhóm "' + group.name + '"?'
+        )) return;
+        try {
+            UIService.showLoading('Đang áp dụng...');
+            await DBService.saveSubjectsBatch(mismatched.map(function (c) {
+                return { id: c.id, allowEarly10: next };
+            }));
+            UIService.hideLoading();
+            UIService.toast('Đã ' + (next ? 'bật' : 'tắt') + ' sớm 10p cho ' + mismatched.length + ' môn.', 'success');
+            await reload();
+        } catch (e) {
+            UIService.hideLoading();
+            UIService.toast('Lỗi: ' + e.message, 'error');
+        }
+    }
+
     async function toggleGroupEarly10(groupId) {
         var group = state.subjects.find(function (s) { return s.id === groupId; });
         if (!group) return;
@@ -666,6 +711,24 @@
         document.getElementById('mh-move-sheet').classList.remove('open');
     }
 
+    // Chuyển môn vào một nhóm ĐANG BẬT (hoặc đang tắt) sớm 10p thì hỏi luôn có áp dụng
+    // chính sách của nhóm cho các môn vừa chuyển không. Trước đây chuyển xong cờ 10p của
+    // môn giữ nguyên, nên nhóm "Tiếng anh" bật 10p mà 33 môn bên trong vẫn không được cộng.
+    async function applyGroupPolicyToMoved(group, moved) {
+        if (!group || moved.length === 0) return;
+        var next = allowsEarly10(group);
+        var mismatched = moved.filter(function (s) { return allowsEarly10(s) !== next; });
+        if (mismatched.length === 0) return;
+        if (!await UIService.confirm(
+            'Nhóm "' + group.name + '" đang ' + (next ? 'BẬT' : 'TẮT') + ' chính sách sớm 10 phút.\n\n' +
+            (next ? 'Bật' : 'Tắt') + ' sớm 10p cho ' + mismatched.length + ' môn vừa chuyển vào?\n' +
+            'Lương chỉ đọc cờ ở TỪNG MÔN, nên không áp dụng thì các môn này vẫn không được cộng 10p.'
+        )) return;
+        await DBService.saveSubjectsBatch(mismatched.map(function (s) {
+            return { id: s.id, allowEarly10: next };
+        }));
+    }
+
     async function confirmMove() {
         var value = document.getElementById('mh-move-parent').value;
         var parentId = value === NO_GROUP ? null : value;
@@ -682,8 +745,9 @@
                 }));
                 UIService.hideLoading();
                 UIService.toast('Đã xếp ' + picked.length + ' môn vào "' + groupName + '".', 'success');
-                state.selected = {};
                 closeMove();
+                await applyGroupPolicyToMoved(group, picked);
+                state.selected = {};
                 await reload();
             } catch (e) {
                 UIService.hideLoading();
@@ -693,12 +757,14 @@
         }
 
         var id = document.getElementById('mh-move-id').value;
+        var movedOne = state.subjects.find(function (s) { return String(s.id) === String(id); });
         try {
             UIService.showLoading('Đang chuyển...');
             await DBService.saveSubject({ id: id, parentId: parentId });
             UIService.hideLoading();
             UIService.toast('Đã chuyển nhóm.', 'success');
             closeMove();
+            await applyGroupPolicyToMoved(group, movedOne ? [movedOne] : []);
             await reload();
         } catch (e) {
             UIService.hideLoading();
@@ -737,6 +803,7 @@
         remove: remove,
         quickToggleEarly10: quickToggleEarly10,
         toggleGroupEarly10: toggleGroupEarly10,
+        applyGroupEarly10: applyGroupEarly10,
         openMove: openMove,
         openBulkMove: openBulkMove,
         closeMove: closeMove,
