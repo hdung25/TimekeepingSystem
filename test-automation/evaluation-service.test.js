@@ -547,4 +547,66 @@ function observation(lateMinutes) {
     assert.equal(chip.paidMinutes, 0, 'không tính phút cho ca giờ ngược');
 }
 
+{
+    // LỖI BẢNG LƯƠNG NGÀY 11 (Bùi Như Quỳnh): GV dạy 2 lớp CÙNG KHUNG GIỜ 09:15–10:45.
+    // Hai phiên ngoài lịch cùng khung giờ, mỗi phiên tính đủ 1h30 → tổng ngày 4h40 thay
+    // vì 3h10. Một khung giờ chỉ được trả công MỘT lần.
+    const twoClassSchedule = {
+        morning1: [{
+            start: '07:30', end: '09:00', lop: 'E3 + E4', lopId: 'subject-math',
+            gvId: staffId, registeredTeachers: [],
+            _branch: 'cs1', _compositeKey: 'cs1__2026-07-14', _originalIndex: 0
+        }],
+        // Ô lịch 09:15 xếp cho GV khác (hoặc GV này đã bị gỡ khỏi ca) nên hai phiên chấm
+        // công 09:15 không ghép được vào ca nào — đúng như bảng lương thật: hai chip tím.
+        morning2: [{
+            start: '09:15', end: '10:45', lop: 'E1 + EMNGT', lopId: 'subject-english',
+            gvId: 'teacher-khac', registeredTeachers: [],
+            _branch: 'cs1', _compositeKey: 'cs1__2026-07-14', _originalIndex: 1
+        }]
+    };
+    const multiRoleUser = {
+        roles: ['teaching_assistant'],
+        salary_config: {
+            roles: [
+                { id: 'subject-math', name: 'Toán', rate: 100000 },
+                { id: 'subject-english', name: 'Tiếng Anh', rate: 120000 }
+            ]
+        }
+    };
+    // Ca 07:30 khớp lịch; hai ca 09:15 là ca admin thêm tay (mỗi lớp một ca).
+    const sessions = [
+        { id: 'sess-morning', checkIn: `${dateKey}T07:28:00`, checkOut: `${dateKey}T09:00:00` },
+        { id: 'sess-dup-a', type: 'admin_add', isAdminEdited: true,
+          checkIn: `${dateKey}T09:15:00`, checkOut: `${dateKey}T10:45:00` },
+        { id: 'sess-dup-b', type: 'admin_add', isAdminEdited: true,
+          checkIn: `${dateKey}T09:15:00`, checkOut: `${dateKey}T10:45:00`, bonus10: true }
+    ];
+    const chips = context.window.calculateDailyChips(
+        twoClassSchedule, sessions, staffId, dateKey, multiRoleUser
+    );
+    const total = chips.reduce((sum, c) => sum + (c.paidMinutes || 0), 0);
+    assert.equal(total, 90 + 90, 'cả ngày chỉ tính 1h30 + 1h30 = 3h0p, không cộng đôi ca trùng giờ');
+
+    const dupChip = chips.find(c => /trùng giờ/.test(c.text));
+    assert.ok(dupChip, 'ca bị trùng khung giờ phải được ghi rõ trên chip');
+    assert.equal(dupChip.paidMinutes, 0, 'ca trùng giờ không tính phút');
+    assert.ok(!/\+10p/.test(dupChip.text), 'ca trùng giờ cũng không được cộng thưởng 10p');
+
+    // Ngày bình thường (2 lớp NỐI TIẾP nhau, không chồng giờ) vẫn phải tính đủ cả hai.
+    const backToBack = [
+        { id: 'sess-a', type: 'admin_add', isAdminEdited: true,
+          checkIn: `${dateKey}T07:30:00`, checkOut: `${dateKey}T09:00:00` },
+        { id: 'sess-b', type: 'admin_add', isAdminEdited: true,
+          checkIn: `${dateKey}T09:15:00`, checkOut: `${dateKey}T10:45:00` }
+    ];
+    const okChips = context.window.calculateDailyChips(
+        twoClassSchedule, backToBack, staffId, dateKey, multiRoleUser
+    );
+    assert.equal(
+        okChips.reduce((sum, c) => sum + (c.paidMinutes || 0), 0), 180,
+        'hai ca khác khung giờ vẫn tính đủ 3h'
+    );
+}
+
 console.log('evaluation-service regression tests passed');

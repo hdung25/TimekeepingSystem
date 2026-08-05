@@ -416,6 +416,40 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const teachingMinutesMap = {}; // sessionId -> total teaching minutes
     const teachingSessionsMap = {}; // sessionId -> array of teaching shifts {start, end, paidMinutes}
 
+    // === MỘT KHUNG GIỜ CHỈ TÍNH CÔNG MỘT LẦN ===
+    // GV dạy 2 lớp cùng khung giờ (hoặc có 2 phiên chấm bù trùng giờ) thì bảng công sinh
+    // 2 chip, mỗi chip tính đủ 1h30 → tổng ngày phồng gấp đôi. Lớp xếp chồng giờ đã được
+    // gộp ở bước dedup phía trên, nhưng phiên chấm công KHÔNG khớp lịch thì mỗi phiên tự
+    // tính riêng. Danh sách dưới ghi lại các khoảng giờ đã trả công để trừ phần trùng.
+    const _paidClockRanges = []; // [{ from: ms, to: ms, sessionId: string|null }]
+
+    const _msOf = (value) => (value && value.getTime ? value.getTime() : value);
+
+    const _addPaidClockRange = (from, to, sessionId) => {
+        const a = _msOf(from), b = _msOf(to);
+        if (!a || !b || !(b > a)) return;
+        _paidClockRanges.push({ from: a, to: b, sessionId: sessionId != null ? String(sessionId) : null });
+    };
+
+    // Số phút của [from,to] đã nằm trong khoảng đã trả công của phiên KHÁC. Bỏ qua khoảng
+    // của chính phiên này vì phần đó đã được trừ riêng qua teachingMinutesMap.
+    const _alreadyPaidMinutes = (from, to, sessionId) => {
+        const a = _msOf(from), b = _msOf(to);
+        if (!a || !b || !(b > a)) return 0;
+        const key = sessionId != null ? String(sessionId) : null;
+        const parts = _paidClockRanges
+            .filter(r => key === null || r.sessionId !== key)
+            .map(r => ({ from: Math.max(a, r.from), to: Math.min(b, r.to) }))
+            .filter(r => r.to > r.from)
+            .sort((x, y) => x.from - y.from);
+        let total = 0, cursor = a;
+        parts.forEach(p => {
+            const start = Math.max(p.from, cursor);
+            if (p.to > start) { total += p.to - start; cursor = p.to; }
+        });
+        return Math.round(total / 60000);
+    };
+
     // Collect VĐX (Vắng đã xác nhận) slots for this staff on this day to hide overlapping receptionist absent chips
     const vdxSlots = [];
     sections.forEach(sk => {
@@ -989,6 +1023,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     }
                 };
 
+                // Khoảng giờ THỰC SỰ được trả công của chip này — dùng để chặn ca khác
+                // tính lại cùng khung giờ (xem _paidClockRanges).
+                let _paidFrom = null, _paidTo = null;
+
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
                     // FULL CHECK-IN/OUT
@@ -1058,6 +1096,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         }
                         appendLateDetails();
                     }
+
+                    _paidFrom = matchedSession.isAdminEdited ? actualStart : effectiveStart;
+                    _paidTo = matchedSession.isAdminEdited ? actualEnd : effectiveEnd;
 
                     // Hiển thị thông tin nếu ra muộn (chỉ để tham khảo, không tính lương)
                     if (actualEnd > schedEnd) {
@@ -1184,6 +1225,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     appendLateDetails();
                     if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = Math.max(0, schedDuration - effectiveLateMinutes);
+                        _paidFrom = (actualStartNoCO && actualStartNoCO > schedStart) ? actualStartNoCO : schedStart;
+                        _paidTo = schedEnd;
                         cssClass = effectiveLateMinutes > 0 ? 'chip-orange' : 'chip-green';
                         tooltip += effectiveLateMinutes > 0
                             ? ' - Tự ra ca (đã khấu trừ phút trễ hiệu lực)'
@@ -1216,6 +1259,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 // Track teaching minutes and shifts details for subtracting from receptionist time (Issue 1)
                 if (minutes > 0) {
+                    _addPaidClockRange(_paidFrom, _paidTo, matchedSession.id);
                     if (!teachingMinutesMap[matchedSession.id]) {
                         teachingMinutesMap[matchedSession.id] = 0;
                         teachingSessionsMap[matchedSession.id] = [];
@@ -2076,6 +2120,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     return;
                 }
 
+                // Khoảng giờ được trả công của chip ngoài lịch này (chặn tính trùng khung giờ)
+                let _uPaidFrom = null, _uPaidTo = null;
+
                 // === GIỜ RA ≤ GIỜ VÀO (dữ liệu hỏng) ===
                 // Ca admin thêm/sửa tay hoặc chấm bù bị gõ ngược giờ (VD vào 15:30, ra 15:16)
                 // trước đây vẫn chạy tiếp và in nhãn "15:30–15:16" — người xem tưởng phần mềm
@@ -2106,11 +2153,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (lateMin > 0) {
                         // Trễ: tính từ lúc vào thực tế đến cuối ca lịch
                         duration = Math.max(0, (nearestSchedEnd - sessionStart) / 60000);
+                        _uPaidFrom = sessionStart; _uPaidTo = nearestSchedEnd;
                         cssClass = 'chip-orange';
                         tooltip = `Vào trễ ${lateMin}p so với lịch (${schedStartStr})`;
                     } else {
                         // Sớm hoặc đúng giờ: tính từ giờ bắt đầu lịch
                         duration = (effectiveEnd - nearestSchedStart) / 60000;
+                        _uPaidFrom = nearestSchedStart; _uPaidTo = effectiveEnd;
                         cssClass = 'chip-green'; // Đã checkin+checkout → luôn green dù chưa chọn role
                         tooltip = diffToSched < 0
                             ? `Vào sớm ${Math.round(-diffToSched / 60000)}p (lịch ${schedStartStr})`
@@ -2144,6 +2193,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 } else {
                     // Không có ca gần: hiển thị thời gian thực tế (logic cũ)
                     duration = (sessionEnd - sessionStart) / 60000;
+                    _uPaidFrom = sessionStart; _uPaidTo = sessionEnd;
 
                     // Subtract teaching minutes (Issue 1)
                     const teachingMins = teachingMinutesMap[s.id] || 0;
@@ -2165,6 +2215,23 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     }
                 }
 
+                // === CHẶN TÍNH TRÙNG KHUNG GIỜ ===
+                // GV dạy 2 lớp cùng giờ (hoặc 2 phiên chấm bù trùng giờ) sinh 2 chip cùng
+                // khung 09:15–10:45; trước đây mỗi chip tính đủ 1h30 nên tổng ngày dôi ra
+                // đúng một ca. Khung giờ đã trả công ở chip trước thì chip sau không tính lại.
+                const _dupMins = _alreadyPaidMinutes(_uPaidFrom, _uPaidTo, s.id);
+                if (_dupMins > 0 && duration > 0) {
+                    duration = Math.max(0, duration - _dupMins);
+                    label += ' (trùng giờ)';
+                    tooltip += ` | Khung giờ này đã được tính công ở ca khác trong ngày ` +
+                        `(dạy 2 lớp cùng giờ / ca khai trùng) — không tính lương lần hai.`;
+                    isClickable = true;
+                }
+                // Ca bị trùng hoàn toàn thì cũng KHÔNG được cộng thưởng sớm 10p, nếu không
+                // chip 0 phút lại hoá 10 phút và tổng ngày vẫn lệch.
+                const _zeroedByDuplicate = _dupMins > 0 && duration === 0;
+                if (duration > 0) _addPaidClockRange(_uPaidFrom, _uPaidTo, s.id);
+
                 // TRẦN AN TOÀN cho ca ngoài lịch / ca thêm (chống tính dư do giờ rộng bất thường):
                 //  - Có ca gần trong lịch → không quá giờ ca gần + 60p.
                 //  - Không có ca gần → chặn ở mức hợp lý tối đa 12h/ca (chắc chắn là dữ liệu lỗi).
@@ -2183,7 +2250,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // BONUS 10P cho unmatched session
                 b10DataU = bonus10Map[String(s.id)];
                 b10StatusU = b10DataU ? b10DataU.status : null;
-                if (b10StatusU === 'approved' || s.bonus10) {
+                if (_zeroedByDuplicate) {
+                    if (b10StatusU === 'approved' || s.bonus10 || b10StatusU === 'pending') {
+                        tooltip += ` | Không cộng thưởng 10p cho ca trùng giờ.`;
+                    }
+                } else if (b10StatusU === 'approved' || s.bonus10) {
                     if (early10PenaltyActive) {
                         label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
                         tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
