@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260805-trust-multiselect-v1'></script>
+    <script src='js/db-service.js?v=20260805-no-dup-session-v1'></script>
     <script src='js/evaluation-service.js?v=20260805-no-double-pay-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -353,12 +353,16 @@ window.approveAllEligible=async function(){
     const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick);
     if(!list.length)return;
     if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?\nCông sẽ được ghi vào Bảng Công.'))return;
-    let done=0;
+    let done=0; const skipped=[];
     for(const r of list){
         try{ await DBService.approveMakeupRequest(r,adminName()); done++ }
-        catch(e){ alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break }
+        catch(e){
+            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
+            alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
+        }
     }
-    alert('Đã duyệt '+done+'/'+list.length+' yêu cầu.');
+    alert('Đã duyệt '+done+'/'+list.length+' yêu cầu.'+
+        (skipped.length?'\nBỏ qua '+skipped.length+' mục trùng giờ với công đã có (ngày '+skipped.join(', ')+') — mở từng mục để tự quyết định.':''));
     loadTab(curTab); refreshPendingCount();
 };
 
@@ -366,7 +370,17 @@ window.approveOne=async function(id){
     const r=curReqs.find(x=>x.id===id); if(!r)return;
     if(!confirm('Duyệt yêu cầu của '+(r.staffName||'')+' ngày '+r.dateKey+'?\nCông sẽ được ghi vào Bảng Công.'))return;
     try{ await DBService.approveMakeupRequest(r,adminName()); loadTab(curTab); refreshPendingCount(); }
-    catch(e){ alert('Lỗi duyệt: '+(e.message||e)) }
+    catch(e){
+        // Ca trùng giờ với công đã có → hỏi lại thật rõ thay vì im lặng ghi thành lương đôi.
+        if(e&&e.code==='SESSION_OVERLAP'){
+            if(confirm('KHÔNG DUYỆT ĐƯỢC — '+e.message+'\n\nNhân viên chỉ bấm vào ca một lần, nên hai ca cùng giờ thường là dạy 2 lớp cùng lúc hoặc đã khai/duyệt trùng.\n\nVẫn duyệt và chấp nhận có 2 ca cùng khung giờ?')){
+                try{ await DBService.approveMakeupRequest(r,adminName(),{allowOverlap:true}); loadTab(curTab); refreshPendingCount(); }
+                catch(e2){ alert('Lỗi duyệt: '+(e2.message||e2)) }
+            }
+            return;
+        }
+        alert('Lỗi duyệt: '+(e.message||e));
+    }
 };
 
 window.rejectOne=async function(id){
@@ -379,10 +393,17 @@ window.rejectOne=async function(id){
 window.approveBatch=async function(bk){
     const reqs=curReqs.filter(r=>(r.batchId||r.id)===bk);
     if(!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?'))return;
+    // Duyệt hàng loạt KHÔNG được tự ghi đè ca trùng giờ — bỏ qua và báo lại để quản lý
+    // mở từng mục xem, tránh một cú bấm sinh ra lương đôi.
+    const skipped=[];
     for(const r of reqs){
         try{ await DBService.approveMakeupRequest(r,adminName()) }
-        catch(e){ alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break }
+        catch(e){
+            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
+            alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
+        }
     }
+    if(skipped.length)alert('Đã bỏ qua '+skipped.length+' yêu cầu trùng giờ với công đã có (ngày '+skipped.join(', ')+').\nMở từng mục để xem và tự quyết định.');
     loadTab(curTab); refreshPendingCount();
 };
 

@@ -4758,7 +4758,24 @@ async function saveEditedTime() {
     try {
         let finalSessionId = null;
         if (sessionIdRaw === 'NEW') {
-            finalSessionId = await DBService.addSession(staffId, dateKey, newData);
+            try {
+                finalSessionId = await DBService.addSession(staffId, dateKey, newData);
+            } catch (errAdd) {
+                // Ca mới trùng khung giờ ca đã có → hỏi lại, vì thêm là bảng công tính
+                // lương hai lần cho cùng một giờ làm (nhân viên chỉ bấm vào ca một lần).
+                if (errAdd && errAdd.code === 'SESSION_OVERLAP') {
+                    const goOn = confirm(
+                        'KHÔNG THÊM ĐƯỢC — ' + errAdd.message +
+                        '\n\nThường gặp khi giáo viên dạy 2 lớp cùng một khung giờ: chỉ cần MỘT ca, ' +
+                        'chọn cả 2 môn trong ô "Môn học" của ca đó.' +
+                        '\n\nVẫn thêm ca thứ hai cùng khung giờ?'
+                    );
+                    if (!goOn) return;
+                    finalSessionId = await DBService.addSession(staffId, dateKey, newData, { allowOverlap: true });
+                } else {
+                    throw errAdd;
+                }
+            }
             // Send notification to staff
             await DBService.createAdminNotification(
                 staffId, staffName, 'add_session', dateKey,

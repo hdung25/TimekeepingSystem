@@ -1622,7 +1622,11 @@ const DBService = {
     },
 
     // 7.2 Generic Add Session (Admin)
-    addSession: async (userId, dateKey, sessionData) => {
+    // options.allowOverlap = true → cố tình thêm dù trùng giờ (người duyệt đã xác nhận).
+    // Mặc định CHẶN: nhân viên chỉ bấm vào ca một lần, nên hai ca cùng khung giờ luôn là
+    // do thêm tay/duyệt chấm bù hai lần cho hai lớp dạy cùng giờ → bảng công tính lương
+    // đôi. Chặn ngay từ lúc ghi rẻ hơn nhiều so với đi dò lại bảng lương cuối tháng.
+    addSession: async (userId, dateKey, sessionData, options = {}) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
@@ -1648,6 +1652,32 @@ const DBService = {
 
                 // Helper to get Start Time from ISO or legacy
                 const newStart = sessionData.checkIn || sessionData.start || new Date().toISOString();
+
+                // === CHẶN CA TRÙNG GIỜ ===
+                if (!options.allowOverlap && !sessionData.isAbsent && sessionData.checkOut) {
+                    const a1 = new Date(newStart).getTime();
+                    const a2 = new Date(sessionData.checkOut).getTime();
+                    const clash = data.sessions.find(x => {
+                        if (!x || x.isAbsent || !(x.checkIn || x.start)) return false;
+                        const b1 = new Date(x.checkIn || x.start).getTime();
+                        const b2 = x.checkOut ? new Date(x.checkOut).getTime() : b1;
+                        // Chồng nhau từ 10 phút trở lên mới coi là trùng (tránh bắt lỗi ca
+                        // nối tiếp lệch một hai phút).
+                        return Math.min(a2, b2) - Math.max(a1, b1) >= 10 * 60 * 1000;
+                    });
+                    if (clash) {
+                        const fmt = (iso) => iso
+                            ? new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                            : '??:??';
+                        const err = new Error(
+                            `Ngày ${dateKey} đã có ca ${fmt(clash.checkIn || clash.start)}–${fmt(clash.checkOut)} ` +
+                            `trùng khung giờ này. Thêm nữa là bảng công tính lương hai lần cho cùng một giờ làm.`
+                        );
+                        err.code = 'SESSION_OVERLAP';
+                        err.clash = clash;
+                        throw err;
+                    }
+                }
 
                 const newSession = {
                     id: Date.now(),
@@ -1925,7 +1955,9 @@ const DBService = {
         } catch (e) { console.error('[Makeup] get by status:', e); return []; }
     },
 
-    approveMakeupRequest: async (req, adminName) => {
+    // options.allowOverlap = true → quản lý đã xem cảnh báo "đã có công trùng giờ" và
+    // vẫn quyết định duyệt. Mặc định chặn để một lần bấm nhầm không thành lương đôi.
+    approveMakeupRequest: async (req, adminName, options = {}) => {
         const s = req.session || {};
         const sessionData = {
             checkIn: s.checkIn || null,
@@ -1949,7 +1981,9 @@ const DBService = {
         if (req.branch) sessionData.branch = req.branch;
         if (req.className) sessionData.className = req.className;
         if (req.room) sessionData.room = req.room;
-        const sid = await DBService.addSession(req.staffId, req.dateKey, sessionData);
+        const sid = await DBService.addSession(req.staffId, req.dateKey, sessionData, {
+            allowOverlap: !!options.allowOverlap
+        });
 
         if (s.overtimeMinutes > 0) {
             const h = Math.floor(s.overtimeMinutes / 60), m = s.overtimeMinutes % 60;

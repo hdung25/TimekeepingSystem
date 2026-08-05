@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node salary-breakdown.test.js && node early10.test.js && node evaluation-service.test.js && node auto-checkout.test.js",
+    "test": "node salary-breakdown.test.js && node early10.test.js && node evaluation-service.test.js && node auto-checkout.test.js && node add-session-overlap.test.js",
     "test:salary": "node salary-breakdown.test.js && node early10.test.js"
   },
   "keywords": [],
