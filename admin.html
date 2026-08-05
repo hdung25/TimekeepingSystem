@@ -224,6 +224,20 @@
 
             <!-- TAB 2: MAINTENANCE (NEW) -->
             <div id="tab-maintenance" class="tab-section" style="display: none;">
+                <!-- Dọn hậu quả lỗi ghi chú lộn người (lỗi đã vá 05/08/2026, nhưng dữ liệu
+                     ghi sai trước đó thì phải dọn tay vì không biết ai là chủ thật) -->
+                <div class="glass-panel" style="padding: 2rem; max-width: 800px; margin-bottom: 1.5rem;">
+                    <h2 style="margin-bottom: 1rem; color: var(--secondary-color);">Ghi Chú Ngày Bị Lộn Người</h2>
+                    <p style="color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.7;">
+                        Trước ngày 05/08/2026, lưu ghi chú trong Bảng Công có thể chép nhầm ghi chú
+                        của người vừa xem sang người đang chọn. Lỗi đã được sửa, nhưng ghi chú đã ghi
+                        sai thì phải dọn tay. Công cụ này quét ra những ghi chú <b>giống hệt nhau đang
+                        nằm ở nhiều người</b> để chị xóa khỏi người không phải chủ.
+                    </p>
+                    <button class="btn btn-primary" onclick="NoteRepair.scan()">Quét ghi chú trùng người</button>
+                    <div id="note-repair-result" style="display: none; margin-top: 1.25rem;"></div>
+                </div>
+
                 <div class="glass-panel" style="padding: 2rem; max-width: 800px;">
                     <h2 style="margin-bottom: 1rem; color: var(--secondary-color);">Dọn Dẹp & Lưu Trữ Dữ Liệu</h2>
                     <p style="color: var(--text-muted); margin-bottom: 2rem;">
@@ -917,6 +931,7 @@
     </div>
     <script src="js/ui-service.js?v=20260803-early10-v1"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
+    <script src="js/note-repair.js?v=20260805-note-owner-fix-v1"></script> <!-- Dọn ghi chú lộn người -->
     <script src="js/analytics.js"></script> <!-- Charts -->
     <script src="js/main.js?v=20260805-trust-multiselect-v1"></script>
     <!-- Safe UI Animations -->
