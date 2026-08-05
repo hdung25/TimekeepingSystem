@@ -25,10 +25,16 @@ const context = {
     // Trong test phải stub lại, nếu không calculateDailyChips ném ReferenceError.
     isScheduledMainTeacher: (cls, id) =>
         cls.gvId === id || (cls.gvList || []).some(g => g.id === id),
+    // Trang xếp lịch ghi danh sách GV thay thế ở gvThayTeList (bản mới) hoặc gvThayTheList
+    // (bản cũ) — db-service đọc CẢ HAI. Stub phải giống hệt, nếu không test dựng dữ liệu
+    // theo tên trường thật lại lặng lẽ không nhận ra GV dạy thay.
     isScheduledSubstitute: (cls, id) =>
-        cls.gvThayTheId === id || (cls.gvThayTheList || []).some(g => g.id === id),
+        cls.gvThayTheId === id || cls.gvThayTeId === id ||
+        (cls.gvThayTheList || []).some(g => g.id === id) ||
+        (cls.gvThayTeList || []).some(g => g.id === id),
     hasScheduledSubstitute: cls =>
-        !!cls.gvThayTheId || (cls.gvThayTheList || []).length > 0
+        !!cls.gvThayTheId || !!cls.gvThayTeId ||
+        (cls.gvThayTheList || []).length > 0 || (cls.gvThayTeList || []).length > 0
 };
 vm.createContext(context);
 vm.runInContext(source, context);
@@ -290,8 +296,15 @@ function observation(lateMinutes) {
 }
 
 {
-    // Một phiên 15:30–21:00 đã dùng cho ca 15:30–17:00 không được tiếp tục
-    // che mất trạng thái vắng của hai ca tối sau khoảng nghỉ 17:00–18:00.
+    // QUY TẮC GIÁM ĐỐC (06/08/2026): CHẤM CÔNG LÀ SỰ THẬT.
+    // "Các ghi nhận ca thực tế tốt hơn nhiều so với ghi chú, vì ca thực tế do chính nhân
+    // viên chấm công." Nên một phiên 15:30–21:00 đã dùng cho ca 15:30–17:00 VẪN được dùng
+    // tiếp cho các ca tối 18:00–21:00: người ta có mặt suốt khoảng đó, không được báo Vắng
+    // và cắt công. (Trước đây quy tắc ngược lại — phiên dùng rồi là khoá — nên thầy Quân
+    // ngày 04/08 bị mất 1h30 và bị in chip Vắng cho ca tối mà thầy có dạy.)
+    // Chống tính hai lần vẫn còn nguyên: chỉ chặn khi ca mới CHỒNG khung giờ đã tính.
+    // Phiên chạy dài vô lý cũng không còn sinh ra nữa vì mốc tự ra ca đã cắt theo mạch
+    // làm việc liền nhau — xem auto-checkout.test.js.
     const separatedSchedule = {
         afternoon1: [{
             start: '15:30',
@@ -339,9 +352,45 @@ function observation(lateMinutes) {
         user
     );
 
-    assert.equal(chips.length, 2);
-    assert.equal(chips.filter(chip => chip.paidMinutes > 0).length, 1);
-    assert.ok(chips.some(chip => chip.paidMinutes === 0 && /\(V\)/.test(chip.text)));
+    // Ca chiều 15:30–17:00 (90p) + chuỗi ca tối 18:00–21:00 (180p) đều được tính.
+    assert.equal(chips.length, 2, 'hai chip: ca chiều và chuỗi ca tối');
+    assert.equal(chips.filter(chip => chip.paidMinutes > 0).length, 2,
+        'cả hai ca đều được tính công vì phiên chấm công phủ suốt');
+    assert.ok(!chips.some(chip => /\(V\)/.test(chip.text)),
+        'không được in chip Vắng khi nhân viên đang có mặt theo chấm công');
+    assert.equal(chips.reduce((sum, c) => sum + c.paidMinutes, 0), 90 + 180);
+}
+
+{
+    // CA THẬT 04/08 của thầy Vũ Lê Anh Quân: vào ca MỘT LẦN 14:52–21:02, phủ cả lớp
+    // Tin Học 15:00–16:30 (dạy thay thầy Dũng) lẫn chuỗi 18:00–21:00. Cả hai phải được
+    // tính; không ca nào bị báo Vắng.
+    const QUAN = staffId;
+    const day = '2026-07-14';
+    const mk = (start, end, lop, extra) => Object.assign({
+        start, end, lop, lopId: 'sub-' + lop, registeredTeachers: [],
+        _branch: 'cs1', _compositeKey: 'cs1__' + day, _originalIndex: 0
+    }, extra || {});
+    const sched = {
+        afternoon2: [mk('15:00', '16:30', 'Tin Học', { gvId: 'gv-dung', gvThayTeList: [{ id: QUAN }] })],
+        evening1: [mk('18:00', '19:30', 'Mover 4', { gvId: QUAN })],
+        evening2: [
+            mk('19:30', '21:00', 'E4', { gvId: QUAN, gvThayTeList: [{ id: 'gv-kieumy' }] }),
+            mk('19:30', '21:00', 'B1', { gvId: 'gv-nhan', gvThayTeList: [{ id: QUAN }] })
+        ]
+    };
+    const chips = context.window.calculateDailyChips(
+        sched,
+        [{ id: 'one-checkin', checkIn: `${day}T14:52:00`, checkOut: `${day}T21:02:00` }],
+        QUAN, day, user
+    );
+    const total = chips.reduce((s, c) => s + (c.paidMinutes || 0), 0);
+    assert.ok(chips.some(c => c.classStart === '15:00' && c.paidMinutes === 90),
+        'lớp dạy thay Tin Học phải được tính 1h30');
+    assert.ok(chips.some(c => c.classStart === '18:00' && c.paidMinutes === 180),
+        'chuỗi ca tối 18:00–21:00 vẫn được tính đủ 3h');
+    assert.ok(!chips.some(c => /\(V\)/.test(c.text)), 'không có ca nào bị báo Vắng');
+    assert.equal(total, 90 + 180, 'tổng 4h30 — một lần vào ca, hai khối ca rời nhau');
 }
 
 {

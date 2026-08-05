@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v102-no-false-absent';
+const CACHE_NAME = 'tdt-chamcong-v103-attendance-is-truth';
 
 const STATIC_ASSETS = [
     '/',
@@ -24,7 +24,7 @@ const STATIC_ASSETS = [
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260805-group10p-fix-v1',
     '/js/report.js?v=20260805-note-owner-fix-v1',
-    '/js/evaluation-service.js?v=20260805-no-double-pay-v1',
+    '/js/evaluation-service.js?v=20260806-attendance-is-truth-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260803-early10-v1',
     '/js/early10.js?v=20260803-early10-v1',

@@ -412,6 +412,37 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const chips = [];
     const usedSessionIdsTeaching = new Set();
+
+    // MỘT LẦN VÀO CA CÓ THỂ PHỦ NHIỀU CA DẠY RỜI NHAU.
+    // Nhân viên chỉ bấm vào ca một lần rồi ở lại trung tâm: phiên 14:52–21:02 phủ cả lớp
+    // 15:00–16:30 lẫn chuỗi 18:00–21:00. Trước đây phiên đã dùng cho một ca là bị khoá
+    // hẳn, nên ca sau không tìm được phiên nào → bị in chip "Vắng" và mất công, dù người
+    // ta có mặt suốt. Nay ghi lại ĐÚNG những khung giờ mà phiên đã được tính, và chỉ chặn
+    // khi ca mới CHỒNG lên khung đã tính (chống tính lương hai lần cho cùng một giờ).
+    const _sessionClaimedRanges = {}; // sessionId -> [{ from: ms, to: ms }]
+
+    const _claimSessionRange = (sessionId, from, to) => {
+        if (sessionId == null || !from || !to) return;
+        const a = from.getTime ? from.getTime() : from;
+        const b = to.getTime ? to.getTime() : to;
+        if (!(b > a)) return;
+        const key = String(sessionId);
+        (_sessionClaimedRanges[key] = _sessionClaimedRanges[key] || []).push({ from: a, to: b });
+    };
+
+    // Phiên này còn rảnh cho khung giờ [from,to) không? (chưa từng được tính cho khung đó)
+    const _sessionFreeFor = (sessionId, from, to) => {
+        const list = _sessionClaimedRanges[String(sessionId)];
+        if (!list || list.length === 0) return true;
+        if (!from || !to) return false;
+        const a = from.getTime ? from.getTime() : from;
+        const b = to.getTime ? to.getTime() : to;
+        return !list.some(r => Math.min(b, r.to) - Math.max(a, r.from) >= 10 * 60 * 1000);
+    };
+
+    // Phiên đã dùng cho ca dạy khác nhưng KHÔNG chồng khung giờ ca đang xét → vẫn dùng được.
+    const _sessionBlockedForClass = (sessionId, from, to) =>
+        usedSessionIdsTeaching.has(sessionId) && !_sessionFreeFor(sessionId, from, to);
     const usedSessionIdsReceptionist = new Set();
     const teachingMinutesMap = {}; // sessionId -> total teaching minutes
     const teachingSessionsMap = {}; // sessionId -> array of teaching shifts {start, end, paidMinutes}
@@ -790,13 +821,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const _chainStartDates = [..._chainStarts].map(_toClassDate);
 
             let matchedSession = attendanceSessions.find(s => {
-                if (usedSessionIdsTeaching.has(s.id)) return false;
+                if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return false;
                 return s.linkedClassStart && _chainStarts.has(s.linkedClassStart);
             });
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
-                    if (usedSessionIdsTeaching.has(s.id)) return false;
+                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return false;
                     if (_hasLiveClassLink(s)) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
@@ -808,7 +839,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
-                    if (usedSessionIdsTeaching.has(s.id)) return false;
+                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return false;
                     if (_hasLiveClassLink(s)) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
@@ -824,7 +855,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Gom các phiên còn lại thuộc cùng chuỗi ca. Trước đây các phiên này bị
                 // đánh dấu "đã dùng" nhưng phút làm chỉ lấy từ phiên đầu, làm mất công ca 2.
                 attendanceSessions.forEach(s => {
-                    if (usedSessionIdsTeaching.has(s.id)) return;
+                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return;
                     if (_matchedTeachingSessions.some(item => item.id === s.id)) return;
                     if (s.isAbsent) return;
                     if (_hasLiveClassLink(s) && !_chainStarts.has(s.linkedClassStart)) return;
@@ -1260,6 +1291,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Track teaching minutes and shifts details for subtracting from receptionist time (Issue 1)
                 if (minutes > 0) {
                     _addPaidClockRange(_paidFrom, _paidTo, matchedSession.id);
+                    // Đánh dấu ĐÚNG khung giờ mà phiên vừa được tính, để ca dạy khác trong
+                    // ngày vẫn dùng lại được phiên này nếu không chồng giờ.
+                    (matchedSession._combinedSessionIds || [matchedSession.id]).forEach(sid =>
+                        _claimSessionRange(sid, _paidFrom || schedStart, _paidTo || schedEnd));
                     if (!teachingMinutesMap[matchedSession.id]) {
                         teachingMinutesMap[matchedSession.id] = 0;
                         teachingSessionsMap[matchedSession.id] = [];
@@ -1370,7 +1405,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // đang dạy/hỗ trợ lớp khác. Nếu không, một phiên 15:30–21:00 đã
                     // thuộc ca 15:30 sẽ che sai các ca tối sau khoảng nghỉ.
                     const availableWorkSessions = attendanceSessions.filter(
-                        session => !usedSessionIdsTeaching.has(session.id)
+                        session => !_sessionBlockedForClass(session.id, schedStart, schedEnd)
                     );
                     if (hasOverlappingWorkSession(availableWorkSessions, dateStr, cls.start, cls.end)) return;
                     chips.push({
