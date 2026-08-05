@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v101-note-repair-tool';
+const CACHE_NAME = 'tdt-chamcong-v102-no-false-absent';
 
 const STATIC_ASSETS = [
     '/',
@@ -34,7 +34,7 @@ const STATIC_ASSETS = [
     '/js/chart-service.js',
     '/js/analytics.js',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260803-early10-v1',
+    '/js/schedule.js?v=20260806-no-false-absent-v1',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260628-class-closure-specific',
     '/images/TUDUYTRE.jpg',

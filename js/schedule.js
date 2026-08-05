@@ -934,7 +934,7 @@ window.saveGVPickerResult = async function (compositeKey, caType, index, fieldTy
     await DBService.saveSchedule(compositeKey, dayData);
 
     if (autoAbsenceInfo) {
-        const marked = await autoMarkAbsenceForMainTeachers(dayData[caType][index], autoAbsenceInfo);
+        const marked = await autoMarkAbsenceForMainTeachers(dayData[caType][index], autoAbsenceInfo, dayData);
         if (marked.length > 0) {
             const label = marked[0].type === 'VP' ? 'Vắng phép' : 'Vắng đột xuất';
             const msg = `Đã tự đánh dấu "${label}" cho ${marked.map(m => m.name).join(', ')}`;
@@ -1182,9 +1182,60 @@ function formatLeadTime(leadMinutes) {
     return leadMinutes >= 0 ? `báo trước ${txt}` : `báo trễ ${txt} sau giờ vào ca`;
 }
 
+// ===== KHÔNG ĐÁNH VẮNG NGƯỜI ĐANG ĐI LÀM (quy tắc Giám đốc: một giờ một lớp) =====
+// Ca có GV thay thế KHÔNG đồng nghĩa GV chính nghỉ. Kiểu hay gặp nhất là ĐỔI LỚP: lớp của
+// thầy A được người khác dạy vì cùng khung giờ đó thầy A được mượn sang dạy lớp khác.
+// Trước đây hệ thống cứ thấy có người dạy thay là ghi "Vắng đột xuất" vào ghi chú ngày —
+// mà ghi chú ngày chính là nguồn phân loại vắng phép/đột xuất khi tính lương.
+
+function _hmToMinutes(t) {
+    const p = String(t || '').split(':');
+    const h = Number(p[0]), m = Number(p[1]);
+    return (isNaN(h) || isNaN(m)) ? null : h * 60 + m;
+}
+
+function _windowsOverlap(aStart, aEnd, bStart, bEnd) {
+    const a1 = _hmToMinutes(aStart), a2 = _hmToMinutes(aEnd);
+    const b1 = _hmToMinutes(bStart), b2 = _hmToMinutes(bEnd);
+    if ([a1, a2, b1, b2].some(v => v === null)) return false;
+    return a1 < b2 && b1 < a2;
+}
+
+// GV này có được xếp DẠY THAY một lớp khác trùng khung giờ không? Biết ngay lúc xếp lịch,
+// không cần chờ tới giờ chấm công.
+function isTeacherCoveringElsewhere(dayData, teacherId, start, end) {
+    if (!dayData || !teacherId) return false;
+    const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+    return sections.some(sec => (dayData[sec] || []).some(r => {
+        if (!r || !r.start || !r.end) return false;
+        if (!_windowsOverlap(start, end, r.start, r.end)) return false;
+        return getGVList(r, 'gvThayTe').some(g => g.id === teacherId);
+    }));
+}
+
+// GV này có chấm công phủ lên khung giờ đó không (đi làm thật)?
+async function teacherWorkedDuring(teacherId, dateKey, start, end) {
+    const s = _hmToMinutes(start), e = _hmToMinutes(end);
+    if (s === null || e === null) return false;
+    let rec = null;
+    try { rec = await DBService.getPersonalAttendance(dateKey, teacherId); } catch (err) { return false; }
+    const sessions = (rec && rec.sessions) || [];
+    return sessions.some(x => {
+        if (!x || x.isAbsent) return false;
+        const ci = x.checkIn || x.start;
+        if (!ci) return false;
+        const inD = new Date(ci);
+        const outD = x.checkOut ? new Date(x.checkOut) : null;
+        if (isNaN(inD.getTime())) return false;
+        const inMin = inD.getHours() * 60 + inD.getMinutes();
+        const outMin = outD && !isNaN(outD.getTime()) ? outD.getHours() * 60 + outD.getMinutes() : inMin;
+        return Math.min(e, outMin) - Math.max(s, inMin) >= 10; // phủ >= 10 phút
+    });
+}
+
 // Ghi đánh dấu vắng cho GV chính của ca vừa được xếp GV thay thế.
 // Chỉ ghi khi ghi chú ngày còn trống → không bao giờ đè lên đánh dấu/ghi chú đã có.
-async function autoMarkAbsenceForMainTeachers(row, info) {
+async function autoMarkAbsenceForMainTeachers(row, info, dayData) {
     const verdict = classifyAbsenceByLeadTime(info.dateKey, info.start, info.markedAt);
     if (!verdict) return [];
     const canonical = verdict.type === 'VP' ? 'Vắng phép' : 'Vắng đột xuất';
@@ -1194,6 +1245,10 @@ async function autoMarkAbsenceForMainTeachers(row, info) {
     for (const g of getGVList(row, 'gv')) {
         if (!g.id) continue;
         if (subIds.has(g.id)) continue; // vừa là GV chính vừa là người dạy thay → không vắng
+        // Đổi lớp: cùng giờ đó GV đang dạy thay lớp khác → đi làm, không phải vắng.
+        if (isTeacherCoveringElsewhere(dayData, g.id, info.start, row.end)) continue;
+        // Đã có chấm công phủ lên khung giờ đó → đi làm, không phải vắng.
+        if (await teacherWorkedDuring(g.id, info.dateKey, info.start, row.end)) continue;
         try {
             const notes = { ...(await DBService.getDailyNotes(g.id) || {}) };
             if ((notes[info.dateKey] || '').trim()) continue; // đã có ghi chú → giữ nguyên
@@ -1293,6 +1348,16 @@ window.openGVAbsenceModal = async function () {
             const notes = await DBService.getDailyNotes(t.id);
             noteText = (notes && notes[dateKey]) || '';
         } catch (e) { console.warn('Không đọc được ghi chú của', t.name, e); }
+
+        // Bỏ khỏi danh sách nghi vắng những ca mà GV thực tế ĐANG LÀM VIỆC: cùng giờ đó
+        // đang dạy thay lớp khác (đổi lớp), hoặc đã có chấm công phủ lên khung giờ.
+        const stillAbsent = [];
+        for (const s of (t.absentShifts || [])) {
+            if (isTeacherCoveringElsewhere(dayData, t.id, s.start, s.end)) continue;
+            if (await teacherWorkedDuring(t.id, dateKey, s.start, s.end)) continue;
+            stillAbsent.push(s);
+        }
+        t.absentShifts = stillAbsent;
 
         const suggestion = pickAbsenceSuggestion(t.absentShifts);
         if (!noteText.trim() && suggestion) {
