@@ -13,7 +13,7 @@
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
     <script src='js/db-service.js?v=20260806-payout-month-v1'></script>
-    <script src='js/evaluation-service.js?v=20260806-payout-month-v1'></script>
+    <script src='js/evaluation-service.js?v=20260806-concurrent-class-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -114,6 +114,23 @@ const DK_TT=['mon','tue','wed','thu','fri','sat','sun'];
 const dkOf=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const toMin=t=>{const p=String(t||'').split(':');return (+p[0]||0)*60+(+p[1]||0)};
 const hmOfIso=i=>{const d=new Date(i);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+// Ghép các ca CHỒNG hoặc DÍNH LIỀN nhau của cùng một người thành khối liền mạch, theo
+// từng cơ sở. Dùng để nhận ra yêu cầu chấm bù gộp nhiều lớp cùng giờ ("Toán 6 + Toán 7")
+// hay gộp chuỗi ca liền nhau — những khung giờ không khớp đúng một dòng lịch đơn lẻ nào.
+function mergeSpans(rows){
+    const byBranch={};
+    (rows||[]).forEach(x=>{ if(x&&x.start&&x.end)(byBranch[x.branch||'']=byBranch[x.branch||'']||[]).push(x) });
+    const out=[];
+    Object.keys(byBranch).forEach(b=>{
+        const list=byBranch[b].slice().sort((a,c)=>toMin(a.start)-toMin(c.start));
+        let cur=null;
+        list.forEach(x=>{
+            if(cur&&toMin(x.start)<=toMin(cur.end)){ if(toMin(x.end)>toMin(cur.end))cur.end=x.end; return }
+            cur={branch:b,start:x.start,end:x.end}; out.push(cur);
+        });
+    });
+    return out;
+}
 
 // DIỆN TIN TƯỞNG (xếp ở trang Nhân Sự). Chỉ người thuộc diện này mới được gom vào nút
 // "Duyệt hàng loạt". Người chưa xếp diện: dù đối chiếu khớp lịch vẫn phải để Quản trị viên /
@@ -208,11 +225,34 @@ async function buildVerdicts(reqs){
                 });
             }
 
+            // 1b) Trùng giờ với một yêu cầu KHÁC cũng đang chờ duyệt (nhân viên tách hai
+            // lớp dạy song song thành hai đơn) → chỉ được duyệt một, không phải cả hai.
+            let twinReq=null;
+            if(s.checkIn&&s.checkOut&&!overlapped){
+                const a1=new Date(s.checkIn).getTime(),a2=new Date(s.checkOut).getTime();
+                twinReq=group.find(o=>{
+                    if(o.id===r.id||o.dateKey!==r.dateKey)return false;
+                    const os=o.session||{};
+                    if(!os.checkIn||os.isAbsent)return false;
+                    const b1=new Date(os.checkIn).getTime();
+                    const b2=os.checkOut?new Date(os.checkOut).getTime():b1;
+                    return Math.min(a2,b2)-Math.max(a1,b1)>=10*60*1000;
+                })||null;
+            }
+
             // 2) Ca có thật trên lịch và đúng người không?
             const startHM=s.checkIn?hmOfIso(s.checkIn):'',endHM=s.checkOut?hmOfIso(s.checkOut):'';
             const rows=schedByDate[r.dateKey]||[],rsh=recepByDate[r.dateKey]||[];
+            // Ca gộp nhiều lớp chồng giờ ("Toán 6 + Toán 7") không khớp đúng một dòng lịch
+            // nào, nên đối chiếu thêm với các KHỐI LIỀN MẠCH ghép từ lịch của chính người đó.
+            const myRows=rows.filter(x=>x.mine).concat(rsh);
+            const spans=mergeSpans(myRows);
+            const inSpan=!!(startHM&&endHM&&spans.some(sp=>
+                (!r.branch||!sp.branch||sp.branch===r.branch)&&
+                toMin(sp.start)<=toMin(startHM)&&toMin(endHM)<=toMin(sp.end)));
             const schedMatch=rows.find(x=>x.mine&&x.start===startHM&&x.end===endHM)||
-                             rsh.find(x=>x.start===startHM&&x.end===endHM);
+                             rsh.find(x=>x.start===startHM&&x.end===endHM)||
+                             (inSpan?{start:startHM,end:endHM,merged:true}:null);
             const anyClassAtTime=rows.some(x=>toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end));
 
             const trusted=trustedIds.has(String(r.staffId));
@@ -223,9 +263,16 @@ async function buildVerdicts(reqs){
             }else if(overlapped){
                 level='bad'; title='Đã có công trùng giờ';
                 reasons.push('Bảng công đã có ca chồng khung giờ này — duyệt sẽ tính lương 2 lần.');
+                reasons.push('Một người chỉ vào ca một lần: dạy 2 lớp cùng giờ vẫn là MỘT ca công, Bảng Công gộp thành một ô và trả theo lớp đơn giá cao nhất. Nếu ca đã có ghi thiếu lớp thì sửa tên lớp ở Bảng Công, đừng duyệt thêm ca.');
+            }else if(twinReq){
+                level='bad'; title='Trùng giờ với yêu cầu khác trong nhóm';
+                reasons.push('Yêu cầu này chồng khung giờ với yêu cầu ngày '+twinReq.dateKey+' ("'+(twinReq.shiftLabel||'')+'") cũng đang chờ duyệt.');
+                reasons.push('Nhân viên chỉ vào ca một lần nên hai lớp cùng giờ phải gộp thành MỘT ca công — chỉ duyệt một mục, mục còn lại từ chối và ghi rõ lý do (đã gộp).');
             }else if(r.type==='scheduled'&&schedMatch){
                 level='ok';
-                reasons.push('Ca có trên lịch, đúng người, và chưa được ghi nhận công nào.');
+                reasons.push(schedMatch.merged
+                    ? 'Khung giờ này nằm trọn trong khối ca liên tục của nhân viên trên lịch (ca gộp nhiều lớp / chuỗi ca liền nhau), và chưa được ghi nhận công nào.'
+                    : 'Ca có trên lịch, đúng người, và chưa được ghi nhận công nào.');
                 if(trusted){
                     quick=true; title='Khớp lịch — đủ điều kiện duyệt nhanh';
                     reasons.push('Nhân viên thuộc diện tin tưởng nên nằm trong nhóm duyệt hàng loạt.');
@@ -352,18 +399,10 @@ window.loadTab=async function(tab){
 window.approveAllEligible=async function(){
     const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick);
     if(!list.length)return;
-    if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?\n\n'+
-        payoutSummary(list)+'\n\nGiờ công ghi vào Bảng Công đúng THÁNG DẠY; chỉ tiền là theo tháng nêu trên.'))return;
-    let done=0; const skipped=[];
-    for(const r of list){
-        try{ await DBService.approveMakeupRequest(r,adminName(),payoutFor(r)); done++ }
-        catch(e){
-            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
-            alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
-        }
-    }
-    alert('Đã duyệt '+done+'/'+list.length+' yêu cầu.'+
-        (skipped.length?'\nBỏ qua '+skipped.length+' mục trùng giờ với công đã có (ngày '+skipped.join(', ')+') — mở từng mục để tự quyết định.':''));
+    if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?'))return;
+    const pickPayout=askPayoutMonthBulk(list);
+    if(!pickPayout)return;
+    bulkReport(await runBulkApprove(list,pickPayout),list.length);
     loadTab(curTab); refreshPendingCount();
 };
 
@@ -398,8 +437,7 @@ const nextMonthOf=(dateKey)=>{
 // Đoán lỗi thuộc về ai, dựa vào lý do nhân viên khai. Chỉ là GỢI Ý — người duyệt đổi được.
 const guessCenterFault=(r)=>CENTER_FAULT_RE.test(stripTones((r&&r.reason)||''));
 
-// Tháng trả lương dùng cho DUYỆT HÀNG LOẠT: không hỏi từng mục, lấy theo gợi ý tự đoán.
-// Số lượng mỗi loại được nêu rõ ở hộp xác nhận trước khi chạy.
+// Gợi ý tự đoán tháng trả lương cho một mục (dùng làm mặc định, không phải quyết định).
 function payoutFor(r){
     const teachMonth=String(r.dateKey||'').slice(0,7);
     return guessCenterFault(r)
@@ -444,6 +482,63 @@ function askPayoutMonth(r){
         : { payoutMonth:next, payoutReason:'Nhân viên quên chấm công — trả tháng sau' };
 }
 
+// Duyệt hàng loạt cũng phải được CHỌN tháng trả lương như duyệt từng mục — trước đây
+// nó im lặng lấy theo gợi ý tự đoán, người duyệt không có đường sửa.
+// Trả về hàm map (r) => {payoutMonth,payoutReason} | null (bỏ qua mục đó),
+// hoặc null nếu người duyệt huỷ toàn bộ.
+function askPayoutMonthBulk(list){
+    const label=(mm)=>{const [y,m]=String(mm||'').split('-');return m?('tháng '+Number(m)+'/'+y):'?'};
+    const months=[...new Set(list.map(r=>String(r.dateKey||'').slice(0,7)).filter(Boolean))];
+    const one=months.length===1;
+    const teachLbl=one?label(months[0]):'tháng dạy của từng ca';
+    const nextLbl=one?label(nextMonthOf(list[0].dateKey)):'tháng liền sau của từng ca';
+    const sum=payoutSummary(list);
+    const ans=prompt(
+        'Duyệt '+list.length+' yêu cầu.\n\n'+
+        (sum?'Gợi ý tự đoán theo lý do nhân viên khai:\n'+sum+'\n\n':'')+
+        'Trả lương vào tháng nào?\n'+
+        '  1 = TẤT CẢ trả TRONG THÁNG DẠY ('+teachLbl+') — lỗi bên trung tâm\n'+
+        '  2 = TẤT CẢ trả THÁNG SAU ('+nextLbl+') — nhân viên quên chấm công\n'+
+        '  3 = Theo gợi ý tự đoán ở trên (mỗi ca một kiểu)\n'+
+        '  4 = Hỏi từng ca một\n\n'+
+        'Giờ công vẫn ghi vào Bảng Công đúng THÁNG DẠY trong mọi trường hợp; chỉ tiền là dồn sang tháng được chọn.',
+        '3'
+    );
+    if(ans===null)return null;
+    const pick=String(ans).trim();
+    if(!['1','2','3','4'].includes(pick)){ alert('Chỉ nhận 1, 2, 3 hoặc 4. Chưa duyệt gì cả.'); return null }
+    if(pick==='1')return r=>({payoutMonth:String(r.dateKey||'').slice(0,7),payoutReason:'Lỗi trung tâm — trả trong tháng'});
+    if(pick==='2')return r=>({payoutMonth:nextMonthOf(r.dateKey),payoutReason:'Nhân viên quên chấm công — trả tháng sau'});
+    if(pick==='3')return payoutFor;
+    return askPayoutMonth; // hỏi từng ca, huỷ ở ca nào thì bỏ qua ca đó
+}
+
+// Chạy vòng duyệt chung cho hai nút hàng loạt. Trả về bản tổng kết để báo lại.
+async function runBulkApprove(list,pickPayout){
+    const done=[],skipped=[],cancelled=[];
+    for(const r of list){
+        const payout=pickPayout(r);
+        if(!payout){ cancelled.push(r.dateKey); continue }
+        try{ await DBService.approveMakeupRequest(r,adminName(),payout); done.push(r.dateKey) }
+        catch(e){
+            // Duyệt hàng loạt KHÔNG được tự ghi đè ca trùng giờ — bỏ qua và báo lại để
+            // quản lý mở từng mục xem, tránh một cú bấm sinh ra lương đôi.
+            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
+            alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
+        }
+    }
+    return {done:done,skipped:skipped,cancelled:cancelled};
+}
+
+function bulkReport(res,total){
+    let m='Đã duyệt '+res.done.length+'/'+total+' yêu cầu.';
+    if(res.skipped.length)m+='\n\nBỏ qua '+res.skipped.length+' mục TRÙNG GIỜ với công đã có (ngày '+res.skipped.join(', ')+').'+
+        '\nMột người chỉ vào ca một lần — hai lớp cùng khung giờ là MỘT ca công, không duyệt thêm.'+
+        '\nMở từng mục để xem và tự quyết định.';
+    if(res.cancelled.length)m+='\n\nBỏ qua '+res.cancelled.length+' mục do chưa chọn tháng trả lương (ngày '+res.cancelled.join(', ')+').';
+    alert(m);
+}
+
 window.approveOne=async function(id){
     const r=curReqs.find(x=>x.id===id); if(!r)return;
     const payout=askPayoutMonth(r);
@@ -454,7 +549,11 @@ window.approveOne=async function(id){
     catch(e){
         // Ca trùng giờ với công đã có → hỏi lại thật rõ thay vì im lặng ghi thành lương đôi.
         if(e&&e.code==='SESSION_OVERLAP'){
-            if(confirm('KHÔNG DUYỆT ĐƯỢC — '+e.message+'\n\nNhân viên chỉ bấm vào ca một lần, nên hai ca cùng giờ thường là dạy 2 lớp cùng lúc hoặc đã khai/duyệt trùng.\n\nVẫn duyệt và chấp nhận có 2 ca cùng khung giờ?')){
+            if(confirm('KHÔNG DUYỆT ĐƯỢC — '+e.message+'\n\n'+
+                'Nhân viên chỉ bấm vào ca một lần. Dạy 2 lớp cùng khung giờ vẫn chỉ là MỘT ca công: '+
+                'Bảng Công gộp thành một ô (VD "Toán 6 + Toán 7") và trả theo lớp đơn giá cao nhất, '+
+                'không cộng thêm giờ. Trường hợp này nên TỪ CHỐI và sửa tên lớp của ca đã có.\n\n'+
+                'Chỉ chọn OK khi bạn chắc đây là hai ca làm việc KHÁC NHAU bị lệch giờ. Vẫn duyệt?')){
                 try{ await DBService.approveMakeupRequest(r,adminName(),Object.assign({allowOverlap:true},payout)); loadTab(curTab); refreshPendingCount(); }
                 catch(e2){ alert('Lỗi duyệt: '+(e2.message||e2)) }
             }
@@ -473,21 +572,37 @@ window.rejectOne=async function(id){
 
 window.approveBatch=async function(bk){
     const reqs=curReqs.filter(r=>(r.batchId||r.id)===bk);
-    if(!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?\n\n'+
-        payoutSummary(reqs)+'\n\nGiờ công ghi vào Bảng Công đúng THÁNG DẠY; chỉ tiền là theo tháng nêu trên.'))return;
-    // Duyệt hàng loạt KHÔNG được tự ghi đè ca trùng giờ — bỏ qua và báo lại để quản lý
-    // mở từng mục xem, tránh một cú bấm sinh ra lương đôi.
-    const skipped=[];
-    for(const r of reqs){
-        try{ await DBService.approveMakeupRequest(r,adminName(),payoutFor(r)) }
-        catch(e){
-            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
-            alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
-        }
-    }
-    if(skipped.length)alert('Đã bỏ qua '+skipped.length+' yêu cầu trùng giờ với công đã có (ngày '+skipped.join(', ')+').\nMở từng mục để xem và tự quyết định.');
+    if(!reqs.length)return;
+    // Cảnh báo trước khi hỏi tháng: nhóm có hai mục CHỒNG KHUNG GIỜ nhau thì chỉ một
+    // mục vào được Bảng Công — người kia là cùng một lần vào ca (dạy 2 lớp cùng giờ).
+    const clash=overlappingPairsIn(reqs);
+    if(clash.length&&!confirm('Nhóm này có '+clash.length+' cặp yêu cầu CHỒNG KHUNG GIỜ nhau (ngày '+
+        [...new Set(clash.map(c=>c.dateKey))].join(', ')+').\n\n'+
+        'Một người chỉ vào ca một lần, nên dạy 2 lớp cùng giờ chỉ tính MỘT ca công — Bảng Công gộp thành một ô và trả theo lớp đơn giá cao nhất.\n\n'+
+        'Duyệt tiếp sẽ chỉ ghi được một ca cho mỗi khung giờ, phần còn lại bị bỏ qua. Tiếp tục?'))return;
+    if(!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?'))return;
+    const pickPayout=askPayoutMonthBulk(reqs);
+    if(!pickPayout)return;
+    bulkReport(await runBulkApprove(reqs,pickPayout),reqs.length);
     loadTab(curTab); refreshPendingCount();
 };
+
+// Các mục trong cùng một nhóm mà chồng khung giờ nhau (≥10 phút) — dấu hiệu nhân viên
+// khai tách hai lớp dạy song song thành hai yêu cầu.
+function overlappingPairsIn(reqs){
+    const span=(r)=>{const s=r.session||{};
+        if(!s.checkIn||s.isAbsent)return null;
+        const a=new Date(s.checkIn).getTime();
+        return {a:a,b:s.checkOut?new Date(s.checkOut).getTime():a};};
+    const out=[];
+    for(let i=0;i<reqs.length;i++)for(let j=i+1;j<reqs.length;j++){
+        if(reqs[i].dateKey!==reqs[j].dateKey)continue;
+        const x=span(reqs[i]),y=span(reqs[j]);
+        if(!x||!y)continue;
+        if(Math.min(x.b,y.b)-Math.max(x.a,y.a)>=10*60*1000)out.push({dateKey:reqs[i].dateKey});
+    }
+    return out;
+}
 
 document.addEventListener('DOMContentLoaded',async function(){
     if(window.waitAuth){try{await window.waitAuth()}catch(e){}}

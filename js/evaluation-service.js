@@ -282,6 +282,12 @@ window.buildCrossRoleDaySegments = buildCrossRoleDaySegments;
 // Ghép trạng thái "đã chấm công" cho danh sách ca theo nguyên tắc một phiên chỉ
 // thuộc một chuỗi ca LIỀN KỀ. Phiên 15:30–21:00 đã ghép với ca 15:30–17:00
 // không được nhảy qua khoảng nghỉ 17:00–18:00 để che hai ca tối.
+//
+// NGOẠI LỆ (bắt buộc): hai lớp CHỒNG KHUNG GIỜ của cùng một người — ví dụ 1 GV ôm
+// Toán 6 và Toán 7 cùng 07:30–09:00 — chỉ có MỘT lần vào ca, nên một phiên phải che
+// được cả hai. Trước đây lớp thứ hai bị coi là "chưa chấm công" → nhân viên đi tạo
+// chấm công bù cho nó → duyệt vào là lương đôi (Bảng Công lại gộp hai lớp này thành
+// một ô "Toán 6+Toán 7" và chỉ trả một lần).
 // Trả về mảng boolean theo đúng thứ tự đầu vào.
 function matchScheduledShiftCoverage(shifts, attendanceSessions, dateStr) {
     const result = (Array.isArray(shifts) ? shifts : []).map(() => false);
@@ -315,7 +321,11 @@ function matchScheduledShiftCoverage(shifts, attendanceSessions, dateStr) {
                 checkIn,
                 checkOut,
                 used: false,
-                lastShiftEnd: null
+                lastShiftEnd: null,
+                // Khoảng thời gian đã được phiên này "nhận" (ms) — dùng để nhận ra lớp
+                // chồng giờ với ca đã ghép, tức là dạy song song chứ không phải ca mới.
+                coveredStart: null,
+                coveredEnd: null
             };
         })
         .filter(Boolean);
@@ -337,8 +347,18 @@ function matchScheduledShiftCoverage(shifts, attendanceSessions, dateStr) {
         const shiftEnd = toLocalDate(shift.end);
         if (!shiftStart || !shiftEnd || shiftEnd <= shiftStart) return;
 
-        // Một phiên đã nhận ca trước chỉ được đi tiếp nếu ca kế tiếp liền đúng mốc giờ.
+        // Lớp dạy SONG SONG: chồng khung giờ với phần phiên này đã nhận → cùng một lần
+        // vào ca, không phải ca mới. Xét trước để không bị lấy nhầm phiên khác.
         let state = sessionStates.find(item =>
+            item.used &&
+            item.coveredStart !== null &&
+            Math.min(item.coveredEnd, shiftEnd.getTime()) -
+            Math.max(item.coveredStart, shiftStart.getTime()) >= 10 * 60 * 1000 &&
+            overlapsEnough(item, shiftStart, shiftEnd)
+        );
+
+        // Một phiên đã nhận ca trước chỉ được đi tiếp nếu ca kế tiếp liền đúng mốc giờ.
+        if (!state) state = sessionStates.find(item =>
             item.used &&
             item.lastShiftEnd === shift.start &&
             (!item.checkOut || item.checkOut > shiftStart) &&
@@ -362,7 +382,14 @@ function matchScheduledShiftCoverage(shifts, attendanceSessions, dateStr) {
         if (!state) return;
         result[shift._inputIndex] = true;
         state.used = true;
-        state.lastShiftEnd = shift.end;
+        // Lớp song song kết thúc sớm hơn không được kéo lùi mốc nối ca.
+        if (!state.lastShiftEnd || String(shift.end) > state.lastShiftEnd) state.lastShiftEnd = shift.end;
+        state.coveredStart = state.coveredStart === null
+            ? shiftStart.getTime()
+            : Math.min(state.coveredStart, shiftStart.getTime());
+        state.coveredEnd = state.coveredEnd === null
+            ? shiftEnd.getTime()
+            : Math.max(state.coveredEnd, shiftEnd.getTime());
     });
 
     return result;

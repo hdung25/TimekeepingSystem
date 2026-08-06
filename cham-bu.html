@@ -13,7 +13,7 @@
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
     <script src='js/db-service.js?v=20260806-payout-month-v1'></script>
-    <script src='js/evaluation-service.js?v=20260806-payout-month-v1'></script>
+    <script src='js/evaluation-service.js?v=20260806-concurrent-class-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -192,6 +192,58 @@ const iso=(d,hm)=>new Date(d+'T'+hm+':00').toISOString();
 const dk=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const mins=(a,b)=>{const p1=a.split(':').map(Number),p2=b.split(':').map(Number);return (p2[0]*60+p2[1])-(p1[0]*60+p1[1])};
 const dur=n=>n>=60?(Math.floor(n/60)+'h'+(n%60?(n%60)+'p':'')):(n+'p');
+const ms=(k,hm)=>new Date(k+'T'+hm+':00').getTime();
+const OVERLAP_MIN=10*60*1000;
+
+// Một người chỉ vào ca MỘT LẦN. Hai lớp chồng khung giờ (VD: 1 GV ôm Toán 6 và Toán 7
+// cùng 07:30–09:00) vì thế là MỘT ca công, không phải hai — Bảng Công cũng gộp lại
+// thành một ô "Toán 6 + Toán 7" và chỉ trả một lần theo lớp đơn giá cao nhất.
+// Gộp ngay từ đây để nhân viên không tạo được 2 yêu cầu chấm bù cho cùng một khung giờ.
+function mergeConcurrentTeaching(shifts){
+    const out=[];
+    (shifts||[]).forEach(s=>{
+        // Chỉ gộp ca DẠY cùng cơ sở và cùng tình trạng vắng/không vắng. Ca tiếp tân giữ
+        // riêng vì ngày làm chéo được tính theo từng đoạn, không gộp cứng.
+        const host=s.kind==='gv'?out.find(o=>o.kind==='gv'&&o.branch===s.branch&&
+            (o.excuse||'')===(s.excuse||'')&&o.start<s.end&&s.start<o.end):null;
+        if(!host){ out.push({...s,parts:[s.label]}); return }
+        host.parts.push(s.label);
+        if(s.start<host.start)host.start=s.start;
+        if(s.end>host.end)host.end=s.end;
+    });
+    out.forEach(o=>{
+        const named=[...new Set(o.parts.filter(p=>String(p||'').trim()&&p!=='CHƯA CHỌN LỚP'))];
+        o.classNames=named;
+        o.label=named.length?named.join(' + '):'CHƯA CHỌN LỚP';
+        // Còn ít nhất một lớp có tên thì vẫn tính được lương → không chặn.
+        o.noSubject=o.kind==='gv'&&!named.length;
+        delete o.parts;
+    });
+    out.sort((a,b)=>a.start.localeCompare(b.start));
+    return out;
+}
+
+// Bảng Công đã có phiên chồng khung giờ này chưa? (cùng ngưỡng 10 phút với db-service)
+function attendanceOverlaps(sessions,aStart,aEnd){
+    return (sessions||[]).some(x=>{
+        if(!x||x.isAbsent||!(x.checkIn||x.start))return false;
+        const b1=new Date(x.checkIn||x.start).getTime();
+        const b2=x.checkOut?new Date(x.checkOut).getTime():b1;
+        return Math.min(aEnd,b2)-Math.max(aStart,b1)>=OVERLAP_MIN;
+    });
+}
+
+// Đã có yêu cầu chấm bù đang chờ duyệt phủ khung giờ này chưa?
+function anyPendingOverlaps(reqs,aStart,aEnd){
+    return (reqs||[]).some(r=>{
+        if(!r||r.status!=='pending')return false;
+        const s=r.session||{};
+        if(!s.checkIn)return false;
+        const b1=new Date(s.checkIn).getTime();
+        const b2=s.checkOut?new Date(s.checkOut).getTime():b1;
+        return Math.min(aEnd,b2)-Math.max(aStart,b1)>=OVERLAP_MIN;
+    });
+}
 
 window.switchMode=function(m){
     document.getElementById('m-sched').classList.toggle('on',m==='sched');
@@ -296,19 +348,25 @@ async function loadMonth(){
                 shifts.push({kind:'tt',branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:'Tiếp Tân ('+RS[sk].l+')',excuse:excuse});
             }));
             shifts.sort((a,b)=>a.start.localeCompare(b.start));
-            const coverage=window.matchScheduledShiftCoverage(shifts,sess,k);
+            const merged=mergeConcurrentTeaching(shifts);
+            const coverage=window.matchScheduledShiftCoverage(merged,sess,k);
             // Admin đã cập nhật ca thành "Vắng" → là vắng có xác nhận, không chấm bù được
             const adminAbsent=sess.some(s=>s&&s.isAbsent);
-            shifts.forEach((s,i)=>{
+            merged.forEach((s,i)=>{
                 s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
                 s.done=!!coverage[i];
-                s.pending=busy.has(s.lbl);
+                s.pending=busy.has(s.lbl)||anyPendingOverlaps(reqMap[k],ms(k,s.start),ms(k,s.end));
+                // Lưới an toàn: khung giờ này đã có công trong Bảng Công (dù ghép ca không
+                // nhận ra) thì tuyệt đối không mở chấm bù — duyệt vào là lương đôi.
+                if(!s.done&&attendanceOverlaps(sess,ms(k,s.start),ms(k,s.end))){
+                    s.done=true; s.coveredByOther=true;
+                }
                 if(!s.excuse&&adminAbsent&&!s.done)s.excuse='Đã ghi nhận Vắng (quản lý cập nhật)';
                 s.locked=!!s.excuse;
             });
-            if(shifts.length)monthMap[k]={shifts:shifts,
-                miss:shifts.filter(s=>!s.done&&!s.pending&&!s.locked).length,
-                pend:shifts.filter(s=>s.pending).length};
+            if(merged.length)monthMap[k]={shifts:merged,
+                miss:merged.filter(s=>!s.done&&!s.pending&&!s.locked).length,
+                pend:merged.filter(s=>s.pending).length};
         });
         renderCal();
     }catch(e){console.error(e);grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#EF4444;padding:1.2rem;font-size:.82rem">Lỗi tải lịch: '+esc(e.message||e)+'</div>'}
@@ -349,7 +407,9 @@ function renderDay(){
     const cards=info.shifts.map(function(s,i){
         const on=picked.has(i);
         let bdg,cls='',act='';
-        if(s.done){bdg='<span class="bdg b-g">Đã chấm công</span>';cls=' off'}
+        if(s.done){
+             bdg='<span class="bdg b-g">Đã chấm công</span>';cls=' off';
+             if(s.coveredByOther)act='<div class="warnbox" style="margin:0">Bảng Công đã có ca <b>chồng khung giờ</b> này rồi nên không cần chấm bù. Nếu bạn thấy thiếu lớp, báo quản lý sửa tên lớp của ca đã có — xin thêm một ca nữa sẽ thành tính công hai lần.</div>'}
         else if(s.pending){bdg='<span class="bdg b-i">Chờ duyệt</span>';cls=' off'}
         else if(s.locked){
              // Vắng đã có xác nhận (phép / đột xuất / quản lý cập nhật) → KHÔNG cho chấm bù
@@ -358,6 +418,11 @@ function renderDay(){
         else{bdg='<span class="bdg b-w">Chưa chấm công</span>';
              act='<button class="btn b-pick'+(on?' on':'')+'" onclick="togglePick('+i+')">'+(on?'Đã chọn':'Chọn chấm bù')+'</button>'}
         if(s.noSubject)act='<div class="warnbox" style="margin:0">Lịch ca này <b>chưa điền Môn/Lớp</b> nên hệ thống không tính được lương. Vui lòng báo người xếp lịch bổ sung trước khi xin chấm bù.</div>'+act;
+        // Nhiều lớp cùng khung giờ → nói rõ đây là MỘT ca công, tránh nhân viên thắc mắc
+        // sao không thấy lớp thứ hai để chọn riêng.
+        if((s.classNames||[]).length>1)act='<div class="note" style="margin:0 0 .6rem">'+
+            '<b>'+esc(s.classNames.length)+' lớp cùng khung giờ này</b>'+
+            esc(s.classNames.join(', '))+' — bạn chỉ vào ca một lần nên đây là <b>một ca công</b>, xin chấm bù một lần cho cả '+esc(s.classNames.length)+' lớp.</div>'+act;
         const letter=s.kind==='tt'?'T':String(s.label||'C').trim().charAt(0).toUpperCase();
         return '<div class="sc'+cls+(on?' pick':'')+'">'+
             '<div class="sc-t">'+s.start+'<small>'+s.end+'</small></div>'+
@@ -389,11 +454,16 @@ window.submitSched=async function(){
     const sel=[...picked].map(i=>info.shifts[i]);
     const blocked=sel.find(s=>s.locked);
     if(blocked){alert('Ca '+blocked.lbl+' đã được ghi nhận "'+blocked.excuse+'" nên không chấm bù được.');return}
+    const dup=sel.find(s=>s.done||s.pending);
+    if(dup){alert('Ca '+dup.lbl+' đã có công (hoặc đang chờ duyệt) trong khung giờ này nên không xin chấm bù thêm được.');return}
     if(!confirm('Gửi yêu cầu chấm bù '+sel.length+' ca ngày '+selDate+'?'))return;
     try{
         await DBService.createMakeupRequests(sel.map(function(s){return{
             staffId:uid(),staffName:uname(),type:'scheduled',dateKey:selDate,branch:s.branch,shiftLabel:s.lbl,
-            className:s.kind==='tt'?'':s.label, shiftStart:s.start, shiftEnd:s.end, shiftKind:s.kind,
+            className:s.kind==='tt'?'':s.label,
+            // Nhiều lớp cùng giờ → giữ danh sách để quản lý thấy rõ đây là 1 ca gộp
+            classNames:s.kind==='tt'?[]:(s.classNames||[]),
+            shiftStart:s.start, shiftEnd:s.end, shiftKind:s.kind,
             session:{checkIn:iso(selDate,s.start),checkOut:iso(selDate,s.end),
                      role:s.kind==='tt'?'tiep-tan':null,roleName:s.kind==='tt'?'Tiếp Tân':(s.label||null)},
             reason:reason}}));
