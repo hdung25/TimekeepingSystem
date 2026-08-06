@@ -159,23 +159,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bảng lương tháng ${Number(m)}/${y} - ${esc(staffName)}</title>
 <style>
+  /* Nền lệch nhẹ sang xanh cho ăn với màu emerald của trung tâm, không dùng xám trung tính.
+     Font dùng stack hệ thống — iPhone ra SF, Windows ra Segoe UI — để file mở offline được,
+     không phụ thuộc font tải từ mạng. */
+  :root{--ink:#111827;--mut:#5B6660;--line:#E4EAE7;--p:#047857;--paper:#F5F8F6}
   *{box-sizing:border-box}
-  body{margin:0;padding:18px;background:#F3F4F6;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#111827}
-  .sheet{max-width:900px;margin:0 auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 6px 24px rgba(0,0,0,.06)}
-  .hd{border-bottom:2px solid #E5E7EB;padding-bottom:14px;margin-bottom:16px}
-  .hd .co{font-size:.82rem;font-weight:700;color:#047857;text-transform:uppercase;letter-spacing:.04em}
-  .hd h1{margin:6px 0 10px;font-size:1.3rem;font-weight:800;color:#111827}
-  .meta{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:.85rem;color:#374151}
-  .meta b{color:#111827}
-  .tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:700;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD}
+  body{margin:0;padding:16px;background:var(--paper);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Roboto,sans-serif;
+       -webkit-text-size-adjust:100%}
+  .sheet{max-width:900px;margin:0 auto;background:#fff;border-radius:16px;padding:20px;
+         box-shadow:0 6px 24px rgba(6,60,40,.07)}
+  .hd{border-bottom:2px solid var(--line);padding-bottom:14px;margin-bottom:16px}
+  .hd .co{font-size:.72rem;font-weight:800;color:var(--p);text-transform:uppercase;letter-spacing:.09em;line-height:1.5}
+  .hd h1{margin:8px 0 12px;font-size:1.35rem;font-weight:800;letter-spacing:-.01em;text-wrap:balance}
+  /* Bảng nhãn/giá trị 2 cột — trên điện thoại nhãn tự co, giá trị không bị đẩy tràn */
+  .meta{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.85rem;color:var(--mut);align-items:baseline}
+  .meta dt{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+  .meta dd{margin:0;font-weight:700;color:var(--ink);min-width:0;overflow-wrap:anywhere}
+  .tagline{margin-top:12px}
+  .tag{display:inline-block;padding:4px 11px;border-radius:999px;font-size:.7rem;font-weight:800;
+       white-space:nowrap;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD}
   .tag.ok{background:#D1FAE5;color:#065F46;border-color:#6EE7B7}
-  .msg{margin-top:16px;padding:12px 14px;border-radius:12px;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;font-size:.88rem;line-height:1.55}
-  .ft{margin-top:16px;padding-top:12px;border-top:1px dashed #E5E7EB;font-size:.75rem;color:#9CA3AF;line-height:1.6}
+  .msg{margin-top:16px;padding:12px 14px;border-radius:12px;background:#FFFBEB;border:1px solid #FDE68A;
+       color:#92400E;font-size:.88rem;line-height:1.55}
+  .ft{margin-top:16px;padding-top:12px;border-top:1px dashed var(--line);font-size:.75rem;color:#9CA3AF;line-height:1.65}
   table{width:100%}
+  @media (max-width:620px){
+    body{padding:0}
+    .sheet{border-radius:0;padding:14px 12px 20px;box-shadow:none;max-width:none}
+    .hd h1{font-size:1.16rem;margin:6px 0 11px}
+    /* Giữ 2 cột nhãn/giá trị (nhãn ngắn nên vẫn vừa) — xếp dọc thì khối này cao gấp đôi
+       và đẩy bảng lương xuống quá xa, người xem phải cuộn mới thấy số tiền. */
+    .meta{grid-template-columns:auto 1fr;gap:5px 12px;font-size:.83rem}
+    .meta dt{font-size:.64rem}
+  }
   @media print{
     body{background:#fff;padding:0}
     .sheet{box-shadow:none;border-radius:0;max-width:none;padding:0}
-    .noprint{display:none}
+    .ft{color:#6B7280}
   }
   @page{size:A4;margin:12mm}
 </style>
@@ -185,19 +206,19 @@
   <div class="hd">
     <div class="co">${esc(companyName || 'Trung Tâm Ngoại Ngữ & Toán Tư Duy Trẻ')}</div>
     <h1>Bảng lương tháng ${Number(m)}/${y}</h1>
-    <div class="meta">
-      <span>Họ tên: <b>${esc(staffName)}</b></span>
-      <span>Tài khoản: <b>${esc(account || '—')}</b></span>
-      <span>MSNV: <b>${esc(msnv || '—')}</b></span>
-      <span>Vai trò: <b>${esc(roleLabel)}</b></span>
-      <span class="tag ${status === 'received' ? 'ok' : ''}">${esc(statusText)}</span>
-    </div>
+    <dl class="meta">
+      <dt>Họ tên</dt><dd>${esc(staffName)}</dd>
+      <dt>Tài khoản</dt><dd>${esc(account || '—')}</dd>
+      <dt>MSNV</dt><dd>${esc(msnv || '—')}</dd>
+      <dt>Vai trò</dt><dd>${esc(roleLabel)}</dd>
+    </dl>
+    <div class="tagline"><span class="tag ${status === 'received' ? 'ok' : ''}">${esc(statusText)}</span></div>
   </div>
   ${card}
   ${message ? `<div class="msg"><b>Nhắn gửi:</b> ${esc(message)}</div>` : ''}
   <div class="ft">
     File xuất từ Hệ Thống Chấm Công — nội dung lấy nguyên bản bảng lương đã gửi cho nhân viên tháng ${Number(m)}/${y}.<br>
-    Muốn lưu thành PDF: mở file này rồi bấm Ctrl+P → chọn "Save as PDF".
+    Muốn lưu thành PDF: mở file này rồi bấm Ctrl+P (điện thoại: Chia sẻ → In) → chọn "Save as PDF".
   </div>
 </div>
 </body>
@@ -267,14 +288,18 @@
                 const gvDetails = pub.details_gv || (pub.role !== 'tiep-tan' && pub.role !== 'dual' ? pub.details : null);
                 const ttDetails = pub.details_tt || (pub.role === 'tiep-tan' ? pub.details : null);
 
-                if (scope !== 'tiep-tan' && gvDetails) sides.push({ key: 'giao-vien', roleLabel: 'Giao Vien', roleShow: 'Giáo Viên / Trợ Giảng', details: gvDetails, status: gvStatus });
-                if (scope !== 'giao-vien' && ttDetails) sides.push({ key: 'tiep-tan', roleLabel: 'Tiep Tan', roleShow: 'Tiếp Tân', details: ttDetails, status: ttStatus });
+                // folder: mỗi bên vai trò một thư mục riêng trong file ZIP (yêu cầu GĐ 07/08/2026)
+                if (scope !== 'tiep-tan' && gvDetails) sides.push({ key: 'giao-vien', folder: 'Giao Vien', roleLabel: 'Giao Vien', roleShow: 'Giáo Viên / Trợ Giảng', details: gvDetails, status: gvStatus });
+                if (scope !== 'giao-vien' && ttDetails) sides.push({ key: 'tiep-tan', folder: 'Tiep Tan', roleLabel: 'Tiep Tan', roleShow: 'Tiếp Tân', details: ttDetails, status: ttStatus });
 
                 if (sides.length === 0) {
                     if (scope === 'all') skipped.push({ name: staffName, why: 'chưa tính lương bên nào' });
                     return;
                 }
 
+                // Đã có thư mục riêng cho từng bên nên tên file không cần đuôi vai trò nữa;
+                // chỉ giữ lại khi người này có cả 2 bên (để lỡ ai copy 2 file ra cùng một chỗ
+                // thì vẫn phân biệt được, không ghi đè nhau).
                 const withRole = sides.length > 1;
                 sides.forEach(side => {
                     if (!statusAllowed(side.status)) {
@@ -287,7 +312,7 @@
                     if (!details.staffName) details.staffName = staffName;
                     if (!details.employeeId) details.employeeId = String(account || '').toUpperCase();
 
-                    let name = buildFileName(monthStr, staffName, account, side.roleLabel, withRole);
+                    let name = side.folder + '/' + buildFileName(monthStr, staffName, account, side.roleLabel, withRole);
                     if (usedNames.has(name)) {
                         let n = 2;
                         const stem = name.replace(/\.html$/, '');
@@ -323,7 +348,14 @@
 
             setLabel(`Đang gói ${entries.length} file...`);
             entries.sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-            const blob = buildZip(entries);
+
+            // Khai báo thư mục thành entry riêng (tên kết thúc bằng "/", nội dung rỗng).
+            // Trình giải nén nào cũng tự tạo thư mục từ đường dẫn, nhưng khai rõ thì thư mục
+            // vẫn hiện đúng ngay cả khi một bên không có file nào.
+            const folders = [...new Set(entries.map(e => e.name.split('/')[0]))].sort();
+            const zipEntries = folders.map(f => ({ name: f + '/', text: '' })).concat(entries);
+
+            const blob = buildZip(zipEntries);
 
             const zipName = safeFilePart(`Bang luong thang ${month + 1}-${year}`) + '.zip';
             const url = URL.createObjectURL(blob);
@@ -339,7 +371,9 @@
 
             // Báo cáo đầy đủ — KHÔNG im lặng bỏ sót ai. UIService.notice tự escape HTML nên
             // ở đây truyền CHỮ THUẦN, chỉ dùng \n để xuống dòng.
-            let msg = `Đã xuất ${entries.length} file của ${peopleDone.size} nhân viên vào "${zipName}".`;
+            const perFolder = folders.map(f => `${f}: ${entries.filter(e => e.name.startsWith(f + '/')).length} file`).join(' · ');
+            let msg = `Đã xuất ${entries.length} file của ${peopleDone.size} nhân viên vào "${zipName}".\n`
+                    + `Chia thư mục — ${perFolder}.`;
             if (skipped.length) {
                 const show = skipped.slice(0, 12).map(s => `• ${s.name} — ${s.why}`).join('\n');
                 msg += `\n\nBỏ qua ${skipped.length} mục:\n${show}`;

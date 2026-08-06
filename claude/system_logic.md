@@ -529,6 +529,45 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 **Files:** `cham-bu.html`, `tuong-trinh.html` (viết lại), `bao-cao.html`, `js/report.js`, `js/db-service.js`, `js/chart-service.js`, `js/timekeeping.js`, `js/salary-bulk-export.js` (mới), `service-worker.js`, `js/main.js` (chỉ APP_VERSION).
 **Cache-bust:** `?v=20260807-multi-gv-bulk-v1`, `CACHE_NAME=tdt-chamcong-v105-multi-gv-bulk`, `APP_VERSION`, `EXPECTED` trong `bao-cao.html`.
 
+### 07/08/2026 — Bảng lương xem trên điện thoại + ZIP chia thư mục theo vai trò
+
+**Vấn đề:** mở bảng lương trên iPhone (cả trong app lẫn file xuất ra) thì **số tiền bị cắt mất**
+("886,333" hiện thành "886,333…"), tiêu đề thẻ xanh xuống dòng thành hình tròn, phải cuộn ngang.
+Nguyên nhân: `renderDetailedSalaryTable` là bảng 4 cột + ô "TIÊU CHÍ" `rowspan=10`, bề rộng tối thiểu
+vượt 375px; container chỉ `overflow-x:auto` nên người xem phải cuộn mới thấy tiền.
+
+**Cách sửa — sửa ở `renderDetailedSalaryTable` (`js/main.js`), một nguồn duy nhất**, nên cả trang
+nhân viên (`nhan-vien.html`) lẫn file ZIP xuất ra đều đẹp:
+- Gắn class ngữ nghĩa cho toàn bộ ô: `ps-k` (nhãn) · `ps-v` (tiền) · `ps-note` (ghi chú) ·
+  `ps-spine` (ô TIÊU CHÍ rowspan) · `ps-crit` / `ps-critblock` · dòng `ps-row-total` /
+  `ps-row-advance` / `ps-row-net`. **Kiểu inline trên từng ô giữ nguyên → bản máy tính không đổi.**
+- Thêm `PAYSLIP_CARD_CSS` (hằng số ở đầu file, được nhúng vào chuỗi HTML trả về; thẻ `<style>` chèn
+  qua `innerHTML` vẫn có hiệu lực — đã kiểm chứng).
+- `tabular-nums` cho mọi số tiền (áp dụng cả máy tính) → cột tiền thẳng hàng.
+- `@media (max-width:620px)`: bảng chuyển `display:block`, mỗi `tr` thành grid `1fr auto` — nhãn cột 1,
+  tiền cột 2 cùng hàng, ghi chú xuống dòng dưới (dùng `order` vì thứ tự ô gốc là nhãn→ghi chú→tiền,
+  để nguyên thì tiền rơi xuống dòng thứ ba). Ô TIÊU CHÍ xoay ngang thành dải tiêu đề nhóm.
+  `<br>` trong ô đó đổi thành `<span class="ps-w">` + `::before{content:" "}` để chữ không dính liền.
+- Ghi chú trống (chỉ có gạch ngang) bọc trong `NOTE_DASH` = `<span class="ps-dash">` và ẩn cả dòng
+  trên điện thoại qua `:has()` trong `@supports selector(:has(*))` — 7 dòng "—" liên tiếp nhìn rối.
+  Trình duyệt cũ không hiểu `:has()` thì vẫn hiện như trước, không lỗi.
+- Form Tiếp Tân: 2 dòng tiêu chí không có ô nhãn riêng (nhãn nằm chung ô ghi chú) nên đã đổi class
+  các ô đó thành `ps-k ps-critblock`, nếu không số tiền hiện **phía trên** nhãn.
+- Đầu thẻ xanh: `psc-head` xếp dọc trên điện thoại, `psc-badges` cho `white-space:nowrap` để
+  "Đã công bố" không bị bó thành hình tròn.
+- Vỏ file xuất (`salary-bulk-export.js`): nền lệch xanh `#F5F8F6`, stack font hệ thống (offline được),
+  khối thông tin đổi thành `<dl>` 2 cột (trước xếp dọc cao 167px đẩy bảng lương xuống quá xa → còn 83px),
+  thêm `@media print` + hướng dẫn in trên điện thoại.
+
+**ZIP chia thư mục** (`salary-bulk-export.js`): mỗi bên vai trò một thư mục — `Giao Vien/` và
+`Tiep Tan/`. Khai thêm entry thư mục (tên kết thúc `/`, 0 byte) để thư mục hiện đúng ở mọi trình
+giải nén. Hộp báo cáo cuối ghi rõ số file từng thư mục.
+
+**Đã đo trên 375px:** không tràn ngang, **0 ô tiền bị cắt**, mọi số hiện đủ; bản 1280px kiểm lại vẫn
+là bảng 4 cột với nhãn dọc như cũ.
+**Cache-bust:** `?v=20260807-payslip-mobile-v1` (main.js + salary-bulk-export.js),
+`CACHE_NAME=tdt-chamcong-v106-payslip-mobile`, `APP_VERSION`, `EXPECTED` trong `bao-cao.html`.
+
 ### 09/04/2026 — Feat: PDF theo vai trò (Tiếp Tân / Giáo Viên) + Nhắn gửi
 - **Tính năng mới:**
   1. **Auto-detect `salary-role-filter`:** Khi admin chọn nhân viên từ dropdown, hệ thống tự đọc `user.roles[]` và set filter: chỉ tiếp tân → `tiep-tan`, chỉ giáo viên → `giao-vien`, đa role → `all` (admin chọn tay).

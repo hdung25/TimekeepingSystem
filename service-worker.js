@@ -1,5 +1,5 @@
 // Service Worker v67 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v105-multi-gv-bulk';
+const CACHE_NAME = 'tdt-chamcong-v106-payslip-mobile';
 
 const STATIC_ASSETS = [
     '/',
@@ -20,7 +20,7 @@ const STATIC_ASSETS = [
     '/css/style.css?v=20260705-mobile-schedule-actions',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260717-gv-absence-v1',
-    '/js/main.js?v=20260805-trust-multiselect-v1',
+    '/js/main.js?v=20260807-payslip-mobile-v1',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260807-multi-gv-bulk-v1',
     '/js/report.js?v=20260807-multi-gv-bulk-v1',
@@ -37,7 +37,7 @@ const STATIC_ASSETS = [
     '/js/schedule.js?v=20260806-no-false-absent-v1',
     '/js/receptionist-schedule.js?v=20260628-gps-receptionist-persistence',
     '/js/timekeeping.js?v=20260807-multi-gv-bulk-v1',
-    '/js/salary-bulk-export.js?v=20260807-bulk-export-v1',
+    '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'
