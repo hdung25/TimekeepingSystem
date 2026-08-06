@@ -375,7 +375,19 @@ window.approveAllEligible=async function(){
 // (Viết regex có dấu rất dễ trượt vì tiếng Việt có cả ký tự dựng sẵn lẫn dấu tổ hợp.)
 const stripTones=(v)=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
     .replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
-const CENTER_FAULT_RE=/mat\s*mang|rot\s*mang|mang\s*(loi|chap chon|yeu)|mat\s*dien|cup\s*dien|sap\s*nguon|loi\s*(he\s*thong|phan\s*mem|web|app|may|server)|(web|app|he\s*thong|may)\s*loi|khong\s*(vao|truy\s*cap|dang\s*nhap|cham cong)\s*(duoc|dc)|bam\s*(vao\s*ca\s*)?bao\s*loi/;
+// Nhận diện "lỗi bên trung tâm" theo HAI VẾ: có nhắc tới THIẾT BỊ/HẠ TẦNG của trung tâm
+// và có nhắc tới SỰ CỐ. Không ép thứ tự chữ, vì người ta viết đủ kiểu: "mất mạng",
+// "wifi trung tâm bị lỗi", "web lỗi", "lỗi hệ thống", "máy hư"...
+// (Bản đầu bắt theo cụm cố định nên trượt "Wifi trung tâm bị lỗi" → đoán nhầm thành
+//  nhân viên quên và đẩy tiền sang tháng sau.)
+const CF_THING=/wifi|mang|internet|dien|nguon|he\s*thong|phan\s*mem|web|app|ung\s*dung|may|server|he\s*thong|trang\s*web/;
+const CF_TROUBLE=/loi|hong|hu|mat|rot|cup|sap|treo|do|chap\s*chon|yeu|khong\s*(vao|truy\s*cap|dang\s*nhap|cham\s*cong|bam)\s*(duoc|dc)|bao\s*loi|khong\s*len/;
+// Những câu tự nó đã nói lên là hệ thống không cho thao tác, khỏi cần nhắc thiết bị:
+// "không đăng nhập được", "bấm vào ca báo lỗi", "không lưu được"...
+const CF_ALONE=/khong\s*(dang\s*nhap|vao(\s*ca)?|truy\s*cap|cham\s*cong|bam|luu|check[\s-]*in|check[\s-]*out)\s*(duoc|dc)|bao\s*loi|khong\s*nhan\s*(duoc|dc)/;
+const CENTER_FAULT_RE={
+    test:(t)=>CF_ALONE.test(t)||(CF_THING.test(t)&&CF_TROUBLE.test(t))
+};
 
 const nextMonthOf=(dateKey)=>{
     const [y,m]=String(dateKey||'').split('-').map(Number);

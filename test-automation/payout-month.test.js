@@ -22,8 +22,8 @@ function cut(start) {
 }
 const stripLine = src.match(/const stripTones=[\s\S]*?;\n/);
 assert.ok(stripLine, 'không tìm thấy stripTones');
-const constLine = src.match(/const CENTER_FAULT_RE=[^\n]*\n/);
-assert.ok(constLine, 'không tìm thấy CENTER_FAULT_RE');
+const constLine = src.match(/const CF_THING=[\s\S]*?\n\};\n/);
+assert.ok(constLine, 'không tìm thấy CF_THING / CF_TROUBLE / CENTER_FAULT_RE');
 const arrow = src.match(/const nextMonthOf=\([\s\S]*?\n\};\n/);
 assert.ok(arrow, 'không tìm thấy nextMonthOf');
 const guess = src.match(/const guessCenterFault=[^\n]*\n/);
@@ -44,7 +44,12 @@ const req = (dateKey, reason) => ({ dateKey, reason, staffName: 'NV' });
         'mất điện nên máy không lên',
         'Lỗi hệ thống, bấm vào ca báo lỗi',
         'app lỗi không vào được',
-        'rớt mạng lúc 18h'
+        'rớt mạng lúc 18h',
+        'Wifi trung tâm bị lỗi',
+        'Không đăng nhập được',
+        'web lỗi không bấm được',
+        'máy hư không lên',
+        'mạng chập chờn'
     ];
     centerFault.forEach(reason => {
         const r = req('2026-08-06', reason);
