@@ -12,3 +12,4 @@ test-automation/node_modules/
 
 # Local secrets / env — never commit
 .env.local
+.env*.local

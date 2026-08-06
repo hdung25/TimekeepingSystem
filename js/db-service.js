@@ -1921,6 +1921,12 @@ const DBService = {
 
     // options.allowOverlap = true → quản lý đã xem cảnh báo "đã có công trùng giờ" và
     // vẫn quyết định duyệt. Mặc định chặn để một lần bấm nhầm không thành lương đôi.
+    //
+    // options.payoutMonth = 'YYYY-MM' → THÁNG TRẢ LƯƠNG cho ca này (quy định của GĐ Diễm
+    // 06/08/2026): lỗi bên trung tâm (mất mạng, mất điện) thì trả ngay trong tháng dạy;
+    // nhân viên quên chấm công thì trả vào tháng sau. Ca vẫn nằm nguyên ở THÁNG DẠY —
+    // giờ công, đơn giá, Bảng Công đều không đổi — chỉ có tiền là dồn sang tháng được
+    // chọn. Bỏ trống = trả trong tháng dạy (mặc định như trước nay).
     approveMakeupRequest: async (req, adminName, options = {}) => {
         const s = req.session || {};
         const sessionData = {
@@ -1945,6 +1951,14 @@ const DBService = {
         if (req.branch) sessionData.branch = req.branch;
         if (req.className) sessionData.className = req.className;
         if (req.room) sessionData.room = req.room;
+
+        // Chỉ ghi payoutMonth khi KHÁC tháng dạy — ca trả đúng tháng thì không cần đánh dấu
+        const teachMonth = String(req.dateKey || '').slice(0, 7);
+        if (options.payoutMonth && teachMonth && options.payoutMonth !== teachMonth) {
+            sessionData.payoutMonth = options.payoutMonth;
+            sessionData.payoutDeferredFrom = teachMonth;
+            if (options.payoutReason) sessionData.payoutReason = options.payoutReason;
+        }
         const sid = await DBService.addSession(req.staffId, req.dateKey, sessionData, {
             allowOverlap: !!options.allowOverlap
         });

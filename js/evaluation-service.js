@@ -2238,6 +2238,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         const _dnU2 = chipSessionData.roleName || chipSessionData.role;
                         cssClass = 'chip-green';
                         label = `${startStr}–${endStr} (${_dnU2})`;
+                        // Ca được duyệt "trả tháng sau": giờ công vẫn nằm ở tháng này, chỉ
+                        // tiền là dồn sang tháng sau — ghi rõ để admin không tưởng thiếu.
+                        if (chipSessionData.payoutMonth) {
+                            const [_py, _pm] = String(chipSessionData.payoutMonth).split('-');
+                            label += ` (trả T${Number(_pm)}/${_py})`;
+                            tooltip += ` | Tiền ca này trả vào tháng ${Number(_pm)}/${_py}` +
+                                (chipSessionData.payoutReason ? ` — ${chipSessionData.payoutReason}` : '');
+                        }
                         tooltip += ` - Vai trò: ${_dnU2}`;
                         // Rate cho tiếp tân
                         if ((chipSessionData.role === 'tiep-tan' || chipSessionData.role === 'receptionist') && currentUserContext?.salary_config?.receptionist_normal_rate) {

@@ -12,8 +12,8 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260805-group10p-fix-v1'></script>
-    <script src='js/evaluation-service.js?v=20260806-attendance-is-truth-v1'></script>
+    <script src='js/db-service.js?v=20260806-payout-month-v1'></script>
+    <script src='js/evaluation-service.js?v=20260806-payout-month-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -352,10 +352,11 @@ window.loadTab=async function(tab){
 window.approveAllEligible=async function(){
     const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick);
     if(!list.length)return;
-    if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?\nCông sẽ được ghi vào Bảng Công.'))return;
+    if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?\n\n'+
+        payoutSummary(list)+'\n\nGiờ công ghi vào Bảng Công đúng THÁNG DẠY; chỉ tiền là theo tháng nêu trên.'))return;
     let done=0; const skipped=[];
     for(const r of list){
-        try{ await DBService.approveMakeupRequest(r,adminName()); done++ }
+        try{ await DBService.approveMakeupRequest(r,adminName(),payoutFor(r)); done++ }
         catch(e){
             if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
             alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
@@ -366,15 +367,83 @@ window.approveAllEligible=async function(){
     loadTab(curTab); refreshPendingCount();
 };
 
+// ===== THÁNG TRẢ LƯƠNG (quy định GĐ Diễm 06/08/2026) =====
+// Lỗi bên trung tâm (mất mạng, mất điện, hỏng máy) → trả NGAY trong tháng dạy.
+// Nhân viên quên chấm công → trả vào THÁNG SAU.
+// Ca vẫn nằm ở tháng dạy, giờ công và đơn giá giữ nguyên; chỉ có tiền dồn sang tháng chọn.
+// So khớp sau khi BỎ DẤU: người khai gõ "mất mạng", "mat mang", "Mất Mạng" đều nhận ra.
+// (Viết regex có dấu rất dễ trượt vì tiếng Việt có cả ký tự dựng sẵn lẫn dấu tổ hợp.)
+const stripTones=(v)=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
+const CENTER_FAULT_RE=/mat\s*mang|rot\s*mang|mang\s*(loi|chap chon|yeu)|mat\s*dien|cup\s*dien|sap\s*nguon|loi\s*(he\s*thong|phan\s*mem|web|app|may|server)|(web|app|he\s*thong|may)\s*loi|khong\s*(vao|truy\s*cap|dang\s*nhap|cham cong)\s*(duoc|dc)|bam\s*(vao\s*ca\s*)?bao\s*loi/;
+
+const nextMonthOf=(dateKey)=>{
+    const [y,m]=String(dateKey||'').split('-').map(Number);
+    if(!y||!m)return '';
+    const ny=m===12?y+1:y, nm=m===12?1:m+1;
+    return ny+'-'+String(nm).padStart(2,'0');
+};
+// Đoán lỗi thuộc về ai, dựa vào lý do nhân viên khai. Chỉ là GỢI Ý — người duyệt đổi được.
+const guessCenterFault=(r)=>CENTER_FAULT_RE.test(stripTones((r&&r.reason)||''));
+
+// Tháng trả lương dùng cho DUYỆT HÀNG LOẠT: không hỏi từng mục, lấy theo gợi ý tự đoán.
+// Số lượng mỗi loại được nêu rõ ở hộp xác nhận trước khi chạy.
+function payoutFor(r){
+    const teachMonth=String(r.dateKey||'').slice(0,7);
+    return guessCenterFault(r)
+        ? { payoutMonth:teachMonth, payoutReason:'Lỗi trung tâm — trả trong tháng' }
+        : { payoutMonth:nextMonthOf(r.dateKey), payoutReason:'Nhân viên quên chấm công — trả tháng sau' };
+}
+
+// Tóm tắt "bao nhiêu ca trả tháng này / bao nhiêu ca dồn tháng sau" cho hộp xác nhận.
+function payoutSummary(list){
+    const inMonth=list.filter(r=>guessCenterFault(r)).length;
+    const next=list.length-inMonth;
+    const parts=[];
+    if(inMonth)parts.push(inMonth+' ca TRẢ TRONG THÁNG (lý do có nhắc sự cố trung tâm)');
+    if(next)parts.push(next+' ca TRẢ THÁNG SAU (nhân viên quên chấm công)');
+    return parts.join('\n');
+}
+
+// Hỏi tháng trả lương. Trả về { payoutMonth, payoutReason } hoặc null nếu người dùng huỷ.
+function askPayoutMonth(r){
+    const teachMonth=String(r.dateKey||'').slice(0,7);
+    const next=nextMonthOf(r.dateKey);
+    const centerFault=guessCenterFault(r);
+    const label=(mm)=>{const [y,m]=mm.split('-');return 'tháng '+Number(m)+'/'+y;};
+    const suggestion=centerFault
+        ? 'Lý do có nhắc tới sự cố bên trung tâm → đề xuất TRẢ TRONG THÁNG.'
+        : 'Lý do không nhắc tới sự cố trung tâm → đề xuất TRẢ THÁNG SAU (nhân viên quên chấm công).';
+    const ans=prompt(
+        'Ca ngày '+r.dateKey+' của '+(r.staffName||'')+'\n'+
+        'Lý do: "'+((r.reason||'(không ghi)'))+'"\n\n'+
+        suggestion+'\n\n'+
+        'Trả lương vào tháng nào?\n'+
+        '  1 = TRẢ TRONG THÁNG ('+label(teachMonth)+') — lỗi bên trung tâm\n'+
+        '  2 = TRẢ THÁNG SAU ('+label(next)+') — nhân viên quên chấm công\n\n'+
+        'Giờ công vẫn nằm ở '+label(teachMonth)+' trong cả hai trường hợp, chỉ khác thời điểm trả tiền.',
+        centerFault?'1':'2'
+    );
+    if(ans===null)return null;
+    const pick=String(ans).trim();
+    if(pick!=='1'&&pick!=='2'){ alert('Chỉ nhận 1 hoặc 2. Chưa duyệt gì cả.'); return null; }
+    return pick==='1'
+        ? { payoutMonth:teachMonth, payoutReason:'Lỗi trung tâm — trả trong tháng' }
+        : { payoutMonth:next, payoutReason:'Nhân viên quên chấm công — trả tháng sau' };
+}
+
 window.approveOne=async function(id){
     const r=curReqs.find(x=>x.id===id); if(!r)return;
-    if(!confirm('Duyệt yêu cầu của '+(r.staffName||'')+' ngày '+r.dateKey+'?\nCông sẽ được ghi vào Bảng Công.'))return;
-    try{ await DBService.approveMakeupRequest(r,adminName()); loadTab(curTab); refreshPendingCount(); }
+    const payout=askPayoutMonth(r);
+    if(!payout)return;
+    if(!confirm('Duyệt yêu cầu của '+(r.staffName||'')+' ngày '+r.dateKey+'?\n'+
+        payout.payoutReason+'.\nCông sẽ được ghi vào Bảng Công.'))return;
+    try{ await DBService.approveMakeupRequest(r,adminName(),payout); loadTab(curTab); refreshPendingCount(); }
     catch(e){
         // Ca trùng giờ với công đã có → hỏi lại thật rõ thay vì im lặng ghi thành lương đôi.
         if(e&&e.code==='SESSION_OVERLAP'){
             if(confirm('KHÔNG DUYỆT ĐƯỢC — '+e.message+'\n\nNhân viên chỉ bấm vào ca một lần, nên hai ca cùng giờ thường là dạy 2 lớp cùng lúc hoặc đã khai/duyệt trùng.\n\nVẫn duyệt và chấp nhận có 2 ca cùng khung giờ?')){
-                try{ await DBService.approveMakeupRequest(r,adminName(),{allowOverlap:true}); loadTab(curTab); refreshPendingCount(); }
+                try{ await DBService.approveMakeupRequest(r,adminName(),Object.assign({allowOverlap:true},payout)); loadTab(curTab); refreshPendingCount(); }
                 catch(e2){ alert('Lỗi duyệt: '+(e2.message||e2)) }
             }
             return;
@@ -392,12 +461,13 @@ window.rejectOne=async function(id){
 
 window.approveBatch=async function(bk){
     const reqs=curReqs.filter(r=>(r.batchId||r.id)===bk);
-    if(!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?'))return;
+    if(!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?\n\n'+
+        payoutSummary(reqs)+'\n\nGiờ công ghi vào Bảng Công đúng THÁNG DẠY; chỉ tiền là theo tháng nêu trên.'))return;
     // Duyệt hàng loạt KHÔNG được tự ghi đè ca trùng giờ — bỏ qua và báo lại để quản lý
     // mở từng mục xem, tránh một cú bấm sinh ra lương đôi.
     const skipped=[];
     for(const r of reqs){
-        try{ await DBService.approveMakeupRequest(r,adminName()) }
+        try{ await DBService.approveMakeupRequest(r,adminName(),payoutFor(r)) }
         catch(e){
             if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
             alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
