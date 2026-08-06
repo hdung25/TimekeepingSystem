@@ -1890,15 +1890,50 @@ const DBService = {
     // Nhân viên gửi yêu cầu chấm bù (ca có lịch quên chấm / ca ngoài lịch). Admin duyệt
     // → materialize session qua DBService.addSession (transaction có sẵn, an toàn dữ liệu).
 
+    // Trường BẮT BUỘC của một yêu cầu chấm bù. Trả về danh sách phần còn THIẾU (rỗng = đủ).
+    // Dùng ở CẢ 2 phía: nhân viên gửi (cham-bu.html) và quản lý duyệt (tuong-trinh.html) —
+    // một nguồn duy nhất nên hai bên không bao giờ hiểu khác nhau về "thế nào là đủ".
+    // Quy tắc GĐ: thiếu cơ sở / môn-lớp / người phân công thì quản lý không có căn cứ duyệt
+    // và Bảng Công cũng không áp được đơn giá → không cho gửi, không cho duyệt.
+    missingMakeupFields: (r) => {
+        const req = r || {};
+        const s = req.session || {};
+        const missing = [];
+        const isTT = s.role === 'tiep-tan' || req.shiftKind === 'tt';
+        if (!req.dateKey) missing.push('ngày');
+        if (!req.branch) missing.push('cơ sở');
+        if (req.type !== 'scheduled') {
+            if (!isTT && !req.className) missing.push('môn/lớp');
+            if (isTT && !req.shiftKey) missing.push('ca trực');
+            if (!req.approvedBy) missing.push('người phân công');
+        }
+        if (!s.isAbsent && (!s.checkIn || !s.checkOut)) missing.push('giờ vào/ra');
+        if (!String(req.reason || '').trim()) missing.push('lý do');
+        return missing;
+    },
+
     createMakeupRequests: async (requests) => {
+        // Chặn ngay ở tầng dữ liệu, không chỉ ở giao diện: đơn thiếu trường vào được DB là
+        // quản lý phải xử lý tay từng cái, và có nguy cơ duyệt một ca không tính được lương.
+        const list = Array.isArray(requests) ? requests : [];
+        if (list.length === 0) throw new Error('Không có yêu cầu nào để gửi.');
+        for (const r of list) {
+            const missing = DBService.missingMakeupFields(r);
+            if (missing.length) {
+                const err = new Error('Yêu cầu chấm bù còn thiếu: ' + missing.join(', ') + '. Vui lòng khai đủ rồi gửi lại.');
+                err.code = 'MAKEUP_MISSING_FIELDS';
+                err.missing = missing;
+                throw err;
+            }
+        }
         const batchId = `mk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const batch = db.batch();
-        requests.forEach(r => {
+        list.forEach(r => {
             const ref = db.collection('makeup_requests').doc();
             batch.set(ref, { ...r, batchId, status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
         });
         await batch.commit();
-        return { batchId, count: requests.length };
+        return { batchId, count: list.length };
     },
 
     getMyMakeupRequests: async (staffId) => {
@@ -1910,13 +1945,33 @@ const DBService = {
         } catch (e) { console.error('[Makeup] get mine:', e); return []; }
     },
 
+    // Trang Tường Trình lọc/sắp xếp ở phía client nên trần đọc CHÍNH LÀ trần dữ liệu.
+    // Trả kèm _truncated để giao diện nói thật là "còn nữa", không im lặng cắt bớt.
+    MAKEUP_FETCH_LIMIT: 500,
     getMakeupRequestsByStatus: async (status) => {
         try {
-            const snap = await db.collection('makeup_requests').where('status', '==', status).limit(200).get();
+            const cap = DBService.MAKEUP_FETCH_LIMIT;
+            const snap = await db.collection('makeup_requests').where('status', '==', status).limit(cap).get();
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             list.sort((a, b) => ((b.createdAt && b.createdAt.seconds) || 0) - ((a.createdAt && a.createdAt.seconds) || 0));
+            list._truncated = list.length >= cap;
             return list;
         } catch (e) { console.error('[Makeup] get by status:', e); return []; }
+    },
+
+    // Quản lý BỔ SUNG thông tin cho đơn cũ bị thiếu trường (đơn gửi trước khi có ràng buộc).
+    // Chỉ cho sửa đúng những trường mô tả ca — không cho đụng vào status/staffId/giờ đã khai.
+    updateMakeupRequest: async (reqId, patch, adminName) => {
+        if (!reqId) throw new Error('Thiếu mã yêu cầu.');
+        const allowed = ['branch', 'className', 'classId', 'room', 'shiftKey', 'approvedBy', 'shiftLabel', 'reason'];
+        const data = {};
+        allowed.forEach(k => {
+            if (patch && patch[k] !== undefined && patch[k] !== null) data[k] = patch[k];
+        });
+        if (Object.keys(data).length === 0) throw new Error('Không có gì để cập nhật.');
+        data.completedBy = adminName || 'Admin';
+        data.completedAt = firebase.firestore.FieldValue.serverTimestamp();
+        await db.collection('makeup_requests').doc(reqId).update(data);
     },
 
     // options.allowOverlap = true → quản lý đã xem cảnh báo "đã có công trùng giờ" và

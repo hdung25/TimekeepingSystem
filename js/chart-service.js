@@ -105,7 +105,12 @@ const ChartService = {
         const classes = [];
         sections.forEach(sec => {
             (daySchedule[sec] || []).forEach(cls => {
-                if ((cls.registeredTeachers || []).some(t => t.id === userId)) classes.push(cls);
+                // Dùng helper chung (db-service.js): lớp xếp NHIỀU GV lưu ở gvList/gvThayTeList,
+                // chỉ so registeredTeachers thì bỏ sót toàn bộ GV do admin xếp sẵn.
+                const assigned = typeof isAssignedToClass === 'function'
+                    ? isAssignedToClass(cls, userId)
+                    : (cls.registeredTeachers || []).some(t => t.id === userId);
+                if (assigned) classes.push(cls);
             });
         });
         return classes;

@@ -255,8 +255,9 @@ function renderTodayClasses() {
             sections.forEach(sec => {
                 if (todaySchedule[sec]) {
                     todaySchedule[sec].forEach((cls, idx) => {
-                        const isRegistered = isScheduledMainTeacher(cls, currentUserId) ||
-                            (cls.registeredTeachers || []).some(t => t.id === currentUserId);
+                        // isAssignedToClass: GV chính (mọi người trong gvList) + GV thay thế +
+                        // tự nhận lớp. Thiếu nhánh thay thế thì GV dạy thay không thấy lớp nào.
+                        const isRegistered = isAssignedToClass(cls, currentUserId);
                         if (!isRegistered) return;
                         classes.push({
                             ...cls,

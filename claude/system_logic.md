@@ -481,6 +481,54 @@ overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
 - **fix(evaluation):** Chip label tiếp tân hiển thị giờ theo lịch (không phải giờ checkout thực tế) + xóa debug logs
 - **Files sửa:** `js/evaluation-service.js`, `js/main.js`, `js/db-service.js`
 
+### 07/08/2026 — Fix GV thứ 2 của lớp + Gửi lương 2 bên riêng + Xuất lương hàng loạt + Redesign Tường Trình
+
+**1. Lớp xếp 2 GV — GV thứ hai không nhận dạng được lớp (nguyên nhân gốc)**
+- Trang xếp lịch lưu đủ GV ở `gvList`/`gvThayTeList`, còn `gvId`/`gvThayTheId` **chỉ giữ người đầu tiên** (tương thích ngược — `schedule.js:929`).
+- Commit `3bff87f` (31/07) đã chuyển các file JS sang helper chung nhưng **bỏ quên 2 file có script inline**:
+  - `cham-bu.html:331` còn so `row.gvId===me` → **GV thứ 2 không thấy ca của mình ở Chấm Công Bù**, phải khai qua "Ca Ngoài Lịch" → Tường Trình hiện "Ngoài lịch / thiếu môn lớp". ĐÂY là lỗi khách báo.
+  - `cham-bu.html:333` + `tuong-trinh.html:179` đọc sai tên trường `gvThayTheList` (đúng là **`gvThayTeList`**, trang xếp lịch ghi `fieldType='gvThayTe'` thiếu chữ "h") → GV thay thế thứ 2 bị xử lý sai.
+- Sửa: cả 6 chỗ dùng chung `isAssignedToClass` / `isScheduledMainTeacher` / `isScheduledSubstitute` / `hasScheduledSubstitute` (`db-service.js:39-64`).
+- Kèm 2 chỗ khác cùng cụm: `chart-service.js:108` (Thống kê đếm thiếu lớp do admin xếp), `timekeeping.js:258` (GV thay thế không thấy lớp ở Chấm Công).
+- `shift-oversight.js:199` KHÔNG sửa — có GV thay thế thì lấy người thay là đúng chủ đích.
+
+**2. Modal "Gửi Bảng Lương Hàng Loạt" (`report.js` + `bao-cao.html`)**
+- **Lỗi kèm theo đã sửa** `report.js:8809`: vế `(window.unfilteredAllMonthChips||[]).some(...)` trong `isRecep` **không dùng biến `u`** — nó soi chip của người đang mở trên trang, nên chỉ cần đang xem 1 tiếp tân là toàn bộ giáo viên bị đổ sang cột Tiếp Tân. Đã bỏ vế đó, chỉ xét chức danh của chính người đó.
+- 3 nút gửi: `submitBulkPublish('teachers' | 'receps' | 'all')`. Ghi cờ theo **bên được tick** (`targets`), không suy từ `currentPublished.role` như bản cũ (người 2 chức danh mà doc lưu `role:'giao-vien'` thì tick cột Tiếp Tân lại ghi cờ bên giáo viên → gửi sai bên).
+- Modal **không đóng** sau khi gửi, vẽ lại qua `openBulkPublishModal({keepMessage:true})`.
+- Mỗi cột chia 3 khu (`BULK_SECTIONS`): Cần gửi (draft) / Đã xử lý (published|received, bỏ checkbox) / Chưa tính lương.
+- Bấm tên → `openStaffPayslipTab()` mở `bao-cao.html?staffId=..&date=YYYY-MM-01&roleView=tiep-tan|giao-vien` ở tab mới. `roleView` được `initReport` đọc (`report.js` ~dòng 145).
+
+**3. Xuất file bảng lương hàng loạt — `js/salary-bulk-export.js` (MỚI)**
+- Nút ở tab "Dashboard Nhận Lương & Thống Kê" + 2 select (phạm vi vai trò / trạng thái).
+- **Không tính lại lương**: đọc bản chụp `salary_settings_monthly/{YYYY-MM}_{staffId}.published.details_gv|details_tt` và gọi **chính** `renderDetailedSalaryTable()` của `main.js` → file xuất khớp 100% bảng lương nhân viên đã nhận, tự đúng mẫu theo `details.role`.
+- Gói thành 1 file `.zip` bằng ZIP writer thuần Vanilla (method STORE + CRC32) — **không thêm thư viện ngoài**. Tránh việc trình duyệt chặn tải hàng loạt file lẻ.
+- Tên file: `Bang luong thang {M}-{YYYY} - {Tên} - {tên tài khoản}[ - {Vai trò}].html` (bỏ dấu, lọc ký tự Windows cấm; hậu tố vai trò chỉ thêm khi người đó có cả 2 bên).
+- Báo cáo cuối liệt kê rõ ai bị bỏ qua và vì sao — không im lặng cắt bớt.
+
+**4. Siết dữ liệu chấm bù (`db-service.js`)**
+- Thêm `missingMakeupFields(r)` — **một định nghĩa duy nhất** về "đủ trường", dùng cho cả lúc nhân viên gửi và lúc quản lý duyệt.
+- `createMakeupRequests` **throw** nếu thiếu trường (trước chỉ chặn ở UI).
+- `cham-bu.html`: Môn/Lớp phải khớp danh mục Môn Học (gõ sai chính tả → Bảng Công không áp được đơn giá), có gợi ý tên gần đúng.
+- Thêm `updateMakeupRequest()` cho quản lý **bổ sung thông tin** đơn cũ (ghi `completedBy`/`completedAt`). Rules hiện tại đã cho admin update — không cần deploy rules.
+- `getMakeupRequestsByStatus` nâng trần 200 → 500 và trả `_truncated` để giao diện cảnh báo.
+
+**5. Thiết kế lại trang Tường Trình (`tuong-trinh.html` — viết lại)**
+- Bố cục 2 khung: danh sách gọn 1 dòng/yêu cầu + khung chi tiết (máy tính dính theo màn hình; điện thoại là bảng trượt từ dưới).
+- **Sắp theo NGÀY CA cần xử lý** (cũ nhất trước), có vạch ngăn theo ngày + nhãn đỏ "tháng trước · sắp chốt lương". Có dropdown đổi thứ tự.
+- Bộ lọc 8 chiều + 6 chip lọc nhanh kèm số lượng thật; lưu vào localStorage.
+- Thiếu trường bắt buộc → **nút Duyệt bị khoá**, có nút "Bổ sung thông tin" điền ngay tại chỗ.
+- Chọn tháng trả lương bằng **radio** (bỏ `prompt` gõ số 1/2/3/4 — chỗ dễ bấm sai nhất về tiền). Hộp Từ chối có 4 lý do bấm nhanh.
+- Duyệt/từ chối nhiều mục bằng tick. "Duyệt nhanh" chỉ gom mục thoả **8 điều kiện**: có lịch + khớp đúng 1 dòng lịch + đúng người + chưa có công + không trùng đơn khác + đủ trường + diện tin tưởng + không kèm Sớm 10p/Tăng ca/ghi nhận vắng. Máy **không** tự duyệt sau lưng — vẫn cần quản lý bấm nút và chọn tháng trả.
+- Bỏ hết `alert`/`confirm`/`prompt` gốc, dùng `UIService`.
+
+**6. Sửa lỗi TIỀN phát hiện khi test — đoán "lỗi trung tâm" quá rộng**
+- Lý do *"Quên mang điện thoại nên không chấm công được"* bị tính là **lỗi trung tâm** → trả tiền ngay trong tháng, trái quy định GĐ 06/08/2026. Nguyên nhân: `CF_THING` có chữ trần `mang` (trùng "mang theo") và `dien` (trùng "điện thoại"), còn `CF_ALONE` coi "không chấm công được" là tự đủ nghĩa — nhưng câu đó là **hệ quả**, đơn nào cũng viết vậy.
+- Sửa: mặc định là "nhân viên quên"; chỉ đổi sang "lỗi trung tâm" khi nêu rõ sự cố thiết bị/hạ tầng trung tâm. Tách `CF_NET` cho sự cố mạng/điện và loại trừ "điện thoại". Đã test 20 tình huống thật, đúng cả 20.
+
+**Files:** `cham-bu.html`, `tuong-trinh.html` (viết lại), `bao-cao.html`, `js/report.js`, `js/db-service.js`, `js/chart-service.js`, `js/timekeeping.js`, `js/salary-bulk-export.js` (mới), `service-worker.js`, `js/main.js` (chỉ APP_VERSION).
+**Cache-bust:** `?v=20260807-multi-gv-bulk-v1`, `CACHE_NAME=tdt-chamcong-v105-multi-gv-bulk`, `APP_VERSION`, `EXPECTED` trong `bao-cao.html`.
+
 ### 09/04/2026 — Feat: PDF theo vai trò (Tiếp Tân / Giáo Viên) + Nhắn gửi
 - **Tính năng mới:**
   1. **Auto-detect `salary-role-filter`:** Khi admin chọn nhân viên từ dropdown, hệ thống tự đọc `user.roles[]` và set filter: chỉ tiếp tân → `tiep-tan`, chỉ giáo viên → `giao-vien`, đa role → `all` (admin chọn tay).

@@ -12,101 +12,349 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260806-payout-month-v1'></script>
+    <script src='js/db-service.js?v=20260807-multi-gv-bulk-v1'></script>
     <script src='js/evaluation-service.js?v=20260806-concurrent-class-v1'></script>
+    <script src='js/ui-service.js?v=20260807-tuong-trinh-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
-              --warn:#F59E0B;--warn-s:#FFFBEB;--info:#3B82F6;--info-s:#EFF6FF;--dan:#EF4444;--dan-s:#FEE2E2;}
+        :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F1F5F9;
+              --warn:#F59E0B;--warn-s:#FFFBEB;--info:#3B82F6;--info-s:#EFF6FF;--dan:#EF4444;--dan-s:#FEE2E2;
+              --primary-color:#059669;--secondary-color:#F59E0B;--bg-surface:#ffffff;--text-muted:#6B7280;
+              --radius-md:12px;--radius-lg:16px;
+              --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+              --shadow-xl:0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);}
         *{box-sizing:border-box;margin:0}
-        body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding-bottom:2rem}
-        .top{background:white;border-bottom:1px solid var(--ln);padding:.8rem 1rem;display:flex;align-items:center;gap:.7rem;position:sticky;top:0;z-index:60}
-        .top a{display:inline-flex;align-items:center;gap:4px;color:var(--mut);text-decoration:none;font-size:.85rem;font-weight:600;padding:6px 10px;border-radius:8px}
-        .top a:hover{background:var(--p-s);color:var(--p)}
-        .top h1{font-size:1.05rem;font-weight:700;color:var(--p-d)}
-        .wrap{max-width:820px;margin:0 auto;padding:1rem}
-        .tabs{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
-        .tab{padding:.55rem 1.1rem;border-radius:99px;border:1.5px solid var(--ln);background:white;cursor:pointer;font-weight:700;font-size:.85rem;color:var(--mut);font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+        body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+        button{font-family:inherit}
+
+        /* ---------- Thanh trên ---------- */
+        .top{background:white;border-bottom:1px solid var(--ln);padding:.7rem 1rem;display:flex;align-items:center;gap:.7rem;position:sticky;top:0;z-index:60}
+        .top a.back{display:inline-flex;align-items:center;gap:4px;color:var(--mut);text-decoration:none;font-size:.85rem;font-weight:600;padding:7px 11px;border-radius:9px}
+        .top a.back:hover{background:var(--p-s);color:var(--p)}
+        .top h1{font-size:1.02rem;font-weight:800;color:var(--p-d)}
+        .top .sp{flex:1}
+        .icon-btn{background:white;border:1.5px solid var(--ln);border-radius:9px;padding:7px 11px;cursor:pointer;color:var(--mut);font-weight:600;font-size:.82rem;display:inline-flex;align-items:center;gap:5px}
+        .icon-btn:hover{border-color:var(--p);color:var(--p)}
+
+        .wrap{max-width:1360px;margin:0 auto;padding:.9rem 1rem 1.5rem}
+
+        /* ---------- Tabs ---------- */
+        .tabs{display:flex;gap:8px;margin-bottom:.7rem;flex-wrap:wrap}
+        .tab{padding:.5rem 1rem;border-radius:99px;border:1.5px solid var(--ln);background:white;cursor:pointer;font-weight:700;font-size:.85rem;color:var(--mut);display:inline-flex;align-items:center;gap:6px}
+        .tab:hover{border-color:var(--p)}
         .tab.on{background:var(--p);border-color:var(--p);color:white}
         .cnt{background:rgba(0,0,0,.08);padding:1px 7px;border-radius:99px;font-size:.72rem}
         .tab.on .cnt{background:rgba(255,255,255,.25)}
-        .grp{background:white;border:1px solid var(--ln);border-radius:16px;margin-bottom:1rem;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.04)}
-        .grp-h{padding:.85rem 1rem;background:#F9FAFB;border-bottom:1px solid var(--ln);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-        .who{display:flex;align-items:center;gap:10px;min-width:0}
-        .av{width:38px;height:38px;border-radius:50%;background:var(--p-s);color:var(--p-d);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;flex-shrink:0}
-        .who .n{font-weight:700;font-size:.92rem}
-        .who .s{font-size:.74rem;color:var(--mut)}
-        .body{padding:.85rem 1rem}
-        .sc{display:flex;border:1.5px solid var(--ln);border-radius:14px;overflow:hidden;margin-bottom:.7rem;background:white}
-        .sc:last-child{margin-bottom:0}
-        .sc-t{color:white;padding:.85rem .55rem;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:76px;flex-shrink:0;font-weight:700;font-size:.9rem;line-height:1.5}
-        .sc-t small{font-weight:500;opacity:.88;font-size:.78rem}
-        .t-sched{background:var(--p)}.t-extra{background:var(--warn)}.t-abs{background:#9CA3AF}
-        .sc-b{flex:1;padding:.75rem .85rem;min-width:0}
-        .sc-r1{display:flex;align-items:flex-start;gap:9px;justify-content:space-between}
-        .sc-nm{font-weight:700;font-size:.9rem;line-height:1.35}
-        .sc-sb{font-size:.76rem;color:var(--mut);margin-top:2px}
-        .bdg{font-size:.68rem;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+
+        /* ---------- Bộ lọc ---------- */
+        .fbar{background:white;border:1px solid var(--ln);border-radius:14px;padding:.7rem .8rem;margin-bottom:.8rem;box-shadow:0 1px 4px rgba(0,0,0,.03)}
+        .chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:.6rem}
+        .chip{border:1.5px solid var(--ln);background:white;border-radius:99px;padding:.34rem .8rem;font-size:.78rem;font-weight:700;color:#374151;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+        .chip:hover{border-color:#9CA3AF}
+        .chip b{font-weight:800}
+        .chip.on{color:white}
+        .chip.c-bad.on{background:var(--dan);border-color:var(--dan)}
+        .chip.c-miss.on{background:#DB2777;border-color:#DB2777}
+        .chip.c-extra.on{background:var(--warn);border-color:var(--warn)}
+        .chip.c-ok.on{background:var(--p);border-color:var(--p)}
+        .chip.c-auto.on{background:#4338CA;border-color:#4338CA}
+        .chip.c-old.on{background:#B91C1C;border-color:#B91C1C}
+        .chip .dotn{background:#F3F4F6;color:#4B5563;border-radius:99px;padding:0 6px;font-size:.7rem;font-weight:800}
+        .chip.on .dotn{background:rgba(255,255,255,.25);color:white}
+        .fgrid{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+        .fgrid select,.fgrid input[type=text]{padding:.44rem .6rem;border:1.5px solid var(--ln);border-radius:9px;font-size:.83rem;font-family:inherit;background:white;color:var(--ink);min-height:38px}
+        .fgrid select:focus,.fgrid input:focus{outline:none;border-color:var(--p)}
+        .fgrid .search{flex:1;min-width:170px}
+        .lnk{background:none;border:none;color:var(--mut);font-size:.8rem;font-weight:700;cursor:pointer;text-decoration:underline;padding:.4rem .3rem}
+        .lnk:hover{color:var(--dan)}
+
+        .banner{border-radius:12px;padding:.6rem .8rem;font-size:.82rem;line-height:1.5;margin-bottom:.8rem;display:flex;gap:8px;align-items:flex-start}
+        .bn-warn{background:var(--warn-s);border:1px solid #FDE68A;color:#92400E}
+        .bn-ok{background:var(--p-s);border:1px solid #A7F3D0;color:#065F46}
+        .banner .grow{flex:1;min-width:0}
+
+        /* ---------- Bố cục 2 khung ---------- */
+        .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:.9rem;align-items:start}
+        .card{background:white;border:1px solid var(--ln);border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.03);overflow:hidden}
+        .lhead{display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.6rem .8rem;border-bottom:1px solid var(--ln);background:#F9FAFB;flex-wrap:wrap}
+        .lhead .n{font-size:.8rem;font-weight:800;color:#374151}
+        .lhead select{padding:.35rem .5rem;border:1.5px solid var(--ln);border-radius:8px;font-size:.78rem;font-family:inherit;background:white;min-height:34px}
+        .lhead label.all{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;font-weight:700;color:var(--mut);cursor:pointer;user-select:none}
+        .rows{max-height:calc(100vh - 330px);overflow-y:auto;padding:.4rem}
+        .dsep{position:sticky;top:0;background:linear-gradient(#fff,#fff 70%,rgba(255,255,255,.85));padding:.5rem .5rem .3rem;font-size:.76rem;font-weight:800;color:#1F2937;display:flex;align-items:center;gap:7px;z-index:2}
+        .dsep .pill{background:#EEF2FF;color:#3730A3;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800}
+        .dsep .pill.old{background:#FEE2E2;color:#991B1B}
+
+        .row{display:flex;align-items:center;gap:.6rem;padding:.55rem .55rem;border:1.5px solid transparent;border-radius:11px;cursor:pointer}
+        .row:hover{background:#F8FAFC}
+        .row.sel{border-color:var(--p);background:var(--p-s)}
+        .row input[type=checkbox]{width:17px;height:17px;cursor:pointer;accent-color:var(--p)}
+        /* Bọc ô tick trong <label> để cả vùng quanh nó cũng bấm được (ngón tay trên điện thoại) */
+        .ckwrap{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer}
+        .row .st{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .st-ok{background:var(--p-s);color:var(--p-d)}
+        .st-warn{background:var(--warn-s);color:#92400E}
+        .st-bad{background:var(--dan-s);color:#991B1B}
+        .st-miss{background:#FCE7F3;color:#9D174D}
+        .st-none{background:#F3F4F6;color:#6B7280}
+        .row .mid{flex:1;min-width:0}
+        .row .r1{display:flex;align-items:baseline;gap:6px;min-width:0}
+        .row .who{font-weight:700;font-size:.87rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .row .r2{font-size:.75rem;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+        .row .tm{font-weight:800;font-size:.8rem;color:#1F2937;white-space:nowrap;flex-shrink:0}
+        .bdg{font-size:.66rem;font-weight:800;padding:2px 7px;border-radius:99px;white-space:nowrap;flex-shrink:0}
         .b-s{background:var(--p-s);color:var(--p-d)}.b-e{background:var(--warn-s);color:#92400E}
         .b-i{background:var(--info-s);color:#1E40AF}.b-r{background:var(--dan-s);color:#991B1B}
-        .b-n{background:#F3F4F6;color:#6B7280}
-        .sc-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:.75rem;color:var(--mut);margin:.5rem 0}
-        .sc-meta span{display:inline-flex;align-items:center;gap:4px}
-        .why{background:#F9FAFB;border-radius:9px;padding:.5rem .7rem;font-size:.78rem;color:#374151;margin:.5rem 0 .6rem;line-height:1.5}
-        .acts{display:flex;gap:7px;flex-wrap:wrap}
-        .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;border-radius:10px;border:none;cursor:pointer;font-weight:700;font-family:inherit;padding:.5rem 1rem;font-size:.8rem}
-        .b-ok{background:var(--p);color:white}.b-ok:hover{background:var(--p-d)}
-        .b-no{background:white;color:#991B1B;border:1.5px solid #FCA5A5}.b-no:hover{background:var(--dan-s)}
-        .b-all{background:white;color:var(--p-d);border:1.5px solid var(--p);padding:.5rem .95rem}
-        .b-all:hover{background:var(--p-s)}
-        .btn:disabled{opacity:.5;cursor:not-allowed}
-        .empty{text-align:center;color:var(--mut);padding:2.5rem 1rem;background:white;border-radius:16px;border:1px solid var(--ln)}
-        .vd{border-radius:9px;padding:.5rem .7rem;font-size:.77rem;line-height:1.5;margin:.5rem 0 .6rem;display:flex;gap:7px;align-items:flex-start}
+        .b-a{background:#EDE9FE;color:#5B21B6}.b-n{background:#F3F4F6;color:#4B5563}
+
+        .bulkbar{border-top:1px solid var(--ln);background:#F9FAFB;padding:.65rem .8rem;display:flex;gap:.55rem;align-items:center;flex-wrap:wrap}
+        .bulkbar .txt{font-size:.82rem;font-weight:700;color:#374151;flex:1;min-width:120px}
+
+        /* ---------- Khung chi tiết ---------- */
+        /* Máy tính: khung dính theo màn hình, tự cuộn bên trong → nút Duyệt luôn thấy được,
+           không phải cuộn cả trang xuống mới bấm. Điện thoại đổi thành bảng trượt (dưới). */
+        .pane-detail{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto}
+        .dhead{padding:.8rem 1rem;border-bottom:1px solid var(--ln);background:#F9FAFB;display:flex;justify-content:space-between;gap:.7rem;align-items:flex-start}
+        .dhead .nm{font-weight:800;font-size:1rem}
+        .dhead .sb{font-size:.78rem;color:var(--mut);margin-top:2px}
+        .dbody{padding:.85rem 1rem 1rem}
+        .vd{border-radius:11px;padding:.65rem .8rem;font-size:.82rem;line-height:1.55;margin-bottom:.8rem;display:flex;gap:9px;align-items:flex-start}
         .vd b{font-weight:800}
         .vd-ok{background:var(--p-s);color:#065F46;border:1px solid #A7F3D0}
         .vd-warn{background:var(--warn-s);color:#92400E;border:1px solid #FDE68A}
         .vd-bad{background:var(--dan-s);color:#991B1B;border:1px solid #FCA5A5}
-        .miss{background:var(--dan-s);color:#991B1B;font-weight:700;padding:1px 6px;border-radius:5px;font-size:.72rem}
-        .empty i{width:34px;height:34px;color:#D1D5DB;margin-bottom:.6rem}
-        @media(max-width:520px){.sc-t{min-width:66px;font-size:.84rem}.grp-h{align-items:flex-start}}
+        .vd-miss{background:#FCE7F3;color:#9D174D;border:1px solid #FBCFE8}
+        .kv{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:.85rem}
+        .kv td{padding:.42rem .3rem;border-bottom:1px solid #F3F4F6;vertical-align:top}
+        .kv td.k{width:118px;color:var(--mut);font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap}
+        .kv td.v{font-weight:600;color:#111827}
+        .kv tr:last-child td{border-bottom:none}
+        .miss{background:var(--dan-s);color:#991B1B;font-weight:800;padding:1px 7px;border-radius:6px;font-size:.75rem}
+        .why{background:#F9FAFB;border:1px solid var(--ln);border-radius:10px;padding:.55rem .75rem;font-size:.83rem;color:#374151;line-height:1.55}
+        .sec-t{font-size:.74rem;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:.9rem 0 .45rem}
+        .radios{display:flex;flex-direction:column;gap:.45rem}
+        .ropt{display:flex;gap:9px;align-items:flex-start;border:1.5px solid var(--ln);border-radius:11px;padding:.6rem .7rem;cursor:pointer;font-size:.83rem;line-height:1.45}
+        .ropt:hover{border-color:#9CA3AF}
+        .ropt.on{border-color:var(--p);background:var(--p-s)}
+        .ropt input{margin-top:2px;accent-color:var(--p);width:16px;height:16px;flex-shrink:0}
+        .ropt .t{font-weight:700}
+        .ropt .h{color:var(--mut);font-size:.76rem;margin-top:1px}
+        .ropt .sug{background:#DBEAFE;color:#1E40AF;border-radius:99px;padding:0 7px;font-size:.66rem;font-weight:800;margin-left:5px}
+
+        .acts{display:flex;gap:.55rem;flex-wrap:wrap;margin-top:1rem}
+        .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:11px;border:none;cursor:pointer;font-weight:700;padding:.6rem 1.1rem;font-size:.85rem;min-height:42px}
+        .btn:disabled{opacity:.45;cursor:not-allowed}
+        .b-ok{background:var(--p);color:white}.b-ok:not(:disabled):hover{background:var(--p-d)}
+        .b-no{background:white;color:#991B1B;border:1.5px solid #FCA5A5}.b-no:not(:disabled):hover{background:var(--dan-s)}
+        .b-fix{background:#4338CA;color:white}.b-fix:not(:disabled):hover{filter:brightness(1.1)}
+        .b-ghost{background:white;color:#374151;border:1.5px solid var(--ln)}.b-ghost:hover{border-color:#9CA3AF}
+        .b-quick{background:linear-gradient(135deg,#6366F1,#4338CA);color:white}
+        .b-quick:not(:disabled):hover{filter:brightness(1.1)}
+
+        .fform{border:1.5px dashed #FBCFE8;background:#FFF7FB;border-radius:12px;padding:.75rem .8rem;margin-top:.6rem}
+        .fform .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem}
+        .fform label{display:block;font-size:.7rem;font-weight:800;color:#9D174D;text-transform:uppercase;letter-spacing:.03em;margin-bottom:3px}
+        .fform input,.fform select,.fform textarea{width:100%;padding:.45rem .55rem;border:1.5px solid #F9A8D4;border-radius:9px;font-size:.85rem;font-family:inherit;background:white;min-height:38px}
+        .fform input:focus,.fform select:focus,.fform textarea:focus{outline:none;border-color:#DB2777}
+
+        .empty{text-align:center;color:var(--mut);padding:2.4rem 1rem}
+        .empty i{width:34px;height:34px;color:#D1D5DB;margin-bottom:.55rem}
+        .empty .t{font-weight:700;color:#374151}
+        .empty .s{font-size:.82rem;margin-top:3px}
+
+        /* ---------- Toast + modal (dùng chung UIService) ---------- */
+        .toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+        .toast{pointer-events:auto;min-width:280px;max-width:400px;padding:.9rem 1rem;background:white;border-left:4px solid var(--p);box-shadow:var(--shadow-lg);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:space-between;animation:slideIn .3s ease forwards;opacity:0;transform:translateX(100%);font-size:.88rem}
+        .toast.success{border-color:var(--p)}.toast.error{border-color:var(--dan)}
+        .toast.warning{border-color:var(--warn)}.toast.info{border-color:var(--info)}
+        @keyframes slideIn{to{opacity:1;transform:translateX(0)}}
+        @keyframes fadeOut{to{opacity:0;transform:translateX(100%)}}
+        .custom-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem;animation:fadeIn .18s ease forwards}
+        .custom-modal-box{background:white;padding:1.6rem;border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-xl);text-align:center;transform:scale(.94);animation:popIn .18s ease forwards;max-height:92vh;overflow-y:auto}
+        .custom-modal-actions{margin-top:1.2rem;display:flex;justify-content:center;gap:.8rem}
+        .custom-modal-actions .btn{flex:1}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes popIn{to{transform:scale(1)}}
+        .animate-spin{animation:spin 1s linear infinite}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        /* modal rộng cho hộp chọn tháng trả / từ chối / bổ sung */
+        .tt-modal .custom-modal-box{max-width:560px;text-align:left}
+        .tt-modal h3{font-size:1.02rem;font-weight:800;color:var(--p-d);margin-bottom:.3rem}
+        .tt-modal .sub{font-size:.82rem;color:var(--mut);line-height:1.55;margin-bottom:.9rem}
+        .tt-modal textarea{width:100%;padding:.55rem .65rem;border:1.5px solid var(--ln);border-radius:10px;font-family:inherit;font-size:.88rem;min-height:74px}
+        .tt-modal textarea:focus{outline:none;border-color:var(--p)}
+        .qr{display:flex;gap:6px;flex-wrap:wrap;margin:.5rem 0 .2rem}
+        .qr button{background:#F3F4F6;border:1.5px solid var(--ln);border-radius:99px;padding:.3rem .7rem;font-size:.76rem;font-weight:700;color:#374151;cursor:pointer}
+        .qr button:hover{border-color:var(--p);color:var(--p-d)}
+
+        /* ---------- Điện thoại / máy tính bảng ---------- */
+        .sheet-close{display:none}
+        @media(max-width:1024px){
+            .split{grid-template-columns:1fr}
+            .rows{max-height:none}
+            .pane-detail{position:fixed;left:0;right:0;bottom:0;top:auto;max-height:86vh;overflow-y:auto;z-index:200;
+                border-radius:18px 18px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.22);transform:translateY(110%);
+                transition:transform .24s ease;border:none;border-top:1px solid var(--ln)}
+            .pane-detail.open{transform:translateY(0)}
+            .pane-detail .dhead{position:sticky;top:0;z-index:3}
+            .sheet-close{display:inline-flex}
+            .sheet-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:190;opacity:0;pointer-events:none;transition:opacity .2s}
+            .sheet-mask.open{opacity:1;pointer-events:auto}
+            .bulkbar{position:sticky;bottom:0;z-index:5}
+        }
+        /* Vùng bấm trên điện thoại: tối thiểu 42px và cách nhau ≥10px cho dễ bấm bằng ngón tay */
+        @media(hover:none),(max-width:640px){
+            .tab{padding:.62rem 1.05rem;min-height:44px}
+            .chip{padding:.55rem .9rem;min-height:42px}
+            .lnk{min-height:42px;padding:.5rem .7rem}
+            .icon-btn{min-height:42px;padding:.55rem .8rem}
+            .lhead select{min-height:44px;padding:.5rem .6rem}
+            .fgrid select,.fgrid input[type=text]{min-height:44px}
+            .top a.back{min-height:44px}
+            .banner .btn{min-height:44px !important;padding:.55rem .9rem !important}
+            .chips{gap:10px}
+            .fgrid{gap:.6rem}
+            .acts{gap:.7rem}
+            .bulkbar{gap:.7rem}
+            /* Ô tick trong danh sách: <label> bọc ngoài nới vùng bấm lên 44px, bố cục không lệch */
+            .row{padding:.7rem .5rem;gap:.5rem}
+            .ckwrap{width:44px;height:44px;margin:-11px -10px}
+            .row input[type=checkbox]{width:22px;height:22px}
+            .lhead label.all input[type=checkbox]{width:22px;height:22px}
+            .lhead label.all{min-height:44px}
+        }
+        @media(max-width:560px){
+            .wrap{padding:.7rem .7rem 1.2rem}
+            .fgrid select,.fgrid input[type=text]{flex:1 1 46%;min-width:0}
+            .fgrid .search{flex:1 1 100%}
+            .acts .btn{flex:1 1 46%}
+            .bulkbar .btn{flex:1 1 46%}
+            .bulkbar .txt{flex:1 1 100%}
+            .kv td.k{width:96px;font-size:.72rem}
+            .toast-container{left:.7rem;right:.7rem;top:.7rem}
+            .toast{min-width:0;max-width:none;width:100%}
+            .custom-modal-box{padding:1.2rem}
+            .custom-modal-actions{flex-direction:column-reverse;gap:.6rem}
+        }
     </style>
 </head>
 <body>
     <div class="top">
-        <a href="admin.html"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> Quản Lý</a>
+        <a class="back" href="admin.html"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> Quản Lý</a>
         <h1>Tường Trình Chấm Công Bù</h1>
-    </div>
-    <div class="wrap">
-        <div class="tabs">
-            <button class="tab on" id="t-pending" onclick="loadTab('pending')">Chờ duyệt <span class="cnt" id="c-pending">0</span></button>
-            <button class="tab" id="t-approved" onclick="loadTab('approved')">Đã duyệt</button>
-            <button class="tab" id="t-rejected" onclick="loadTab('rejected')">Từ chối</button>
-        </div>
-        <div id="list"><div class="empty">Đang tải...</div></div>
+        <div class="sp"></div>
+        <button class="icon-btn" onclick="loadTab(curTab)" title="Tải lại danh sách"><i data-lucide="refresh-cw" style="width:15px;height:15px"></i> Tải lại</button>
     </div>
 
+    <div class="wrap">
+        <div class="tabs">
+            <button class="tab on" id="t-pending" onclick="loadTab('pending')"><i data-lucide="inbox" style="width:15px;height:15px"></i> Chờ duyệt <span class="cnt" id="c-pending">0</span></button>
+            <button class="tab" id="t-approved" onclick="loadTab('approved')"><i data-lucide="check-circle" style="width:15px;height:15px"></i> Đã duyệt</button>
+            <button class="tab" id="t-rejected" onclick="loadTab('rejected')"><i data-lucide="x-circle" style="width:15px;height:15px"></i> Từ chối</button>
+        </div>
+
+        <div class="fbar">
+            <div class="chips" id="chips"></div>
+            <div class="fgrid">
+                <select id="f-month" onchange="setFilter('month',this.value)"></select>
+                <select id="f-staff" onchange="setFilter('staff',this.value)"></select>
+                <select id="f-branch" onchange="setFilter('branch',this.value)">
+                    <option value="">Mọi cơ sở</option><option value="cs1">CS1</option>
+                    <option value="cs2">CS2</option><option value="cs3">CS3</option>
+                    <option value="__none">Chưa khai cơ sở</option>
+                </select>
+                <select id="f-kind" onchange="setFilter('kind',this.value)">
+                    <option value="">Mọi loại ca</option><option value="gv">Ca dạy (GV/TG)</option>
+                    <option value="tt">Ca tiếp tân</option><option value="absent">Ghi nhận vắng</option>
+                </select>
+                <select id="f-trust" onchange="setFilter('trust',this.value)">
+                    <option value="">Mọi diện</option><option value="trusted">Diện tin tưởng</option>
+                    <option value="untrusted">Chưa xếp diện</option>
+                </select>
+                <select id="f-payout" onchange="setFilter('payout',this.value)">
+                    <option value="">Mọi tháng trả</option><option value="in">Đoán: trả trong tháng</option>
+                    <option value="next">Đoán: trả tháng sau</option>
+                </select>
+                <select id="f-extra" onchange="setFilter('extra',this.value)">
+                    <option value="">Mọi ca</option><option value="b10">Có xin Sớm 10p</option>
+                    <option value="ot">Có Tăng ca</option><option value="none">Không phát sinh tiền</option>
+                </select>
+                <input class="search" type="text" id="f-q" placeholder="Tìm tên người / lớp / lý do..." oninput="setFilter('q',this.value)">
+                <button class="lnk" onclick="clearFilters()">Xoá lọc</button>
+            </div>
+        </div>
+
+        <div id="banner"></div>
+
+        <div class="split">
+            <div class="card pane-list">
+                <div class="lhead">
+                    <span class="n" id="list-count">—</span>
+                    <label class="all"><input type="checkbox" id="sel-all" onchange="toggleSelectAllVisible(this.checked)"> Chọn hết đang hiện</label>
+                    <select id="sortMode" onchange="setSort(this.value)" title="Thứ tự xử lý">
+                        <option value="shiftAsc">Ngày ca cũ nhất trước</option>
+                        <option value="shiftDesc">Ngày ca mới nhất trước</option>
+                        <option value="createdDesc">Mới gửi trước</option>
+                    </select>
+                </div>
+                <div class="rows" id="rows"><div class="empty">Đang tải...</div></div>
+                <div id="bulkbar"></div>
+            </div>
+            <div class="card pane-detail" id="detail"></div>
+        </div>
+    </div>
+    <div class="sheet-mask" id="sheet-mask" onclick="closeDetail()"></div>
+
 <script>
-let curTab='pending',curReqs=[],curVerdicts={};
-const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+/* =========================================================================
+   TRANG TƯỜNG TRÌNH — thiết kế lại 07/08/2026
+   - Danh sách gọn 1 dòng / yêu cầu, sắp theo NGÀY CA cần xử lý (cũ nhất trước)
+   - Bộ lọc 8 chiều + chip lọc nhanh có kèm số lượng thật
+   - Khung chi tiết: bảng trường thông tin (thay đoạn văn), chọn THÁNG TRẢ bằng radio
+   - Thiếu trường bắt buộc  →  KHÔNG cho duyệt, phải "Bổ sung thông tin" trước
+   - Duyệt nhiều mục bằng tick, hoặc "Duyệt nhanh" các mục máy đã kiểm chứng đủ 8 điều kiện
+   - Bỏ hết alert/confirm/prompt của trình duyệt, dùng UIService
+   ========================================================================= */
+let curTab='pending',curReqs=[],curVerdicts={},truncated=false;
+let filters={quick:'',month:'',staff:'',branch:'',kind:'',trust:'',payout:'',extra:'',q:''};
+let sortMode='shiftAsc',selected=new Set(),activeId=null,subjectsCache=[];
+
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const adminName=()=>localStorage.getItem('userFullName')||localStorage.getItem('currentUser')||'Admin';
 const ft=i=>i?new Date(i).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'--:--';
 const DOW=['CN','T2','T3','T4','T5','T6','T7'];
+const SHIFT_VN={morning:'Sáng',afternoon:'Chiều',evening:'Tối'};
+const FILTER_KEY='tt-filters-v2';
+const toast=(m,t)=>UIService.toast(m,t||'info');
+
+function fmtDate(k){
+    if(!k)return '—';
+    const d=new Date(k+'T12:00:00');
+    if(isNaN(d.getTime()))return k;
+    return DOW[d.getDay()]+', '+String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+}
+function fmtMins(n){ return n>=60?(Math.floor(n/60)+'h'+(n%60?String(n%60)+'p':'')):(n+'p') }
+function monthLabel(mm){const p=String(mm||'').split('-');return p[1]?('tháng '+Number(p[1])+'/'+p[0]):'?'}
+function thisMonthStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 
 function guardAdmin(){
     let r=[];
     try{const p=JSON.parse(localStorage.getItem('currentRole'));r=Array.isArray(p)?p:[p]}catch(e){r=[localStorage.getItem('currentRole')]}
     if(!r.some(x=>['admin','senior_assistant'].includes(x))){
-        alert('Trang này chỉ dành cho quản lý.'); window.location.href='nhan-vien.html'; return false;
+        toast('Trang này chỉ dành cho quản lý.','error');
+        setTimeout(()=>{window.location.href='nhan-vien.html'},900);
+        return false;
     }
     return true;
 }
 
-// ================= ĐỐI CHIẾU TỰ ĐỘNG (đề xuất kiểm duyệt) =================
-// Máy KHÔNG tự duyệt thay quản lý. Máy chỉ đối chiếu những gì kiểm chứng được bằng dữ liệu và
-// đưa ra ĐỀ XUẤT + lý do, để quản lý bấm duyệt nhanh những ca rõ ràng và soi kỹ ca đáng ngờ.
-//   - 'ok'   : ca CÓ trên lịch, đúng người, và chưa hề có công → chỉ là quên chấm công.
-//   - 'warn' : không kiểm chứng được bằng dữ liệu (ca ngoài lịch) hoặc thiếu thông tin bắt buộc.
-//   - 'bad'  : mâu thuẫn dữ liệu (đã có công rồi / ca không tồn tại trên lịch / trùng giờ ca khác).
+/* ============ ĐỐI CHIẾU TỰ ĐỘNG (đề xuất kiểm duyệt) ============
+   Máy KHÔNG tự duyệt sau lưng quản lý. Máy chỉ đối chiếu những gì kiểm chứng được bằng dữ liệu
+   và đưa ra ĐỀ XUẤT + lý do.
+     - 'ok'   : ca CÓ trên lịch, đúng người, chưa hề có công → chỉ là quên chấm công
+     - 'warn' : không kiểm chứng được (ca ngoài lịch)
+     - 'miss' : thiếu trường bắt buộc → CHẶN duyệt cho tới khi bổ sung
+     - 'bad'  : mâu thuẫn dữ liệu (đã có công / không có trên lịch / trùng giờ ca khác) */
 const SECS_TT=['morning1','morning2','afternoon1','afternoon2','evening1','evening2'];
 const BRS_TT=['cs1','cs2','cs3'];
 const RS_TT={morning:{s:'07:00',e:'11:30'},afternoon:{s:'14:00',e:'18:00'},evening:{s:'18:00',e:'21:30'}};
@@ -114,9 +362,10 @@ const DK_TT=['mon','tue','wed','thu','fri','sat','sun'];
 const dkOf=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const toMin=t=>{const p=String(t||'').split(':');return (+p[0]||0)*60+(+p[1]||0)};
 const hmOfIso=i=>{const d=new Date(i);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
-// Ghép các ca CHỒNG hoặc DÍNH LIỀN nhau của cùng một người thành khối liền mạch, theo
-// từng cơ sở. Dùng để nhận ra yêu cầu chấm bù gộp nhiều lớp cùng giờ ("Toán 6 + Toán 7")
-// hay gộp chuỗi ca liền nhau — những khung giờ không khớp đúng một dòng lịch đơn lẻ nào.
+
+// Ghép các ca CHỒNG hoặc DÍNH LIỀN nhau của cùng một người thành khối liền mạch, theo từng cơ sở.
+// Dùng để nhận ra yêu cầu chấm bù gộp nhiều lớp cùng giờ ("Toán 6 + Toán 7") hay gộp chuỗi ca
+// liền nhau — những khung giờ không khớp đúng một dòng lịch đơn lẻ nào.
 function mergeSpans(rows){
     const byBranch={};
     (rows||[]).forEach(x=>{ if(x&&x.start&&x.end)(byBranch[x.branch||'']=byBranch[x.branch||'']||[]).push(x) });
@@ -132,9 +381,7 @@ function mergeSpans(rows){
     return out;
 }
 
-// DIỆN TIN TƯỞNG (xếp ở trang Nhân Sự). Chỉ người thuộc diện này mới được gom vào nút
-// "Duyệt hàng loạt". Người chưa xếp diện: dù đối chiếu khớp lịch vẫn phải để Quản trị viên /
-// Trợ lý cấp cao mở ra xem rồi bấm duyệt từng mục.
+// DIỆN TIN TƯỞNG (xếp ở trang Nhân Sự). Chỉ người thuộc diện này mới được gom vào "Duyệt nhanh".
 async function loadTrustedIds(){
     try{
         const users=await DBService.getUsers();
@@ -173,11 +420,10 @@ async function buildVerdicts(reqs){
                 if(!v)continue;
                 SECS_TT.forEach(sec=>(v[sec]||[]).forEach(row=>{
                     if(!row.start||!row.end)return;
+                    // isAssignedToClass (db-service.js) đọc ĐỦ gvList + gvThayTeList + gvThayTheList
+                    // + registeredTeachers → lớp xếp 2 GV thì GV thứ 2 cũng được nhận đúng.
                     rows.push({branch:b,start:row.start,end:row.end,lop:row.lop||'',
-                        mine:(row.gvId===staffId)||(row.gvThayTheId===staffId)||
-                             (row.gvList||[]).some(g=>g.id===staffId)||
-                             (row.gvThayTheList||[]).some(g=>g.id===staffId)||
-                             (row.registeredTeachers||[]).some(t=>t.id===staffId)});
+                        mine:isAssignedToClass(row,staffId)});
                 }));
             }
             schedByDate[dkey]=rows;
@@ -203,15 +449,8 @@ async function buildVerdicts(reqs){
         group.forEach(r=>{
             const s=r.session||{};
             const sess=attMap[r.dateKey]||[];
-            const missing=[];
-            if(!r.branch)missing.push('cơ sở');
-            const isTT=s.role==='tiep-tan';
-            if(r.type!=='scheduled'){
-                if(!isTT&&!r.className)missing.push('môn/lớp');
-                if(isTT&&!r.shiftKey)missing.push('ca trực');
-                if(!r.approvedBy)missing.push('người phân công');
-            }
-            if(!s.isAbsent&&(!s.checkIn||!s.checkOut))missing.push('giờ vào/ra');
+            // Cùng một định nghĩa "đủ trường" với lúc nhân viên gửi (db-service.missingMakeupFields)
+            const missing=DBService.missingMakeupFields(r);
 
             // 1) Đã có công chồng giờ chưa? (chống chấm bù trùng)
             let overlapped=false;
@@ -225,8 +464,8 @@ async function buildVerdicts(reqs){
                 });
             }
 
-            // 1b) Trùng giờ với một yêu cầu KHÁC cũng đang chờ duyệt (nhân viên tách hai
-            // lớp dạy song song thành hai đơn) → chỉ được duyệt một, không phải cả hai.
+            // 1b) Trùng giờ với một yêu cầu KHÁC cũng đang chờ duyệt (nhân viên tách hai lớp dạy
+            // song song thành hai đơn) → chỉ được duyệt một, không phải cả hai.
             let twinReq=null;
             if(s.checkIn&&s.checkOut&&!overlapped){
                 const a1=new Date(s.checkIn).getTime(),a2=new Date(s.checkOut).getTime();
@@ -243,46 +482,54 @@ async function buildVerdicts(reqs){
             // 2) Ca có thật trên lịch và đúng người không?
             const startHM=s.checkIn?hmOfIso(s.checkIn):'',endHM=s.checkOut?hmOfIso(s.checkOut):'';
             const rows=schedByDate[r.dateKey]||[],rsh=recepByDate[r.dateKey]||[];
-            // Ca gộp nhiều lớp chồng giờ ("Toán 6 + Toán 7") không khớp đúng một dòng lịch
-            // nào, nên đối chiếu thêm với các KHỐI LIỀN MẠCH ghép từ lịch của chính người đó.
             const myRows=rows.filter(x=>x.mine).concat(rsh);
             const spans=mergeSpans(myRows);
             const inSpan=!!(startHM&&endHM&&spans.some(sp=>
                 (!r.branch||!sp.branch||sp.branch===r.branch)&&
                 toMin(sp.start)<=toMin(startHM)&&toMin(endHM)<=toMin(sp.end)));
-            const schedMatch=rows.find(x=>x.mine&&x.start===startHM&&x.end===endHM)||
-                             rsh.find(x=>x.start===startHM&&x.end===endHM)||
-                             (inSpan?{start:startHM,end:endHM,merged:true}:null);
+            const exactRow=rows.find(x=>x.mine&&x.start===startHM&&x.end===endHM)||
+                           rsh.find(x=>x.start===startHM&&x.end===endHM)||null;
+            const schedMatch=exactRow||(inSpan?{start:startHM,end:endHM,merged:true}:null);
             const anyClassAtTime=rows.some(x=>toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end));
 
             const trusted=trustedIds.has(String(r.staffId));
+            const hasMoneyExtra=!!(s.bonus10||(s.overtimeMinutes>0)||s.isAbsent);
             let level,title,reasons=[],quick=false;
+
             if(missing.length){
-                level='warn'; title='Thiếu thông tin';
+                level='miss'; title='Thiếu thông tin — chưa duyệt được';
                 reasons.push('Chưa khai: '+missing.join(', ')+'.');
+                reasons.push('Thiếu những mục này thì quản lý không có căn cứ kiểm chứng và Bảng Công cũng không áp được đơn giá. Hãy bấm "Bổ sung thông tin" để điền, hoặc từ chối và yêu cầu nhân viên khai lại.');
             }else if(overlapped){
                 level='bad'; title='Đã có công trùng giờ';
                 reasons.push('Bảng công đã có ca chồng khung giờ này — duyệt sẽ tính lương 2 lần.');
                 reasons.push('Một người chỉ vào ca một lần: dạy 2 lớp cùng giờ vẫn là MỘT ca công, Bảng Công gộp thành một ô và trả theo lớp đơn giá cao nhất. Nếu ca đã có ghi thiếu lớp thì sửa tên lớp ở Bảng Công, đừng duyệt thêm ca.');
             }else if(twinReq){
-                level='bad'; title='Trùng giờ với yêu cầu khác trong nhóm';
-                reasons.push('Yêu cầu này chồng khung giờ với yêu cầu ngày '+twinReq.dateKey+' ("'+(twinReq.shiftLabel||'')+'") cũng đang chờ duyệt.');
+                level='bad'; title='Trùng giờ với yêu cầu khác';
+                reasons.push('Yêu cầu này chồng khung giờ với một yêu cầu khác cùng ngày '+twinReq.dateKey+' ("'+(twinReq.shiftLabel||'')+'") cũng đang chờ duyệt.');
                 reasons.push('Nhân viên chỉ vào ca một lần nên hai lớp cùng giờ phải gộp thành MỘT ca công — chỉ duyệt một mục, mục còn lại từ chối và ghi rõ lý do (đã gộp).');
             }else if(r.type==='scheduled'&&schedMatch){
                 level='ok';
                 reasons.push(schedMatch.merged
                     ? 'Khung giờ này nằm trọn trong khối ca liên tục của nhân viên trên lịch (ca gộp nhiều lớp / chuỗi ca liền nhau), và chưa được ghi nhận công nào.'
-                    : 'Ca có trên lịch, đúng người, và chưa được ghi nhận công nào.');
-                if(trusted){
-                    quick=true; title='Khớp lịch — đủ điều kiện duyệt nhanh';
-                    reasons.push('Nhân viên thuộc diện tin tưởng nên nằm trong nhóm duyệt hàng loạt.');
+                    : 'Ca có trên lịch, đúng người, đúng khung giờ, và chưa được ghi nhận công nào.');
+                // 8 ĐIỀU KIỆN để máy coi là "đã kiểm chứng đủ, duyệt nhanh được"
+                const autoSafe=r.type==='scheduled' && !!exactRow && !overlapped && !twinReq
+                    && missing.length===0 && trusted && !hasMoneyExtra;
+                if(autoSafe){
+                    quick=true; title='Máy đã kiểm chứng — duyệt nhanh được';
+                    reasons.push('Đủ điều kiện duyệt nhanh: khớp đúng một dòng lịch, đúng người thuộc diện tin tưởng, chưa có công, không trùng yêu cầu khác, khai đủ thông tin, và không kèm Sớm 10p / Tăng ca / ghi nhận vắng.');
                 }else{
-                    title='Khớp lịch — cần quản lý duyệt tay';
-                    reasons.push('Nhân viên CHƯA được xếp diện tin tưởng (trang Nhân Sự) nên không gom vào nút duyệt hàng loạt — Quản trị viên / Trợ lý cấp cao xem rồi bấm duyệt từng mục.');
+                    title='Khớp lịch — cần quản lý xem tay';
+                    const why=[];
+                    if(!trusted)why.push('người gửi chưa được xếp diện tin tưởng (trang Nhân Sự)');
+                    if(!exactRow)why.push('khớp theo khối ca gộp, không khớp đúng một dòng lịch');
+                    if(hasMoneyExtra)why.push('ca có kèm phát sinh tiền (Sớm 10p / Tăng ca) hoặc là ghi nhận vắng');
+                    reasons.push('Không gom vào "Duyệt nhanh" vì: '+why.join('; ')+'.');
                 }
             }else if(r.type==='scheduled'&&!schedMatch){
                 level='bad'; title='Không tìm thấy ca trên lịch';
-                reasons.push('Không có ca đúng khung giờ này của nhân viên trong lịch — cần kiểm tra lại.');
+                reasons.push('Không có ca đúng khung giờ này của nhân viên trong lịch — cần kiểm tra lại (có thể lịch đã bị sửa hoặc đổi giáo viên sau khi nhân viên gửi).');
             }else{
                 level='warn'; title='Ngoài lịch — cần quản lý xác nhận';
                 reasons.push('Ca không có trên lịch nên hệ thống không tự đối chiếu được.');
@@ -290,143 +537,35 @@ async function buildVerdicts(reqs){
                 if(anyClassAtTime)reasons.push('Khung giờ này trung tâm CÓ lớp đang diễn ra (hợp lý).');
                 else reasons.push('Khung giờ này không có lớp nào trên lịch — nên hỏi lại.');
             }
-            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted};
+            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted,missing:missing};
         });
     }
     return out;
 }
 
-async function refreshPendingCount(){
-    try{ const p=await DBService.getMakeupRequestsByStatus('pending');
-         document.getElementById('c-pending').innerText=p.length; }catch(e){}
-}
-
-window.loadTab=async function(tab){
-    curTab=tab;
-    ['pending','approved','rejected'].forEach(t=>document.getElementById('t-'+t).classList.toggle('on',t===tab));
-    const el=document.getElementById('list');
-    el.innerHTML='<div class="empty">Đang tải...</div>';
-    curReqs=await DBService.getMakeupRequestsByStatus(tab);
-    if(tab==='pending')document.getElementById('c-pending').innerText=curReqs.length;
-    if(!curReqs.length){
-        el.innerHTML='<div class="empty"><i data-lucide="inbox"></i><div style="font-weight:600;color:#374151">Không có yêu cầu nào</div>'+
-            '<div style="font-size:.82rem;margin-top:3px">'+(tab==='pending'?'Tất cả tường trình đã được xử lý.':'Chưa có mục nào ở đây.')+'</div></div>';
-        if(window.lucide)lucide.createIcons();
-        return;
-    }
-    // Đối chiếu tự động trước khi vẽ (chỉ tab chờ duyệt mới cần)
-    curVerdicts={};
-    if(tab==='pending'){
-        el.innerHTML='<div class="empty">Đang đối chiếu dữ liệu lịch & bảng công...</div>';
-        try{ curVerdicts=await buildVerdicts(curReqs) }catch(e){ console.warn('[Verdict]',e) }
-    }
-
-    const groups={};
-    curReqs.forEach(r=>{const k=r.batchId||r.id; if(!groups[k])groups[k]=[]; groups[k].push(r)});
-    // Chỉ gom mục KHỚP LỊCH của người thuộc DIỆN TIN TƯỞNG vào nút duyệt hàng loạt.
-    const okCount=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick).length;
-    const manualOk=curReqs.filter(r=>{const v=curVerdicts[r.id]||{};return v.level==='ok'&&!v.quick}).length;
-    const topBar=(tab==='pending'&&(okCount>0||manualOk>0))
-        ? '<div class="grp" style="padding:.85rem 1rem;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
-          '<div style="font-size:.85rem;color:#065F46">'+
-            (okCount>0?'<b>'+okCount+' yêu cầu</b> khớp lịch, chưa có công, của người thuộc <b>diện tin tưởng</b> — an toàn để duyệt nhanh.':'')+
-            (manualOk>0?(okCount>0?'<br>':'')+'<span style="color:#92400E">'+manualOk+' yêu cầu khớp lịch nhưng người gửi chưa được xếp diện tin tưởng — cần xem và duyệt từng mục.</span>':'')+
-          '</div>'+
-          (okCount>0?'<button class="btn b-all" onclick="approveAllEligible()"><i data-lucide="check-check" style="width:15px;height:15px"></i> Duyệt '+okCount+' mục đủ điều kiện</button>':'')+
-          '</div>'
-        : '';
-    el.innerHTML=Object.keys(groups).map(function(bk){
-        const reqs=groups[bk],f=reqs[0];
-        const t=f.createdAt&&f.createdAt.seconds?new Date(f.createdAt.seconds*1000).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'}):'';
-        const initial=String(f.staffName||'N').trim().charAt(0).toUpperCase();
-        const bulk=(tab==='pending'&&reqs.length>1)?'<button class="btn b-all" onclick="approveBatch(\''+bk+'\')"><i data-lucide="check-check" style="width:15px;height:15px"></i> Duyệt cả nhóm ('+reqs.length+')</button>':'';
-        const rows=reqs.map(function(r){
-            const s=r.session||{};
-            const isAbs=!!s.isAbsent, isEx=r.type!=='scheduled';
-            const tcls=isAbs?'t-abs':(isEx?'t-extra':'t-sched');
-            const tblock=isAbs?'VẮNG':(ft(s.checkIn)+'<small>'+ft(s.checkOut)+'</small>');
-            const d=new Date(r.dateKey+'T12:00:00');
-            const dateStr=DOW[d.getDay()]+', '+String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
-            let mins=0;
-            if(!isAbs&&s.checkIn&&s.checkOut)mins=Math.round((new Date(s.checkOut)-new Date(s.checkIn))/60000);
-            const metas=[];
-            if(mins>0)metas.push('<span><i data-lucide="clock" style="width:13px;height:13px"></i> '+(mins>=60?Math.floor(mins/60)+'h'+(mins%60?(mins%60)+'p':''):mins+'p')+'</span>');
-            // Thông tin ĐỦ để quản lý kiểm duyệt: cơ sở – lớp/ca – phòng – người phân công
-            metas.push(r.branch
-                ? '<span><i data-lucide="map-pin" style="width:13px;height:13px"></i> '+esc(String(r.branch).toUpperCase())+'</span>'
-                : '<span class="miss">Thiếu cơ sở</span>');
-            if(r.className)metas.push('<span><i data-lucide="book-open" style="width:13px;height:13px"></i> '+esc(r.className)+'</span>');
-            else if(r.shiftKey)metas.push('<span><i data-lucide="book-open" style="width:13px;height:13px"></i> Ca '+esc({morning:'Sáng',afternoon:'Chiều',evening:'Tối'}[r.shiftKey]||r.shiftKey)+'</span>');
-            else if(isEx)metas.push('<span class="miss">Thiếu môn/lớp</span>');
-            if(r.room)metas.push('<span><i data-lucide="door-open" style="width:13px;height:13px"></i> '+esc(r.room)+'</span>');
-            if(s.roleName)metas.push('<span><i data-lucide="user" style="width:13px;height:13px"></i> '+esc(s.roleName)+'</span>');
-            if(r.approvedBy)metas.push('<span><i data-lucide="user-check" style="width:13px;height:13px"></i> '+esc(r.approvedBy)+'</span>');
-            else if(isEx)metas.push('<span class="miss">Thiếu người phân công</span>');
-            if(s.bonus10)metas.push('<span><i data-lucide="star" style="width:13px;height:13px"></i> Sớm 10p</span>');
-            if(s.overtimeMinutes>0)metas.push('<span><i data-lucide="plus-circle" style="width:13px;height:13px"></i> Tăng ca '+s.overtimeMinutes+'p</span>');
-
-            const v=curVerdicts[r.id];
-            // Khớp lịch nhưng người gửi chưa thuộc diện tin tưởng → tô vàng để quản lý biết
-            // phải tự xem, không lẫn với nhóm xanh được duyệt hàng loạt.
-            const vCls=(v&&v.level==='ok'&&!v.quick)?'warn':(v?v.level:'');
-            const vIcon=!v?'':(v.level==='bad'?'shield-alert':(v.quick?'shield-check':(v.level==='ok'?'user-check':'help-circle')));
-            const vHtml=v?('<div class="vd vd-'+vCls+'"><i data-lucide="'+vIcon+
-                '" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i><div><b>Đối chiếu tự động: '+
-                esc(v.title)+'</b><br>'+esc(v.text)+'</div></div>'):'';
-            let act='';
-            if(tab==='pending')act='<div class="acts"><button class="btn b-ok" onclick="approveOne(\''+r.id+'\')"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt</button>'+
-                '<button class="btn b-no" onclick="rejectOne(\''+r.id+'\')"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối</button></div>';
-            else if(tab==='approved')act='<div style="font-size:.74rem;color:var(--mut)">Duyệt bởi '+esc(r.reviewedBy||'Admin')+'</div>';
-            else act='<div style="font-size:.74rem;color:#991B1B">Lý do từ chối: '+esc(r.rejectReason||'(không ghi)')+'</div>';
-            return '<div class="sc"><div class="sc-t '+tcls+'">'+tblock+'</div><div class="sc-b">'+
-                '<div class="sc-r1"><div style="min-width:0">'+
-                '<div class="sc-nm">'+esc(r.shiftLabel||'')+'</div>'+
-                '<div class="sc-sb">'+dateStr+'</div></div>'+
-                '<span class="bdg '+(isEx?'b-e':'b-s')+'">'+(isEx?'Ngoài lịch':'Có lịch')+'</span></div>'+
-                (metas.length?'<div class="sc-meta">'+metas.join('')+'</div>':'')+
-                '<div class="why"><b>Lý do:</b> '+esc(r.reason||'(không ghi)')+'</div>'+vHtml+act+'</div></div>';
-        }).join('');
-        return '<div class="grp"><div class="grp-h"><div class="who"><div class="av">'+esc(initial)+'</div>'+
-            '<div><div class="n">'+esc(f.staffName||f.staffId)+'</div><div class="s">Gửi lúc '+t+' · '+reqs.length+' yêu cầu</div></div></div>'+
-            bulk+'</div><div class="body">'+rows+'</div></div>';
-    }).join('');
-    el.innerHTML=topBar+el.innerHTML;
-    if(window.lucide)lucide.createIcons();
-};
-
-// Duyệt hàng loạt các yêu cầu mà đối chiếu tự động cho kết quả "khớp lịch, chưa có công".
-// Vẫn cần quản lý bấm nút — hệ thống không tự duyệt sau lưng.
-window.approveAllEligible=async function(){
-    const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick);
-    if(!list.length)return;
-    if(!confirm('Duyệt '+list.length+' yêu cầu KHỚP LỊCH, chưa có công, của người thuộc diện tin tưởng?'))return;
-    const pickPayout=askPayoutMonthBulk(list);
-    if(!pickPayout)return;
-    bulkReport(await runBulkApprove(list,pickPayout),list.length);
-    loadTab(curTab); refreshPendingCount();
-};
-
-// ===== THÁNG TRẢ LƯƠNG (quy định GĐ Diễm 06/08/2026) =====
-// Lỗi bên trung tâm (mất mạng, mất điện, hỏng máy) → trả NGAY trong tháng dạy.
-// Nhân viên quên chấm công → trả vào THÁNG SAU.
-// Ca vẫn nằm ở tháng dạy, giờ công và đơn giá giữ nguyên; chỉ có tiền dồn sang tháng chọn.
-// So khớp sau khi BỎ DẤU: người khai gõ "mất mạng", "mat mang", "Mất Mạng" đều nhận ra.
-// (Viết regex có dấu rất dễ trượt vì tiếng Việt có cả ký tự dựng sẵn lẫn dấu tổ hợp.)
-const stripTones=(v)=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+/* ===== THÁNG TRẢ LƯƠNG (quy định GĐ Diễm 06/08/2026) =====
+   Lỗi bên trung tâm (mất mạng, mất điện, hỏng máy) → trả NGAY trong tháng dạy.
+   Nhân viên quên chấm công → trả vào THÁNG SAU.
+   Ca vẫn nằm ở tháng dạy, giờ công và đơn giá giữ nguyên; chỉ có tiền dồn sang tháng chọn.
+   So khớp sau khi BỎ DẤU: "mất mạng", "mat mang", "Mất Mạng" đều nhận ra. */
+const stripTones=(v)=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
-// Nhận diện "lỗi bên trung tâm" theo HAI VẾ: có nhắc tới THIẾT BỊ/HẠ TẦNG của trung tâm
-// và có nhắc tới SỰ CỐ. Không ép thứ tự chữ, vì người ta viết đủ kiểu: "mất mạng",
-// "wifi trung tâm bị lỗi", "web lỗi", "lỗi hệ thống", "máy hư"...
-// (Bản đầu bắt theo cụm cố định nên trượt "Wifi trung tâm bị lỗi" → đoán nhầm thành
-//  nhân viên quên và đẩy tiền sang tháng sau.)
-const CF_THING=/wifi|mang|internet|dien|nguon|he\s*thong|phan\s*mem|web|app|ung\s*dung|may|server|he\s*thong|trang\s*web/;
-const CF_TROUBLE=/loi|hong|hu|mat|rot|cup|sap|treo|do|chap\s*chon|yeu|khong\s*(vao|truy\s*cap|dang\s*nhap|cham\s*cong|bam)\s*(duoc|dc)|bao\s*loi|khong\s*len/;
-// Những câu tự nó đã nói lên là hệ thống không cho thao tác, khỏi cần nhắc thiết bị:
-// "không đăng nhập được", "bấm vào ca báo lỗi", "không lưu được"...
-const CF_ALONE=/khong\s*(dang\s*nhap|vao(\s*ca)?|truy\s*cap|cham\s*cong|bam|luu|check[\s-]*in|check[\s-]*out)\s*(duoc|dc)|bao\s*loi|khong\s*nhan\s*(duoc|dc)/;
-const CENTER_FAULT_RE={
-    test:(t)=>CF_ALONE.test(t)||(CF_THING.test(t)&&CF_TROUBLE.test(t))
-};
+// MẶC ĐỊNH là "nhân viên quên" (trả tháng sau). Chỉ khi lý do nói RÕ một sự cố của
+// THIẾT BỊ / HẠ TẦNG TRUNG TÂM thì mới chuyển sang "lỗi trung tâm" (trả trong tháng).
+//
+// Bản trước quá rộng nên bắt sai: "Quên mang điện thoại nên không chấm công được" bị tính là
+// lỗi trung tâm — vì "mang" (mang theo) và "điện" (điện thoại) nằm trong danh sách thiết bị, và
+// "không chấm công được" nằm trong danh sách sự cố. Kết quả là tiền của ca nhân viên tự quên
+// lại được trả ngay trong tháng, trái quy định GĐ 06/08/2026. Nay:
+//   - Bỏ "mang"/"dien" trần khỏi danh sách thiết bị; sự cố mạng/điện tách riêng CF_NET và
+//     loại trừ "điện thoại" (đồ của nhân viên, không phải của trung tâm).
+//   - "không chấm công được" / "không vào ca được" KHÔNG còn tự nó đủ nghĩa — đó là hệ quả,
+//     mọi đơn đều viết vậy; phải có thiết bị/sự cố đi kèm.
+const CF_THING=/wifi|internet|he\s*thong|phan\s*mem|ung\s*dung|server|trang\s*web|\bweb\b|\bapp\b|\bmay\b|nguon/;
+const CF_NET=/mat\s*mang|mang\s*(yeu|lag|cham|loi|chap|kem|hong)|(mat|cup|hong|sap)\s*dien(?!\s*thoai)|dien\s*(bi\s*)?(cup|mat|hong)/;
+const CF_TROUBLE=/loi|hong|hu|mat|rot|cup|sap|treo|chap\s*chon|yeu|bao\s*loi|khong\s*len|khong\s*(vao|truy\s*cap|dang\s*nhap|cham\s*cong|bam|luu)\s*(duoc|dc)/;
+const CF_ALONE=/khong\s*(dang\s*nhap|truy\s*cap|luu)\s*(duoc|dc)|bao\s*loi|he\s*thong\s*loi|web\s*loi|app\s*loi/;
+const CENTER_FAULT_RE={ test:(t)=>CF_ALONE.test(t)||CF_NET.test(t)||(CF_THING.test(t)&&CF_TROUBLE.test(t)) };
 
 const nextMonthOf=(dateKey)=>{
     const [y,m]=String(dateKey||'').split('-').map(Number);
@@ -437,7 +576,6 @@ const nextMonthOf=(dateKey)=>{
 // Đoán lỗi thuộc về ai, dựa vào lý do nhân viên khai. Chỉ là GỢI Ý — người duyệt đổi được.
 const guessCenterFault=(r)=>CENTER_FAULT_RE.test(stripTones((r&&r.reason)||''));
 
-// Gợi ý tự đoán tháng trả lương cho một mục (dùng làm mặc định, không phải quyết định).
 function payoutFor(r){
     const teachMonth=String(r.dateKey||'').slice(0,7);
     return guessCenterFault(r)
@@ -445,168 +583,701 @@ function payoutFor(r){
         : { payoutMonth:nextMonthOf(r.dateKey), payoutReason:'Nhân viên quên chấm công — trả tháng sau' };
 }
 
-// Tóm tắt "bao nhiêu ca trả tháng này / bao nhiêu ca dồn tháng sau" cho hộp xác nhận.
-function payoutSummary(list){
-    const inMonth=list.filter(r=>guessCenterFault(r)).length;
-    const next=list.length-inMonth;
+// Hộp chọn THÁNG TRẢ bằng RADIO (bỏ prompt gõ số 1/2/3/4 — chỗ dễ bấm sai nhất về tiền).
+// Trả về hàm map (r)=>{payoutMonth,payoutReason}, hoặc null nếu người duyệt huỷ.
+function askPayout(list){
+    return new Promise(resolve=>{
+        const one=list.length===1;
+        const months=[...new Set(list.map(r=>String(r.dateKey||'').slice(0,7)).filter(Boolean))];
+        const single=months.length===1;
+        const teachLbl=single?monthLabel(months[0]):'tháng dạy của từng ca';
+        const nextLbl=single?monthLabel(nextMonthOf(list[0].dateKey)):'tháng liền sau của từng ca';
+        const nIn=list.filter(guessCenterFault).length, nNext=list.length-nIn;
+        const guessAll=nIn===list.length?'in':(nNext===list.length?'next':'auto');
+        const def=one?(guessCenterFault(list[0])?'in':'next'):guessAll;
+
+        const head=one
+            ? 'Ca ngày <b>'+esc(fmtDate(list[0].dateKey))+'</b> của <b>'+esc(list[0].staffName||'')+'</b>.<br>Lý do khai: "'+esc(list[0].reason||'(không ghi)')+'"'
+            : 'Duyệt <b>'+list.length+' yêu cầu</b>. Máy đoán theo lý do: <b>'+nIn+' ca</b> lỗi trung tâm (trả trong tháng), <b>'+nNext+' ca</b> nhân viên quên (trả tháng sau).';
+
+        const opt=(val,t,h,sug)=>'<label class="ropt'+(def===val?' on':'')+'" data-v="'+val+'">'+
+            '<input type="radio" name="tt-payout" value="'+val+'"'+(def===val?' checked':'')+'>'+
+            '<div><div class="t">'+t+(sug?'<span class="sug">máy đề xuất</span>':'')+'</div><div class="h">'+h+'</div></div></label>';
+
+        const bd=document.createElement('div');
+        bd.className='custom-modal-backdrop tt-modal';
+        bd.innerHTML='<div class="custom-modal-box">'+
+            '<h3>Chọn tháng trả lương</h3>'+
+            '<div class="sub">'+head+'</div>'+
+            '<div class="radios">'+
+                opt('in','Trả TRONG THÁNG DẠY ('+teachLbl+')','Lỗi bên trung tâm: mất mạng, mất điện, máy/web lỗi.',def==='in')+
+                opt('next','Trả THÁNG SAU ('+nextLbl+')','Nhân viên quên chấm công.',def==='next')+
+                (one?'':opt('auto','Theo gợi ý của máy cho từng ca','Mỗi ca một kiểu, đúng theo lý do đã khai.',def==='auto'))+
+            '</div>'+
+            '<div class="sub" style="margin:.8rem 0 0">Giờ công vẫn ghi vào Bảng Công đúng <b>tháng dạy</b> trong mọi trường hợp; chỉ tiền là dồn sang tháng được chọn.</div>'+
+            '<div class="custom-modal-actions">'+
+                '<button class="btn b-ghost" id="tt-po-cancel">Huỷ</button>'+
+                '<button class="btn b-ok" id="tt-po-ok"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt '+(one?'':list.length+' mục')+'</button>'+
+            '</div></div>';
+        document.body.appendChild(bd);
+        if(window.lucide)lucide.createIcons({root:bd});
+        bd.querySelectorAll('.ropt').forEach(el=>{
+            el.onclick=()=>{ bd.querySelectorAll('.ropt').forEach(x=>x.classList.remove('on')); el.classList.add('on');
+                             el.querySelector('input').checked=true };
+        });
+        const close=(res)=>{ bd.remove(); resolve(res) };
+        bd.querySelector('#tt-po-cancel').onclick=()=>close(null);
+        bd.onclick=(e)=>{ if(e.target===bd)close(null) };
+        bd.querySelector('#tt-po-ok').onclick=()=>{
+            const v=(bd.querySelector('input[name="tt-payout"]:checked')||{}).value||def;
+            if(v==='in')close(r=>({payoutMonth:String(r.dateKey||'').slice(0,7),payoutReason:'Lỗi trung tâm — trả trong tháng'}));
+            else if(v==='next')close(r=>({payoutMonth:nextMonthOf(r.dateKey),payoutReason:'Nhân viên quên chấm công — trả tháng sau'}));
+            else close(payoutFor);
+        };
+    });
+}
+
+// Hộp TỪ CHỐI: có 4 lý do bấm nhanh, khỏi gõ lại mỗi lần
+function askReject(n){
+    return new Promise(resolve=>{
+        const quick=['Đã có công trong Bảng Công rồi','Thiếu thông tin, vui lòng khai lại',
+                     'Không đúng ca trên lịch','Đã gộp với ca khác cùng khung giờ'];
+        const bd=document.createElement('div');
+        bd.className='custom-modal-backdrop tt-modal';
+        bd.innerHTML='<div class="custom-modal-box">'+
+            '<h3>Từ chối '+(n>1?n+' yêu cầu':'yêu cầu')+'</h3>'+
+            '<div class="sub">Lý do sẽ hiện cho nhân viên thấy ở trang Chấm Công Bù của họ.</div>'+
+            '<div class="qr">'+quick.map((q,i)=>'<button type="button" data-q="'+i+'">'+esc(q)+'</button>').join('')+'</div>'+
+            '<textarea id="tt-rj-text" placeholder="Nhập lý do từ chối..."></textarea>'+
+            '<div class="custom-modal-actions">'+
+                '<button class="btn b-ghost" id="tt-rj-cancel">Huỷ</button>'+
+                '<button class="btn b-no" id="tt-rj-ok"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối</button>'+
+            '</div></div>';
+        document.body.appendChild(bd);
+        if(window.lucide)lucide.createIcons({root:bd});
+        const ta=bd.querySelector('#tt-rj-text');
+        bd.querySelectorAll('.qr button').forEach(b=>{ b.onclick=()=>{ ta.value=quick[+b.dataset.q]; ta.focus() } });
+        const close=(res)=>{ bd.remove(); resolve(res) };
+        bd.querySelector('#tt-rj-cancel').onclick=()=>close(null);
+        bd.onclick=(e)=>{ if(e.target===bd)close(null) };
+        bd.querySelector('#tt-rj-ok').onclick=()=>{
+            const v=(ta.value||'').trim();
+            if(!v){ toast('Vui lòng ghi lý do từ chối.','warning'); ta.focus(); return }
+            close(v);
+        };
+        setTimeout(()=>ta.focus(),60);
+    });
+}
+
+/* ================= NẠP DỮ LIỆU ================= */
+async function refreshPendingCount(){
+    try{ const p=await DBService.getMakeupRequestsByStatus('pending');
+         document.getElementById('c-pending').innerText=p.length; }catch(e){}
+}
+
+window.loadTab=async function(tab){
+    curTab=tab; selected.clear(); activeId=null;
+    ['pending','approved','rejected'].forEach(t=>document.getElementById('t-'+t).classList.toggle('on',t===tab));
+    document.getElementById('rows').innerHTML='<div class="empty"><i data-lucide="loader-2" class="animate-spin"></i><div class="t">Đang tải danh sách...</div></div>';
+    document.getElementById('detail').innerHTML='';
+    if(window.lucide)lucide.createIcons();
+
+    curReqs=await DBService.getMakeupRequestsByStatus(tab)||[];
+    truncated=!!curReqs._truncated;
+    if(tab==='pending')document.getElementById('c-pending').innerText=curReqs.length;
+
+    curVerdicts={};
+    if(tab==='pending'&&curReqs.length){
+        document.getElementById('rows').innerHTML='<div class="empty"><i data-lucide="loader-2" class="animate-spin"></i><div class="t">Đang đối chiếu lịch &amp; bảng công...</div><div class="s">Kiểm tra ca có trên lịch, đúng người, đã có công chưa.</div></div>';
+        if(window.lucide)lucide.createIcons();
+        try{ curVerdicts=await buildVerdicts(curReqs) }catch(e){ console.warn('[Verdict]',e); toast('Không đối chiếu được dữ liệu lịch, vẫn duyệt tay được.','warning') }
+    }
+    buildFilterOptions();
+    render();
+};
+
+/* ================= BỘ LỌC ================= */
+function kindOf(r){
+    const s=r.session||{};
+    if(s.isAbsent)return 'absent';
+    if(s.role==='tiep-tan'||r.shiftKind==='tt'||(!r.className&&r.shiftKey))return 'tt';
+    return 'gv';
+}
+function extraOf(r){
+    const s=r.session||{};
+    if(s.bonus10)return 'b10';
+    if(s.overtimeMinutes>0)return 'ot';
+    return 'none';
+}
+function matchQuick(r,q){
+    const v=curVerdicts[r.id]||{};
+    if(q==='bad')return v.level==='bad';
+    if(q==='miss')return (v.missing&&v.missing.length>0)||v.level==='miss';
+    if(q==='extra')return r.type!=='scheduled';
+    if(q==='ok')return v.level==='ok';
+    if(q==='auto')return !!v.quick;
+    if(q==='old')return String(r.dateKey||'').slice(0,7)<thisMonthStr();
+    return true;
+}
+function passFilters(r){
+    if(filters.quick&&!matchQuick(r,filters.quick))return false;
+    if(filters.month&&String(r.dateKey||'').slice(0,7)!==filters.month)return false;
+    if(filters.staff&&String(r.staffId||'')!==filters.staff)return false;
+    if(filters.branch){
+        if(filters.branch==='__none'){ if(r.branch)return false }
+        else if(String(r.branch||'')!==filters.branch)return false;
+    }
+    if(filters.kind&&kindOf(r)!==filters.kind)return false;
+    if(filters.trust){
+        const t=(curVerdicts[r.id]||{}).trusted;
+        if(t===undefined)return false;              // tab không đối chiếu → không lọc theo diện
+        if(filters.trust==='trusted'&&!t)return false;
+        if(filters.trust==='untrusted'&&t)return false;
+    }
+    if(filters.payout){
+        const isIn=guessCenterFault(r);
+        if(filters.payout==='in'&&!isIn)return false;
+        if(filters.payout==='next'&&isIn)return false;
+    }
+    if(filters.extra&&extraOf(r)!==filters.extra)return false;
+    if(filters.q){
+        const k=stripTones(filters.q).trim();
+        const hay=stripTones([r.staffName,r.className,r.shiftLabel,r.reason,r.approvedBy,r.room].filter(Boolean).join(' '));
+        if(k&&!hay.includes(k))return false;
+    }
+    return true;
+}
+function visibleReqs(){
+    const list=curReqs.filter(passFilters);
+    const cAt=r=>(r.createdAt&&r.createdAt.seconds)||0;
+    list.sort((a,b)=>{
+        if(sortMode==='createdDesc')return cAt(b)-cAt(a);
+        const da=String(a.dateKey||''),db=String(b.dateKey||'');
+        if(da!==db)return sortMode==='shiftDesc'?db.localeCompare(da):da.localeCompare(db);
+        const na=String(a.staffName||''),nb=String(b.staffName||'');
+        if(na!==nb)return na.localeCompare(nb,'vi');
+        return String((a.session||{}).checkIn||'').localeCompare(String((b.session||{}).checkIn||''));
+    });
+    return list;
+}
+window.setFilter=function(k,v){ filters[k]=v; selected.clear(); saveFilters(); render() };
+window.setSort=function(v){ sortMode=v; saveFilters(); render() };
+window.toggleQuick=function(q){ filters.quick=(filters.quick===q?'':q); selected.clear(); saveFilters(); render() };
+window.clearFilters=function(){
+    filters={quick:'',month:'',staff:'',branch:'',kind:'',trust:'',payout:'',extra:'',q:''};
+    selected.clear(); saveFilters(); buildFilterOptions(); render();
+};
+function saveFilters(){ try{ localStorage.setItem(FILTER_KEY,JSON.stringify({f:filters,s:sortMode})) }catch(e){} }
+function restoreFilters(){
+    try{
+        const raw=JSON.parse(localStorage.getItem(FILTER_KEY)||'null');
+        if(raw&&raw.f){ Object.keys(filters).forEach(k=>{ if(typeof raw.f[k]==='string')filters[k]=raw.f[k] }) }
+        if(raw&&raw.s)sortMode=raw.s;
+    }catch(e){}
+}
+function buildFilterOptions(){
+    // Tháng: gom từ dữ liệu, luôn có tháng hiện tại
+    const months=[...new Set(curReqs.map(r=>String(r.dateKey||'').slice(0,7)).filter(Boolean))];
+    if(!months.includes(thisMonthStr()))months.push(thisMonthStr());
+    months.sort().reverse();
+    const mSel=document.getElementById('f-month');
+    if(!months.includes(filters.month))filters.month='';
+    mSel.innerHTML='<option value="">Mọi tháng ca</option>'+
+        months.map(m=>'<option value="'+m+'">Ca '+monthLabel(m)+'</option>').join('');
+    mSel.value=filters.month;
+
+    // Nhân viên có trong danh sách
+    const staff={};
+    curReqs.forEach(r=>{ if(r.staffId)staff[r.staffId]=r.staffName||r.staffId });
+    const ids=Object.keys(staff).sort((a,b)=>String(staff[a]).localeCompare(String(staff[b]),'vi'));
+    const sSel=document.getElementById('f-staff');
+    if(!ids.includes(filters.staff))filters.staff='';
+    sSel.innerHTML='<option value="">Mọi nhân viên</option>'+
+        ids.map(id=>'<option value="'+esc(id)+'">'+esc(staff[id])+'</option>').join('');
+    sSel.value=filters.staff;
+
+    document.getElementById('f-branch').value=filters.branch;
+    document.getElementById('f-kind').value=filters.kind;
+    document.getElementById('f-trust').value=filters.trust;
+    document.getElementById('f-payout').value=filters.payout;
+    document.getElementById('f-extra').value=filters.extra;
+    document.getElementById('f-q').value=filters.q;
+    document.getElementById('sortMode').value=sortMode;
+
+    // Chiều "diện tin tưởng" chỉ có nghĩa ở tab Chờ duyệt (nơi có đối chiếu)
+    const tSel=document.getElementById('f-trust');
+    tSel.disabled=(curTab!=='pending');
+    tSel.style.opacity=tSel.disabled?'.5':'1';
+    if(tSel.disabled){ filters.trust=''; tSel.value='' }
+    // Chỉ tab Chờ duyệt mới có thao tác hàng loạt
+    const allLbl=document.querySelector('.lhead label.all');
+    if(allLbl)allLbl.style.display=(curTab==='pending')?'inline-flex':'none';
+}
+
+/* ================= VẼ ================= */
+function render(){
+    renderChips();
+    renderBanner();
+    renderRows();
+    renderBulkBar();
+    renderDetail();
+    if(window.lucide)lucide.createIcons();
+}
+
+function renderChips(){
+    const defs=[
+        {k:'bad', cls:'c-bad',  ic:'shield-alert', t:'Có vấn đề',      pending:true},
+        {k:'miss',cls:'c-miss', ic:'edit-3',       t:'Thiếu thông tin',pending:true},
+        {k:'extra',cls:'c-extra',ic:'help-circle', t:'Ngoài lịch',     pending:false},
+        {k:'ok',  cls:'c-ok',   ic:'check-circle', t:'Khớp lịch',      pending:true},
+        {k:'auto',cls:'c-auto', ic:'shield-check', t:'Máy kiểm chứng', pending:true},
+        {k:'old', cls:'c-old',  ic:'alarm-clock',  t:'Tháng trước',    pending:false}
+    ];
+    const box=document.getElementById('chips');
+    box.innerHTML=defs.filter(d=>curTab==='pending'||!d.pending).map(d=>{
+        const n=curReqs.filter(r=>matchQuick(r,d.k)).length;
+        const on=filters.quick===d.k;
+        return '<button class="chip '+d.cls+(on?' on':'')+'" onclick="toggleQuick(\''+d.k+'\')">'+
+            '<i data-lucide="'+d.ic+'" style="width:14px;height:14px"></i>'+d.t+
+            '<span class="dotn">'+n+'</span></button>';
+    }).join('');
+}
+
+function renderBanner(){
+    const el=document.getElementById('banner');
     const parts=[];
-    if(inMonth)parts.push(inMonth+' ca TRẢ TRONG THÁNG (lý do có nhắc sự cố trung tâm)');
-    if(next)parts.push(next+' ca TRẢ THÁNG SAU (nhân viên quên chấm công)');
-    return parts.join('\n');
-}
-
-// Hỏi tháng trả lương. Trả về { payoutMonth, payoutReason } hoặc null nếu người dùng huỷ.
-function askPayoutMonth(r){
-    const teachMonth=String(r.dateKey||'').slice(0,7);
-    const next=nextMonthOf(r.dateKey);
-    const centerFault=guessCenterFault(r);
-    const label=(mm)=>{const [y,m]=mm.split('-');return 'tháng '+Number(m)+'/'+y;};
-    const suggestion=centerFault
-        ? 'Lý do có nhắc tới sự cố bên trung tâm → đề xuất TRẢ TRONG THÁNG.'
-        : 'Lý do không nhắc tới sự cố trung tâm → đề xuất TRẢ THÁNG SAU (nhân viên quên chấm công).';
-    const ans=prompt(
-        'Ca ngày '+r.dateKey+' của '+(r.staffName||'')+'\n'+
-        'Lý do: "'+((r.reason||'(không ghi)'))+'"\n\n'+
-        suggestion+'\n\n'+
-        'Trả lương vào tháng nào?\n'+
-        '  1 = TRẢ TRONG THÁNG ('+label(teachMonth)+') — lỗi bên trung tâm\n'+
-        '  2 = TRẢ THÁNG SAU ('+label(next)+') — nhân viên quên chấm công\n\n'+
-        'Giờ công vẫn nằm ở '+label(teachMonth)+' trong cả hai trường hợp, chỉ khác thời điểm trả tiền.',
-        centerFault?'1':'2'
-    );
-    if(ans===null)return null;
-    const pick=String(ans).trim();
-    if(pick!=='1'&&pick!=='2'){ alert('Chỉ nhận 1 hoặc 2. Chưa duyệt gì cả.'); return null; }
-    return pick==='1'
-        ? { payoutMonth:teachMonth, payoutReason:'Lỗi trung tâm — trả trong tháng' }
-        : { payoutMonth:next, payoutReason:'Nhân viên quên chấm công — trả tháng sau' };
-}
-
-// Duyệt hàng loạt cũng phải được CHỌN tháng trả lương như duyệt từng mục — trước đây
-// nó im lặng lấy theo gợi ý tự đoán, người duyệt không có đường sửa.
-// Trả về hàm map (r) => {payoutMonth,payoutReason} | null (bỏ qua mục đó),
-// hoặc null nếu người duyệt huỷ toàn bộ.
-function askPayoutMonthBulk(list){
-    const label=(mm)=>{const [y,m]=String(mm||'').split('-');return m?('tháng '+Number(m)+'/'+y):'?'};
-    const months=[...new Set(list.map(r=>String(r.dateKey||'').slice(0,7)).filter(Boolean))];
-    const one=months.length===1;
-    const teachLbl=one?label(months[0]):'tháng dạy của từng ca';
-    const nextLbl=one?label(nextMonthOf(list[0].dateKey)):'tháng liền sau của từng ca';
-    const sum=payoutSummary(list);
-    const ans=prompt(
-        'Duyệt '+list.length+' yêu cầu.\n\n'+
-        (sum?'Gợi ý tự đoán theo lý do nhân viên khai:\n'+sum+'\n\n':'')+
-        'Trả lương vào tháng nào?\n'+
-        '  1 = TẤT CẢ trả TRONG THÁNG DẠY ('+teachLbl+') — lỗi bên trung tâm\n'+
-        '  2 = TẤT CẢ trả THÁNG SAU ('+nextLbl+') — nhân viên quên chấm công\n'+
-        '  3 = Theo gợi ý tự đoán ở trên (mỗi ca một kiểu)\n'+
-        '  4 = Hỏi từng ca một\n\n'+
-        'Giờ công vẫn ghi vào Bảng Công đúng THÁNG DẠY trong mọi trường hợp; chỉ tiền là dồn sang tháng được chọn.',
-        '3'
-    );
-    if(ans===null)return null;
-    const pick=String(ans).trim();
-    if(!['1','2','3','4'].includes(pick)){ alert('Chỉ nhận 1, 2, 3 hoặc 4. Chưa duyệt gì cả.'); return null }
-    if(pick==='1')return r=>({payoutMonth:String(r.dateKey||'').slice(0,7),payoutReason:'Lỗi trung tâm — trả trong tháng'});
-    if(pick==='2')return r=>({payoutMonth:nextMonthOf(r.dateKey),payoutReason:'Nhân viên quên chấm công — trả tháng sau'});
-    if(pick==='3')return payoutFor;
-    return askPayoutMonth; // hỏi từng ca, huỷ ở ca nào thì bỏ qua ca đó
-}
-
-// Chạy vòng duyệt chung cho hai nút hàng loạt. Trả về bản tổng kết để báo lại.
-async function runBulkApprove(list,pickPayout){
-    const done=[],skipped=[],cancelled=[];
-    for(const r of list){
-        const payout=pickPayout(r);
-        if(!payout){ cancelled.push(r.dateKey); continue }
-        try{ await DBService.approveMakeupRequest(r,adminName(),payout); done.push(r.dateKey) }
-        catch(e){
-            // Duyệt hàng loạt KHÔNG được tự ghi đè ca trùng giờ — bỏ qua và báo lại để
-            // quản lý mở từng mục xem, tránh một cú bấm sinh ra lương đôi.
-            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r.dateKey); continue }
-            alert('Lỗi ở yêu cầu ngày '+r.dateKey+': '+(e.message||e)); break;
+    if(truncated){
+        parts.push('<div class="banner bn-warn"><i data-lucide="alert-triangle" style="width:16px;height:16px;flex-shrink:0"></i>'+
+            '<div class="grow">Danh sách đang ở mức tối đa <b>'+DBService.MAKEUP_FETCH_LIMIT+' yêu cầu</b> nên có thể còn mục chưa hiện. '+
+            'Hãy duyệt/từ chối bớt các mục cũ để danh sách trở lại đầy đủ.</div></div>');
+    }
+    if(curTab==='pending'){
+        const nAuto=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick).length;
+        const nMiss=curReqs.filter(r=>((curVerdicts[r.id]||{}).missing||[]).length>0).length;
+        const nBad=curReqs.filter(r=>(curVerdicts[r.id]||{}).level==='bad').length;
+        if(nAuto||nMiss||nBad){
+            const bits=[];
+            if(nAuto)bits.push('<b>'+nAuto+' yêu cầu</b> máy đã kiểm chứng đủ 8 điều kiện — duyệt nhanh được.');
+            if(nMiss)bits.push('<b>'+nMiss+' yêu cầu</b> thiếu thông tin, phải bổ sung trước khi duyệt.');
+            if(nBad)bits.push('<b>'+nBad+' yêu cầu</b> có mâu thuẫn dữ liệu, cần xem kỹ.');
+            parts.push('<div class="banner '+(nAuto&&!nMiss&&!nBad?'bn-ok':'bn-warn')+'">'+
+                '<i data-lucide="info" style="width:16px;height:16px;flex-shrink:0"></i>'+
+                '<div class="grow">'+bits.join('<br>')+'</div>'+
+                (nAuto?'<button class="btn b-quick" style="padding:.45rem .8rem;font-size:.8rem;min-height:36px" onclick="approveAllEligible()">'+
+                    '<i data-lucide="shield-check" style="width:15px;height:15px"></i> Duyệt nhanh '+nAuto+' mục</button>':'')+
+                '</div>');
         }
     }
-    return {done:done,skipped:skipped,cancelled:cancelled};
+    el.innerHTML=parts.join('');
 }
 
-function bulkReport(res,total){
+function stIcon(r){
+    if(curTab==='approved')return {c:'st-ok',i:'check'};
+    if(curTab==='rejected')return {c:'st-bad',i:'x'};
+    const v=curVerdicts[r.id]||{};
+    if(v.level==='miss')return {c:'st-miss',i:'edit-3'};
+    if(v.level==='bad')return {c:'st-bad',i:'shield-alert'};
+    if(v.quick)return {c:'st-ok',i:'shield-check'};
+    if(v.level==='ok')return {c:'st-ok',i:'user-check'};
+    if(v.level==='warn')return {c:'st-warn',i:'help-circle'};
+    return {c:'st-none',i:'circle'};
+}
+
+function renderRows(){
+    const list=visibleReqs();
+    const box=document.getElementById('rows');
+    document.getElementById('list-count').innerText=
+        list.length+' / '+curReqs.length+' yêu cầu'+(filters.quick||filters.month||filters.staff||filters.branch||filters.kind||filters.trust||filters.payout||filters.extra||filters.q?' (đang lọc)':'');
+
+    if(!list.length){
+        box.innerHTML='<div class="empty"><i data-lucide="inbox"></i><div class="t">'+
+            (curReqs.length?'Không có mục nào khớp bộ lọc':'Không có yêu cầu nào')+'</div><div class="s">'+
+            (curReqs.length?'Bấm "Xoá lọc" để xem lại toàn bộ.':(curTab==='pending'?'Tất cả tường trình đã được xử lý.':'Chưa có mục nào ở đây.'))+
+            '</div></div>';
+        document.getElementById('sel-all').checked=false;
+        return;
+    }
+
+    let html='',lastDate='';
+    list.forEach(r=>{
+        if(r.dateKey!==lastDate){
+            lastDate=r.dateKey;
+            const old=String(r.dateKey||'').slice(0,7)<thisMonthStr();
+            const n=list.filter(x=>x.dateKey===r.dateKey).length;
+            html+='<div class="dsep"><i data-lucide="calendar" style="width:14px;height:14px;color:#6B7280"></i>'+
+                  'Ca ngày '+esc(fmtDate(r.dateKey))+
+                  '<span class="pill'+(old?' old':'')+'">'+(old?'tháng trước · sắp chốt lương':n+' yêu cầu')+'</span></div>';
+        }
+        const s=r.session||{},st=stIcon(r);
+        const isEx=r.type!=='scheduled',isAbs=!!s.isAbsent;
+        const tm=isAbs?'VẮNG':(ft(s.checkIn)+'–'+ft(s.checkOut));
+        const kind=kindOf(r);
+        const what=r.className?r.className:(r.shiftKey?('Ca '+(SHIFT_VN[r.shiftKey]||r.shiftKey)):(kind==='tt'?'Tiếp Tân':'—'));
+        const sub=[(r.branch?String(r.branch).toUpperCase():'⚠ chưa khai cơ sở'),what].filter(Boolean).join(' · ');
+        html+='<div class="row'+(activeId===r.id?' sel':'')+'" onclick="openDetail(\''+r.id+'\')">'+
+            (curTab==='pending'?'<label class="ckwrap" onclick="event.stopPropagation()" title="Chọn để duyệt/từ chối hàng loạt">'+
+                '<input type="checkbox" '+(selected.has(r.id)?'checked':'')+
+                ' onchange="toggleSelect(\''+r.id+'\',this.checked)"></label>':'')+
+            '<span class="st '+st.c+'"><i data-lucide="'+st.i+'" style="width:14px;height:14px"></i></span>'+
+            '<div class="mid"><div class="r1"><span class="who">'+esc(r.staffName||r.staffId)+'</span>'+
+                '<span class="bdg '+(isAbs?'b-a':(isEx?'b-e':'b-s'))+'">'+(isAbs?'Vắng':(isEx?'Ngoài lịch':'Có lịch'))+'</span></div>'+
+                '<div class="r2">'+esc(sub)+'</div></div>'+
+            '<span class="tm">'+tm+'</span></div>';
+    });
+    box.innerHTML=html;
+
+    const allSel=list.length>0&&list.every(r=>selected.has(r.id));
+    document.getElementById('sel-all').checked=allSel;
+}
+
+window.toggleSelect=function(id,on){ on?selected.add(id):selected.delete(id); renderRows(); renderBulkBar() };
+window.toggleSelectAllVisible=function(on){
+    visibleReqs().forEach(r=>{ on?selected.add(r.id):selected.delete(r.id) });
+    renderRows(); renderBulkBar();
+};
+
+function renderBulkBar(){
+    const el=document.getElementById('bulkbar');
+    if(curTab!=='pending'||selected.size===0){ el.innerHTML=''; return }
+    el.className='bulkbar';
+    const ids=[...selected];
+    const nMiss=ids.filter(id=>((curVerdicts[id]||{}).missing||[]).length>0).length;
+    el.innerHTML='<span class="txt">Đã chọn '+selected.size+' mục'+(nMiss?' · <span style="color:#9D174D">'+nMiss+' mục thiếu thông tin sẽ bị bỏ qua</span>':'')+'</span>'+
+        '<button class="btn b-ok" onclick="approveSelected()"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt '+(selected.size-nMiss)+' mục</button>'+
+        '<button class="btn b-no" onclick="rejectSelected()"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối '+selected.size+' mục</button>'+
+        '<button class="btn b-ghost" onclick="clearSelection()">Bỏ chọn</button>';
+    if(window.lucide)lucide.createIcons({root:el});
+}
+window.clearSelection=function(){ selected.clear(); renderRows(); renderBulkBar() };
+
+window.openDetail=function(id){ activeId=id; renderRows(); renderDetail(); openSheet(true) };
+window.closeDetail=function(){ openSheet(false); activeId=null; renderRows(); renderDetail() };
+function openSheet(on){
+    if(window.innerWidth>1024)return;
+    document.getElementById('detail').classList.toggle('open',!!on);
+    document.getElementById('sheet-mask').classList.toggle('open',!!on);
+    document.body.style.overflow=on?'hidden':'';
+}
+
+function renderDetail(){
+    const el=document.getElementById('detail');
+    const r=curReqs.find(x=>x.id===activeId);
+    if(!r){
+        el.innerHTML='<div class="empty"><i data-lucide="mouse-pointer-click"></i><div class="t">Chọn một yêu cầu để xem chi tiết</div>'+
+            '<div class="s">Danh sách bên trái sắp theo ngày ca cần xử lý — ca cũ nhất lên đầu.</div></div>';
+        if(window.lucide)lucide.createIcons({root:el});
+        return;
+    }
+    const s=r.session||{},v=curVerdicts[r.id]||{};
+    const missing=v.missing||(curTab==='pending'?DBService.missingMakeupFields(r):[]);
+    const isEx=r.type!=='scheduled',isAbs=!!s.isAbsent,kind=kindOf(r);
+    let mins=0; if(!isAbs&&s.checkIn&&s.checkOut)mins=Math.round((new Date(s.checkOut)-new Date(s.checkIn))/60000);
+    const need=(k,val,label)=>missing.includes(k)?'<span class="miss">Thiếu '+label+'</span>':esc(val||'—');
+    const sent=r.createdAt&&r.createdAt.seconds
+        ? new Date(r.createdAt.seconds*1000).toLocaleString('vi-VN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'}):'—';
+
+    const vIcon=v.level==='bad'?'shield-alert':(v.level==='miss'?'edit-3':(v.quick?'shield-check':(v.level==='ok'?'user-check':'help-circle')));
+    const vCls=v.level==='miss'?'vd-miss':(v.level==='bad'?'vd-bad':(v.level==='ok'?'vd-ok':'vd-warn'));
+    const vHtml=v.level?'<div class="vd '+vCls+'"><i data-lucide="'+vIcon+'" style="width:16px;height:16px;flex-shrink:0;margin-top:2px"></i>'+
+        '<div><b>Đối chiếu tự động: '+esc(v.title)+'</b><br>'+esc(v.text)+'</div></div>':'';
+
+    const guess=guessCenterFault(r);
+    const payoutHtml=curTab==='pending'?'<div class="sec-t">Tháng trả lương</div>'+
+        '<div class="why" style="margin-bottom:.5rem">Máy đoán theo lý do đã khai: <b>'+
+        (guess?'Lỗi bên trung tâm → trả TRONG THÁNG DẠY ('+monthLabel(String(r.dateKey||'').slice(0,7))+')'
+              :'Nhân viên quên chấm công → trả THÁNG SAU ('+monthLabel(nextMonthOf(r.dateKey))+')')+
+        '</b>. Bấm Duyệt để xác nhận hoặc đổi lại.</div>':'';
+
+    let actions='';
+    if(curTab==='pending'){
+        if(missing.length){
+            actions='<div class="acts">'+
+                '<button class="btn b-fix" onclick="openCompleteForm(\''+r.id+'\')"><i data-lucide="edit-3" style="width:15px;height:15px"></i> Bổ sung thông tin</button>'+
+                '<button class="btn b-ok" disabled title="Thiếu: '+esc(missing.join(', '))+'"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt</button>'+
+                '<button class="btn b-no" onclick="rejectOne(\''+r.id+'\')"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối</button></div>'+
+                '<div class="why" style="margin-top:.55rem;background:#FFF7FB;border-color:#FBCFE8;color:#9D174D">'+
+                'Chưa duyệt được vì thiếu: <b>'+esc(missing.join(', '))+'</b>. Bổ sung xong sẽ mở nút Duyệt.</div>'+
+                '<div id="fix-box"></div>';
+        }else{
+            actions='<div class="acts">'+
+                '<button class="btn b-ok" onclick="approveOne(\''+r.id+'\')"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt</button>'+
+                '<button class="btn b-no" onclick="rejectOne(\''+r.id+'\')"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối</button>'+
+                '<button class="btn b-ghost" onclick="openCompleteForm(\''+r.id+'\')"><i data-lucide="edit-3" style="width:15px;height:15px"></i> Sửa thông tin ca</button></div>'+
+                '<div id="fix-box"></div>';
+        }
+    }else if(curTab==='approved'){
+        actions='<div class="why" style="margin-top:.8rem">Đã duyệt bởi <b>'+esc(r.reviewedBy||'Admin')+'</b>'+
+            (r.materializedSessionId?' · đã ghi vào Bảng Công':'')+'.</div>';
+    }else{
+        actions='<div class="why" style="margin-top:.8rem;background:var(--dan-s);border-color:#FCA5A5;color:#991B1B">'+
+            'Từ chối bởi <b>'+esc(r.reviewedBy||'Admin')+'</b> · Lý do: '+esc(r.rejectReason||'(không ghi)')+'</div>';
+    }
+
+    el.innerHTML=
+      '<div class="dhead"><div style="min-width:0">'+
+        '<div class="nm">'+esc(r.staffName||r.staffId)+'</div>'+
+        '<div class="sb">'+esc(fmtDate(r.dateKey))+' · gửi lúc '+esc(sent)+'</div></div>'+
+        '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'+
+          '<span class="bdg '+(isAbs?'b-a':(isEx?'b-e':'b-s'))+'">'+(isAbs?'Ghi nhận vắng':(isEx?'Ngoài lịch':'Có lịch'))+'</span>'+
+          '<button class="icon-btn sheet-close" onclick="closeDetail()" title="Đóng"><i data-lucide="x" style="width:15px;height:15px"></i></button>'+
+        '</div></div>'+
+      '<div class="dbody">'+vHtml+
+        '<table class="kv"><tbody>'+
+          '<tr><td class="k">Ngày ca</td><td class="v">'+esc(fmtDate(r.dateKey))+'</td></tr>'+
+          '<tr><td class="k">Giờ</td><td class="v">'+(isAbs?'Ghi nhận vắng (không tính giờ)':
+                (missing.includes('giờ vào/ra')?'<span class="miss">Thiếu giờ vào/ra</span>':
+                 (ft(s.checkIn)+' – '+ft(s.checkOut)+(mins>0?' <span style="color:#6B7280;font-weight:600">('+fmtMins(mins)+')</span>':''))))+'</td></tr>'+
+          '<tr><td class="k">Cơ sở</td><td class="v">'+need('cơ sở',r.branch?String(r.branch).toUpperCase():'','cơ sở')+'</td></tr>'+
+          '<tr><td class="k">'+(kind==='tt'?'Ca trực':'Môn / Lớp')+'</td><td class="v">'+
+            (kind==='tt'?need('ca trực',r.shiftKey?('Ca '+(SHIFT_VN[r.shiftKey]||r.shiftKey)):'','ca trực')
+                        :need('môn/lớp',r.className||'','môn/lớp'))+'</td></tr>'+
+          (r.room?'<tr><td class="k">Phòng</td><td class="v">'+esc(r.room)+'</td></tr>':'')+
+          '<tr><td class="k">Vai trò</td><td class="v">'+esc(s.roleName||(kind==='tt'?'Tiếp Tân':'Giáo viên / Trợ giảng'))+'</td></tr>'+
+          '<tr><td class="k">Người phân công</td><td class="v">'+(isEx?need('người phân công',r.approvedBy||'','người phân công'):esc(r.approvedBy||'(ca có lịch — không cần)'))+'</td></tr>'+
+          ((s.bonus10||s.overtimeMinutes>0)?'<tr><td class="k">Phát sinh</td><td class="v">'+
+             (s.bonus10?'<span class="bdg b-a">Xin Sớm 10p</span> ':'')+
+             (s.overtimeMinutes>0?'<span class="bdg b-i">Tăng ca '+esc(s.overtimeMinutes)+'p</span>':'')+'</td></tr>':'')+
+          '<tr><td class="k">Diện</td><td class="v">'+(v.trusted===undefined?'—':(v.trusted?'<span class="bdg b-s">Tin tưởng</span>':'<span class="bdg b-n">Chưa xếp diện</span>'))+'</td></tr>'+
+          '<tr><td class="k">Lý do</td><td class="v" style="font-weight:600;color:#374151">'+
+            (missing.includes('lý do')?'<span class="miss">Thiếu lý do</span>':esc(r.reason||'(không ghi)'))+'</td></tr>'+
+        '</tbody></table>'+
+        payoutHtml+actions+
+      '</div>';
+    if(window.lucide)lucide.createIcons({root:el});
+}
+
+/* ================= BỔ SUNG THÔNG TIN ================= */
+window.openCompleteForm=async function(id){
+    const r=curReqs.find(x=>x.id===id); if(!r)return;
+    const box=document.getElementById('fix-box'); if(!box)return;
+    if(box.dataset.open==='1'){ box.innerHTML=''; box.dataset.open='0'; return }
+    box.dataset.open='1';
+
+    if(!subjectsCache.length){
+        try{ subjectsCache=(await DBService.getSubjects()||[]).filter(x=>x.isGroup!==true) }catch(e){ subjectsCache=[] }
+    }
+    const kind=kindOf(r);
+    box.className='fform';
+    box.innerHTML='<div style="font-size:.78rem;font-weight:800;color:#9D174D;margin-bottom:.55rem">'+
+        'BỔ SUNG THÔNG TIN CA (quản lý điền — sẽ ghi lại là bạn đã bổ sung)</div>'+
+      '<div class="g">'+
+        '<div><label>Cơ sở</label><select id="fx-branch">'+
+          '<option value="">— Chọn —</option>'+['cs1','cs2','cs3'].map(b=>'<option value="'+b+'"'+(r.branch===b?' selected':'')+'>'+b.toUpperCase()+'</option>').join('')+
+        '</select></div>'+
+        (kind==='tt'
+          ?'<div><label>Ca trực</label><select id="fx-shift"><option value="">— Chọn —</option>'+
+             Object.keys(SHIFT_VN).map(k=>'<option value="'+k+'"'+(r.shiftKey===k?' selected':'')+'>Ca '+SHIFT_VN[k]+'</option>').join('')+'</select></div>'
+          :'<div><label>Môn / Lớp</label><input type="text" id="fx-class" list="fx-subj" value="'+esc(r.className||'')+'" placeholder="VD: Toán 6" autocomplete="off">'+
+             '<datalist id="fx-subj">'+subjectsCache.map(x=>'<option value="'+esc(x.name)+'"></option>').join('')+'</datalist></div>')+
+        '<div><label>Người phân công</label><input type="text" id="fx-appr" value="'+esc(r.approvedBy||'')+'" placeholder="VD: Chị Ngọc – quản lý CS1"></div>'+
+        '<div><label>Phòng (nếu có)</label><input type="text" id="fx-room" value="'+esc(r.room||'')+'" placeholder="VD: P.201"></div>'+
+      '</div>'+
+      '<div style="margin-top:.6rem"><label>Lý do / tường trình</label>'+
+        '<textarea id="fx-reason" rows="2">'+esc(r.reason||'')+'</textarea></div>'+
+      '<div class="acts" style="margin-top:.7rem">'+
+        '<button class="btn b-fix" onclick="saveCompleteForm(\''+r.id+'\')"><i data-lucide="save" style="width:15px;height:15px"></i> Lưu bổ sung</button>'+
+        '<button class="btn b-ghost" onclick="openCompleteForm(\''+r.id+'\')">Đóng</button></div>';
+    if(window.lucide)lucide.createIcons({root:box});
+};
+
+window.saveCompleteForm=async function(id){
+    const r=curReqs.find(x=>x.id===id); if(!r)return;
+    const kind=kindOf(r);
+    const g=(k)=>{const el=document.getElementById(k);return el?String(el.value||'').trim():''};
+    const patch={ branch:g('fx-branch'), approvedBy:g('fx-appr'), room:g('fx-room'), reason:g('fx-reason') };
+    if(kind==='tt'){ patch.shiftKey=g('fx-shift') }
+    else{
+        const name=g('fx-class');
+        if(name){
+            const norm=(v)=>String(v||'').trim().toLowerCase().replace(/\s+/g,' ');
+            const m=subjectsCache.find(x=>norm(x.name)===norm(name));
+            if(!m&&subjectsCache.length){
+                const near=subjectsCache.filter(x=>norm(x.name).includes(norm(name))||norm(name).includes(norm(x.name)))
+                                        .slice(0,5).map(x=>x.name);
+                await UIService.notice('Môn / Lớp "'+name+'" không có trong danh mục Môn Học nên Bảng Công không áp được đơn giá.'+
+                    (near.length?'\nÝ bạn là: '+near.join(' · ')+' ?':''),'Tên lớp không khớp danh mục','warning');
+                return;
+            }
+            patch.className=m?m.name:name;
+            if(m)patch.classId=m.id;
+        }
+    }
+    // Nhãn ca hiển thị lại cho khớp thông tin mới
+    const s=r.session||{};
+    const what=kind==='tt'?('Tiếp Tân ca '+(SHIFT_VN[patch.shiftKey||r.shiftKey]||'')):(patch.className||r.className||'');
+    const tmLbl=s.isAbsent?'Vắng':(ft(s.checkIn)+'–'+ft(s.checkOut));
+    patch.shiftLabel=tmLbl+' '+String(patch.branch||r.branch||'').toUpperCase()+' ('+what+')'+((patch.room||r.room)?' – '+(patch.room||r.room):'');
+
+    // Kiểm tra bằng ĐÚNG bộ luật lúc gửi, để bổ sung xong là chắc chắn duyệt được
+    const merged=Object.assign({},r,patch);
+    const stillMissing=DBService.missingMakeupFields(merged);
+    if(stillMissing.length){
+        await UIService.notice('Vẫn còn thiếu: '+stillMissing.join(', ')+'.\nHãy điền đủ rồi lưu lại.','Chưa đủ thông tin','warning');
+        return;
+    }
+    try{
+        UIService.showLoading('Đang lưu bổ sung...');
+        await DBService.updateMakeupRequest(r.id,patch,adminName());
+        UIService.hideLoading();
+        toast('Đã bổ sung thông tin. Giờ có thể duyệt.','success');
+        await loadTab(curTab);
+        activeId=id; renderRows(); renderDetail();
+    }catch(e){
+        UIService.hideLoading();
+        toast('Lưu thất bại: '+(e.message||e),'error');
+    }
+};
+
+/* ================= DUYỆT / TỪ CHỐI ================= */
+async function runBulkApprove(list,pickPayout){
+    const done=[],skipped=[],failed=[];
+    for(const r of list){
+        const payout=pickPayout(r);
+        try{ await DBService.approveMakeupRequest(r,adminName(),payout); done.push(r) }
+        catch(e){
+            // Duyệt hàng loạt KHÔNG được tự ghi đè ca trùng giờ — bỏ qua và báo lại để quản lý mở
+            // từng mục xem, tránh một cú bấm sinh ra lương đôi.
+            if(e&&e.code==='SESSION_OVERLAP'){ skipped.push(r); continue }
+            failed.push({r:r,msg:e.message||String(e)});
+        }
+    }
+    return {done:done,skipped:skipped,failed:failed};
+}
+
+function bulkReportText(res,total){
     let m='Đã duyệt '+res.done.length+'/'+total+' yêu cầu.';
-    if(res.skipped.length)m+='\n\nBỏ qua '+res.skipped.length+' mục TRÙNG GIỜ với công đã có (ngày '+res.skipped.join(', ')+').'+
-        '\nMột người chỉ vào ca một lần — hai lớp cùng khung giờ là MỘT ca công, không duyệt thêm.'+
-        '\nMở từng mục để xem và tự quyết định.';
-    if(res.cancelled.length)m+='\n\nBỏ qua '+res.cancelled.length+' mục do chưa chọn tháng trả lương (ngày '+res.cancelled.join(', ')+').';
-    alert(m);
+    if(res.skipped.length){
+        m+='\n\nBỏ qua '+res.skipped.length+' mục TRÙNG GIỜ với công đã có (ngày '+
+           [...new Set(res.skipped.map(r=>r.dateKey))].join(', ')+').'+
+           '\nMột người chỉ vào ca một lần — hai lớp cùng khung giờ là MỘT ca công, không duyệt thêm.'+
+           '\nMở từng mục để xem và tự quyết định.';
+    }
+    if(res.failed.length){
+        m+='\n\nLỗi ở '+res.failed.length+' mục:\n'+
+           res.failed.slice(0,6).map(f=>'• '+f.r.dateKey+' ('+(f.r.staffName||'')+'): '+f.msg).join('\n');
+        if(res.failed.length>6)m+='\n… xem Console để biết đủ.';
+        console.error('[Tường trình] Lỗi duyệt:',res.failed);
+    }
+    return m;
+}
+
+async function doApprove(list,titleWhenEmpty){
+    if(!list.length){ toast(titleWhenEmpty||'Không có mục nào để duyệt.','warning'); return }
+    const pick=await askPayout(list);
+    if(!pick)return;
+    UIService.showLoading('Đang duyệt '+list.length+' yêu cầu...');
+    const res=await runBulkApprove(list,pick);
+    UIService.hideLoading();
+    if(res.skipped.length||res.failed.length){
+        await UIService.notice(bulkReportText(res,list.length),'Kết quả duyệt',res.done.length?'warning':'error');
+    }else{
+        toast('Đã duyệt '+res.done.length+' yêu cầu. Công đã ghi vào Bảng Công.','success');
+    }
+    selected.clear();
+    await loadTab(curTab);
+    refreshPendingCount();
 }
 
 window.approveOne=async function(id){
     const r=curReqs.find(x=>x.id===id); if(!r)return;
-    const payout=askPayoutMonth(r);
-    if(!payout)return;
-    if(!confirm('Duyệt yêu cầu của '+(r.staffName||'')+' ngày '+r.dateKey+'?\n'+
-        payout.payoutReason+'.\nCông sẽ được ghi vào Bảng Công.'))return;
-    try{ await DBService.approveMakeupRequest(r,adminName(),payout); loadTab(curTab); refreshPendingCount(); }
-    catch(e){
-        // Ca trùng giờ với công đã có → hỏi lại thật rõ thay vì im lặng ghi thành lương đôi.
+    if(DBService.missingMakeupFields(r).length){
+        await UIService.notice('Yêu cầu này còn thiếu thông tin nên chưa duyệt được. Hãy bấm "Bổ sung thông tin".','Chưa đủ thông tin','warning');
+        return;
+    }
+    const pick=await askPayout([r]);
+    if(!pick)return;
+    const payout=pick(r);
+    try{
+        UIService.showLoading('Đang duyệt...');
+        await DBService.approveMakeupRequest(r,adminName(),payout);
+        UIService.hideLoading();
+        toast('Đã duyệt. Công đã ghi vào Bảng Công ('+payout.payoutReason+').','success');
+        await loadTab(curTab); refreshPendingCount();
+    }catch(e){
+        UIService.hideLoading();
+        // Ca trùng giờ với công đã có → hỏi lại thật rõ thay vì im lặng ghi thành lương đôi
         if(e&&e.code==='SESSION_OVERLAP'){
-            if(confirm('KHÔNG DUYỆT ĐƯỢC — '+e.message+'\n\n'+
-                'Nhân viên chỉ bấm vào ca một lần. Dạy 2 lớp cùng khung giờ vẫn chỉ là MỘT ca công: '+
-                'Bảng Công gộp thành một ô (VD "Toán 6 + Toán 7") và trả theo lớp đơn giá cao nhất, '+
-                'không cộng thêm giờ. Trường hợp này nên TỪ CHỐI và sửa tên lớp của ca đã có.\n\n'+
-                'Chỉ chọn OK khi bạn chắc đây là hai ca làm việc KHÁC NHAU bị lệch giờ. Vẫn duyệt?')){
-                try{ await DBService.approveMakeupRequest(r,adminName(),Object.assign({allowOverlap:true},payout)); loadTab(curTab); refreshPendingCount(); }
-                catch(e2){ alert('Lỗi duyệt: '+(e2.message||e2)) }
+            const ok=await UIService.confirm('<b>KHÔNG DUYỆT ĐƯỢC</b> — '+esc(e.message)+
+                '<br><br>Nhân viên chỉ bấm vào ca một lần. Dạy 2 lớp cùng khung giờ vẫn chỉ là MỘT ca công: '+
+                'Bảng Công gộp thành một ô (VD "Toán 6 + Toán 7") và trả theo lớp đơn giá cao nhất, không cộng thêm giờ. '+
+                'Trường hợp này nên TỪ CHỐI và sửa tên lớp của ca đã có.'+
+                '<br><br>Chỉ đồng ý khi bạn chắc đây là hai ca làm việc KHÁC NHAU bị lệch giờ. Vẫn duyệt?');
+            if(ok){
+                try{
+                    UIService.showLoading('Đang duyệt...');
+                    await DBService.approveMakeupRequest(r,adminName(),Object.assign({allowOverlap:true},payout));
+                    UIService.hideLoading();
+                    toast('Đã duyệt (đã xác nhận cho phép trùng giờ).','success');
+                    await loadTab(curTab); refreshPendingCount();
+                }catch(e2){ UIService.hideLoading(); toast('Lỗi duyệt: '+(e2.message||e2),'error') }
             }
             return;
         }
-        alert('Lỗi duyệt: '+(e.message||e));
+        toast('Lỗi duyệt: '+(e.message||e),'error');
     }
+};
+
+window.approveSelected=async function(){
+    const list=curReqs.filter(r=>selected.has(r.id)&&DBService.missingMakeupFields(r).length===0);
+    await doApprove(list,'Các mục đang chọn đều thiếu thông tin — hãy bổ sung trước.');
+};
+
+// "Duyệt nhanh": chỉ các mục máy đã kiểm chứng đủ 8 điều kiện. Vẫn cần quản lý bấm nút và chọn
+// tháng trả — hệ thống không tự duyệt sau lưng.
+window.approveAllEligible=async function(){
+    const list=curReqs.filter(r=>(curVerdicts[r.id]||{}).quick);
+    if(!list.length){ toast('Không có mục nào đủ điều kiện duyệt nhanh.','warning'); return }
+    const ok=await UIService.confirm('Duyệt nhanh <b>'+list.length+' yêu cầu</b> mà máy đã kiểm chứng: '+
+        'khớp đúng một dòng lịch, đúng người thuộc diện tin tưởng, chưa có công, không trùng yêu cầu khác, '+
+        'khai đủ thông tin, không kèm Sớm 10p / Tăng ca / ghi nhận vắng.');
+    if(!ok)return;
+    await doApprove(list);
 };
 
 window.rejectOne=async function(id){
-    const reason=prompt('Lý do từ chối (nhân viên sẽ thấy):');
-    if(reason===null)return;
-    try{ await DBService.rejectMakeupRequest(id,adminName(),reason); loadTab(curTab); refreshPendingCount(); }
-    catch(e){ alert('Lỗi: '+(e.message||e)) }
+    const r=curReqs.find(x=>x.id===id); if(!r)return;
+    const reason=await askReject(1);
+    if(!reason)return;
+    try{
+        UIService.showLoading('Đang từ chối...');
+        await DBService.rejectMakeupRequest(id,adminName(),reason);
+        UIService.hideLoading();
+        toast('Đã từ chối và ghi lý do cho nhân viên.','success');
+        await loadTab(curTab); refreshPendingCount();
+    }catch(e){ UIService.hideLoading(); toast('Lỗi: '+(e.message||e),'error') }
 };
 
-window.approveBatch=async function(bk){
-    const reqs=curReqs.filter(r=>(r.batchId||r.id)===bk);
-    if(!reqs.length)return;
-    // Cảnh báo trước khi hỏi tháng: nhóm có hai mục CHỒNG KHUNG GIỜ nhau thì chỉ một
-    // mục vào được Bảng Công — người kia là cùng một lần vào ca (dạy 2 lớp cùng giờ).
-    const clash=overlappingPairsIn(reqs);
-    if(clash.length&&!confirm('Nhóm này có '+clash.length+' cặp yêu cầu CHỒNG KHUNG GIỜ nhau (ngày '+
-        [...new Set(clash.map(c=>c.dateKey))].join(', ')+').\n\n'+
-        'Một người chỉ vào ca một lần, nên dạy 2 lớp cùng giờ chỉ tính MỘT ca công — Bảng Công gộp thành một ô và trả theo lớp đơn giá cao nhất.\n\n'+
-        'Duyệt tiếp sẽ chỉ ghi được một ca cho mỗi khung giờ, phần còn lại bị bỏ qua. Tiếp tục?'))return;
-    if(!confirm('Duyệt TẤT CẢ '+reqs.length+' yêu cầu của nhóm này?'))return;
-    const pickPayout=askPayoutMonthBulk(reqs);
-    if(!pickPayout)return;
-    bulkReport(await runBulkApprove(reqs,pickPayout),reqs.length);
-    loadTab(curTab); refreshPendingCount();
-};
-
-// Các mục trong cùng một nhóm mà chồng khung giờ nhau (≥10 phút) — dấu hiệu nhân viên
-// khai tách hai lớp dạy song song thành hai yêu cầu.
-function overlappingPairsIn(reqs){
-    const span=(r)=>{const s=r.session||{};
-        if(!s.checkIn||s.isAbsent)return null;
-        const a=new Date(s.checkIn).getTime();
-        return {a:a,b:s.checkOut?new Date(s.checkOut).getTime():a};};
-    const out=[];
-    for(let i=0;i<reqs.length;i++)for(let j=i+1;j<reqs.length;j++){
-        if(reqs[i].dateKey!==reqs[j].dateKey)continue;
-        const x=span(reqs[i]),y=span(reqs[j]);
-        if(!x||!y)continue;
-        if(Math.min(x.b,y.b)-Math.max(x.a,y.a)>=10*60*1000)out.push({dateKey:reqs[i].dateKey});
+window.rejectSelected=async function(){
+    const list=curReqs.filter(r=>selected.has(r.id));
+    if(!list.length)return;
+    const reason=await askReject(list.length);
+    if(!reason)return;
+    const failed=[];
+    UIService.showLoading('Đang từ chối '+list.length+' yêu cầu...');
+    for(const r of list){
+        try{ await DBService.rejectMakeupRequest(r.id,adminName(),reason) }
+        catch(e){ failed.push(r.dateKey+' ('+(r.staffName||'')+')') }
     }
-    return out;
-}
+    UIService.hideLoading();
+    if(failed.length)await UIService.notice('Từ chối được '+(list.length-failed.length)+'/'+list.length+' mục.\nLỗi ở: '+failed.join(', '),'Kết quả','warning');
+    else toast('Đã từ chối '+list.length+' yêu cầu.','success');
+    selected.clear();
+    await loadTab(curTab); refreshPendingCount();
+};
+
+window.addEventListener('resize',()=>{
+    if(window.innerWidth>1024){
+        document.getElementById('detail').classList.remove('open');
+        document.getElementById('sheet-mask').classList.remove('open');
+        document.body.style.overflow='';
+    }
+});
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeDetail() });
 
 document.addEventListener('DOMContentLoaded',async function(){
     if(window.waitAuth){try{await window.waitAuth()}catch(e){}}
     if(!guardAdmin())return;
+    restoreFilters();
     loadTab('pending');
     if(window.lucide)lucide.createIcons();
 });

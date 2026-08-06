@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
     <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260806-payout-month-v1'></script>
+    <script src='js/db-service.js?v=20260807-multi-gv-bulk-v1'></script>
     <script src='js/evaluation-service.js?v=20260806-concurrent-class-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -328,12 +328,17 @@ async function loadMonth(){
             const shifts=[];
             schedRes.filter(r=>r.k===k).forEach(r=>SECS.forEach(sec=>(r.v[sec]||[]).forEach((row,idx)=>{
                 if(!row.start||!row.end)return;
-                if(!((row.gvId===me)||(row.gvThayTheId===me)||(row.registeredTeachers||[]).some(t=>t.id===me)))return;
+                // LỚP XẾP NHIỀU GV: trang xếp lịch lưu đủ người ở gvList/gvThayTeList, còn
+                // gvId/gvThayTheId chỉ giữ NGƯỜI ĐẦU TIÊN cho tương thích ngược. Trước đây chỗ
+                // này chỉ so gvId nên GV THỨ HAI của lớp không thấy ca của mình ở đây, phải đi
+                // khai "Ca Ngoài Lịch" → quản lý thấy "Ngoài lịch / thiếu môn lớp". Dùng helper
+                // chung isAssignedToClass/isScheduledMainTeacher/... trong db-service.js.
+                if(!isAssignedToClass(row,me))return;
                 // Lớp đã có GV thay thế mà mình là GV chính → Vắng đột xuất, không chấm bù được
-                const hasSub=!!(row.gvThayTheId||(row.gvThayTheList||[]).length>0);
-                const iAmMain=(row.gvId===me)||(row.gvList||[]).some(g=>g.id===me);
+                const hasSub=hasScheduledSubstitute(row);
+                const iAmMain=isScheduledMainTeacher(row,me);
                 let excuse=dayExcuse;
-                if(!excuse&&hasSub&&iAmMain&&row.gvThayTheId!==me)excuse='Vắng đột xuất (đã có GV thay)';
+                if(!excuse&&hasSub&&iAmMain&&!isScheduledSubstitute(row,me))excuse='Vắng đột xuất (đã có GV thay)';
                 if(!excuse&&cancelledSet.has(r.b+'__'+k+'_'+sec+'_'+idx))excuse='Vắng phép (đã báo trước)';
                 shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,
                              label:row.lop||'CHƯA CHỌN LỚP',noSubject:!String(row.lop||'').trim(),excuse:excuse});
@@ -498,20 +503,40 @@ window.submitExtra=async function(){
     if(!appr){alert('Vui lòng ghi ai đã phân công / duyệt miệng ca này.');return}
     if(!rs){alert('Vui lòng ghi lý do tường trình.');return}
 
+    // MÔN/LỚP PHẢI CÓ THẬT trong danh mục Môn Học. Ô này là input tự do nên gõ sai chính tả
+    // ("Toán 6 " / "toan6") vẫn gửi được, nhưng Bảng Công không tìm ra đơn giá → ca duyệt xong
+    // vẫn 0đ. Bắt chọn đúng tên trong danh sách, kèm gợi ý tên gần đúng.
+    const subjList=(window._subjectsCB||[]);
+    let matched=null;
+    if(!tt){
+        const norm=(v)=>String(v||'').trim().toLowerCase().replace(/\s+/g,' ');
+        matched=subjList.find(s=>norm(s.name)===norm(subj))||null;
+        if(!matched){
+            if(!subjList.length){
+                alert('Chưa tải được danh sách Môn/Lớp. Vui lòng tải lại trang rồi gửi lại.');return;
+            }
+            const key=norm(subj);
+            const near=subjList.filter(s=>{const n=norm(s.name);return n.includes(key)||key.includes(n)})
+                                .slice(0,5).map(s=>s.name);
+            alert('Môn / Lớp "'+subj+'" không có trong danh mục nên hệ thống không tính được đơn giá.'+
+                  (near.length?'\nBạn có phải muốn chọn: '+near.join(' · ')+' ?':'\nVui lòng chọn đúng tên lớp trong danh sách gợi ý của ô Môn / Lớp.'));
+            return;
+        }
+    }
+
     const SHIFT_VN={morning:'Sáng',afternoon:'Chiều',evening:'Tối'};
-    const what=tt?('Tiếp Tân ca '+(SHIFT_VN[shk]||shk)):subj;
+    const what=tt?('Tiếp Tân ca '+(SHIFT_VN[shk]||shk)):(matched?matched.name:subj);
     const label=(st==='absent'?'Vắng':(ti+'–'+to))+' '+br.toUpperCase()+' ('+what+')'+(room?' – '+room:'');
     if(!confirm('Gửi yêu cầu ca ngoài lịch ngày '+d+'?\n'+label))return;
     try{
-        const matched=(window._subjectsCB||[]).find(s=>s.name===subj);
         await DBService.createMakeupRequests([{
             staffId:uid(),staffName:uname(),type:'unscheduled',dateKey:d,branch:br,
-            className:tt?'':subj, classId:matched?matched.id:'', room:room,
+            className:tt?'':(matched?matched.name:subj), classId:matched?matched.id:'', room:room,
             shiftKey:tt?shk:'', approvedBy:appr,
             shiftLabel:label,
             session:{checkIn:st==='worked'?iso(d,ti):iso(d,'12:00'),checkOut:st==='worked'?iso(d,to):null,
                      role:tt?'tiep-tan':(matched?matched.id:null),
-                     roleName:tt?'Tiếp Tân':(subj||'Giáo viên / Trợ giảng'),
+                     roleName:tt?'Tiếp Tân':((matched?matched.name:subj)||'Giáo viên / Trợ giảng'),
                      linkedReceptionistShift:tt?shk:null,
                      isAbsent:st==='absent',bonus10:b10,overtimeMinutes:ot},
             reason:rs}]);

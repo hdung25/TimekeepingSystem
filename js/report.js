@@ -141,6 +141,20 @@ async function initReport() {
         markFixedBtn.style.display = 'inline-block';
     }
 
+    // roleView=tiep-tan|giao-vien: dùng khi mở bảng lương của một người từ modal "Gửi Bảng Lương
+    // Hàng Loạt" ở tab mới — mở đúng bên vai trò sếp đang xử lý, không phải đổi filter bằng tay.
+    {
+        const rv = urlParams.get('roleView');
+        if (rv === 'tiep-tan' || rv === 'giao-vien') {
+            const rf = document.getElementById('salary-role-filter');
+            if (rf) {
+                rf.value = rv;
+                window._forcedRoleView = rv;
+                if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
+            }
+        }
+    }
+
     // 2. Set to 1st of current month
     currentDate.setDate(1);
 
@@ -8783,10 +8797,11 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
     }
 }
 
-async function openBulkPublishModal() {
+async function openBulkPublishModal(opts) {
     const modal = document.getElementById('bulk-publish-modal');
     if (!modal) return;
-    
+    const keepMessage = !!(opts && opts.keepMessage);
+
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -8806,11 +8821,17 @@ async function openBulkPublishModal() {
         staffList.forEach(u => {
             const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
             const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-            const isRecep = uRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-            
+            // CHỈ xét chức danh của CHÍNH người này. Bản cũ có thêm vế
+            // `(window.unfilteredAllMonthChips||[]).some(...)` — vế đó KHÔNG dùng biến `u`, nó soi
+            // chip của người đang mở trên trang; nên chỉ cần đang xem một tiếp tân là TOÀN BỘ giáo
+            // viên bị đổ sang cột Tiếp Tân, và nút "Gửi bên Tiếp Tân" sẽ gửi lẫn cả giáo viên.
+            const isRecep = uRoles.some(r => ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r));
+
             const docData = allSettings[u.id] || {};
             const pub = docData.published;
-            
+            const uName = u.name || u.username || '';
+            const uAccount = u.username || '';
+
             let teacherStatus = 'uncalculated';
             let recepStatus = 'uncalculated';
             let teacherNetPay = 0;
@@ -8841,59 +8862,42 @@ async function openBulkPublishModal() {
             if (showInTeacherList) {
                 teachersList.push({
                     id: u.id,
-                    name: u.name || u.username,
+                    name: uName,
+                    account: uAccount,
                     msnv: u.msnvStr || '—',
                     status: teacherStatus,
-                    netPay: teacherNetPay
+                    netPay: teacherNetPay,
+                    sentAt: (pub && (pub.publishedAt_gv || pub.publishedAt)) || null
                 });
             }
             if (showInRecepList) {
                 recepsList.push({
                     id: u.id,
-                    name: u.name || u.username,
+                    name: uName,
+                    account: uAccount,
                     msnv: u.msnvStr || '—',
                     status: recepStatus,
-                    netPay: recepNetPay
+                    netPay: recepNetPay,
+                    sentAt: (pub && (pub.publishedAt_tt || pub.publishedAt)) || null
                 });
             }
         });
-        
-        // Render lists
-        const teachersContainer = document.getElementById('bulk-list-teachers');
-        if (teachersContainer) {
-            teachersContainer.innerHTML = '';
-            if (teachersList.length === 0) {
-                teachersContainer.innerHTML = '<div style="text-align: center; color: #9CA3AF; padding: 2rem; font-size: 0.9rem;">Không có giáo viên/trợ giảng</div>';
-            } else {
-                teachersList.forEach(item => {
-                    teachersContainer.appendChild(createBulkStaffRow(item, 'teachers'));
-                });
-            }
-        }
-        
-        const recepsContainer = document.getElementById('bulk-list-receps');
-        if (recepsContainer) {
-            recepsContainer.innerHTML = '';
-            if (recepsList.length === 0) {
-                recepsContainer.innerHTML = '<div style="text-align: center; color: #9CA3AF; padding: 2rem; font-size: 0.9rem;">Không có tiếp tân</div>';
-            } else {
-                recepsList.forEach(item => {
-                    recepsContainer.appendChild(createBulkStaffRow(item, 'receps'));
-                });
-            }
-        }
-        
-        // Clear message input
+
+        // Render lists — mỗi cột chia 3 khu để không lẫn việc đang làm dở với việc đã xong
+        renderBulkColumn('bulk-list-teachers', teachersList, 'teachers', monthStr, 'Không có giáo viên/trợ giảng');
+        renderBulkColumn('bulk-list-receps', recepsList, 'receps', monthStr, 'Không có tiếp tân');
+
+        // Giữ lời nhắn khi vẽ lại sau lượt gửi (sếp còn gửi tiếp bên kia)
         const messageInput = document.getElementById('bulk-message-input');
-        if (messageInput) messageInput.value = '';
-        
-        // Clear search input and show all rows
+        if (messageInput && !keepMessage) messageInput.value = '';
+
+        // Giữ ô tìm kiếm khi vẽ lại; mở mới thì xóa
         const searchInput = document.getElementById('bulk-search-input');
         if (searchInput) {
-            searchInput.value = '';
-            filterBulkPublishList('');
+            if (!keepMessage) searchInput.value = '';
+            filterBulkPublishList(searchInput.value || '');
         }
-        
+
         // Clear select all checkboxes
         const selAllTeachers = document.getElementById('bulk-select-all-teachers');
         if (selAllTeachers) selAllTeachers.checked = false;
@@ -8919,79 +8923,147 @@ function closeBulkPublishModal() {
 }
 
 function filterBulkPublishList(query) {
-    const cleanQuery = query.trim().toLowerCase();
-    const rows = document.querySelectorAll('.bulk-staff-row');
-    rows.forEach(row => {
+    const cleanQuery = String(query || '').trim().toLowerCase();
+    const visibleBySection = {};
+    document.querySelectorAll('.bulk-staff-row').forEach(row => {
         const name = row.dataset.name || '';
-        if (name.includes(cleanQuery)) {
-            row.style.display = 'flex';
-        } else {
-            row.style.display = 'none';
-        }
+        const show = !cleanQuery || name.includes(cleanQuery);
+        row.style.display = show ? 'flex' : 'none';
+        const sec = row.dataset.section || '';
+        visibleBySection[sec] = (visibleBySection[sec] || 0) + (show ? 1 : 0);
     });
+    // Ẩn luôn tiêu đề khu nào không còn dòng nào khớp — tránh "Cần gửi (4)" mà bên dưới trống
+    document.querySelectorAll('.bulk-section-head').forEach(head => {
+        const sec = head.dataset.section || '';
+        head.style.display = (visibleBySection[sec] || 0) > 0 ? 'flex' : 'none';
+    });
+    updateBulkSelectedCount();
 }
 window.filterBulkPublishList = filterBulkPublishList;
 
-function createBulkStaffRow(item, group) {
+// ===== MODAL GỬI BẢNG LƯƠNG: chia 3 khu theo tình trạng =====
+// Đang tính lương dở dang thì việc "cần gửi" phải nằm riêng, việc "đã xong" đẩy xuống dưới —
+// không để lẫn vào danh sách chọn nữa (yêu cầu GĐ 07/08/2026).
+const BULK_SECTIONS = [
+    { key: 'todo', title: 'Cần gửi', hint: 'Đã tính xong, chưa gửi cho nhân viên', color: '#D97706', statuses: ['draft'] },
+    { key: 'done', title: 'Đã xử lý tháng này', hint: 'Đã gửi — không nằm trong danh sách chọn nữa', color: '#1E40AF', statuses: ['published', 'received'] },
+    { key: 'none', title: 'Chưa tính lương', hint: 'Bấm tên để mở bảng lương và tính', color: '#6B7280', statuses: ['uncalculated'] }
+];
+
+function bulkStaffReportUrl(staffId, group) {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const dateParam = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const roleView = group === 'receps' ? 'tiep-tan' : 'giao-vien';
+    return `bao-cao.html?staffId=${encodeURIComponent(staffId)}&date=${dateParam}&roleView=${roleView}`;
+}
+
+// Mở bảng lương của một người ở TAB MỚI (đúng người, đúng tháng, đúng vai trò)
+function openStaffPayslipTab(staffId, group) {
+    window.open(bulkStaffReportUrl(staffId, group), '_blank', 'noopener');
+}
+window.openStaffPayslipTab = openStaffPayslipTab;
+
+function renderBulkColumn(containerId, list, group, monthStr, emptyText) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (list.length === 0) {
+        container.innerHTML = `<div style="text-align: center; color: #9CA3AF; padding: 2rem; font-size: 0.9rem;">${emptyText}</div>`;
+        return;
+    }
+
+    // Sắp theo tên để dễ tìm mắt
+    const sorted = [...list].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'vi'));
+
+    BULK_SECTIONS.forEach(section => {
+        const items = sorted.filter(i => section.statuses.includes(i.status));
+        if (items.length === 0) return;
+
+        const head = document.createElement('div');
+        head.className = 'bulk-section-head';
+        head.dataset.section = `${group}-${section.key}`;
+        head.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin:0.35rem 0 0.15rem;padding:0.4rem 0.15rem;border-bottom:1px dashed #E5E7EB;`;
+        head.innerHTML = `
+            <span style="font-size:0.78rem;font-weight:800;color:${section.color};text-transform:uppercase;letter-spacing:0.03em;">
+                ${section.title} <span style="font-weight:700;">(${items.length})</span>
+            </span>
+            <span style="font-size:0.7rem;color:#9CA3AF;text-align:right;">${section.hint}</span>`;
+        container.appendChild(head);
+
+        items.forEach(item => container.appendChild(createBulkStaffRow(item, group, section.key)));
+    });
+}
+window.renderBulkColumn = renderBulkColumn;
+
+function createBulkStaffRow(item, group, sectionKey) {
     const row = document.createElement('div');
     row.className = 'bulk-staff-row';
     row.dataset.name = (item.name || '').toLowerCase();
-    row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; background: #fff; transition: background 0.2s;';
-    
-    let isChecked = false;
-    let isDisabled = false;
+    row.dataset.section = `${group}-${sectionKey}`;
+    row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.6rem 0.7rem; border: 1px solid #E5E7EB; border-radius: 10px; background: #fff;';
+
+    const selectable = sectionKey === 'todo';
+    const accent = group === 'teachers' ? '#3B82F6' : '#10B981';
+
     let statusText = 'Chưa tính';
-    let badgeBg = '#F3F4F6';
-    let badgeColor = '#4B5563';
-    let badgeBorder = '#D1D5DB';
-    let netPayStr = '—';
-    let payColor = '#9CA3AF';
-    
+    let badgeBg = '#F3F4F6', badgeColor = '#4B5563', badgeBorder = '#D1D5DB';
+    let netPayStr = '—', payColor = '#9CA3AF';
+
     if (item.status === 'draft') {
-        isChecked = true;
         statusText = 'Chưa gửi';
-        badgeBg = '#FEF3C7';
-        badgeColor = '#D97706';
-        badgeBorder = '#FDE68A';
-        netPayStr = formatNumberWithCommas(item.netPay) + ' đ';
-        payColor = '#D97706';
+        badgeBg = '#FEF3C7'; badgeColor = '#B45309'; badgeBorder = '#FDE68A';
+        netPayStr = formatNumberWithCommas(item.netPay) + ' đ'; payColor = '#B45309';
     } else if (item.status === 'published') {
         statusText = 'Đã gửi';
-        badgeBg = '#DBEAFE';
-        badgeColor = '#1E40AF';
-        badgeBorder = '#3B82F6';
-        netPayStr = formatNumberWithCommas(item.netPay) + ' đ';
-        payColor = '#1E40AF';
+        badgeBg = '#DBEAFE'; badgeColor = '#1E40AF'; badgeBorder = '#93C5FD';
+        netPayStr = formatNumberWithCommas(item.netPay) + ' đ'; payColor = '#1E40AF';
     } else if (item.status === 'received') {
         statusText = 'Đã nhận';
-        badgeBg = '#D1FAE5';
-        badgeColor = '#065F46';
-        badgeBorder = '#10B981';
-        netPayStr = formatNumberWithCommas(item.netPay) + ' đ';
-        payColor = '#065F46';
+        badgeBg = '#D1FAE5'; badgeColor = '#065F46'; badgeBorder = '#6EE7B7';
+        netPayStr = formatNumberWithCommas(item.netPay) + ' đ'; payColor = '#065F46';
     } else {
-        isDisabled = true;
+        row.style.background = '#FAFAFA';
     }
-    
-    row.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <input type="checkbox" class="bulk-staff-checkbox bulk-group-${group}" 
-                   data-id="${item.id}" 
-                   data-group="${group}"
-                   ${isChecked ? 'checked' : ''} 
-                   ${isDisabled ? 'disabled' : ''} 
+
+    let sentAtStr = '';
+    if (item.sentAt) {
+        const d = new Date(item.sentAt);
+        if (!isNaN(d.getTime())) {
+            sentAtStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+    }
+
+    const checkboxHtml = selectable
+        ? `<input type="checkbox" class="bulk-staff-checkbox bulk-group-${group}"
+                   data-id="${item.id}" data-group="${group}" checked
                    onchange="onBulkCheckboxChange('${item.id}', this.checked)"
-                   style="width: 18px; height: 18px; cursor: pointer; accent-color: ${group === 'teachers' ? '#3B82F6' : '#10B981'};" />
-            <div style="display: flex; flex-direction: column;">
-                <span style="font-weight: 600; color: #374151; font-size: 0.9rem;">${item.name}</span>
-                <span style="font-size: 0.75rem; color: #6B7280;">MSNV: ${item.msnv}</span>
-            </div>
+                   title="Chọn để gửi bảng lương cho người này"
+                   style="width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; accent-color: ${accent};" />`
+        : `<span style="width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:${badgeColor};">
+               <i data-lucide="${item.status === 'uncalculated' ? 'minus' : 'check'}" style="width:14px;height:14px;"></i>
+           </span>`;
+
+    const safeName = String(item.name || '').replace(/"/g, '&quot;');
+    row.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.7rem; min-width: 0;">
+            ${checkboxHtml}
+            <button type="button" onclick="openStaffPayslipTab('${item.id}', '${group}')"
+                    title="Mở bảng lương của ${safeName} ở tab mới"
+                    style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;background:none;border:none;padding:0;margin:0;cursor:pointer;text-align:left;min-width:0;font-family:inherit;">
+                <span style="font-weight: 600; color: #1D4ED8; font-size: 0.9rem; display:inline-flex;align-items:center;gap:4px;text-decoration:underline;text-decoration-color:#BFDBFE;text-underline-offset:2px;">
+                    ${safeName}
+                    <i data-lucide="external-link" style="width:12px;height:12px;opacity:0.7;"></i>
+                </span>
+                <span style="font-size: 0.72rem; color: #6B7280;">MSNV: ${item.msnv}${sentAtStr ? ' · gửi ' + sentAtStr : ''}</span>
+            </button>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <span style="font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; font-weight: 700; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0;">
+            <span style="font-size: 0.68rem; padding: 2px 8px; border-radius: 9999px; font-weight: 700; white-space: nowrap; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">
                 ${statusText}
             </span>
-            <span style="font-weight: 700; font-size: 0.9rem; color: ${payColor}; min-width: 90px; text-align: right;">
+            <span style="font-weight: 700; font-size: 0.88rem; color: ${payColor}; min-width: 86px; text-align: right;">
                 ${netPayStr}
             </span>
         </div>
@@ -9007,30 +9079,61 @@ function onBulkCheckboxChange(staffId, isChecked) {
 function toggleSelectAllGroup(group) {
     const headerCheckbox = document.getElementById(`bulk-select-all-${group}`);
     if (!headerCheckbox) return;
-    
+
     const isChecked = headerCheckbox.checked;
+    // Chỉ tick những dòng ĐANG HIỆN (tôn trọng ô tìm kiếm) và còn chọn được
     const checkboxes = document.querySelectorAll(`.bulk-staff-checkbox.bulk-group-${group}:not(:disabled)`);
     checkboxes.forEach(cb => {
+        const row = cb.closest('.bulk-staff-row');
+        if (row && row.style.display === 'none') return;
         cb.checked = isChecked;
     });
     updateBulkSelectedCount();
 }
 
 function updateBulkSelectedCount() {
-    const checkedBoxes = document.querySelectorAll('.bulk-staff-checkbox:checked');
+    const nT = document.querySelectorAll('.bulk-staff-checkbox.bulk-group-teachers:checked').length;
+    const nR = document.querySelectorAll('.bulk-staff-checkbox.bulk-group-receps:checked').length;
+
     const countDisplay = document.getElementById('bulk-selected-count');
     if (countDisplay) {
-        countDisplay.innerText = `Đã chọn: ${checkedBoxes.length} lượt gửi`;
+        countDisplay.innerHTML = (nT + nR) === 0
+            ? '<span style="color:#9CA3AF;">Chưa chọn nhân viên nào</span>'
+            : `Đang chọn: <b style="color:#1D4ED8;">${nT} giáo viên</b> · <b style="color:#047857;">${nR} tiếp tân</b>`;
     }
+
+    const setBtn = (id, n, label) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.disabled = n === 0;
+        btn.style.opacity = n === 0 ? '0.45' : '1';
+        btn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
+        const span = btn.querySelector('.bulk-btn-label');
+        if (span) span.innerText = n === 0 ? label : `${label} (${n})`;
+    };
+    setBtn('btn-bulk-publish-teachers', nT, 'Gửi bên Giáo Viên');
+    setBtn('btn-bulk-publish-receps', nR, 'Gửi bên Tiếp Tân');
+    setBtn('btn-submit-bulk-publish', nT + nR, 'Gửi cả hai bên');
 }
 
-async function submitBulkPublish() {
-    const checkedBoxes = document.querySelectorAll('.bulk-staff-checkbox:checked');
+// scope: 'teachers' | 'receps' | 'all' — gửi riêng từng bên để đang tính dở vẫn gửi được
+async function submitBulkPublish(scope) {
+    const sc = scope === 'teachers' || scope === 'receps' ? scope : 'all';
+    const selector = sc === 'all' ? '.bulk-staff-checkbox:checked' : `.bulk-staff-checkbox.bulk-group-${sc}:checked`;
+    const checkedBoxes = document.querySelectorAll(selector);
     if (checkedBoxes.length === 0) {
-        UIService.toast('Vui lòng chọn ít nhất 1 nhân viên để gửi!', 'warning');
+        const what = sc === 'teachers' ? 'giáo viên' : (sc === 'receps' ? 'tiếp tân' : 'nhân viên');
+        UIService.toast(`Vui lòng chọn ít nhất 1 ${what} để gửi!`, 'warning');
         return;
     }
-    
+
+    const scopeLabel = sc === 'teachers' ? 'GIÁO VIÊN & TRỢ GIẢNG' : (sc === 'receps' ? 'TIẾP TÂN' : 'CẢ HAI BÊN');
+    const ok = await UIService.confirm(
+        `Gửi bảng lương cho <b>${checkedBoxes.length} lượt</b> bên <b>${scopeLabel}</b>? ` +
+        `Nhân viên sẽ thấy ngay bảng lương trên máy của họ. Bên còn lại không bị ảnh hưởng.`
+    );
+    if (!ok) return;
+
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -9076,44 +9179,39 @@ async function submitBulkPublish() {
                 updatedPublished.message = commonMessage.trim();
             }
             
-            if (currentPublished.role === 'dual') {
-                if (targets.teachers) {
-                    updatedPublished.status_gv = 'published';
-                    updatedPublished.publishedAt_gv = new Date().toISOString();
-                }
-                if (targets.receps) {
-                    updatedPublished.status_tt = 'published';
-                    updatedPublished.publishedAt_tt = new Date().toISOString();
-                }
-                
-                const gvPub = updatedPublished.status_gv === 'published' || updatedPublished.status_gv === 'received';
-                const ttPub = updatedPublished.status_tt === 'published' || updatedPublished.status_tt === 'received';
-                if (gvPub || ttPub) {
-                    updatedPublished.status = 'published';
-                }
-            } else if (currentPublished.role === 'tiep-tan') {
-                updatedPublished.status = 'published';
-                updatedPublished.status_tt = 'published';
-                updatedPublished.publishedAt_tt = new Date().toISOString();
-            } else {
-                updatedPublished.status = 'published';
+            // GỬI ĐÚNG BÊN ĐƯỢC TICK, không suy từ currentPublished.role.
+            // Bản cũ nhìn `role`: người có 2 chức danh nhưng doc lưu role='giao-vien' (lúc tính
+            // chưa có giờ tiếp tân) thì tick cột Tiếp Tân lại đi ghi cờ bên giáo viên → gửi sai bên.
+            const nowIso = new Date().toISOString();
+            if (targets.teachers) {
                 updatedPublished.status_gv = 'published';
-                updatedPublished.publishedAt_gv = new Date().toISOString();
+                updatedPublished.publishedAt_gv = nowIso;
             }
-            
+            if (targets.receps) {
+                updatedPublished.status_tt = 'published';
+                updatedPublished.publishedAt_tt = nowIso;
+            }
+            const gvPub = updatedPublished.status_gv === 'published' || updatedPublished.status_gv === 'received';
+            const ttPub = updatedPublished.status_tt === 'published' || updatedPublished.status_tt === 'received';
+            if (gvPub || ttPub) updatedPublished.status = 'published';
+
             batch.set(docRef, {
                 published: updatedPublished
             }, { merge: true });
         });
-        
+
         await batch.commit();
-        
+
         // Invalidate cache
         DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
-        
-        UIService.toast(`Đã gửi bảng lương thành công!`, 'success');
-        closeBulkPublishModal();
-        
+
+        const scopeDone = sc === 'teachers' ? 'bên Giáo Viên' : (sc === 'receps' ? 'bên Tiếp Tân' : 'cả hai bên');
+        UIService.toast(`Đã gửi ${checkedBoxes.length} bảng lương ${scopeDone}!`, 'success');
+
+        // KHÔNG đóng modal: sếp thường tính dở bên này rồi gửi tiếp bên kia.
+        // Vẽ lại danh sách để người vừa gửi rơi xuống khu "Đã xử lý".
+        await openBulkPublishModal({ keepMessage: true });
+
         // Refresh dashboard or view if they are open
         const dashView = document.getElementById('salary-dashboard-view');
         if (dashView && dashView.style.display === 'block') {
