@@ -4272,8 +4272,15 @@ function getResolvedTeachingRate(chip, subjectName, fallbackRate) {
     // Older attendance rows can retain only the subject name.  Apply a name
     // fallback only when it is unambiguous; duplicate names across branches are
     // intentionally left on legacy pricing to avoid a silent misclassification.
+    const lookup = normalizeSubjectLookupName(subjectName || chip?.chipFilterName);
+    if (ids.length > 1 && lookup) {
+        const matchingRoleIds = ids.filter(id => {
+            const subject = leafSubjects.find(item => String(item.id) === id);
+            return subject && normalizeSubjectLookupName(subject.name) === lookup;
+        });
+        if (matchingRoleIds.length === 1) ids = matchingRoleIds;
+    }
     if (ids.length === 0) {
-        const lookup = normalizeSubjectLookupName(subjectName || chip?.chipFilterName);
         const matches = leafSubjects.filter(subject => normalizeSubjectLookupName(subject.name) === lookup);
         if (matches.length === 1) ids = [String(matches[0].id)];
     }
@@ -6360,16 +6367,26 @@ async function populateModalCurrentTab() {
                                 prefillRate = Number(cfg.receptionist_normal_rate || 0);
                             }
                         } else {
-                            const foundRoleInConfig = cfg.roles && cfg.roles.find(r => {
-                                const rName = r.name || r.id || '';
-                                const normalizeFn = window.normalizeChipFilterName || (x => x);
-                                return normalizeFn(rName) === normalizeFn(name) || r.id === name;
-                            });
-                            if (foundRoleInConfig) {
-                                prefillRate = Number(foundRoleInConfig.rate || 0);
+                            // In group mode, prefill the same read-only resolver
+                            // used by the main salary calculation.  This removes
+                            // the old need to re-enter the hourly rate in the
+                            // monthly modal while leaving legacy fallback intact.
+                            const policyChip = group.chips.find(c => c && c.sessionData && !c.isReceptionist);
+                            const policyRate = policyChip ? getResolvedTeachingRate(policyChip, name, 0) : 0;
+                            if (policyRate > 0) {
+                                prefillRate = policyRate;
                             } else {
-                                const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
-                                prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                                const foundRoleInConfig = cfg.roles && cfg.roles.find(r => {
+                                    const rName = r.name || r.id || '';
+                                    const normalizeFn = window.normalizeChipFilterName || (x => x);
+                                    return normalizeFn(rName) === normalizeFn(name) || r.id === name;
+                                });
+                                if (foundRoleInConfig) {
+                                    prefillRate = Number(foundRoleInConfig.rate || 0);
+                                } else {
+                                    const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                                    prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                                }
                             }
                         }
                     }
