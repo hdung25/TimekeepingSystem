@@ -139,6 +139,44 @@ function observation(lateMinutes) {
 }
 
 {
+    // Ca admin sửa môn: lịch cũ là Nhảy nhưng phiên đã chọn BTH thì bảng lương
+    // phải gom theo BTH, không được đẩy giờ sang dòng Nhảy.
+    const editedSubjectSchedule = {
+        afternoon2: [{
+            start: '14:30',
+            end: '16:30',
+            lop: 'Nhảy',
+            lopId: 'subject-jump',
+            gvId: staffId,
+            registeredTeachers: [],
+            _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-14',
+            _originalIndex: 0
+        }]
+    };
+    const editedSubjectChips = context.window.calculateDailyChips(
+        editedSubjectSchedule,
+        [{
+            id: 'admin-selected-bth',
+            checkIn: '2026-07-14T14:30:00',
+            checkOut: '2026-07-14T16:30:00',
+            isAdminEdited: true,
+            role: 'subject-bth',
+            roleName: 'BTH',
+            roleRate: 0,
+            linkedClassStart: '14:30'
+        }],
+        staffId,
+        dateKey,
+        user
+    );
+    assert.equal(editedSubjectChips.length, 1);
+    assert.equal(editedSubjectChips[0].chipFilterName, 'Bth');
+    assert.match(editedSubjectChips[0].text, /\(BTH\)/);
+    assert.equal(editedSubjectChips[0].paidMinutes, 120);
+}
+
+{
     // Admin sửa giờ NHƯNG tiếp tân có ghi nhận trễ tay → ghi nhận tay vẫn hiệu lực
     const chips = chipsFor({
         id: 'admin-edited-manual-late',

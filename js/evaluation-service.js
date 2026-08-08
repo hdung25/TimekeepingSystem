@@ -1352,6 +1352,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         .filter(Boolean)
                 ));
 
+                // Khi admin sửa/chọn lại môn cho một phiên, tên vai trò trong phiên là
+                // nguồn sự thật của chip. Lịch có thể vẫn giữ môn cũ (ví dụ lịch là Nhảy
+                // nhưng ca đã sửa thành BTH); nếu gom lương theo cls.lop thì giờ bị đẩy
+                // nhầm sang môn cũ dù chip đang hiển thị môn mới.
+                const chipFilterName = matchedSession.isAdminEdited && (chipSessionData.roleName || chipSessionData.role)
+                    ? normalizeChipFilterName(chipSessionData.roleName || chipSessionData.role)
+                    : normalizeChipFilterName(cls.lop);
+
                 chips.push({
                     text: label,
                     class: cssClass,
@@ -1364,7 +1372,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isTeaching: true,
                     studentCount: chipSessionData.studentCount || null,
                     studentCountStatus: chipSessionData.studentCountStatus || null,
-                    chipFilterName: normalizeChipFilterName(cls.lop),
+                    chipFilterName: chipFilterName,
                     subjectIds: _chipSubjectIds,
                     subjectId: _chipSubjectIds.length === 1 ? _chipSubjectIds[0] : null,
                     lopId: cls.lopId || null,

@@ -27,7 +27,7 @@ assert.match(nhanSu, /value="receptionist_assistant"/);
 assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
 assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(baoCao, /report\.js\?v=20260809-group-rates-v1/);
+assert.match(baoCao, /report\.js\?v=20260809-chip-policy-v1/);
 
 assert.match(monHoc, /class="mh-page"/);
 assert.match(monHoc, /app-build" content="20260809-chip-policy-v1"/);
