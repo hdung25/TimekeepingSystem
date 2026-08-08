@@ -1362,24 +1362,55 @@ const DBService = {
                 const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
                 if (index === -1) throw new Error("Session not found");
 
-                // Update fields
+                // A manual time correction must not silently detach a session
+                // from its scheduled class/shift.  Older callers do not send
+                // link fields, so clearing them made a correctly linked 8h
+                // shift appear as only its unmatched remainder on payroll.
                 const session = data.sessions[index];
+                const before = {
+                    checkIn: session.checkIn || session.start || null,
+                    checkOut: session.checkOut || null,
+                    role: session.role || null,
+                    linkedClassStart: session.linkedClassStart || null,
+                    linkedReceptionistShift: session.linkedReceptionistShift || null,
+                    isAbsent: !!session.isAbsent
+                };
+                const hasOwn = (key) => Object.prototype.hasOwnProperty.call(newData || {}, key);
+                const patch = Object.assign({}, newData || {});
+                const clearScheduleLinks = patch.clearScheduleLinks === true;
+                const editMeta = patch.editMeta || {};
+                delete patch.clearScheduleLinks;
+                delete patch.editMeta;
 
-                // Clear old role/link keys to prevent stale links
-                delete session.role;
-                delete session.roleName;
-                delete session.roleRate;
-                delete session.isFixedShift;
-                delete session.linkedClassStart;
-                delete session.linkedReceptionistShift;
+                ['role', 'roleName', 'roleRate', 'isFixedShift'].forEach((key) => {
+                    if (hasOwn(key)) session[key] = patch[key];
+                });
+
+                const hasClassLink = hasOwn('linkedClassStart');
+                const hasReceptionistLink = hasOwn('linkedReceptionistShift');
+                if (clearScheduleLinks) {
+                    delete session.linkedClassStart;
+                    delete session.linkedReceptionistShift;
+                } else if (hasClassLink) {
+                    if (patch.linkedClassStart) session.linkedClassStart = patch.linkedClassStart;
+                    else delete session.linkedClassStart;
+                    delete session.linkedReceptionistShift;
+                } else if (hasReceptionistLink) {
+                    if (patch.linkedReceptionistShift) session.linkedReceptionistShift = patch.linkedReceptionistShift;
+                    else delete session.linkedReceptionistShift;
+                    delete session.linkedClassStart;
+                }
 
                 // QUAN TRỌNG: admin đã sửa giờ tay -> bỏ cờ auto-close.
                 // Nếu giữ cờ này, khối auto-close (report.js) sẽ coi ca vẫn "quên ra ca"
                 // và GHI ĐÈ giờ ra của admin về giờ tan ca/23:59 ở lần tải trang sau.
                 delete session.autoClosedReason;
 
-                // Merge new data
-                Object.assign(session, newData);
+                // Merge ordinary fields after protected role/link fields.
+                Object.keys(patch).forEach((key) => {
+                    if (['role', 'roleName', 'roleRate', 'isFixedShift', 'linkedClassStart', 'linkedReceptionistShift'].includes(key)) return;
+                    session[key] = patch[key];
+                });
 
                 if (newData.checkIn) {
                     session.start = newData.checkIn; // Sync legacy
@@ -1390,6 +1421,27 @@ const DBService = {
                     data.checkIn = session.checkIn;
                     data.checkOut = session.checkOut;
                 }
+
+                // Keep a compact audit trail with this attendance session. It
+                // supports investigation even before paid cloud backups exist.
+                const after = {
+                    checkIn: session.checkIn || session.start || null,
+                    checkOut: session.checkOut || null,
+                    role: session.role || null,
+                    linkedClassStart: session.linkedClassStart || null,
+                    linkedReceptionistShift: session.linkedReceptionistShift || null,
+                    isAbsent: !!session.isAbsent
+                };
+                const history = Array.isArray(session.editHistory) ? session.editHistory.slice(-19) : [];
+                history.push({
+                    at: new Date().toISOString(),
+                    action: 'manual_edit',
+                    source: editMeta.source || 'report',
+                    editor: editMeta.editor || null,
+                    before: before,
+                    after: after
+                });
+                session.editHistory = history;
 
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
@@ -2479,6 +2531,32 @@ const DBService = {
             console.error('[SalarySettings] Error getting:', e);
             return {};
         }
+    },
+
+    // ================= PAYROLL AUTOMATION PROFILES =================
+    // Kept separate from users.salary_config and salary_settings_monthly so a
+    // future automation rollout cannot overwrite a legacy rate or payslip.
+    async getStaffPayrollProfile(staffId) {
+        if (!staffId || String(staffId).trim() === '') return { exists: false };
+        try {
+            const doc = await db.collection('staff_payroll_profiles').doc(staffId).get();
+            return doc.exists ? Object.assign({ exists: true }, doc.data()) : { exists: false };
+        } catch (e) {
+            console.error('[PayrollProfile] Error getting:', e);
+            throw e;
+        }
+    },
+
+    async saveStaffPayrollProfile(staffId, profile) {
+        if (!staffId || String(staffId).trim() === '') {
+            throw new Error('[PayrollProfile] staffId is required.');
+        }
+        const payload = Object.assign({}, profile || {}, {
+            staffId: staffId,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        await db.collection('staff_payroll_profiles').doc(staffId).set(payload, { merge: true });
+        return true;
     },
 
     // Save salary settings for a staff member

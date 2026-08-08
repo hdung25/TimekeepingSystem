@@ -205,6 +205,13 @@ service cloud.firestore {
     // 10. Overtime Requests (Staff → Admin for approval)
     // Staff can create/read their own requests (staffId is a stored field, not path param)
     // Admin can read all, update (approve/reject)
+    // Payroll automation is opt-in and stored separately from live salary
+    // settings. Historical hours and shadow mode can only be changed by admin.
+    match /staff_payroll_profiles/{staffId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
     match /overtime_requests/{requestId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();

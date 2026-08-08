@@ -562,7 +562,7 @@ const stripTones=(v)=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,
 //   - "không chấm công được" / "không vào ca được" KHÔNG còn tự nó đủ nghĩa — đó là hệ quả,
 //     mọi đơn đều viết vậy; phải có thiết bị/sự cố đi kèm.
 const CF_THING=/wifi|internet|he\s*thong|phan\s*mem|ung\s*dung|server|trang\s*web|\bweb\b|\bapp\b|\bmay\b|nguon/;
-const CF_NET=/mat\s*mang|mang\s*(yeu|lag|cham|loi|chap|kem|hong)|(mat|cup|hong|sap)\s*dien(?!\s*thoai)|dien\s*(bi\s*)?(cup|mat|hong)/;
+const CF_NET=/mat\s*mang|rot\s*mang|mang\s*(yeu|lag|cham|loi|chap|kem|hong)|(mat|cup|hong|sap)\s*dien(?!\s*thoai)|dien\s*(bi\s*)?(cup|mat|hong)/;
 const CF_TROUBLE=/loi|hong|hu|mat|rot|cup|sap|treo|chap\s*chon|yeu|bao\s*loi|khong\s*len|khong\s*(vao|truy\s*cap|dang\s*nhap|cham\s*cong|bam|luu)\s*(duoc|dc)/;
 const CF_ALONE=/khong\s*(dang\s*nhap|truy\s*cap|luu)\s*(duoc|dc)|bao\s*loi|he\s*thong\s*loi|web\s*loi|app\s*loi/;
 const CENTER_FAULT_RE={ test:(t)=>CF_ALONE.test(t)||CF_NET.test(t)||(CF_THING.test(t)&&CF_TROUBLE.test(t)) };
@@ -583,8 +583,68 @@ function payoutFor(r){
         : { payoutMonth:nextMonthOf(r.dateKey), payoutReason:'Nhân viên quên chấm công — trả tháng sau' };
 }
 
+function payoutSummary(list){
+    const rows=Array.isArray(list)?list:[];
+    const inMonth=rows.filter(r=>guessCenterFault(r)).length;
+    const nextMonth=rows.length-inMonth;
+    return inMonth+' ca TRẢ TRONG THÁNG · '+nextMonth+' ca TRẢ THÁNG SAU';
+}
+
 // Hộp chọn THÁNG TRẢ bằng RADIO (bỏ prompt gõ số 1/2/3/4 — chỗ dễ bấm sai nhất về tiền).
 // Trả về hàm map (r)=>{payoutMonth,payoutReason}, hoặc null nếu người duyệt huỷ.
+// Compatibility helpers for the existing payout-month audit flow. The live UI
+// below uses the safer modal; these retain the same explicit choices for
+// callers that still request a per-session or bulk decision.
+function askPayoutMonth(r){
+  const answer=prompt(
+    'Chọn tháng trả cho ca này:\n'+
+    '1 = TRẢ TRONG THÁNG DẠY\n'+
+    '2 = TRẢ THÁNG SAU\n'+
+    '3 = Theo gợi ý tự đoán',
+    '3'
+  );
+  if(answer==='1') return {payoutMonth:String(r.dateKey||'').slice(0,7), payoutReason:'Lỗi trung tâm - trả trong tháng'};
+  if(answer==='2') return {payoutMonth:nextMonthOf(r.dateKey), payoutReason:'Nhân viên quên chấm công - trả tháng sau'};
+  if(answer==='3') return payoutFor(r);
+  return null;
+}
+
+function askPayoutMonthBulk(list){
+  const answer=prompt(
+    'Chọn tháng trả cho nhóm ca:\n'+
+    '1 = TẤT CẢ trả TRONG THÁNG DẠY\n'+
+    '2 = TẤT CẢ trả THÁNG SAU\n'+
+    '3 = Theo gợi ý tự đoán\n'+
+    '4 = Hỏi từng ca',
+    '3'
+  );
+  if(answer==='1') return function(r){ return {payoutMonth:String(r.dateKey||'').slice(0,7), payoutReason:'Manual current-month approval'}; };
+  if(answer==='2') return function(r){ return {payoutMonth:nextMonthOf(r.dateKey), payoutReason:'Manual next-month approval'}; };
+  if(answer==='3') return function(r){ return payoutFor(r); };
+  if(answer==='4') return function(r){ return askPayoutMonth(r); };
+  return null;
+}
+
+function overlappingPairsIn(reqs){
+  const rows=Array.isArray(reqs)?reqs:[];
+  const pairs=[];
+  for(let i=0;i<rows.length;i++){
+    const a=rows[i]||{}, as=a.session||{};
+    const aStart=new Date(as.checkIn||'').getTime();
+    const aEnd=new Date(as.checkOut||'').getTime();
+    if(!Number.isFinite(aStart)||!Number.isFinite(aEnd)||aEnd<=aStart) continue;
+    for(let j=i+1;j<rows.length;j++){
+      const b=rows[j]||{}, bs=b.session||{};
+      if(a.dateKey!==b.dateKey) continue;
+      const bStart=new Date(bs.checkIn||'').getTime();
+      const bEnd=new Date(bs.checkOut||'').getTime();
+      if(!Number.isFinite(bStart)||!Number.isFinite(bEnd)||bEnd<=bStart) continue;
+      if(aStart<bEnd&&bStart<aEnd) pairs.push([a,b]);
+    }
+  }
+  return pairs;
+}
+
 function askPayout(list){
     return new Promise(resolve=>{
         const one=list.length===1;

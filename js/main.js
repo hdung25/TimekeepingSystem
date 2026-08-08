@@ -1,4 +1,4 @@
-const APP_VERSION = '20260807-payslip-mobile-v1';
+const APP_VERSION = '20260808-combined-v1';
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;

@@ -22,7 +22,7 @@ function cut(start) {
 }
 const stripLine = src.match(/const stripTones=[\s\S]*?;\n/);
 assert.ok(stripLine, 'không tìm thấy stripTones');
-const constLine = src.match(/const CF_THING=[\s\S]*?\n\};\n/);
+const constLine = src.match(/const CF_THING=[\s\S]*?const CENTER_FAULT_RE=[^\n]*\n/);
 assert.ok(constLine, 'không tìm thấy CF_THING / CF_TROUBLE / CENTER_FAULT_RE');
 const arrow = src.match(/const nextMonthOf=\([\s\S]*?\n\};\n/);
 assert.ok(arrow, 'không tìm thấy nextMonthOf');

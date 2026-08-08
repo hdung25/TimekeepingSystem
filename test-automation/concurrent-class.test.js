@@ -194,7 +194,7 @@ const cutFrom = (src, start, file) => {
     vm.runInContext(
         grab(/const toMin=[^\n]*\n/, 'toMin') +
         grab(/const stripTones=[\s\S]*?;\n/, 'stripTones') +
-        grab(/const CF_THING=[\s\S]*?\n\};\n/, 'CENTER_FAULT_RE') +
+    grab(/const CF_THING=[\s\S]*?const CENTER_FAULT_RE=[^\n]*\n/, 'CENTER_FAULT_RE') +
         grab(/const nextMonthOf=\([\s\S]*?\n\};\n/, 'nextMonthOf') +
         grab(/const guessCenterFault=[^\n]*\n/, 'guessCenterFault') +
         cutFrom(src, 'function mergeSpans(rows){', 'tuong-trinh.html') +

@@ -816,8 +816,19 @@
         setSearch: setSearch,
         setFilter: setFilter,
         toggleGroup: toggleGroup,
+        reload: reload,
         _state: state
     };
+
+    // Compatibility bridge for the former inline subject page.  All writes
+    // still go through the new grouped/early-10 logic above.
+    window.previewColorPill = function () { return window.MonHoc.previewColor(); };
+    window.loadSubjects = function () { return window.MonHoc.reload(); };
+    window.renderSubjectsTable = function () { return window.MonHoc.reload(); };
+    window.saveSubjectForm = function () { return window.MonHoc.save(); };
+    window.editSubject = function (id) { return window.MonHoc.edit(id); };
+    window.deleteSubject = function (id) { return window.MonHoc.remove(id); };
+    window.resetSubjectForm = function () { return window.MonHoc.closeSheet(); };
 
     document.addEventListener('DOMContentLoaded', async function () {
         if (window.waitAuth) await window.waitAuth();

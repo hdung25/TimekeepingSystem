@@ -8,10 +8,11 @@
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
+    <meta name="app-build" content="20260808-combined-v1">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260731-mobile-card-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260808-combined-v1">
     <style>
         /* ===================== TRANG NHÂN SỰ ===================== */
         .ns-page { max-width: 1180px; margin: 0 auto; padding-bottom: 2rem; }
@@ -210,6 +211,16 @@
         .ns-inline { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
         .ns-inline label { flex: 1; font-size: 0.86rem; font-weight: 500; }
         .ns-inline input { flex: 0 0 45%; }
+        .ns-safety-note { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.75rem;
+                          border: 1px solid #BBF7D0; background: #F0FDF4; border-radius: 10px;
+                          color: #166534; font-size: 0.82rem; line-height: 1.45; margin-bottom: 0.8rem; }
+        .ns-automation-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.72fr); gap: 0.6rem; }
+        .ns-automation-grid label { display: block; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--text-color); }
+        .ns-shadow-toggle { display: flex; align-items: flex-start; gap: 0.55rem; padding: 0.65rem 0.7rem;
+                            border: 1px solid var(--border-color); border-radius: 10px; margin-bottom: 0.7rem; }
+        .ns-shadow-toggle input { flex: 0 0 auto; width: 17px; height: 17px; margin-top: 0.1rem; accent-color: #059669; }
+        .ns-shadow-toggle label { flex: 1; cursor: pointer; font-size: 0.85rem; line-height: 1.35; }
+        .ns-shadow-toggle small { display: block; color: var(--text-muted); font-weight: 400; margin-top: 0.15rem; }
 
         @media (max-width: 768px) {
             .ns-head h1 { font-size: 1.25rem; }
@@ -231,7 +242,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260807-multi-gv-bulk-v1'></script>
+    <script src='js/db-service.js?v=20260809-payroll-safety-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -427,6 +438,39 @@
                     </div>
                     <p class="ns-note">Tự động nhân với tổng giờ làm để tính tiêu chí chuyên cần.</p>
                 </div>
+
+                <div class="ns-block" id="ns-automation-block" style="margin-bottom:0;">
+                    <h4 style="color:#166534;">Giờ tích lũy &amp; đối soát tự động</h4>
+                    <div class="ns-safety-note">
+                        <i data-lucide="shield-check" style="width:17px;height:17px;flex:0 0 auto;"></i>
+                        <span>Mặc định vẫn dùng cách tính lương hiện tại. Phần này chỉ lưu giờ trước khi dùng web app và cho phép đối soát bản nháp, không tự gửi hoặc thay đổi bảng lương.</span>
+                    </div>
+                    <div class="ns-shadow-toggle">
+                        <input type="checkbox" id="ns-payroll-shadow" aria-describedby="ns-payroll-shadow-note">
+                        <label for="ns-payroll-shadow">Bật đối soát lương tự động
+                            <small id="ns-payroll-shadow-note">Chỉ so sánh với công thức cũ khi admin chủ động chạy đối soát. Không tự tạo lương, không thay đổi đơn giá.</small>
+                        </label>
+                    </div>
+                    <div class="ns-automation-grid">
+                        <div>
+                            <label for="ns-legacy-hours">Giờ trước khi dùng web app</label>
+                            <input type="number" min="0" step="1" id="ns-legacy-hours" class="ns-input" placeholder="VD: 240">
+                        </div>
+                        <div>
+                            <label for="ns-legacy-minutes">Phút lẻ</label>
+                            <input type="number" min="0" max="59" step="1" id="ns-legacy-minutes" class="ns-input" placeholder="0">
+                        </div>
+                    </div>
+                    <div style="margin-top:0.65rem;">
+                        <label for="ns-legacy-note" style="display:block;font-size:0.8rem;font-weight:700;margin-bottom:0.35rem;">Nguồn/ghi chú giờ lịch sử</label>
+                        <input type="text" id="ns-legacy-note" class="ns-input" placeholder="VD: Tổng hợp sổ công trước ngày dùng web app">
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;margin-top:0.8rem;">
+                        <button type="button" class="ns-btn ns-btn-cancel" id="ns-payroll-profile-save" onclick="NhanSu.savePayrollProfile()">
+                            <i data-lucide="shield-check"></i> Lưu hồ sơ đối soát
+                        </button>
+                    </div>
+                </div>
             </div>
             <div class="ns-sheet-foot">
                 <button type="button" class="ns-btn ns-btn-cancel" onclick="NhanSu.closeSalarySheet()">Đóng</button>
@@ -437,11 +481,12 @@
         </div>
     </div>
 
-    <script src="js/ui-service.js?v=20260803-early10-v1"></script>
-    <script src="js/early10.js?v=20260803-early10-v1"></script>
-    <script src="js/main.js?v=20260807-payslip-mobile-v1"></script>
+    <script src="js/ui-service.js?v=20260808-combined-v1"></script>
+    <script src="js/early10.js?v=20260808-combined-v1"></script>
+    <script src="js/payroll-automation.js?v=20260809-payroll-safety-v1"></script>
+    <script src="js/main.js?v=20260808-combined-v1"></script>
     <script src="js/auth-helper.js"></script>
-    <script src="js/personnel.js?v=20260805-role-picker-fix-v1"></script>
+    <script src="js/personnel.js?v=20260809-payroll-safety-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

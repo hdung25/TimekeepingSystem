@@ -30,6 +30,8 @@
         mode: '',
         revealed: {},
         salaryRates: [],
+        payrollProfile: null,
+        payrollProfileExists: false,
         // id nhân viên đang tick — dùng cho thao tác hàng loạt (xếp diện tin tưởng…)
         selected: {}
     };
@@ -80,6 +82,45 @@
 
     function formatCurrency(value) {
         return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value || 0);
+    }
+
+    function normalizePayrollProfile(profile) {
+        if (typeof PayrollAutomation !== 'undefined' && PayrollAutomation.normalizeProfile) {
+            return PayrollAutomation.normalizeProfile(profile);
+        }
+        var raw = profile || {};
+        return {
+            automationMode: raw.automationMode === 'shadow' ? 'shadow' : 'legacy',
+            historicalMinutesBeforeApp: Math.max(0, Number(raw.historicalMinutesBeforeApp) || 0),
+            historicalEvidenceNote: String(raw.historicalEvidenceNote || '').trim(),
+            historicalEnteredAt: raw.historicalEnteredAt || null,
+            historicalEnteredBy: raw.historicalEnteredBy || null,
+            policyVersion: raw.policyVersion || 'legacy-v1',
+            allowAutomaticDraft: false
+        };
+    }
+
+    function renderPayrollProfile() {
+        var profile = normalizePayrollProfile(state.payrollProfile);
+        var totalMinutes = Number(profile.historicalMinutesBeforeApp || 0);
+        var hours = Math.floor(totalMinutes / 60);
+        var minutes = totalMinutes % 60;
+        var isReadOnly = localStorage.getItem('currentRole') === 'senior_assistant';
+        var fields = [
+            document.getElementById('ns-payroll-shadow'),
+            document.getElementById('ns-legacy-hours'),
+            document.getElementById('ns-legacy-minutes'),
+            document.getElementById('ns-legacy-note')
+        ];
+
+        document.getElementById('ns-payroll-shadow').checked = profile.automationMode === 'shadow';
+        document.getElementById('ns-legacy-hours').value = hours || '';
+        document.getElementById('ns-legacy-minutes').value = minutes || '';
+        document.getElementById('ns-legacy-note').value = profile.historicalEvidenceNote || '';
+        fields.forEach(function (field) { if (field) field.disabled = isReadOnly; });
+
+        var saveProfileBtn = document.getElementById('ns-payroll-profile-save');
+        if (saveProfileBtn) saveProfileBtn.style.display = isReadOnly ? 'none' : '';
     }
 
     // sortUsers gắn thêm _msnv/_msnvStr chỉ để hiển thị — không được ghi xuống Firestore.
@@ -630,6 +671,18 @@
             document.getElementById('ns-recep-att').value = config.attendance_rate || '';
         }
 
+        state.payrollProfile = null;
+        state.payrollProfileExists = false;
+        try {
+            var storedProfile = await DBService.getStaffPayrollProfile(userId);
+            state.payrollProfileExists = storedProfile && storedProfile.exists === true;
+            state.payrollProfile = normalizePayrollProfile(storedProfile);
+        } catch (profileError) {
+            console.warn('Không tải được hồ sơ đối soát lương', profileError);
+            state.payrollProfile = normalizePayrollProfile();
+        }
+        renderPayrollProfile();
+
         renderRates();
 
         // Trợ lý cấp cao chỉ được xem, không sửa lương.
@@ -712,6 +765,67 @@
 
     // --- Bộ lọc -----------------------------------------------------------
 
+    async function savePayrollProfile() {
+        var userId = document.getElementById('ns-salary-user-id').value;
+        var user = state.users.find(function (item) { return item.id === userId; });
+        if (!user) {
+            UIService.toast('Không tìm thấy nhân viên để lưu hồ sơ đối soát.', 'error');
+            return;
+        }
+
+        var hours = Number(document.getElementById('ns-legacy-hours').value) || 0;
+        var minutes = Number(document.getElementById('ns-legacy-minutes').value) || 0;
+        var historicalMinutes = typeof PayrollAutomation !== 'undefined' && PayrollAutomation.minutesFromParts
+            ? PayrollAutomation.minutesFromParts(hours, minutes)
+            : Math.max(0, Math.floor(hours)) * 60 + Math.min(59, Math.max(0, Math.floor(minutes)));
+        var evidenceNote = String(document.getElementById('ns-legacy-note').value || '').trim();
+        var oldProfile = normalizePayrollProfile(state.payrollProfile);
+        var isHistoricalChange = historicalMinutes !== oldProfile.historicalMinutesBeforeApp ||
+            evidenceNote !== oldProfile.historicalEvidenceNote;
+
+        if (historicalMinutes > 0 && !evidenceNote) {
+            UIService.toast('Hãy ghi nguồn hoặc ghi chú cho giờ trước khi dùng web app.', 'warning');
+            return;
+        }
+
+        var profile = normalizePayrollProfile({
+            automationMode: document.getElementById('ns-payroll-shadow').checked ? 'shadow' : 'legacy',
+            historicalMinutesBeforeApp: historicalMinutes,
+            historicalEvidenceNote: evidenceNote,
+            historicalEnteredAt: isHistoricalChange ? new Date().toISOString() : oldProfile.historicalEnteredAt,
+            historicalEnteredBy: isHistoricalChange ? (localStorage.getItem('currentUserName') || 'Admin') : oldProfile.historicalEnteredBy,
+            policyVersion: oldProfile.policyVersion || 'legacy-v1',
+            // This release deliberately forbids automatic draft creation.
+            allowAutomaticDraft: false
+        });
+
+        var shouldPersist = typeof PayrollAutomation !== 'undefined' && PayrollAutomation.needsPersistence
+            ? PayrollAutomation.needsPersistence(profile, state.payrollProfileExists)
+            : state.payrollProfileExists || profile.automationMode === 'shadow' || historicalMinutes > 0 || !!evidenceNote;
+        if (!shouldPersist) {
+            UIService.toast('Chưa có giờ lịch sử hoặc đối soát nào cần lưu.', 'info');
+            return;
+        }
+
+        var proceed = await UIService.confirm(
+            'Lưu hồ sơ tích lũy cho ' + (user.name || user.username) + '?\n\n' +
+            'Thao tác này không thay đổi công, đơn giá, bảng lương đã tính hoặc bảng lương đã gửi.'
+        );
+        if (!proceed) return;
+
+        try {
+            UIService.showLoading('Đang lưu hồ sơ đối soát...');
+            await DBService.saveStaffPayrollProfile(userId, profile);
+            state.payrollProfile = profile;
+            state.payrollProfileExists = true;
+            UIService.hideLoading();
+            UIService.toast('Đã lưu hồ sơ đối soát. Cách tính lương hiện tại không thay đổi.', 'success');
+        } catch (error) {
+            UIService.hideLoading();
+            UIService.toast('Không thể lưu hồ sơ đối soát: ' + error.message, 'error');
+        }
+    }
+
     function setSearch(value) {
         state.search = String(value || '').trim();
         render();
@@ -740,14 +854,33 @@
         addRate: addRate,
         removeRate: removeRate,
         saveSalary: saveSalary,
+        savePayrollProfile: savePayrollProfile,
         setSearch: setSearch,
         setFilter: setFilter,
         toggleSelect: toggleSelect,
         toggleSelectAll: toggleSelectAll,
         clearSelection: clearSelection,
         bulkTrust: bulkTrust,
+        reload: reload,
         _state: state
     };
+
+    // Keep the public names used by the earlier table-based page.  The current
+    // card UI is the canonical implementation, but these aliases prevent old
+    // bookmarks, browser snippets, and embedded calls from losing behaviour.
+    window.filterStaffTable = function (value) { return window.NhanSu.setSearch(value); };
+    window.openModal = function () { return window.NhanSu.openStaffSheet(); };
+    window.closeModal = function () { return window.NhanSu.closeStaffSheet(); };
+    window.editStaff = function (id) { return window.NhanSu.editStaff(id); };
+    window.handleStaffSubmit = function (event) { return window.NhanSu.submitStaff(event); };
+    window.deleteStaff = function (id) { return window.NhanSu.deleteStaff(id); };
+    window.configureSalary = function (id) { return window.NhanSu.openSalarySheet(id); };
+    window.openSalaryModal = function (id) { return window.NhanSu.openSalarySheet(id); };
+    window.closeSalaryModal = function () { return window.NhanSu.closeSalarySheet(); };
+    window.addNewRole = function () { return window.NhanSu.addRate(); };
+    window.removeRole = function (index) { return window.NhanSu.removeRate(index); };
+    window.saveSalaryConfig = function () { return window.NhanSu.saveSalary(); };
+    window._updateColorPreview = function () { return window.NhanSu.previewColor(); };
 
     document.addEventListener('DOMContentLoaded', async function () {
         if (window.waitAuth) await window.waitAuth();

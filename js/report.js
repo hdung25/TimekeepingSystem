@@ -93,15 +93,15 @@ async function initReport() {
         const paramStaffId = urlParams.get('staffId');
         if (paramStaffId) {
             const select = document.getElementById('staff-select');
-            if (select) {
-                select.value = paramStaffId;
-                _cachedStaffId = null;
-
-                // Hiện tên nhân viên trên ô search input
-                const selectedOption = select.options[select.selectedIndex];
-                const searchInput = document.getElementById('staff-search-input');
-                if (searchInput && selectedOption && selectedOption.value) {
-                    searchInput.value = selectedOption.text || '';
+            if (select && select.value !== paramStaffId) {
+                const targetUser = (window._allStaffList || []).find(function (user) {
+                    return user && user.id === paramStaffId;
+                });
+                if (targetUser) {
+                    // Selecting through the normal path is essential: merely
+                    // changing the hidden select left the screen rendered for
+                    // the prior person while the URL showed another person.
+                    selectStaffFromDropdown(targetUser);
                 }
             }
         }
@@ -860,6 +860,9 @@ function getHolidayName(dateStr) {
 // Cache for current staff's notes (loaded from Firestore)
 let _cachedStaffNotes = {};
 let _cachedStaffId = null;
+// Every render owns a unique epoch.  Async work from an older staff/month is
+// ignored instead of painting over the latest report.
+let _reportRenderEpoch = 0;
 // Chủ sở hữu của _cachedStaffNotes. Không bao giờ ghi ghi chú xuống Firestore khi biến
 // này không khớp người đang chọn — xem saveCalendarNote.
 let _cachedNotesOwnerId = null;
@@ -871,6 +874,7 @@ function renderPersonalTimesheet() {
 async function renderMonthReport(date, forceServer = false) {
     const grid = document.getElementById('calendar-grid');
     if (!grid) return;
+    const renderEpoch = ++_reportRenderEpoch;
 
     // Loading State
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Đang tải dữ liệu chấm công từ hệ thống...</div>';
@@ -893,6 +897,24 @@ async function renderMonthReport(date, forceServer = false) {
     const role = roles[0] || 'staff'; // primary role cho compat
     const isAdminRole = roles.some(r => r === 'admin' || r === 'senior_assistant');
     let staffId = getTargetStaffId();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const reportScope = `${staffId || 'none'}__${monthStr}`;
+    const isCurrentRender = () => renderEpoch === _reportRenderEpoch && getTargetStaffId() === staffId;
+
+    // Clear every derived value before waiting on Firestore.  This prevents a
+    // previous employee's subject breakdown from surviving under a new empty
+    // calendar or a direct report URL.
+    window.currentReportScope = reportScope;
+    window.currentSubjectBreakdown = [];
+    window.currentSubjectBreakdownScope = reportScope;
+    window.currentMonthChips = [];
+    window.allMonthChips = [];
+    window.unfilteredAllMonthChips = [];
+    window.lastTotalMinutes = 0;
+    const staleBreakdownSection = document.getElementById('subject-breakdown-section');
+    const staleBreakdownBody = document.getElementById('subject-breakdown-body');
+    if (staleBreakdownSection) staleBreakdownSection.style.display = 'none';
+    if (staleBreakdownBody) staleBreakdownBody.innerHTML = '';
 
     // Exit select mode if we are switching staff
     if (window.isStudentCountSelectMode && _cachedStaffId !== staffId) {
@@ -918,16 +940,20 @@ async function renderMonthReport(date, forceServer = false) {
     window.currentUserContext = null;
     try {
         const userDoc = await DBService.refs.users().doc(staffId).get();
+        if (!isCurrentRender()) return;
         if (userDoc.exists) window.currentUserContext = userDoc.data();
     } catch (e) { console.error("Error fetching user context", e); }
+    if (!isCurrentRender()) return;
     const currentUserContext = window.currentUserContext;
 
     // Load monthly settings for all users to ensure penalty flag and publish status are present
-    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     try {
-        window.currentMonthlySalarySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        if (!isCurrentRender()) return;
+        window.currentMonthlySalarySettingsAll = monthlySettings;
     } catch (e) {
         console.error("Error fetching monthly salary settings in render:", e);
+        if (!isCurrentRender()) return;
         window.currentMonthlySalarySettingsAll = {};
     }
 
@@ -1440,13 +1466,15 @@ async function renderMonthReport(date, forceServer = false) {
             ? resolveWorkChainEnd(workBlocks, checkInTime)
             : null;
         if (!latestEnd) return;
-        if (nowForAutoClose >= latestEnd) {
+        if (isCurrentRender() && nowForAutoClose >= latestEnd) {
             DBService.checkOutPersonal(staffId, latestEnd).then(() => {
                 s.checkOut = latestEnd.toISOString();
                 console.log(`[Report AutoClose] Auto-closed today's overdue session for ${staffId} at ${latestEnd.toLocaleTimeString()}`);
             }).catch(e => console.warn('[Report AutoClose] Error:', e));
         }
     });
+
+    if (!isCurrentRender()) return;
 
     // 2. CALCULATE & RENDER
     let totalMinutes = 0;
@@ -2700,6 +2728,9 @@ function calculateSalary() {
             filteredMinutes = window.lastTotalMinutes;
             // Cannot calculate salary accurately without chips if they are empty, but usually they are not empty if we are here.
             filteredSalary = 0;
+            // Do not leave the previous staff/month's detail table on screen.
+            window.currentSubjectBreakdown = [];
+            window.currentSubjectBreakdownScope = window.currentReportScope || null;
         } else {
             const subjectBreakdown = {};
             allChips.forEach(chip => {
@@ -2842,6 +2873,7 @@ function calculateSalary() {
                     amount: Math.round(subjectBreakdown[subj].amount)
                 };
             });
+            window.currentSubjectBreakdownScope = window.currentReportScope || null;
         }
     } else {
         const filterType = roleFilter; // normalize var name to match PDF logic copy-paste convenience
@@ -3263,7 +3295,9 @@ function calculateSalary() {
     const breakdownBody = document.getElementById('subject-breakdown-body');
     if (breakdownSection && breakdownBody) {
         breakdownBody.innerHTML = '';
-        const breakdown = window.currentSubjectBreakdown || [];
+        const breakdown = window.currentSubjectBreakdownScope === window.currentReportScope
+            ? (window.currentSubjectBreakdown || [])
+            : [];
         if (breakdown.length > 0) {
             breakdownSection.style.display = 'block';
             let grandMins = 0;
@@ -4765,6 +4799,10 @@ async function saveEditedTime() {
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
         isAdminEdited: true,
         isAbsent: isAbsent,
+        editMeta: {
+            source: 'report_manual_edit',
+            editor: localStorage.getItem('currentUserName') || null
+        },
         ...(linkedClassStart ? { linkedClassStart } : {}),
         ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {}),
         ...(absentSubShifts !== null ? { absentSubShifts } : {})

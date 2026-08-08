@@ -56,3 +56,41 @@
 ### 3.2. Deploy Commands
 * Push code to remote main branch using `git push origin main`.
 * Trigger direct production deployment on Vercel using `npx vercel --prod --yes`.
+
+### 3.3. Interactive Authentication & Project Selection
+* If Vercel, Git, Firebase, or another deployment tool asks for a login, password,
+  token, two-factor code, team, project, or scope, run the command in an interactive
+  terminal and pause so the user can choose or enter it.
+* Never guess a password, reuse an unverified saved credential, inspect or print
+  secrets from `.env` files, or silently create a new project when the intended
+  project is not accessible.
+* Before continuing after authentication, verify the selected account/team and the
+  exact production project and alias. A deployment to a different team or project
+  is not an acceptable substitute for the intended production deployment.
+
+### 3.4. Production Alias Safety Gate
+* Before uploading, confirm all three exact targets: scope/team
+  `ha-huy-dungs-projects`, project `timekeeping-system`, and alias
+  `https://timekeeping-system-tawny.vercel.app` (or the explicitly approved target).
+* If Vercel reports `missing_scope`, inaccessible project, wrong account, or missing
+  permission, STOP. Open an interactive terminal and ask the user to switch account,
+  select the correct team, or grant access. Do not fall back to the personal scope.
+* Never create, link, or deploy to a new project as a workaround. Never use a
+  generated `*.vercel.app` URL as proof that the requested production deployment
+  succeeded unless the requested alias was also updated.
+* After deployment, verify the exact requested alias with an HTTP request and verify
+  the deployment target is `production`. Only then report the deployment as done;
+  otherwise report the exact blocker and wait for the user's direction.
+
+### 3.5 Payroll & Attendance Integrity Gate
+* Never make opening a report silently rewrite attendance, salary rates, links between
+  a session and its scheduled shift, or a published payslip. Any necessary automatic
+  classification must be explicit, auditable, and reversible.
+* A manual time edit must preserve the existing class/receptionist link unless the
+  editor explicitly chooses a replacement or chooses to clear the link.
+* New payroll automation must default to `legacy` mode. It may run only as a
+  comparison/draft until an administrator approves the result; it must never publish
+  a payslip, change a historical rate, or alter an already locked month on its own.
+* Before a migration, bulk data change, or activation of automatic payroll, verify a
+  recoverable backup path, keep source snapshots/audit history, and run regression
+  tests for monthly report, edited sessions, early-10 policy, and payout month.
