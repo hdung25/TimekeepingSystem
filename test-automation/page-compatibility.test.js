@@ -30,10 +30,13 @@ assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
 assert.match(baoCao, /report\.js\?v=20260809-group-rates-v1/);
 
 assert.match(monHoc, /class="mh-page"/);
-assert.match(monHoc, /app-build" content="20260808-combined-v1"/);
+assert.match(monHoc, /app-build" content="20260809-chip-policy-v1"/);
 assert.match(monHocJs, /allowEarly10/);
 assert.match(monHocJs, /function getRootGroups\(\)/);
 assert.match(monHocJs, /function getDescendantLeaves\(groupId/);
+assert.match(monHocJs, /openChildGroup/);
+assert.match(monHocJs, /Thêm nhóm con/);
+assert.match(monHocJs, /preferredParentId/);
 
 for (const legacyName of [
   'window.openModal', 'window.handleStaffSubmit', 'window.configureSalary',
@@ -49,8 +52,8 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v109-group-rates-20260809/);
+assert.match(serviceWorker, /tdt-chamcong-v110-chip-policy-20260809/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /20260808-combined-v1/);
+assert.match(serviceWorker, /20260809-chip-policy-v1/);
 
 console.log('page compatibility checks passed');

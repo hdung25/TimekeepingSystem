@@ -35,6 +35,16 @@ const at = (clock) => new Date(`2026-08-03T${clock}:00`);
     assert.equal(Early10.isSubjectEarly10Allowed('math+it', SUBJECT_MAP), false);
     assert.equal(Early10.isSubjectEarly10Allowed('', SUBJECT_MAP), false);
     assert.equal(Early10.isSubjectEarly10Allowed(null, SUBJECT_MAP), false);
+
+    // Chính sách của chip phải đọc mã môn thật, không lấy nhầm session.role
+    // (role có thể đã bị gán thành mã lương sau khi tính ca).
+    assert.deepEqual(Early10.getChipSubjectIds({
+        subjectIds: ['en-school'],
+        sessionData: { role: 'salary-role' }
+    }), ['en-school']);
+    assert.equal(Early10.isChipEarly10Allowed({ subjectIds: ['en-talk'] }, SUBJECT_MAP), true);
+    assert.equal(Early10.isChipEarly10Allowed({ subjectIds: ['math'] }, SUBJECT_MAP), false);
+    assert.equal(Early10.isChipEarly10Allowed({ subjectIds: ['math', 'en-school'] }, SUBJECT_MAP), true);
 }
 
 {
@@ -108,6 +118,21 @@ const at = (clock) => new Date(`2026-08-03T${clock}:00`);
     // Môn không áp dụng → chặn, kể cả khi đến rất sớm.
     const result = Early10.evaluateEarly10Request({
         sessionRole: 'math',
+        subjectMap: SUBJECT_MAP,
+        user: OLD_TEACHER,
+        checkIn: at('07:00'),
+        classStart: '07:30'
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'subject');
+}
+
+{
+    // Mã môn của chip thắng session.role để không làm mất quyền/chặn nhầm
+    // sau khi role đã được dùng cho cấu hình lương.
+    const result = Early10.evaluateEarly10Request({
+        sessionRole: 'en-talk',
+        subjectIds: ['math'],
         subjectMap: SUBJECT_MAP,
         user: OLD_TEACHER,
         checkIn: at('07:00'),

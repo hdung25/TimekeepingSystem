@@ -303,6 +303,7 @@
                         '<span class="mh-group-sub">' + esc(sub) + '</span>' +
                     '</span>' +
                     '<span class="mh-row-actions" onclick="event.stopPropagation()">' +
+                       '<button class="mh-icon-btn" title="Thêm nhóm con" onclick="MonHoc.openChildGroup(\'' + esc(group.id) + '\')">' + icon('folder-plus') + '</button>' +
                         '<button class="mh-icon-btn" title="Bật/tắt sớm 10p cho cả nhóm" onclick="MonHoc.toggleGroupEarly10(\'' + esc(group.id) + '\')">' + icon('star') + '</button>' +
                         '<button class="mh-icon-btn" title="Sửa nhóm" onclick="MonHoc.edit(\'' + esc(group.id) + '\')">' + icon('pencil') + '</button>' +
                         '<button class="mh-icon-btn danger" title="Xóa nhóm" onclick="MonHoc.remove(\'' + esc(group.id) + '\')">' + icon('trash-2') + '</button>' +
@@ -511,7 +512,7 @@
         if (swatch) swatch.style.background = color;
     }
 
-    function openSheet(type, subject) {
+    function openSheet(type, subject, preferredParentId) {
         var editing = !!subject;
         document.getElementById('mh-edit-id').value = editing ? subject.id : '';
         document.getElementById('mh-name').value = editing ? (subject.name || '') : '';
@@ -522,7 +523,18 @@
 
         setType(type);
         setEarly10(editing ? allowsEarly10(subject) : false);
-        fillParentOptions('mh-parent', editing ? (subject.parentId || NO_GROUP) : NO_GROUP, editing ? subject.id : null);
+        fillParentOptions(
+            'mh-parent',
+            editing ? (subject.parentId || NO_GROUP) : (preferredParentId || NO_GROUP),
+            editing ? subject.id : null
+        );
+
+        if (!editing && preferredParentId) {
+            var preferredParent = state.subjects.find(function (s) {
+                return String(s.id) === String(preferredParentId) && isGroup(s);
+            });
+            if (preferredParent) setEarly10(allowsEarly10(preferredParent));
+        }
 
         // Môn MỚI kế thừa cờ 10p của nhóm cha khi admin chọn nhóm — tạo môn con
         // trong nhóm Tiếng Anh là tự có 10p, khỏi phải nhớ bật tay.
@@ -610,6 +622,14 @@
             UIService.hideLoading();
             UIService.toast('Lỗi: ' + e.message, 'error');
         }
+    }
+
+    function openChildGroup(parentId) {
+        var parent = state.subjects.find(function (s) {
+            return String(s.id) === String(parentId) && isGroup(s);
+        });
+        if (!parent) return;
+        openSheet('group', null, parent.id);
     }
 
     function edit(id) {
@@ -919,6 +939,7 @@
         previewColor: previewColor,
         save: save,
         edit: edit,
+        openChildGroup: openChildGroup,
         remove: remove,
         quickToggleEarly10: quickToggleEarly10,
         toggleGroupEarly10: toggleGroupEarly10,

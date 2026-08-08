@@ -1343,6 +1343,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     });
                 }
 
+                const _chipSubjectIds = Array.from(new Set(
+                    (_workedChainSegments && _workedChainSegments.length > 0
+                        ? _workedChainSegments
+                        : [{ lopId: cls.lopId || null }])
+                        .flatMap(segment => String(segment?.lopId || '').split('+'))
+                        .map(id => id.trim())
+                        .filter(Boolean)
+                ));
+
                 chips.push({
                     text: label,
                     class: cssClass,
@@ -1356,6 +1365,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     studentCount: chipSessionData.studentCount || null,
                     studentCountStatus: chipSessionData.studentCountStatus || null,
                     chipFilterName: normalizeChipFilterName(cls.lop),
+                    subjectIds: _chipSubjectIds,
+                    subjectId: _chipSubjectIds.length === 1 ? _chipSubjectIds[0] : null,
+                    lopId: cls.lopId || null,
                     classStart: cls.start,
                     classEnd: cls.end,
                     classCompositeKey: cls._compositeKey || null,

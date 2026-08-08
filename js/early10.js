@@ -37,6 +37,60 @@
             .filter(function (part) { return part.length > 0; });
     }
 
+    function uniqueSubjectIds(values) {
+        var result = [];
+        var seen = {};
+
+        function add(value) {
+            if (Array.isArray(value)) {
+                value.forEach(add);
+                return;
+            }
+            if (value === null || value === undefined) return;
+            String(value).split('+').forEach(function (part) {
+                var id = part.trim();
+                if (!id || seen[id]) return;
+                seen[id] = true;
+                result.push(id);
+            });
+        }
+
+        values.forEach(add);
+        return result;
+    }
+
+    // Lấy mã môn thật gắn với chip. Không dùng session.role một mình vì role
+    // có thể đã được tự gán thành mã vai trò/lương, không phải mã môn trong lịch.
+    function getChipSubjectIds(chip) {
+        var item = chip || {};
+        var session = item.sessionData || {};
+        var ids = [];
+
+        ids.push(item.subjectIds, item.subjectId, item.lopId);
+        ids.push(item.schedData && item.schedData.lopId);
+        ids.push(session.subjectIds, session.subjectId, session.lopId);
+        if (Array.isArray(item.mergedSegments)) {
+            item.mergedSegments.forEach(function (segment) {
+                ids.push(segment && (segment.subjectIds || segment.subjectId || segment.lopId));
+            });
+        }
+
+        var resolved = uniqueSubjectIds(ids);
+        // Compatibility với chip cũ chưa có subjectIds/lopId.
+        if (resolved.length === 0) resolved = splitSubjectIds(session.role);
+        return resolved;
+    }
+
+    function isSubjectIdsEarly10Allowed(subjectIds, subjectMap) {
+        var ids = uniqueSubjectIds([subjectIds]);
+        if (ids.length === 0) return false;
+        return ids.some(function (id) { return subjectMap[id] === true; });
+    }
+
+    function isChipEarly10Allowed(chip, subjectMap) {
+        return isSubjectIdsEarly10Allowed(getChipSubjectIds(chip), subjectMap || {});
+    }
+
     function isSubjectEarly10Allowed(sessionRole, subjectMap) {
         var ids = splitSubjectIds(sessionRole);
         if (ids.length === 0) return false;
@@ -125,7 +179,7 @@
 
     // --- Quyết định ------------------------------------------------------
 
-    // input: { sessionRole, subjectMap, subjects, user, checkIn, classStart }
+    // input: { sessionRole, subjectIds, subjectMap, subjects, user, checkIn, classStart }
     // return: { ok, code, message, earlyMinutes, checkInLabel, startLabel }
     function evaluateEarly10Request(input) {
         var options = input || {};
@@ -146,7 +200,11 @@
             };
         }
 
-        if (!isSubjectEarly10Allowed(options.sessionRole, subjectMap)) {
+        var subjectAllowed = Array.isArray(options.subjectIds) && options.subjectIds.length > 0
+            ? isSubjectIdsEarly10Allowed(options.subjectIds, subjectMap)
+            : isSubjectEarly10Allowed(options.sessionRole, subjectMap);
+
+        if (!subjectAllowed) {
             return fail('subject', 'Môn học của ca này không áp dụng chính sách sớm 10 phút. ' +
                 'Chính sách chỉ áp dụng cho các môn được đánh dấu trong trang Môn Học.');
         }
@@ -200,6 +258,9 @@
         REQUIRED_MINUTES: EARLY10_REQUIRED_MINUTES,
         buildSubjectEarly10Map: buildSubjectEarly10Map,
         splitSubjectIds: splitSubjectIds,
+        getChipSubjectIds: getChipSubjectIds,
+        isSubjectIdsEarly10Allowed: isSubjectIdsEarly10Allowed,
+        isChipEarly10Allowed: isChipEarly10Allowed,
         isSubjectEarly10Allowed: isSubjectEarly10Allowed,
         getAllowingSubjectNames: getAllowingSubjectNames,
         getTeachingMode: getTeachingMode,

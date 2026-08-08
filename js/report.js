@@ -1944,6 +1944,18 @@ async function renderMonthReport(date, forceServer = false) {
             const allowedRoles = ['teaching_assistant', 'admin', 'senior_assistant'];
             const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist && isTargetTA;
             const isAdminRole2 = roles2.some(r => ['admin', 'senior_assistant'].includes(r));
+            const isStaffViewer2 = roles2.includes('teaching_assistant') && !isAdminRole2;
+            const isOldModeTarget = typeof Early10 !== 'undefined' && Early10.isOldModeTeacher(_targetCtx);
+            const subjectCatalogForEarly10 = Array.isArray(window.currentSubjectCatalog)
+                ? window.currentSubjectCatalog
+                : [];
+            const subjectMapForEarly10 = typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10Map
+                ? Early10.buildSubjectEarly10Map(subjectCatalogForEarly10)
+                : {};
+            const chipSubjectAllowedForEarly10 = typeof Early10 !== 'undefined' && Early10.isChipEarly10Allowed
+                ? Early10.isChipEarly10Allowed(chip, subjectMapForEarly10)
+                : false;
+            const chipMayRequestEarly10 = chipSubjectAllowedForEarly10 && (!isStaffViewer2 || isOldModeTarget);
 
             if (canSeeBonus10 && chip.sessionId &&
                 chip.class !== 'chip-blue' &&
@@ -2037,6 +2049,20 @@ async function renderMonthReport(date, forceServer = false) {
                             clearEarly10Penalty(staffId);
                         };
                     }
+                } else if (!chipMayRequestEarly10) {
+                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Không áp dụng';
+                    b10Btn.style.background = '#F3F4F6';
+                    b10Btn.style.color = '#6B7280';
+                    b10Btn.title = isStaffViewer2 && !isOldModeTarget
+                        ? 'Chỉ nhân viên chế độ cũ mới được chọn sớm 10 phút'
+                        : 'Chip này không thuộc môn/nhánh đã bật chính sách sớm 10 phút';
+                    b10Btn.onclick = async (e) => {
+                        e.stopPropagation();
+                        const message = isStaffViewer2 && !isOldModeTarget
+                            ? 'Bạn không được phép chọn sớm 10 phút vì đang thuộc chế độ mới.'
+                            : 'Ca này không được phép sớm 10 phút. Chỉ các chip thuộc môn/nhánh đã bật chính sách trong trang Môn Học mới được chọn.';
+                        await UIService.notice(message, 'Không đủ điều kiện sớm 10 phút', 'warning');
+                    };
                 } else {
                     // Chưa có → cho nhân viên tự bấm; hệ thống tự kiểm tra & duyệt.
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Sớm';
@@ -5544,6 +5570,7 @@ async function evaluateEarly10ForChip(chip, staffId) {
     const session = chip?.sessionData || {};
     return Early10.evaluateEarly10Request({
         sessionRole: session.role,
+        subjectIds: Early10.getChipSubjectIds ? Early10.getChipSubjectIds(chip) : [],
         subjects,
         user,
         checkIn: session.checkIn,
