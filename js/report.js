@@ -957,6 +957,17 @@ async function renderMonthReport(date, forceServer = false) {
         window.currentMonthlySalarySettingsAll = {};
     }
 
+    // Subject catalog is read once per report render for the additive group-rate
+    // resolver.  Failure is non-fatal: all payroll paths then keep chip snapshots.
+    window.currentSubjectCatalog = [];
+    try {
+        const subjectCatalog = await DBService.getSubjects();
+        if (!isCurrentRender()) return;
+        window.currentSubjectCatalog = Array.isArray(subjectCatalog) ? subjectCatalog : [];
+    } catch (e) {
+        console.warn('Subject catalog unavailable; keeping legacy payroll rates:', e);
+    }
+
     // Re-sync tieptan inputs box visibility now that currentUserContext is resolved
     if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
 
@@ -2783,7 +2794,8 @@ function calculateSalary() {
                         if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
-                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                            const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                            segRate = getResolvedTeachingRate(chip, segName, snapshotRate);
                         }
                         const penaltyActive = isStudentCountPenaltyActive(monthlyAll, window.unfilteredAllMonthChips || allChips);
                         getTeachingPayAllocations(chip, segName, segMins, segRate, classRates, penaltyActive).forEach(alloc => {
@@ -2844,7 +2856,8 @@ function calculateSalary() {
                         }
                         filteredSalary += chipSalary;
                     } else {
-                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        let defaultRate = getResolvedTeachingRate(chip, chip.chipFilterName || "Chưa phân lớp", snapshotRate);
                         if (isTiepTan) {
                             filteredSalary += (minutes / 60) * defaultRate;
                         } else {
@@ -2961,7 +2974,8 @@ function calculateSalary() {
                         if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
-                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                            const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                            segRate = getResolvedTeachingRate(chip, segName, snapshotRate);
                         }
                         const penaltyActive = isStudentCountPenaltyActive(monthlyAll, window.unfilteredAllMonthChips || allChips);
                         getTeachingPayAllocations(chip, segName, segMins, segRate, classRates, penaltyActive).forEach(alloc => {
@@ -3008,7 +3022,8 @@ function calculateSalary() {
                         }
                         filteredSalary += chipSalary;
                     } else {
-                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        let defaultRate = getResolvedTeachingRate(chip, chip.chipFilterName || "Chưa phân lớp", snapshotRate);
                         if (isTiepTan) {
                             filteredSalary += (minutes / 60) * defaultRate;
                         } else {
@@ -4198,6 +4213,83 @@ function renderSelectedSubjectBadges() {
     });
 }
 
+function ensureSubjectRatePolicyLoaded() {
+    if (window.SubjectRatePolicy) return Promise.resolve(window.SubjectRatePolicy);
+    if (window._subjectRatePolicyPromise) return window._subjectRatePolicyPromise;
+    window._subjectRatePolicyPromise = new Promise(function (resolve) {
+        const script = document.createElement('script');
+        script.src = 'js/subject-rate-policy.js?v=20260809-subject-rate-v1';
+        script.onload = function () { resolve(window.SubjectRatePolicy || null); };
+        script.onerror = function () { console.warn('Subject rate policy unavailable; keeping legacy rates.'); resolve(null); };
+        document.head.appendChild(script);
+    });
+    return window._subjectRatePolicyPromise;
+}
+
+function getRatePolicyDateKey() {
+    const input = document.getElementById('edit-date-key');
+    if (input && /^\d{4}-\d{2}-\d{2}$/.test(input.value)) return input.value;
+    return new Date().toISOString().slice(0, 10);
+}
+
+function getChipRatePolicyDateKey(chip) {
+    const session = chip?.sessionData || {};
+    const dateKey = chip?.dateStr || chip?.dateKey || session.dateKey || session.date;
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))
+        ? String(dateKey)
+        : getRatePolicyDateKey();
+}
+
+function normalizeSubjectLookupName(value) {
+    const raw = String(value || '').replace(/\s*\(\+\d+\s*HS\)\s*$/i, '').trim().toLowerCase();
+    const withoutTones = typeof removeVietnameseTones === 'function' ? removeVietnameseTones(raw) : raw;
+    return withoutTones.replace(/[^a-z0-9]+/g, '');
+}
+
+function getResolvedTeachingRate(chip, subjectName, fallbackRate) {
+    const legacyRate = Number(fallbackRate) || 0;
+    const policyApi = window.SubjectRatePolicy;
+    const config = window.currentUserContext?.salary_config || {};
+    const subjects = Array.isArray(window.currentSubjectCatalog) ? window.currentSubjectCatalog : [];
+    const policy = config.subjectRatePolicy;
+    const dateKey = getChipRatePolicyDateKey(chip);
+
+    // Resolver is deliberately read-only.  When the policy is disabled, not yet
+    // effective, or the catalog cannot identify the subject, the exact legacy
+    // snapshot on the attendance chip remains authoritative.
+    if (!policyApi || !policyApi.resolve || !policyApi.isActive || !policyApi.isActive(policy, dateKey) || subjects.length === 0) {
+        return legacyRate;
+    }
+
+    const leafSubjects = subjects.filter(subject => subject && subject.isGroup !== true);
+    const subjectIds = new Set(leafSubjects.map(subject => String(subject.id)));
+    const sessionRole = chip?.sessionData?.role;
+    let ids = String(sessionRole || '')
+        .split('+')
+        .map(id => id.trim())
+        .filter(id => id && subjectIds.has(id));
+
+    // Older attendance rows can retain only the subject name.  Apply a name
+    // fallback only when it is unambiguous; duplicate names across branches are
+    // intentionally left on legacy pricing to avoid a silent misclassification.
+    if (ids.length === 0) {
+        const lookup = normalizeSubjectLookupName(subjectName || chip?.chipFilterName);
+        const matches = leafSubjects.filter(subject => normalizeSubjectLookupName(subject.name) === lookup);
+        if (matches.length === 1) ids = [String(matches[0].id)];
+    }
+
+    if (ids.length === 0) return legacyRate;
+    const resolvedRates = ids
+        .map(id => {
+            const result = policyApi.resolve(config, subjects, id, dateKey, legacyRate);
+            return Number(result && result.rate);
+        })
+        .filter(rate => Number.isFinite(rate) && rate > 0);
+    return resolvedRates.length > 0
+        ? resolvedRates.reduce((sum, rate) => sum + rate, 0) / resolvedRates.length
+        : legacyRate;
+}
+
 async function loadAndRenderSubjects(staffId) {
     const list = document.getElementById('subject-dropdown-list');
     if (!list) return;
@@ -4235,6 +4327,20 @@ async function loadAndRenderSubjects(staffId) {
             }
         });
         
+        const policyApi = await ensureSubjectRatePolicyLoaded();
+        const legacySubjects = allAvailableSubjects.slice();
+        const policyOptions = policyApi && policyApi.leafOptions
+            ? policyApi.leafOptions(user.salary_config || {}, subjects, getRatePolicyDateKey(), fallbackRate)
+            : [];
+        if (policyOptions.length > 0) {
+            allAvailableSubjects = policyOptions.map(function (subject) {
+                return { id: subject.id, name: subject.name, path: subject.path, rate: Number(subject.rate) || 0, source: subject.source };
+            });
+            legacySubjects.forEach(function (role) {
+                if (!allAvailableSubjects.some(function (item) { return item.id === role.id; })) allAvailableSubjects.push(role);
+            });
+        }
+
         list.innerHTML = '';
         allAvailableSubjects.forEach(sub => {
             const isChecked = editSelectedSubjectIds.includes(sub.id);
@@ -4256,7 +4362,7 @@ async function loadAndRenderSubjects(staffId) {
             
             item.innerHTML = `
                 <input type="checkbox" id="subject-cb-${sub.id}" ${isChecked ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: #10B981; pointer-events: none;">
-                <span style="font-size: 0.95rem; color: #374151;">${sub.name}</span>
+                <span style="font-size: 0.95rem; color: #374151;">${sub.path || sub.name}</span>
                 <span style="margin-left: auto; font-size: 0.8rem; color: #9CA3AF; font-weight: 500;">${sub.rate.toLocaleString('vi-VN')}đ/h</span>
             `;
             list.appendChild(item);
@@ -4389,8 +4495,19 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
             if (preFill) {
                 const users = await DBService.getUsers();
                 const user = users.find(u => u.id === staffId);
-                if (user && user.salary_config && user.salary_config.roles) {
-                    const teachingRoles = user.salary_config.roles.filter(r => r.id !== 'tiep-tan' && r.id !== 'receptionist');
+                if (user) {
+                    let teachingRoles = (user.salary_config && user.salary_config.roles ? user.salary_config.roles : [])
+                        .filter(r => r.id !== 'tiep-tan' && r.id !== 'receptionist');
+                    const subjects = await DBService.getSubjects();
+                    const policyApi = await ensureSubjectRatePolicyLoaded();
+                    if (policyApi && policyApi.leafOptions) {
+                        const fallbackRate = teachingRoles.length > 0 ? teachingRoles[0].rate : (user.salary_config?.attendance_rate || 0);
+                        policyApi.leafOptions(user.salary_config || {}, subjects, dateKey, fallbackRate).forEach(option => {
+                            if (!teachingRoles.some(role => String(role.id) === String(option.id))) {
+                                teachingRoles.push({ id: option.id, name: option.path || option.name, rate: option.rate });
+                            }
+                        });
+                    }
                     
                     // 1. Try matching by preFill.lopId
                     if (preFill.lopId) {
@@ -5231,7 +5348,23 @@ async function openRoleSelectModal(dateKey, session) {
     const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
     const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
     const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-    const teachingRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles : [];
+    let teachingRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles.slice() : [];
+    if (hasTeachingRole) {
+        try {
+            const subjects = await DBService.getSubjects();
+            const policyApi = await ensureSubjectRatePolicyLoaded();
+            if (policyApi && policyApi.leafOptions) {
+                const fallbackRate = teachingRoles.length > 0 ? teachingRoles[0].rate : (user.salary_config?.attendance_rate || 0);
+                policyApi.leafOptions(user.salary_config || {}, subjects, dateKey, fallbackRate).forEach(option => {
+                    if (!teachingRoles.some(role => String(role.id) === String(option.id))) {
+                        teachingRoles.push({ id: option.id, name: option.path || option.name, rate: option.rate });
+                    }
+                });
+            }
+        } catch (policyError) {
+            console.warn('[RoleSelect] subject rate policy unavailable:', policyError);
+        }
+    }
 
     // Kiểm tra có ít nhất 1 option để chọn
     if (!hasReceptionistRole && teachingRoles.length === 0) {
@@ -8389,7 +8522,8 @@ function getCurrentCalculationPayload(role) {
                         if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
-                            segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                            const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                            segRate = getResolvedTeachingRate(chip, segName, snapshotRate);
                         }
                         getTeachingPayAllocations(chip, segName, segMins, segRate, classRates, payloadPenaltyActive)
                             .forEach(addTeachingAllocation);
@@ -8400,7 +8534,8 @@ function getCurrentCalculationPayload(role) {
                         getTeachingPayAllocations(chip, segName, minutes, rate, classRates, payloadPenaltyActive)
                             .forEach(addTeachingAllocation);
                     } else {
-                        let defaultRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
+                        let defaultRate = getResolvedTeachingRate(chip, chip.chipFilterName || "Chưa phân lớp", snapshotRate);
                         getTeachingPayAllocations(chip, segName, minutes, defaultRate, classRates, payloadPenaltyActive)
                             .forEach(addTeachingAllocation);
                     }

@@ -30,6 +30,9 @@
         mode: '',
         revealed: {},
         salaryRates: [],
+        subjects: [],
+        groupRates: [],
+        subjectRatePolicy: { mode: 'legacy', effectiveFrom: '', groupRates: [] },
         payrollProfile: null,
         payrollProfileExists: false,
         // id nhân viên đang tick — dùng cho thao tác hàng loạt (xếp diện tin tưởng…)
@@ -597,6 +600,62 @@
 
     // --- Cấu hình lương ---------------------------------------------------
 
+    function renderGroupRates() {
+        var container = document.getElementById('ns-group-rate-list');
+        if (!container) return;
+        var hidden = localStorage.getItem('currentRole') === 'senior_assistant';
+        if (state.groupRates.length === 0) {
+            container.innerHTML = '<div style="padding:0.65rem;text-align:center;color:var(--text-muted);font-size:0.82rem;">Chưa có mức nhóm. Môn sẽ tiếp tục dùng cấu hình cũ.</div>';
+            return;
+        }
+        container.innerHTML = state.groupRates.map(function (entry, index) {
+            return '<div class="ns-rate-row">' +
+                '<span><span class="ns-rate-name">' + esc(entry.path || entry.groupName || entry.groupId) + '</span>' +
+                '<span class="ns-rate-val" style="display:block;">' + (hidden ? '*** / giờ' : formatCurrency(entry.rate) + ' / giờ') + '</span></span>' +
+                (hidden ? '' : '<button type="button" class="ns-act danger" style="flex:0 0 auto;padding:0.4rem 0.7rem;" onclick="NhanSu.removeGroupRate(' + index + ')">' +
+                    '<i data-lucide="trash-2"></i></button>') +
+            '</div>';
+        }).join('');
+        if (window.lucide) window.lucide.createIcons({ root: container });
+    }
+
+    function renderGroupPolicyControls() {
+        var policy = typeof SubjectRatePolicy !== 'undefined' && SubjectRatePolicy.normalizePolicy
+            ? SubjectRatePolicy.normalizePolicy(state.subjectRatePolicy)
+            : state.subjectRatePolicy;
+        var enabled = document.getElementById('ns-group-policy-enabled');
+        var effective = document.getElementById('ns-group-policy-effective');
+        var isReadOnly = localStorage.getItem('currentRole') === 'senior_assistant';
+        if (enabled) { enabled.checked = policy.mode === 'group'; enabled.disabled = isReadOnly; }
+        if (effective) { effective.value = policy.effectiveFrom || ''; effective.disabled = isReadOnly; }
+        ['ns-new-group', 'ns-new-group-rate'].forEach(function (id) {
+            var field = document.getElementById(id);
+            if (field) field.disabled = isReadOnly;
+        });
+        var addGroupBtn = document.querySelector('[onclick="NhanSu.addGroupRate()"]');
+        if (addGroupBtn) addGroupBtn.style.display = isReadOnly ? 'none' : '';
+    }
+
+    function fillSalarySubjectSelectors() {
+        var api = typeof SubjectRatePolicy !== 'undefined' ? SubjectRatePolicy : null;
+        var subjects = state.subjects || [];
+        var policyConfig = { roles: state.salaryRates, subjectRatePolicy: state.subjectRatePolicy };
+        var groupSelect = document.getElementById('ns-new-group');
+        var subjectSelect = document.getElementById('ns-new-subject');
+        if (groupSelect && api && api.groupOptions) {
+            groupSelect.innerHTML = '<option value="">-- Chọn nhóm môn --</option>' + api.groupOptions(subjects).map(function (group) {
+                return '<option value="' + esc(group.id) + '">' + esc(group.path || group.name) + '</option>';
+            }).join('');
+        }
+        if (subjectSelect && api && api.leafOptions) {
+            var options = api.leafOptions(policyConfig, subjects, '', 0);
+            subjectSelect.innerHTML = '<option value="">-- Chọn môn ngoại lệ --</option>' + options.map(function (subject) {
+                return '<option value="' + esc(subject.id) + '" data-name="' + esc(subject.name) + '">' +
+                    esc(subject.path || subject.name) + ' · ' + formatCurrency(subject.rate) + '/giờ</option>';
+            }).join('');
+        }
+    }
+
     function renderRates() {
         var container = document.getElementById('ns-role-list');
         if (!container) return;
@@ -628,6 +687,13 @@
 
         var config = user.salary_config || {};
         state.salaryRates = Array.isArray(config.roles) ? config.roles.slice() : [];
+        state.subjects = [];
+        state.subjectRatePolicy = typeof SubjectRatePolicy !== 'undefined' && SubjectRatePolicy.normalizePolicy
+            ? SubjectRatePolicy.normalizePolicy(config.subjectRatePolicy)
+            : { mode: 'legacy', effectiveFrom: '', groupRates: [] };
+        state.groupRates = typeof SubjectRatePolicy !== 'undefined' && SubjectRatePolicy.normalizeGroupRates
+            ? SubjectRatePolicy.normalizeGroupRates(state.subjectRatePolicy.groupRates, state.subjects)
+            : (state.subjectRatePolicy.groupRates || []);
 
         var isPureRecep = hasRecepRole(user) && !hasTeachRole(user);
         var teachingBlock = document.getElementById('ns-teaching-block');
@@ -641,6 +707,10 @@
         if (!isPureRecep) {
             try {
                 var subjects = await DBService.getSubjects();
+                state.subjects = subjects;
+                state.groupRates = typeof SubjectRatePolicy !== 'undefined' && SubjectRatePolicy.normalizeGroupRates
+                    ? SubjectRatePolicy.normalizeGroupRates(state.subjectRatePolicy.groupRates, subjects)
+                    : state.subjectRatePolicy.groupRates || [];
                 // Nhóm môn chỉ là thư mục — không xếp lương cho thư mục.
                 var teachable = subjects.filter(function (s) { return s.isGroup !== true; });
                 var groups = {};
@@ -664,6 +734,10 @@
                 state.salaryRates.push({ id: 'default', name: 'Mặc định (cũ)', rate: config.rate, isDefault: true });
             }
         }
+
+        fillSalarySubjectSelectors();
+        renderGroupPolicyControls();
+        renderGroupRates();
 
         if (hasRecepRole(user)) {
             document.getElementById('ns-recep-normal').value = config.receptionist_normal_rate || '';
@@ -695,6 +769,40 @@
 
     function closeSalarySheet() {
         document.getElementById('ns-salary-sheet').classList.remove('open');
+    }
+
+    function addGroupRate() {
+        var select = document.getElementById('ns-new-group');
+        var rateInput = document.getElementById('ns-new-group-rate');
+        var rate = Number(rateInput && rateInput.value);
+        if (!select || !select.value || !rate || rate <= 0) {
+            UIService.toast('Hãy chọn nhóm môn và nhập mức lương nhóm.', 'error');
+            return;
+        }
+        if (state.groupRates.some(function (entry) { return String(entry.groupId) === String(select.value); })) {
+            UIService.toast('Nhóm môn này đã có mức lương.', 'warning');
+            return;
+        }
+        var group = (typeof SubjectRatePolicy !== 'undefined' && SubjectRatePolicy.groupOptions)
+            ? SubjectRatePolicy.groupOptions(state.subjects).find(function (item) { return item.id === select.value; })
+            : null;
+        state.groupRates.push({
+            groupId: select.value,
+            groupName: group ? group.name : select.options[select.selectedIndex].text,
+            path: group ? group.path : select.options[select.selectedIndex].text,
+            rate: Math.round(rate)
+        });
+        select.value = '';
+        rateInput.value = '';
+        renderGroupRates();
+    }
+
+    async function removeGroupRate(index) {
+        var entry = state.groupRates[index];
+        if (!entry) return;
+        if (!await UIService.confirm('Xóa mức lương nhóm "' + (entry.path || entry.groupName) + '"? Môn ngoại lệ vẫn giữ nguyên.')) return;
+        state.groupRates.splice(index, 1);
+        renderGroupRates();
     }
 
     function addRate() {
@@ -745,6 +853,31 @@
             }
             if (!isPureRecep) {
                 user.salary_config.roles = state.salaryRates;
+                var groupEnabled = !!(document.getElementById('ns-group-policy-enabled') && document.getElementById('ns-group-policy-enabled').checked);
+                var groupEffectiveFrom = document.getElementById('ns-group-policy-effective')
+                    ? document.getElementById('ns-group-policy-effective').value
+                    : '';
+                if (groupEnabled && state.groupRates.length === 0) {
+                    UIService.toast('Hãy nhập ít nhất một mức nhóm trước khi bật chính sách nhóm môn.', 'warning');
+                    return;
+                }
+                if (groupEnabled && !/^\d{4}-\d{2}-\d{2}$/.test(groupEffectiveFrom)) {
+                    UIService.toast('Hãy chọn ngày bắt đầu áp dụng giá nhóm môn.', 'warning');
+                    return;
+                }
+                user.salary_config.subjectRatePolicy = {
+                    schemaVersion: 1,
+                    mode: groupEnabled ? 'group' : 'legacy',
+                    effectiveFrom: groupEffectiveFrom || '',
+                    groupRates: state.groupRates.map(function (entry) {
+                        return {
+                            groupId: String(entry.groupId),
+                            groupName: entry.groupName || '',
+                            path: entry.path || '',
+                            rate: Math.round(Number(entry.rate) || 0)
+                        };
+                    }).filter(function (entry) { return entry.groupId && entry.rate > 0; })
+                };
                 if (!hasRecepRole(user)) {
                     user.salary_config.attendance_rate = Number(document.getElementById('ns-general-att').value) || 0;
                 }
@@ -851,6 +984,8 @@
         previewColor: previewColor,
         openSalarySheet: openSalarySheet,
         closeSalarySheet: closeSalarySheet,
+        addGroupRate: addGroupRate,
+        removeGroupRate: removeGroupRate,
         addRate: addRate,
         removeRate: removeRate,
         saveSalary: saveSalary,
@@ -878,6 +1013,7 @@
     window.openSalaryModal = function (id) { return window.NhanSu.openSalarySheet(id); };
     window.closeSalaryModal = function () { return window.NhanSu.closeSalarySheet(); };
     window.addNewRole = function () { return window.NhanSu.addRate(); };
+    window.addNewGroupRate = function () { return window.NhanSu.addGroupRate(); };
     window.removeRole = function (index) { return window.NhanSu.removeRate(index); };
     window.saveSalaryConfig = function () { return window.NhanSu.saveSalary(); };
     window._updateColorPreview = function () { return window.NhanSu.previewColor(); };

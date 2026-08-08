@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node salary-breakdown.test.js && node early10.test.js && node payroll-automation.test.js && node report-state-isolation.test.js && node session-link-preservation.test.js && node evaluation-service.test.js && node auto-checkout.test.js && node add-session-overlap.test.js && node daily-notes.test.js && node false-absent.test.js && node payout-month.test.js && node concurrent-class.test.js",
+    "test": "node salary-breakdown.test.js && node early10.test.js && node payroll-automation.test.js && node subject-rate-policy.test.js && node report-state-isolation.test.js && node session-link-preservation.test.js && node evaluation-service.test.js && node auto-checkout.test.js && node add-session-overlap.test.js && node daily-notes.test.js && node false-absent.test.js && node payout-month.test.js && node concurrent-class.test.js",
     "test:salary": "node salary-breakdown.test.js && node early10.test.js"
   },
   "keywords": [],

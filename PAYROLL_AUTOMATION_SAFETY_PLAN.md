@@ -76,6 +76,43 @@ staff_payroll_profiles: giờ trước web app ──> tổng giờ tích lũy
   tiếp tân, vắng có phép/không phép, đi trễ, công bù, ghi chú ngoại lệ, và ngày
   hiệu lực. Chỉ admin điền và duyệt ở pha sau.
 
+## Mô hình đơn giá theo nhóm môn, nhánh và ngoại lệ
+
+`subjects` được xem như một cây: nhóm cha → nhóm nhánh → môn lá. Ví dụ nhóm
+`Tiếng Anh` có thể có các nhánh `Tiếng Anh giao tiếp` và `Tiếng Anh trên trường`,
+sau đó mới chứa các môn như B1/E1. Nhóm cha cung cấp mức mặc định; nhánh con có
+thể ghi đè; một môn cụ thể có thể ghi đè riêng nếu trung tâm cần trả khác.
+
+Để không phá cấu hình cũ, đơn giá mới được lưu bổ sung trong
+`users/{staffId}.salary_config.subjectRatePolicy`:
+
+```text
+{
+  schemaVersion: 1,
+  mode: "legacy" | "group",
+  effectiveFrom: "YYYY-MM-DD",
+  groupRates: [{ groupId, groupName, path, rate }]
+}
+```
+
+Thứ tự áp dụng khi `mode = group` và đã qua `effectiveFrom` là:
+
+1. Ngoại lệ môn cụ thể đang có trong `salary_config.roles`.
+2. Mức của nhóm/nhánh gần môn nhất.
+3. Mức nhóm cha gần nhất còn được cấu hình.
+4. Snapshot `roleRate` cũ của ca; nếu không có thì giữ fallback legacy.
+
+Giá nhóm chỉ được đọc để tính lương, không ghi ngược vào `attendance_logs` và
+không sửa `roleRate` lịch sử. Vì vậy bật cấu hình không làm mất dữ liệu chấm
+công; các ca cũ vẫn có thể đối chiếu theo snapshot, còn ca thiếu snapshot sẽ
+được resolver dùng giá nhóm tại đúng ngày hiệu lực. Mức lớp đông trong
+`class_rates` vẫn ưu tiên cao hơn cho ca đã cấu hình riêng.
+
+Giao diện Nhân sự giữ nguyên danh sách ngoại lệ môn cũ và bổ sung danh sách nhóm
+môn. Trang Môn học cho phép nhóm lồng nhau, hiển thị đường dẫn đầy đủ và áp
+dụng cờ sớm 10 phút xuống toàn bộ môn lá; cờ này vẫn lấy từ `allowEarly10`,
+không bị suy ra từ đơn giá.
+
 ## Các pha triển khai
 
 ### P0 — khóa an toàn và hồi quy (đang làm)

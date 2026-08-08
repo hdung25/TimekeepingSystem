@@ -7,6 +7,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 const nhanSu = read('nhan-su.html');
 const monHoc = read('mon-hoc.html');
+const baoCao = read('bao-cao.html');
 const personnel = read('js/personnel.js');
 const monHocJs = read('js/mon-hoc.js');
 const serviceWorker = read('service-worker.js');
@@ -25,10 +26,14 @@ assert.match(nhanSu, /id="ns-salary-sheet"/);
 assert.match(nhanSu, /value="receptionist_assistant"/);
 assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
+assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
+assert.match(baoCao, /report\.js\?v=20260809-group-rates-v1/);
 
 assert.match(monHoc, /class="mh-page"/);
 assert.match(monHoc, /app-build" content="20260808-combined-v1"/);
 assert.match(monHocJs, /allowEarly10/);
+assert.match(monHocJs, /function getRootGroups\(\)/);
+assert.match(monHocJs, /function getDescendantLeaves\(groupId/);
 
 for (const legacyName of [
   'window.openModal', 'window.handleStaffSubmit', 'window.configureSalary',
@@ -43,7 +48,9 @@ for (const legacyName of [
 assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
-assert.match(serviceWorker, /tdt-chamcong-v108-payroll-safety-20260809/);
+assert.match(personnel, /subjectRatePolicy/);
+assert.match(serviceWorker, /tdt-chamcong-v109-group-rates-20260809/);
+assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
 assert.match(serviceWorker, /20260808-combined-v1/);
 
 console.log('page compatibility checks passed');

@@ -57,10 +57,49 @@
 
     function getGroups() { return state.subjects.filter(isGroup).sort(byName); }
 
+    function getRootGroups() {
+        var groups = getGroups();
+        var ids = {};
+        groups.forEach(function (group) { ids[String(group.id)] = true; });
+        return groups.filter(function (group) {
+            return !group.parentId || !ids[String(group.parentId)];
+        });
+    }
+
+    function getChildNodes(groupId) {
+        return state.subjects.filter(function (subject) {
+            return String(subject.parentId || '') === String(groupId);
+        }).sort(function (a, b) {
+            if (isGroup(a) !== isGroup(b)) return isGroup(a) ? -1 : 1;
+            return byName(a, b);
+        });
+    }
+
+    function getChildGroups(groupId) {
+        return getChildNodes(groupId).filter(isGroup);
+    }
+
     function getChildren(groupId) {
-        return state.subjects.filter(function (s) {
-            return !isGroup(s) && String(s.parentId || '') === String(groupId);
-        }).sort(byName);
+        return getChildNodes(groupId).filter(function (subject) { return !isGroup(subject); });
+    }
+
+    function getDescendantLeaves(groupId, seen) {
+        var visited = seen || {};
+        var key = String(groupId);
+        if (visited[key]) return [];
+        visited[key] = true;
+        var leaves = [];
+        getChildNodes(groupId).forEach(function (child) {
+            if (isGroup(child)) leaves = leaves.concat(getDescendantLeaves(child.id, visited));
+            else leaves.push(child);
+        });
+        return leaves.sort(byName);
+    }
+
+    function visibleDescendantLeaves(groupId) {
+        return getDescendantLeaves(groupId).filter(function (subject) {
+            return matchesSearch(subject) && passesFilter(subject);
+        });
     }
 
     function getUngrouped() {
@@ -219,18 +258,72 @@
             '</div>';
     }
 
+    function groupHasVisibleDescendants(group) {
+        if (matchesSearch(group) && state.filter === 'all') return true;
+        if (visibleDescendantLeaves(group.id).length > 0) return true;
+        return getChildGroups(group.id).some(groupHasVisibleDescendants);
+    }
+
+    // Nested group renderer. Existing one-level groups continue to render the
+    // same way; a branch can now contain another group before its leaf subjects.
+    function renderNestedGroup(group) {
+        var directLeaves = visibleChildren(group.id);
+        var allLeaves = getDescendantLeaves(group.id);
+        var childGroups = getChildGroups(group.id).filter(groupHasVisibleDescendants);
+        var keepForEarly10 = state.filter === 'early10' && allowsEarly10(group) && matchesSearch(group);
+        if (directLeaves.length === 0 && childGroups.length === 0 && !keepForEarly10 &&
+            !(matchesSearch(group) && state.filter === 'all')) return '';
+
+        var color = group.color || '#3B82F6';
+        var collapsed = state.collapsed[group.id] ? ' collapsed' : '';
+        var early10Count = allLeaves.filter(allowsEarly10).length;
+        var sub = allLeaves.length + ' môn' + (early10Count > 0 ? ' · ' + early10Count + ' môn có sớm 10p' : '');
+        var mismatch = allowsEarly10(group) ? (allLeaves.length - early10Count) : 0;
+        var warn = mismatch > 0
+            ? '<div class="mh-group-warn">' + icon('alert-triangle', 14) +
+              '<span>Nhóm đang bật <b>sớm 10p</b> nhưng <b>' + mismatch + ' môn</b> bên trong chưa được bật.</span>' +
+              '<button class="mh-btn mh-btn-ghost" onclick="event.stopPropagation();MonHoc.applyGroupEarly10(\'' + esc(group.id) + '\')">' +
+              'Áp dụng cho ' + mismatch + ' môn</button></div>'
+            : '';
+        var visibleLeaves = visibleDescendantLeaves(group.id);
+        var body = childGroups.map(renderNestedGroup).join('') +
+            (directLeaves.length > 0 ? renderItems(directLeaves) : '') +
+            (childGroups.length === 0 && allLeaves.length === 0
+                ? '<div style="padding:0.9rem 1rem;color:var(--text-muted);font-size:0.85rem;">Nhóm này chưa có môn nào.</div>'
+                : '');
+
+        return '' +
+            '<div class="mh-group' + collapsed + '" id="group-' + esc(group.id) + '">' +
+                '<div class="mh-group-head" onclick="MonHoc.toggleGroup(\'' + esc(group.id) + '\')">' +
+                    renderBulkHead(group.id, visibleLeaves) +
+                    '<span class="mh-caret">' + icon('chevron-down', 18) + '</span>' +
+                    '<span class="mh-folder" style="background:' + esc(color) + '18;color:' + esc(color) + ';">' + icon('folder', 18) + '</span>' +
+                    '<span class="mh-group-title">' +
+                        '<span class="mh-group-name">' + esc(group.name) + '</span>' +
+                        '<span class="mh-group-sub">' + esc(sub) + '</span>' +
+                    '</span>' +
+                    '<span class="mh-row-actions" onclick="event.stopPropagation()">' +
+                        '<button class="mh-icon-btn" title="Bật/tắt sớm 10p cho cả nhóm" onclick="MonHoc.toggleGroupEarly10(\'' + esc(group.id) + '\')">' + icon('star') + '</button>' +
+                        '<button class="mh-icon-btn" title="Sửa nhóm" onclick="MonHoc.edit(\'' + esc(group.id) + '\')">' + icon('pencil') + '</button>' +
+                        '<button class="mh-icon-btn danger" title="Xóa nhóm" onclick="MonHoc.remove(\'' + esc(group.id) + '\')">' + icon('trash-2') + '</button>' +
+                    '</span>' +
+                '</div>' + warn +
+                '<div class="mh-group-body">' + body + '</div>' +
+            '</div>';
+    }
+
     function renderTree() {
         var tree = document.getElementById('mh-tree');
         var loading = document.getElementById('mh-loading');
         if (loading) loading.style.display = 'none';
         if (!tree) return;
 
-        var groups = getGroups();
+        var groups = getRootGroups();
         var ungrouped = getUngrouped().filter(function (s) {
             return matchesSearch(s) && passesFilter(s);
         });
 
-        var html = groups.map(renderGroup).join('');
+        var html = groups.map(renderNestedGroup).join('');
 
         if (ungrouped.length > 0) {
             html += '' +
@@ -338,17 +431,44 @@
 
     // --- Form -------------------------------------------------------------
 
+    function isDescendantGroup(candidateId, ancestorId) {
+        var byId = {};
+        getGroups().forEach(function (group) { byId[String(group.id)] = group; });
+        var current = byId[String(candidateId)];
+        var seen = {};
+        while (current && current.parentId != null && !seen[String(current.id)]) {
+            if (String(current.parentId) === String(ancestorId)) return true;
+            seen[String(current.id)] = true;
+            current = byId[String(current.parentId)];
+        }
+        return false;
+    }
+
     function fillParentOptions(selectId, selectedId, excludeId) {
         var select = document.getElementById(selectId);
         if (!select) return;
         var options = ['<option value="' + NO_GROUP + '">— Không thuộc nhóm nào —</option>'];
         getGroups().forEach(function (group) {
-            if (excludeId && String(group.id) === String(excludeId)) return;
-            options.push('<option value="' + esc(group.id) + '">' + esc(group.name) + '</option>');
+            if (excludeId && (String(group.id) === String(excludeId) || isDescendantGroup(group.id, excludeId))) return;
+            options.push('<option value="' + esc(group.id) + '">' + esc(pathForGroup(group.id)) + '</option>');
         });
         select.innerHTML = options.join('');
         select.value = selectedId || NO_GROUP;
         if (!select.value) select.value = NO_GROUP;
+    }
+
+    function pathForGroup(groupId) {
+        var byId = {};
+        getGroups().forEach(function (group) { byId[String(group.id)] = group; });
+        var current = byId[String(groupId)];
+        var parts = [];
+        var seen = {};
+        while (current && !seen[String(current.id)]) {
+            seen[String(current.id)] = true;
+            parts.unshift(current.name || '');
+            current = current.parentId == null ? null : byId[String(current.parentId)];
+        }
+        return parts.filter(Boolean).join(' › ');
     }
 
     function setType(type) {
@@ -356,13 +476,12 @@
         document.querySelectorAll('#mh-type-seg button').forEach(function (btn) {
             btn.classList.toggle('active', btn.dataset.type === type);
         });
-        // Nhóm là thư mục thuần, không lồng nhóm trong nhóm để cây luôn dễ nhìn.
         var parentField = document.getElementById('mh-parent-field');
-        if (parentField) parentField.style.display = type === 'group' ? 'none' : '';
+        if (parentField) parentField.style.display = '';
         var hint = document.getElementById('mh-early10-hint');
         if (hint) {
             hint.textContent = type === 'group'
-                ? 'Bật ở nhóm sẽ hỏi có áp dụng cho tất cả môn con hay không'
+                ? 'Nhóm có thể nằm trong nhóm cha; chính sách sớm 10p vẫn áp dụng cho các môn con'
                 : 'Chỉ môn được bật mới cho giáo viên nhận thưởng vào sớm';
         }
     }
@@ -455,7 +574,7 @@
             color: document.getElementById('mh-color').value,
             note: (document.getElementById('mh-note').value || '').trim(),
             isGroup: type === 'group',
-            parentId: type === 'group' ? null : (parentValue === NO_GROUP ? null : parentValue),
+            parentId: parentValue === NO_GROUP ? null : parentValue,
             allowEarly10: state.early10
         };
         if (editId) payload.id = editId;
@@ -466,7 +585,7 @@
 
             // Bật 10p ở nhóm → hỏi có áp cho toàn bộ môn con không.
             if (type === 'group' && editId) {
-                var children = getChildren(editId);
+                var children = getDescendantLeaves(editId);
                 var mismatched = children.filter(function (c) { return allowsEarly10(c) !== state.early10; });
                 if (mismatched.length > 0) {
                     UIService.hideLoading();
@@ -504,17 +623,17 @@
         if (!subject) return;
 
         if (isGroup(subject)) {
-            var children = getChildren(id);
+            var children = getChildNodes(id);
             var message = children.length > 0
                 ? 'Xóa nhóm "' + subject.name + '"?\n\n' + children.length +
-                  ' môn bên trong sẽ KHÔNG bị xóa, chỉ chuyển về mục "Chưa xếp nhóm".'
+                  ' mục bên trong sẽ KHÔNG bị xóa, chỉ chuyển lên nhóm cha hoặc về mục "Chưa xếp nhóm".'
                 : 'Xóa nhóm "' + subject.name + '"?';
             if (!await UIService.confirm(message)) return;
             try {
                 UIService.showLoading('Đang xóa...');
                 if (children.length > 0) {
-                    await DBService.saveSubjectsBatch(children.map(function (c) {
-                        return { id: c.id, parentId: null };
+                        await DBService.saveSubjectsBatch(children.map(function (c) {
+                        return { id: c.id, parentId: subject.parentId || null };
                     }));
                 }
                 await DBService.deleteSubject(id);
@@ -561,7 +680,7 @@
         var group = state.subjects.find(function (s) { return s.id === groupId; });
         if (!group) return;
         var next = allowsEarly10(group);
-        var mismatched = getChildren(groupId).filter(function (c) { return allowsEarly10(c) !== next; });
+        var mismatched = getDescendantLeaves(groupId).filter(function (c) { return allowsEarly10(c) !== next; });
         if (mismatched.length === 0) {
             UIService.toast('Các môn trong nhóm đã đồng bộ rồi.', 'info');
             return;
@@ -586,7 +705,7 @@
     async function toggleGroupEarly10(groupId) {
         var group = state.subjects.find(function (s) { return s.id === groupId; });
         if (!group) return;
-        var children = getChildren(groupId);
+        var children = getDescendantLeaves(groupId);
         if (children.length === 0) {
             UIService.toast('Nhóm này chưa có môn nào.', 'info');
             return;
@@ -624,7 +743,7 @@
     function toggleScope(scopeId) {
         var items = scopeId === NO_GROUP
             ? getUngrouped().filter(function (s) { return matchesSearch(s) && passesFilter(s); })
-            : visibleChildren(scopeId);
+            : visibleDescendantLeaves(scopeId);
         if (items.length === 0) return;
         var allOn = items.every(function (s) { return isSelected(s.id); });
         items.forEach(function (s) {

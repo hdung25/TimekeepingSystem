@@ -1,5 +1,5 @@
 // Service Worker v69 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v108-payroll-safety-20260809';
+const CACHE_NAME = 'tdt-chamcong-v109-group-rates-20260809';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,14 +23,15 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260808-combined-v1',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260809-payroll-safety-v1',
-    '/js/report.js?v=20260809-payroll-safety-v1',
+    '/js/report.js?v=20260809-group-rates-v1',
     '/js/evaluation-service.js?v=20260806-payout-month-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260808-combined-v1',
     '/js/early10.js?v=20260808-combined-v1',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
+    '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260808-combined-v1',
-    '/js/personnel.js?v=20260809-payroll-safety-v1',
+    '/js/personnel.js?v=20260809-group-rates-v1',
     '/js/auth-guard.js?v=20260725-admin-edit-fix-v1',
     '/js/chart-service.js?v=20260807-multi-gv-bulk-v1',
     '/js/analytics.js',
