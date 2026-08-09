@@ -1028,7 +1028,8 @@ function observation(lateMinutes) {
     // Role? rồi cộng trùng với chip dạy đã được chọn.
     const explicitTeachingUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
     const explicitTeachingSchedule = {
-        morning1: [{ start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+        morning1: [{ start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        morning2: [{ start: '09:15', end: '10:45', lop: 'Mover 1', lopId: 'subject-mover', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
     };
     const explicitTeachingChips = context.window.calculateDailyChips(
         explicitTeachingSchedule,
@@ -1040,6 +1041,10 @@ function observation(lateMinutes) {
         staffId, '2026-07-05', explicitTeachingUser
     );
     assert.ok(explicitTeachingChips.some(c => c.isTeaching), 'phiên chọn môn vẫn giữ chip dạy');
+    assert.equal(
+        explicitTeachingChips.filter(c => c.isTeaching).length, 1,
+        'một phiên admin chọn môn không được nhân thành hai chip cho hai hàng lịch rời nhau'
+    );
     assert.ok(
         !explicitTeachingChips.some(c => c.sourceSessionSplit),
         'phiên đã chọn môn không được sinh chip Role? phụ làm cộng trùng'

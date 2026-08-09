@@ -561,8 +561,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             ? currentUserContext.roles
             : [currentUserContext.role || ''])
         : [];
-    const hasReceptionistRole = staffRoles.some(r => ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r));
+    const receptionistRoleKeys = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'];
+    const hasReceptionistRole = staffRoles.some(r => receptionistRoleKeys.includes(r));
     const hasTeachingRole = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+    // Phiên admin đã chọn rõ môn là một bản ghi thủ công có chủ đích. Một
+    // phiên dài có thể phủ nhiều hàng lịch rời nhau, nhưng không được nhân cả
+    // khoảng giờ thủ công cho từng hàng — chỉ đại diện một lần, còn các hàng
+    // kia đã được bao trong nhãn/môn của phiên đó.
+    const manuallyRepresentedTeachingSessions = new Set();
+    const isExplicitManualTeachingSession = session => !!(
+        session && session.isAdminEdited && session.role && !receptionistRoleKeys.includes(session.role)
+    );
 
     // DEDUPLICATE OVERLAPPING CLASSES (Keep highest paying one)
     let processedSchedule = { ...schedule };
@@ -880,13 +889,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const _chainStartDates = [..._chainStarts].map(_toClassDate);
 
             let matchedSession = attendanceSessions.find(s => {
-                if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return false;
+                if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
+                    (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
                 return s.linkedClassStart && _chainStarts.has(s.linkedClassStart);
             });
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
-                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return false;
+                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
+                        (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
                     if (_hasLiveClassLink(s)) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
@@ -898,13 +909,28 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
-                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return false;
+                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
+                        (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
                     if (_hasLiveClassLink(s)) return false; // Already linked to another class
                     const checkIn = safeDate(s.checkIn || s.start);
                     if (!checkIn) return false;
                     const minDiffMs = Math.min(..._chainStartDates.map(start => Math.abs(checkIn - start)));
                     return minDiffMs < 60 * 60 * 1000;
                 });
+            }
+
+            // Ca lịch này nằm trọn trong một phiên admin đã chọn môn ở hàng
+            // trước. Không hiện Vắng hoặc tạo thêm chip thứ hai, vì như vậy
+            // một khoảng 07:00–10:00 lại bị cộng thành hai lần chỉ vì lịch có
+            // hai lớp rời nhau bên trong phiên đó.
+            if (!matchedSession) {
+                const coveredByManualTeaching = attendanceSessions.some(s => {
+                    if (!isExplicitManualTeachingSession(s) || !manuallyRepresentedTeachingSessions.has(s.id)) return false;
+                    const checkIn = safeDate(s.checkIn || s.start);
+                    const checkOut = safeDate(s.checkOut);
+                    return checkIn && checkOut && checkIn < schedEnd && checkOut > schedStart;
+                });
+                if (coveredByManualTeaching) return;
             }
 
             let _matchedTeachingSessions = [];
@@ -1390,6 +1416,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 // Track teaching minutes and shifts details for subtracting from receptionist time (Issue 1)
                 if (minutes > 0) {
+                    if (isExplicitManualTeachingSession(matchedSession)) {
+                        manuallyRepresentedTeachingSessions.add(matchedSession.id);
+                    }
                     _addPaidClockRange(_paidFrom, _paidTo, matchedSession.id);
                     // Ghi ĐỦ các ca con thực làm của chuỗi ca gộp (trước đây chỉ ghi ca đầu
                     // `cls.start–cls.end` nên ngày vừa dạy vừa trực bị trừ thiếu giờ dạy →

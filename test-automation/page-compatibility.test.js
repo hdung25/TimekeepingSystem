@@ -27,7 +27,7 @@ assert.match(nhanSu, /value="receptionist_assistant"/);
 assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
 assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(baoCao, /report\.js\?v=20260809-huy-session-split-v3/);
+assert.match(baoCao, /report\.js\?v=20260809-huy-session-split-v4/);
 
 assert.match(monHoc, /class="mh-page"/);
 assert.match(monHoc, /app-build" content="20260809-chip-policy-v1"/);
@@ -52,8 +52,8 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v120-huy-session-split-20260809/);
+assert.match(serviceWorker, /tdt-chamcong-v121-huy-session-split-20260809/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /20260809-huy-session-split-v3/);
+assert.match(serviceWorker, /20260809-huy-session-split-v4/);
 
 console.log('page compatibility checks passed');
