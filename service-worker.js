@@ -1,5 +1,5 @@
 // Service Worker v69 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v124-history-roster-20260809';
+const CACHE_NAME = 'tdt-chamcong-v125-history-overtime-20260809';
 
 const STATIC_ASSETS = [
     '/',
@@ -22,9 +22,9 @@ const STATIC_ASSETS = [
     '/css/shift-oversight.css?v=20260717-gv-absence-v1',
     '/js/main.js?v=20260808-combined-v1',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260809-history-roster-v7',
-    '/js/report.js?v=20260809-history-roster-v7',
-    '/js/evaluation-service.js?v=20260809-history-roster-v7',
+    '/js/db-service.js?v=20260809-history-overtime-v8',
+    '/js/report.js?v=20260809-history-overtime-v8',
+    '/js/evaluation-service.js?v=20260809-history-overtime-v8',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260808-combined-v1',
     '/js/early10.js?v=20260809-chip-policy-v1',

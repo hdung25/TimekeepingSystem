@@ -29,10 +29,12 @@ assert.match(nhanSu, /value="receptionist_assistant"/);
 assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
 assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(baoCao, /db-service\.js\?v=20260809-history-roster-v7/);
-assert.match(baoCao, /report\.js\?v=20260809-history-roster-v7/);
+assert.match(baoCao, /db-service\.js\?v=20260809-history-overtime-v8/);
+assert.match(baoCao, /report\.js\?v=20260809-history-overtime-v8/);
 assert.match(report, /DBService\.getMonthlyReceptionistShifts/);
 assert.match(dbService, /getMonthlyReceptionistShifts:\s*async/);
+assert.match(report, /DBService\.getOvertimeRequestsForStaff\(staffId, prevMonthStr\)/);
+assert.doesNotMatch(report, /getMonthlyOvertimeRequests/);
 
 assert.match(monHoc, /class="mh-page"/);
 assert.match(monHoc, /app-build" content="20260809-chip-policy-v1"/);
@@ -57,8 +59,8 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v124-history-roster-20260809/);
+assert.match(serviceWorker, /tdt-chamcong-v125-history-overtime-20260809/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /20260809-history-roster-v7/);
+assert.match(serviceWorker, /20260809-history-overtime-v8/);
 
 console.log('page compatibility checks passed');

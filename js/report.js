@@ -7129,7 +7129,10 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         const savedFixedShifts = await DBService.getFixedShifts(prevMonthStr, staffId);
         const attendanceRecords = await DBService.getMonthlyAttendance(prevMonthStr, staffId);
         const receptionistShifts = await DBService.getMonthlyReceptionistShifts(prevMonthStr, staffId);
-        const overtimeRecords = await DBService.getMonthlyOvertimeRequests(prevMonthStr, staffId);
+        // Reuse the supported staff/month query.  The previous method name did
+        // not exist in DBService, which prevented the entire paid-history tab
+        // from rendering before any salary data could be shown.
+        const overtimeRecords = await DBService.getOvertimeRequestsForStaff(staffId, prevMonthStr);
         const bonus10Records = await DBService.getMonthlyBonus10Requests(prevMonthStr, staffId);
         const scheduleMap = await DBService.getMonthlySchedule(prevMonthStr);
         const observationRecords = await DBService.getShiftObservationsForMonth(prevMonthStr, staffId);
