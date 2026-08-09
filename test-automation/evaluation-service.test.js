@@ -992,4 +992,34 @@ function observation(lateMinutes) {
     assert.equal(huyMissingSegment.minutes, 0, 'Huy: the unrecorded scheduled slot must not create paid minutes');
 }
 
+{
+    // REGRESSION HUY 26/07: hai phiên nối nhau đúng mép 15:30. Phiên sáng
+    // kết thúc lúc 15:30:03 nên có thể "chạm" ca chiều vài giây, còn phiên
+    // thật của ca chiều bắt đầu 15:30:04. Ca 15:30–18:30 phải được gắn cho
+    // phiên thứ hai; không được để nó thành một chip Role? trùng với chip dạy.
+    const huySplitUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
+    const huySplitSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        afternoon2: [{ start: '15:30', end: '17:00', lop: 'Mover 1', lopId: 'subject-mover', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        evening1: [{ start: '17:00', end: '18:30', lop: 'E5', lopId: 'subject-e5', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const huySplitSessions = [
+        { id: 'huy-morning', checkIn: '2026-07-26T07:29:40+07:00', checkOut: '2026-07-26T15:30:03+07:00' },
+        { id: 'huy-afternoon', checkIn: '2026-07-26T15:30:04+07:00', checkOut: '2026-07-26T18:30:00+07:00' }
+    ];
+    const huySplitChips = context.window.calculateDailyChips(
+        huySplitSchedule, huySplitSessions, staffId, '2026-07-26', huySplitUser
+    );
+    assert.ok(
+        huySplitChips.some(c => c.isTeaching && /15:30–18:30/.test(c.text)),
+        'Huy: ca chiều phải nhận chip dạy theo lịch'
+    );
+    assert.ok(
+        !huySplitChips.some(c => c.sourceSessionSplit && /15:30–18:30 \(Role\?\)/.test(c.text)),
+        'Huy: không được sinh Role? trùng nguyên ca chiều'
+    );
+    const huyMorningRemainder = huySplitChips.find(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text));
+    assert.ok(huyMorningRemainder, 'Huy: chỉ phần giữa hai ca mới còn Role? để admin đối soát');
+}
+
 console.log('evaluation-service regression tests passed');

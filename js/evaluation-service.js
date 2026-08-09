@@ -908,6 +908,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
 
             let _matchedTeachingSessions = [];
+            // Giữ danh sách phiên thật ngoài khối ghép để khi ghi mapping ca
+            // bên dưới có thể gắn từng đoạn lịch cho đúng phiên vào/ra.
+            let _workedSessions = [];
             if (matchedSession) {
                 _matchedTeachingSessions.push(matchedSession);
 
@@ -936,7 +939,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                 // Hai yêu cầu chấm bù cho hai ca kề nhau tạo hai session riêng. Dùng
                 // khoảng bao từ phiên sớm nhất tới phiên muộn nhất để tính đủ chuỗi ca.
-                const _workedSessions = _matchedTeachingSessions.filter(s => !s.isAbsent);
+                _workedSessions = _matchedTeachingSessions.filter(s => !s.isAbsent);
                 if (_workedSessions.length > 0 && matchedSession.isAbsent) {
                     matchedSession = _workedSessions[0];
                 }
@@ -1388,27 +1391,62 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Track teaching minutes and shifts details for subtracting from receptionist time (Issue 1)
                 if (minutes > 0) {
                     _addPaidClockRange(_paidFrom, _paidTo, matchedSession.id);
-                    // Đánh dấu ĐÚNG khung giờ mà phiên vừa được tính, để ca dạy khác trong
-                    // ngày vẫn dùng lại được phiên này nếu không chồng giờ.
-                    (matchedSession._combinedSessionIds || [matchedSession.id]).forEach(sid =>
-                        _claimSessionRange(sid, _paidFrom || schedStart, _paidTo || schedEnd));
-                    if (!teachingMinutesMap[matchedSession.id]) {
-                        teachingMinutesMap[matchedSession.id] = 0;
-                        teachingSessionsMap[matchedSession.id] = [];
-                    }
-                    teachingMinutesMap[matchedSession.id] += minutes;
                     // Ghi ĐỦ các ca con thực làm của chuỗi ca gộp (trước đây chỉ ghi ca đầu
                     // `cls.start–cls.end` nên ngày vừa dạy vừa trực bị trừ thiếu giờ dạy →
                     // giờ tiếp tân bị cộng dư). Kèm tên lớp để ô chi tiết hiển thị từng khúc.
                     const _teachSegs = (_workedChainSegments && _workedChainSegments.length > 0)
                         ? _workedChainSegments
                         : [{ start: _displayStartStr, end: _effectiveEndStr, lop: cls.lop || '' }];
+
+                    // Một chuỗi có thể được ghép từ nhiều phiên vào/ra. Không được gắn toàn
+                    // bộ ca cho phiên xuất hiện đầu tiên: ví dụ phiên A kết thúc 15:30:03,
+                    // phiên B bắt đầu 15:30:04 và lớp bắt đầu lúc 15:30. Nếu gắn ca cho A,
+                    // B sẽ bị sinh thêm chip Role? trùng nguyên 3 giờ. Mỗi đoạn lịch chỉ
+                    // thuộc về phiên có chồng thời gian thực tế ít nhất 10 phút; phần còn lại
+                    // của từng phiên sau đó được đối soát riêng ở nhánh "Unmatched Sessions".
+                    const _minSegmentOverlapMs = 10 * 60 * 1000;
+                    const _sessionForSegment = (seg) => {
+                        const segStart = _toClassDate(seg.start);
+                        const segEnd = _toClassDate(seg.end);
+                        const candidates = _workedSessions
+                            .map(session => {
+                                const sessionStart = safeDate(session.checkIn || session.start);
+                                const sessionEnd = safeDate(session.checkOut);
+                                if (!sessionStart || !sessionEnd) return null;
+                                const overlap = Math.max(0, Math.min(sessionEnd, segEnd) - Math.max(sessionStart, segStart));
+                                return { session, sessionStart, sessionEnd, overlap };
+                            })
+                            .filter(Boolean)
+                            .filter(item => item.overlap >= _minSegmentOverlapMs)
+                            .sort((a, b) => b.overlap - a.overlap || a.sessionStart - b.sessionStart);
+                        return candidates[0] || null;
+                    };
+
                     _teachSegs.forEach(seg => {
-                        teachingSessionsMap[matchedSession.id].push({
+                        const target = _sessionForSegment(seg);
+                        // Fallback này chỉ giữ tương thích với session cũ thiếu giờ ra;
+                        // các session có dữ liệu thật luôn đi qua target ở trên.
+                        const targetSession = target ? target.session : matchedSession;
+                        if (!teachingMinutesMap[targetSession.id]) {
+                            teachingMinutesMap[targetSession.id] = 0;
+                            teachingSessionsMap[targetSession.id] = [];
+                        }
+                        const segStart = _toClassDate(seg.start);
+                        const segEnd = _toClassDate(seg.end);
+                        const mappedMinutes = target
+                            ? Math.max(0, Math.round(target.overlap / 60000))
+                            : Math.max(0, Math.round((segEnd - segStart) / 60000));
+                        teachingMinutesMap[targetSession.id] += mappedMinutes;
+                        _claimSessionRange(
+                            targetSession.id,
+                            target ? new Date(Math.max(target.sessionStart, segStart)) : (_paidFrom || segStart),
+                            target ? new Date(Math.min(target.sessionEnd, segEnd)) : (_paidTo || segEnd)
+                        );
+                        teachingSessionsMap[targetSession.id].push({
                             start: seg.start,
                             end: seg.end,
                             lop: seg.lop || cls.lop || '',
-                            paidMinutes: minutes,
+                            paidMinutes: mappedMinutes,
                             branch: seg.branch || cls._branch || ''
                         });
                     });
