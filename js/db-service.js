@@ -2242,6 +2242,99 @@ const DBService = {
         return promise;
     },
 
+    // Read the weekly receptionist roster back into concrete daily shifts for
+    // a month.  Payroll history needs the exact same source as the current
+    // month view; it must never infer a receptionist shift from an attendance
+    // session or write anything while loading a historical payslip.
+    getMonthlyReceptionistShifts: async (monthStr, staffId) => {
+        if (!monthStr || !staffId) return [];
+
+        const cacheKey = `monthly_receptionist_shifts_${monthStr}_${staffId}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const [yearStr, monthNumStr] = String(monthStr).split('-');
+                const year = Number.parseInt(yearStr, 10);
+                const month = Number.parseInt(monthNumStr, 10) - 1;
+                if (!Number.isInteger(year) || month < 0 || month > 11) return [];
+
+                const branches = ['cs1', 'cs2', 'cs3'];
+                const shiftKeys = ['morning', 'afternoon', 'evening'];
+                const shiftLabels = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
+                const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const pad = value => String(value).padStart(2, '0');
+                const dateKeyOf = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+                const getMonday = date => {
+                    const monday = new Date(date);
+                    const weekday = monday.getDay();
+                    monday.setDate(monday.getDate() - weekday + (weekday === 0 ? -6 : 1));
+                    monday.setHours(0, 0, 0, 0);
+                    return monday;
+                };
+
+                const monthDays = Array.from({ length: daysInMonth }, (_, index) => new Date(year, month, index + 1));
+                const mondayKeys = [...new Set(monthDays.map(day => dateKeyOf(getMonday(day))))];
+                const [shiftConfigs, rosterRows] = await Promise.all([
+                    Promise.all(branches.map(branch => DBService.getReceptionistShiftConfig(branch))),
+                    Promise.all(branches.flatMap(branch => mondayKeys.map(mondayKey =>
+                        DBService.getReceptionistSchedule(`${branch}__${mondayKey}`).then(data => ({
+                            branch,
+                            mondayKey,
+                            data: data || {}
+                        }))
+                    )))
+                ]);
+                const shiftConfigByBranch = Object.fromEntries(branches.map((branch, index) => [branch, shiftConfigs[index] || {}]));
+                const shiftsByDate = {};
+
+                monthDays.forEach(day => {
+                    const dateKey = dateKeyOf(day);
+                    const mondayKey = dateKeyOf(getMonday(day));
+                    const dayIndex = day.getDay() === 0 ? 6 : day.getDay() - 1;
+                    const dayKey = dayKeys[dayIndex];
+
+                    rosterRows.forEach(roster => {
+                        if (roster.mondayKey !== mondayKey) return;
+
+                        shiftKeys.forEach(shiftKey => {
+                            const staffList = roster.data?.[shiftKey]?.[dayKey];
+                            if (!Array.isArray(staffList)) return;
+
+                            const staffEntry = staffList.find(entry => String(entry?.id || '') === String(staffId));
+                            if (!staffEntry) return;
+
+                            const branchConfig = shiftConfigByBranch[roster.branch] || {};
+                            const weekConfig = roster.data?._shiftConfig?.[shiftKey] || {};
+                            const defaultStart = staffEntry.customStart || weekConfig.start || branchConfig[shiftKey]?.start || '07:00';
+                            const defaultEnd = staffEntry.customEnd || weekConfig.end || branchConfig[shiftKey]?.end || '11:30';
+                            if (!shiftsByDate[dateKey]) shiftsByDate[dateKey] = [];
+                            shiftsByDate[dateKey].push({
+                                shift: shiftKey,
+                                label: shiftLabels[shiftKey],
+                                start: staffEntry.customStart || defaultStart,
+                                end: staffEntry.customEnd || defaultEnd,
+                                branch: roster.branch,
+                                isFixedShift: staffEntry.isFixedShift === true
+                            });
+                        });
+                    });
+                });
+
+                return Object.keys(shiftsByDate)
+                    .sort()
+                    .map(id => ({ id, shifts: shiftsByDate[id] }));
+            } catch (error) {
+                console.error('[ReceptionistSchedule] Error getting monthly roster:', error);
+                return [];
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
+    },
+
     async saveReceptionistSchedule(compositeKey, data) {
         try {
             await db.collection('receptionist_schedules').doc(compositeKey).set(data);
