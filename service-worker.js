@@ -1,5 +1,5 @@
 // Service Worker v69 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v114-cross-role-schedule-recovery-20260809';
+const CACHE_NAME = 'tdt-chamcong-v115-huy-schedule-truth-20260809';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,8 +23,8 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260808-combined-v1',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260809-payroll-safety-v2',
-    '/js/report.js?v=20260809-cross-role-schedule-recovery-v1',
-    '/js/evaluation-service.js?v=20260809-cross-role-schedule-recovery-v1',
+    '/js/report.js?v=20260809-huy-schedule-truth-v1',
+    '/js/evaluation-service.js?v=20260809-huy-schedule-truth-v1',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260808-combined-v1',
     '/js/early10.js?v=20260809-chip-policy-v1',

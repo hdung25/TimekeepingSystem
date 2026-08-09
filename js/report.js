@@ -4186,6 +4186,9 @@ document.addEventListener('click', function(e) {
 
 // Searchable Subject Multi-select Dropdown Helpers
 let editSelectedSubjectIds = [];
+// Subjects suggested from the linked schedule.  Saving the same selection is
+// an automatic schedule match; changing it is an explicit admin override.
+let editSuggestedSubjectIds = [];
 let allAvailableSubjects = [];
 
 window.openSubjectDropdown = function() {
@@ -4323,10 +4326,14 @@ function getResolvedTeachingRate(chip, subjectName, fallbackRate) {
     const leafSubjects = subjects.filter(subject => subject && subject.isGroup !== true);
     const subjectIds = new Set(leafSubjects.map(subject => String(subject.id)));
     const sessionRole = chip?.sessionData?.role;
-    let ids = String(sessionRole || '')
-        .split('+')
-        .map(id => id.trim())
-        .filter(id => id && subjectIds.has(id));
+    const shouldPreferScheduledSubject = chip?.usesScheduledSubject === true &&
+        chip?.sessionData?.subjectOverride !== true;
+    let ids = shouldPreferScheduledSubject
+        ? (chip?.subjectIds || []).map(id => String(id)).filter(id => subjectIds.has(id))
+        : String(sessionRole || '')
+            .split('+')
+            .map(id => id.trim())
+            .filter(id => id && subjectIds.has(id));
 
     // Older attendance rows can retain only the subject name.  Apply a name
     // fallback only when it is unambiguous; duplicate names across branches are
@@ -4688,6 +4695,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
 
     await populateRoleDropdown(staffId, 'edit-role', matchedRoleId);
     await loadAndRenderSubjects(staffId);
+    editSuggestedSubjectIds = [...editSelectedSubjectIds];
 
     // Default shift type to normal
     const radios = document.getElementsByName('edit-shift-type');
@@ -4778,6 +4786,18 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     await populateRoleDropdown(staffId, 'edit-role', sessionData ? sessionData.role : null);
     await loadAndRenderSubjects(staffId);
 
+    // A linked class is the normal source of truth. Old admin-edited rows can
+    // retain a stale roleName; make the modal show the current scheduled
+    // subject unless the admin previously chose an explicit override.
+    if (!isRecep && chip?.usesScheduledSubject === true && sessionData?.subjectOverride !== true && chip.scheduledSubjectName) {
+        const scheduleNames = String(chip.scheduledSubjectName).split('+').map(name => normalizeSubjectLookupName(name));
+        const suggested = allAvailableSubjects
+            .filter(subject => scheduleNames.includes(normalizeSubjectLookupName(subject.name)))
+            .map(subject => subject.id);
+        if (suggested.length > 0) editSelectedSubjectIds = suggested;
+    }
+    editSuggestedSubjectIds = [...editSelectedSubjectIds];
+
     // Update shift type radio buttons
     const isFixed = sessionData && sessionData.isFixedShift === true;
     const radios = document.getElementsByName('edit-shift-type');
@@ -4812,23 +4832,28 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             };
             const recepMin = segs.filter(s => s.kind === 'tiep-tan').reduce((a, s) => a + s.minutes, 0);
             const teachMin = segs.filter(s => s.kind === 'day').reduce((a, s) => a + s.minutes, 0);
+            const missingMin = segs.filter(s => s.kind === 'missing').reduce((a, s) => a + (s.scheduledMinutes || 0), 0);
 
             breakdownList.innerHTML = segs.map((seg, i) => {
                 const isTeach = seg.kind === 'day';
-                const accent = isTeach ? '#B45309' : '#3730A3';
-                const bg = isTeach ? '#FEF3C7' : '#FFFFFF';
-                const border = isTeach ? '#FCD34D' : '#C7D2FE';
-                const tag = isTeach ? 'DẠY' : 'TIẾP TÂN';
+                const isMissing = seg.kind === 'missing';
+                const accent = isMissing ? '#B91C1C' : (isTeach ? '#B45309' : '#3730A3');
+                const bg = isMissing ? '#FEF2F2' : (isTeach ? '#FEF3C7' : '#FFFFFF');
+                const border = isMissing ? '#FCA5A5' : (isTeach ? '#FCD34D' : '#C7D2FE');
+                const tag = isMissing ? 'CHƯA CHẤM' : (isTeach ? 'DẠY' : 'TIẾP TÂN');
+                const minutesText = isMissing
+                    ? `${fmt(seg.scheduledMinutes || 0)} · chưa tính`
+                    : fmt(seg.minutes);
                 return `<div style="display:flex;align-items:center;gap:10px;background:${bg};border:1px solid ${border};border-radius:9px;padding:0.5rem 0.7rem;">
                     <span style="font-size:0.72rem;font-weight:800;color:${accent};min-width:64px;">${tag}</span>
                     <span style="font-weight:700;font-size:0.9rem;color:#111827;min-width:104px;">${escapeReportHtml(seg.start)}–${escapeReportHtml(seg.end)}</span>
                     <span style="flex:1;min-width:0;font-size:0.85rem;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeReportHtml(seg.label || '')}</span>
-                    <span style="font-size:0.82rem;font-weight:700;color:${accent};">${fmt(seg.minutes)}</span>
+                    <span style="font-size:0.82rem;font-weight:700;color:${accent};">${minutesText}</span>
                 </div>`;
             }).join('');
 
             if (breakdownTotal) {
-                breakdownTotal.innerText = `Tiếp tân ${fmt(recepMin)} · Dạy ${fmt(teachMin)}`;
+                breakdownTotal.innerText = `Tiếp tân ${fmt(recepMin)} · Dạy ${fmt(teachMin)}${missingMin > 0 ? ` · Chưa chấm ${fmt(missingMin)}` : ''}`;
             }
             breakdownBox.style.display = 'block';
         } else {
@@ -5083,6 +5108,7 @@ async function saveEditedTime() {
     if (selectedRoleId === 'tiep-tan') {
         newData.role = 'tiep-tan';
         newData.roleName = 'Tiếp Tân';
+        newData.subjectOverride = false;
         
         const checkedRadio = document.querySelector('input[name="edit-shift-type"]:checked');
         const isFixed = (checkedRadio && checkedRadio.value === 'fixed');
@@ -5118,11 +5144,18 @@ async function saveEditedTime() {
         // Average rate
         const totalRate = selectedSubjects.reduce((sum, s) => sum + s.rate, 0);
         newData.roleRate = totalRate / selectedSubjects.length;
+        const sameSubjectSet = (left, right) => {
+            const a = [...new Set(left.map(String))].sort();
+            const b = [...new Set(right.map(String))].sort();
+            return a.length === b.length && a.every((id, index) => id === b[index]);
+        };
+        newData.subjectOverride = !sameSubjectSet(editSelectedSubjectIds, editSuggestedSubjectIds);
     } else {
         newData.isFixedShift = false;
         newData.role = null;
         newData.roleName = null;
         newData.roleRate = 0;
+        newData.subjectOverride = false;
     }
 
     try {

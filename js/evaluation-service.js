@@ -221,7 +221,7 @@ function collapseOverlappingSegments(segments, y, m, d) {
 //     [07:00–07:30 tiếp tân] [07:30–09:00 dạy] [09:00–11:00 tiếp tân].
 // Nhân viên vẫn CHỈ bấm vào ca 1 lần; hệ thống tự cắt khúc để mỗi phần được tính đúng đơn giá
 // (không gộp thành 1 chip cứng, admin sửa từng khúc được). Trả về mảng đã sắp theo giờ.
-function buildCrossRoleDaySegments(windowStart, windowEnd, teachingShifts, y, m, d) {
+function buildCrossRoleDaySegments(windowStart, windowEnd, teachingShifts, y, m, d, unpaidScheduledShifts = []) {
     const segments = [];
     if (!windowStart || !windowEnd || windowEnd <= windowStart) return segments;
 
@@ -230,50 +230,74 @@ function buildCrossRoleDaySegments(windowStart, windowEnd, teachingShifts, y, m,
         const parts = String(t).split(':');
         return new Date(y, m - 1, d, parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
     };
+    const clippedInterval = (shift, kind) => {
+        const rawStart = toDate(shift.start);
+        const rawEnd = toDate(shift.end);
+        if (!rawStart || !rawEnd || rawEnd <= rawStart) return null;
+        const start = new Date(Math.max(windowStart.getTime(), rawStart.getTime()));
+        const end = new Date(Math.min(windowEnd.getTime(), rawEnd.getTime()));
+        if (end <= start) return null;
+        return { start, end, kind, lop: shift.lop || '' };
+    };
 
-    // Chuẩn hoá + gộp các lớp dạy chồng giờ, cắt về trong khung ca tiếp tân
-    const teaching = (teachingShifts || [])
-        .map(ts => ({
-            start: new Date(Math.max(windowStart.getTime(), toDate(ts.start).getTime())),
-            end: new Date(Math.min(windowEnd.getTime(), toDate(ts.end).getTime())),
-            lop: ts.lop || ''
-        }))
-        .filter(ts => ts.end > ts.start)
-        .sort((a, b) => a.start - b.start);
+    // A day can contain three distinct states: receptionist work, real
+    // teaching attendance, and a scheduled teaching slot with no attendance.
+    // The latter must remain visible to admin but must never become paid time.
+    const intervals = [
+        ...(teachingShifts || []).map(shift => clippedInterval(shift, 'day')).filter(Boolean),
+        ...(unpaidScheduledShifts || []).map(shift => clippedInterval(shift, 'missing')).filter(Boolean)
+    ];
+    const boundaries = new Set([windowStart.getTime(), windowEnd.getTime()]);
+    intervals.forEach(item => {
+        boundaries.add(item.start.getTime());
+        boundaries.add(item.end.getTime());
+    });
+    const points = Array.from(boundaries).sort((a, b) => a - b);
 
-    const mergedTeaching = [];
-    teaching.forEach(ts => {
-        const prev = mergedTeaching[mergedTeaching.length - 1];
-        if (prev && ts.start <= prev.end) {
-            if (ts.end > prev.end) prev.end = ts.end;
-            if (ts.lop && !prev.lops.includes(ts.lop)) prev.lops.push(ts.lop);
+    const appendSegment = (kind, start, end, label, scheduledMinutes) => {
+        if (!(end > start)) return;
+        const previous = segments[segments.length - 1];
+        if (previous && previous.kind === kind && previous.end === hm(start)) {
+            previous.end = hm(end);
+            const labels = Array.from(new Set(
+                `${previous.label || ''} + ${label || ''}`.split('+').map(item => item.trim()).filter(Boolean)
+            ));
+            previous.label = labels.join(' + ');
+            if (kind === 'missing') previous.scheduledMinutes += scheduledMinutes;
+            else previous.minutes += Math.round((end - start) / 60000);
+            return;
+        }
+        segments.push({
+            start: hm(start),
+            end: hm(end),
+            // Missing scheduled time is deliberately zero in payable minutes.
+            minutes: kind === 'missing' ? 0 : Math.round((end - start) / 60000),
+            ...(kind === 'missing' ? { scheduledMinutes } : {}),
+            kind,
+            label
+        });
+    };
+
+    for (let index = 0; index < points.length - 1; index += 1) {
+        const start = new Date(points[index]);
+        const end = new Date(points[index + 1]);
+        const actualTeaching = intervals.filter(item =>
+            item.kind === 'day' && item.start <= start && item.end >= end
+        );
+        const missingTeaching = intervals.filter(item =>
+            item.kind === 'missing' && item.start <= start && item.end >= end
+        );
+        const labels = list => Array.from(new Set(list.map(item => item.lop).filter(Boolean))).join(' + ');
+
+        // Real attendance always wins if erroneous data overlaps a missing
+        // marker. This prevents a display warning from suppressing work.
+        if (actualTeaching.length > 0) {
+            appendSegment('day', start, end, labels(actualTeaching) || 'Ca dạy');
+        } else if (missingTeaching.length > 0) {
+            appendSegment('missing', start, end, labels(missingTeaching) || 'Ca dạy', Math.round((end - start) / 60000));
         } else {
-            mergedTeaching.push({ start: ts.start, end: ts.end, lops: ts.lop ? [ts.lop] : [] });
+            appendSegment('tiep-tan', start, end, 'Tiếp Tân');
         }
-    });
-
-    let cursor = windowStart;
-    mergedTeaching.forEach(ts => {
-        if (ts.start > cursor) {
-            segments.push({
-                start: hm(cursor), end: hm(ts.start),
-                minutes: Math.round((ts.start - cursor) / 60000),
-                kind: 'tiep-tan', label: 'Tiếp Tân'
-            });
-        }
-        segments.push({
-            start: hm(ts.start), end: hm(ts.end),
-            minutes: Math.round((ts.end - ts.start) / 60000),
-            kind: 'day', label: ts.lops.join(' + ') || 'Ca dạy'
-        });
-        if (ts.end > cursor) cursor = ts.end;
-    });
-    if (windowEnd > cursor) {
-        segments.push({
-            start: hm(cursor), end: hm(windowEnd),
-            minutes: Math.round((windowEnd - cursor) / 60000),
-            kind: 'tiep-tan', label: 'Tiếp Tân'
-        });
     }
     return segments;
 }
@@ -1088,6 +1112,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Khoảng giờ THỰC SỰ được trả công của chip này — dùng để chặn ca khác
                 // tính lại cùng khung giờ (xem _paidClockRanges).
                 let _paidFrom = null, _paidTo = null;
+                let useScheduledSubject = false;
+                let scheduledSubjectName = '';
 
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
@@ -1174,6 +1200,38 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         const lops = _workedChainSegments.map(seg => seg.lop).filter(Boolean);
                         mergedSubjectNames = [...new Set(lops)].join(' + ');
                     }
+                    // A valid schedule link identifies the class window. The
+                    // schedule then owns the display/filter subject unless an
+                    // admin explicitly marked a manual subject override. This
+                    // prevents stale roleName values (for example PRE-I1) from
+                    // changing a linked Pre-I2 class and its salary group.
+                    const hasLiveScheduleLink = !!(
+                        matchedSession.linkedClassStart && _chainStarts.has(matchedSession.linkedClassStart)
+                    );
+                    const scheduledSubjectIds = Array.from(new Set(
+                        (_workedChainSegments && _workedChainSegments.length > 0
+                            ? _workedChainSegments
+                            : [{ lopId: cls.lopId || '' }])
+                            .flatMap(segment => String(segment?.lopId || '').split('+'))
+                            .map(id => id.trim())
+                            .filter(Boolean)
+                    ));
+                    const sessionSubjectIds = String(matchedSession.role || '')
+                        .split('+')
+                        .map(id => id.trim())
+                        .filter(Boolean);
+                    // Legacy rows had no subjectOverride flag. When both the
+                    // schedule and the session carry different concrete IDs,
+                    // keep the old manual choice. When the schedule itself is
+                    // missing an ID (the Huy incident), the class name remains
+                    // the only reliable schedule identity and therefore wins.
+                    const legacyExplicitMismatch = scheduledSubjectIds.length > 0 &&
+                        sessionSubjectIds.length > 0 &&
+                        !sessionSubjectIds.some(id => scheduledSubjectIds.includes(id));
+                    useScheduledSubject = hasLiveScheduleLink &&
+                        matchedSession.subjectOverride !== true &&
+                        !legacyExplicitMismatch;
+                    scheduledSubjectName = mergedSubjectNames || _schedSubjectLabel || cls.lop || '';
 
                     // Resolve Teaching Role & Rate for the chip (Issue 2)
                     let resolvedRole = matchedSession.role;
@@ -1228,13 +1286,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
                     // Apply the resolved teaching role details to the cloned session data
                     chipSessionData.role = resolvedRole;
-                    chipSessionData.roleName = resolvedRoleName;
+                    chipSessionData.roleName = useScheduledSubject && scheduledSubjectName
+                        ? scheduledSubjectName
+                        : resolvedRoleName;
                     chipSessionData.roleRate = resolvedRoleRate;
 
                     // Role Logic Display
                     if (chipSessionData.role && !['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chipSessionData.role)) {
-                        let _displayRoleName = chipSessionData.roleName || chipSessionData.role;
-                        if (mergedSubjectNames) {
+                        let _displayRoleName = useScheduledSubject && scheduledSubjectName
+                            ? scheduledSubjectName
+                            : (chipSessionData.roleName || chipSessionData.role);
+                        if (!useScheduledSubject && mergedSubjectNames) {
                             _displayRoleName = mergedSubjectNames;
                         }
                         label += ` (${_displayRoleName})`;
@@ -1361,9 +1423,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // nguồn sự thật của chip. Lịch có thể vẫn giữ môn cũ (ví dụ lịch là Nhảy
                 // nhưng ca đã sửa thành BTH); nếu gom lương theo cls.lop thì giờ bị đẩy
                 // nhầm sang môn cũ dù chip đang hiển thị môn mới.
-                const chipFilterName = matchedSession.isAdminEdited && (chipSessionData.roleName || chipSessionData.role)
-                    ? normalizeChipFilterName(chipSessionData.roleName || chipSessionData.role)
-                    : normalizeChipFilterName(cls.lop);
+                const chipFilterName = useScheduledSubject && scheduledSubjectName
+                    ? normalizeChipFilterName(scheduledSubjectName)
+                    : (matchedSession.isAdminEdited && (chipSessionData.roleName || chipSessionData.role)
+                        ? normalizeChipFilterName(chipSessionData.roleName || chipSessionData.role)
+                        : normalizeChipFilterName(cls.lop));
 
                 chips.push({
                     text: label,
@@ -1396,7 +1460,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     manualLateMinutes,
                     effectiveLateMinutes,
                     shiftObservationIds: observationSummary.ids,
-                    shiftObservationNotes: observationSummary.notes
+                    shiftObservationNotes: observationSummary.notes,
+                    usesScheduledSubject: useScheduledSubject,
+                    scheduledSubjectName: useScheduledSubject ? scheduledSubjectName : null
                 });
                 if (_splitAbsentAfter.length > 0) chips.push(..._splitAbsentAfter);
 
@@ -1514,6 +1580,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const _formatCrossRoleTime = dt => dt
         ? `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
         : '';
+    const _isReceptionistSession = session => {
+        const role = String(session?.role || '').toLowerCase();
+        const roleName = removeVietnameseTones(String(session?.roleName || '').toLowerCase());
+        return ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(role) ||
+            roleName.includes('tieptan') || roleName.includes('reception');
+    };
 
     // Build the scheduled teaching chain for a branch. This is used only as a
     // display boundary when a later, real teaching session is present but an
@@ -1542,7 +1614,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     start: cls.start,
                     end: cls.end,
                     lop: cls.lop || '',
-                    branch: cls._branch || branch || ''
+                    lopId: cls.lopId || '',
+                    branch: cls._branch || branch || '',
+                    compositeKey,
+                    secKey,
+                    originalIdx
                 });
             });
         });
@@ -1634,6 +1710,17 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             const actualSegments = [];
             const actualSessionIds = [];
+            const actualSegmentKeys = new Set();
+            const addActualSegment = (sessionId, segment) => {
+                if (!segment || !segment.start || !segment.end) return;
+                const key = `${segment.start}|${segment.end}`;
+                if (actualSegmentKeys.has(key)) return;
+                actualSegmentKeys.add(key);
+                actualSegments.push({ ...segment });
+                if (!actualSessionIds.some(id => String(id) === String(sessionId))) {
+                    actualSessionIds.push(sessionId);
+                }
+            };
             scheduledChain.segments.forEach(scheduled => {
                 for (const [sessionId, rawSegments] of Object.entries(teachingSessionsMap)) {
                     const teachingSession = _attendanceByIdForCrossRole.get(String(sessionId));
@@ -1647,9 +1734,37 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const segment = (Array.isArray(rawSegments) ? rawSegments : [])
                         .find(seg => seg.start === scheduled.start && seg.end === scheduled.end);
                     if (!segment) continue;
-                    actualSegments.push({ ...segment });
-                    actualSessionIds.push(sessionId);
+                    addActualSegment(sessionId, segment);
                     break;
+                }
+
+                // The report may have been opened with a legacy/manual session
+                // whose generated teaching index is incomplete. A live class
+                // link plus real check-in/out is still enough evidence to show
+                // the chain boundary. We read it directly here, but never turn
+                // it into a Firestore record or invent paid minutes.
+                const scheduledKey = `${scheduled.start}|${scheduled.end}`;
+                if (actualSegmentKeys.has(scheduledKey)) return;
+                const scheduledStart = _toCrossRoleDate(scheduled.start);
+                const scheduledEnd = _toCrossRoleDate(scheduled.end);
+                if (!scheduledStart || !scheduledEnd) return;
+                const rawMatch = (Array.isArray(attendanceSessions) ? attendanceSessions : []).find(session => {
+                    if (!session || String(session.id) === String(receptionSession.id) || session.isAbsent) return false;
+                    if (_isReceptionistSession(session)) return false;
+                    if (String(session.linkedClassStart || '') !== String(scheduled.start)) return false;
+                    const checkIn = safeDate(session.checkIn || session.start);
+                    const checkOut = safeDate(session.checkOut);
+                    return !!(checkIn && checkOut && checkIn <= scheduledStart && checkOut >= scheduledEnd);
+                });
+                if (rawMatch) {
+                    addActualSegment(rawMatch.id, {
+                        start: scheduled.start,
+                        end: scheduled.end,
+                        lop: scheduled.lop,
+                        lopId: scheduled.lopId || '',
+                        branch: scheduled.branch || branch || '',
+                        paidMinutes: Math.round((scheduledEnd - scheduledStart) / 60000)
+                    });
                 }
             });
 
@@ -1925,7 +2040,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     ? logicalEndR
                     : logicalSchedEndR;
                 _daySegments = buildCrossRoleDaySegments(
-                    _recepWinStart, _recepWinEnd, teachingShifts, _ry, _rm, _rd
+                    _recepWinStart,
+                    _recepWinEnd,
+                    teachingShifts,
+                    _ry,
+                    _rm,
+                    _rd,
+                    _crossRoleChain?.inferredFromSchedule ? _crossRoleChain.missingSegments : []
                 );
                 const overlappingTeachingMinutes = _daySegments
                     .filter(seg => seg.kind === 'day')

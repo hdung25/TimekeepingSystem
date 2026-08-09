@@ -873,4 +873,61 @@ function observation(lateMinutes) {
     assert.equal(partialRecep.sessionData.checkOut, partialSessions[0].checkOut, 'source checkout must remain unchanged');
 }
 
+{
+    // Real-shaped regression: Quang Huy on 04/07 has a receptionist session
+    // ending at 18:00, no 18:00 teaching attendance, and a later 19:30
+    // teaching session.  The schedule is still the authoritative source for
+    // its linked class label.  No missing attendance may become paid time.
+    const huyUser = {
+        roles: ['teaching_assistant', 'receptionist'],
+        salary_config: { receptionist_normal_rate: 30000 }
+    };
+    const huySchedule = {
+        evening1: [
+            {
+                start: '18:00', end: '19:30', lop: 'FFS01', lopId: '',
+                gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+                _compositeKey: 'cs1__2026-07-04', _originalIndex: 5
+            },
+            {
+                start: '18:00', end: '19:30', lop: 'FFS02', lopId: '',
+                gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+                _compositeKey: 'cs1__2026-07-04', _originalIndex: 10
+            }
+        ],
+        evening2: [{
+            start: '19:30', end: '21:00', lop: 'Pre- I2', lopId: '',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-04', _originalIndex: 1
+        }]
+    };
+    const huySessions = [
+        {
+            id: '1786262573380', type: 'admin_add', isAdminEdited: true,
+            checkIn: '2026-07-04T06:30:00.000Z', start: '2026-07-04T06:30:00.000Z',
+            checkOut: '2026-07-04T11:00:00.000Z', role: 'tiep-tan', roleName: 'Tiếp Tân'
+        },
+        {
+            id: '1786264786867', type: 'admin_add', isAdminEdited: true,
+            checkIn: '2026-07-04T12:30:00.000Z', start: '2026-07-04T12:30:00.000Z',
+            checkOut: '2026-07-04T14:00:00.000Z', linkedClassStart: '19:30',
+            role: 't1ajt5FjkjvYAe1lUThH', roleName: 'PRE-I1'
+        }
+    ];
+    const huyChips = context.window.calculateDailyChips(
+        huySchedule, huySessions, staffId, '2026-07-04', huyUser,
+        [{ shift: 'afternoon', label: 'CHIỀU', start: '13:30', end: '18:00', branch: 'cs1', isFixedShift: true }]
+    );
+    const huyRecep = huyChips.find(c => c.isReceptionist && c.sessionId === '1786262573380');
+    const huyTeaching = huyChips.find(c => c.isTeaching && c.sessionId === '1786264786867');
+    assert.ok(huyRecep.text.includes('13:30') && huyRecep.text.includes('21:00'), 'Huy: receptionist chip must follow the continuous scheduled boundary');
+    assert.equal(huyRecep.paidMinutes, 270, 'Huy: only the real 13:30–18:00 receptionist minutes are paid');
+    assert.ok(huyRecep.tooltip.includes('chưa có phiên chấm công'), 'Huy: missing 18:00 attendance must be disclosed');
+    assert.ok(huyTeaching.text.includes('Pre- I2'), 'Huy: a linked session must display the scheduled class, not a stale role label');
+    assert.equal(huyTeaching.chipFilterName, 'Pre- I2', 'Huy: salary grouping must follow the scheduled class when no override exists');
+    const huyMissingSegment = huyRecep.daySegments.find(segment => segment.kind === 'missing');
+    assert.ok(huyMissingSegment && huyMissingSegment.start === '18:00' && huyMissingSegment.end === '19:30', 'Huy: the unrecorded scheduled slot must stay visible');
+    assert.equal(huyMissingSegment.minutes, 0, 'Huy: the unrecorded scheduled slot must not create paid minutes');
+}
+
 console.log('evaluation-service regression tests passed');
