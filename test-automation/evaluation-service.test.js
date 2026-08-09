@@ -1020,6 +1020,50 @@ function observation(lateMinutes) {
     );
     const huyMorningRemainder = huySplitChips.find(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text));
     assert.ok(huyMorningRemainder, 'Huy: chỉ phần giữa hai ca mới còn Role? để admin đối soát');
+    assert.equal(huyMorningRemainder.paidMinutes, 0, 'Huy: phần chưa có role không được cộng tổng giờ/lương');
+}
+
+{
+    // Huy 19/07: cùng một phiên thực tế phủ hai lớp nhưng có khoảng trống
+    // 15 phút ở giữa. Đây không phải ca mới, không được hiện Role? và cũng
+    // không được làm hệ thống hiểu nhầm là tự ra/vào ca.
+    const gapUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
+    const gapSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'E7', lopId: 'subject-e7', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        morning2: [{ start: '09:15', end: '10:45', lop: 'Mover 1', lopId: 'subject-mover', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const gapChips = context.window.calculateDailyChips(
+        gapSchedule,
+        [{ id: 'huy-gap', checkIn: '2026-07-19T07:30:00+07:00', checkOut: '2026-07-19T10:45:00+07:00' }],
+        staffId, '2026-07-19', gapUser
+    );
+    assert.ok(!gapChips.some(c => /09:00–09:15 \(Role\?\)/.test(c.text)), 'khoảng nghỉ ngắn giữa hai lớp phải được ẩn');
+    assert.equal(
+        gapChips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 180,
+        'chỉ cộng hai ca dạy trong lịch, không cộng 15 phút khoảng trống'
+    );
+}
+
+{
+    // Huy 26/07: phần 09:00–15:30 thuộc một phiên vào/ra kéo dài nhưng
+    // không có lịch hoặc role. Phải giữ cảnh báo đối soát, song tuyệt đối
+    // không làm phồng tổng giờ/lương.
+    const unknownRemainderUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
+    const unknownRemainderSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const unknownRemainderChips = context.window.calculateDailyChips(
+        unknownRemainderSchedule,
+        [{ id: 'huy-long-unknown', checkIn: '2026-07-26T07:30:00+07:00', checkOut: '2026-07-26T15:30:00+07:00' }],
+        staffId, '2026-07-26', unknownRemainderUser
+    );
+    const unknownRemainder = unknownRemainderChips.find(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text));
+    assert.ok(unknownRemainder, 'giữ phần thời gian chưa xác minh để admin đối soát');
+    assert.equal(unknownRemainder.paidMinutes, 0, 'Role? không được cộng giờ trước khi chọn vai trò');
+    assert.equal(
+        unknownRemainderChips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 90,
+        'tổng giờ chỉ còn ca dạy đã xác định'
+    );
 }
 
 {

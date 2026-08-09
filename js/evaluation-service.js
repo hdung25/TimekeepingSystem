@@ -2532,21 +2532,33 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     : [];
                 // Bỏ phần lẻ dưới 10 phút do vào sớm/ra muộn quanh ca dạy;
                 // đó không phải một ca tiếp tân riêng để sinh chip cảnh báo.
-                const remainingSegments = splitSegments.filter(segment => segment.kind === 'tiep-tan' && segment.minutes >= 10);
+                const hasReceptionRoleOnSession = _isReceptionistSession(s);
+                // Với phiên không có role, khoảng nghỉ ngắn nằm giữa hai ca
+                // dạy chỉ là khoảng trống lịch; không phải một ca mới.
+                const remainingSegments = splitSegments.filter((segment, index) => {
+                    if (segment.kind !== 'tiep-tan' || segment.minutes < 10) return false;
+                    if (hasReceptionRoleOnSession) return true;
+                    const previous = splitSegments[index - 1];
+                    const next = splitSegments[index + 1];
+                    const isShortGapBetweenTeaching = segment.minutes <= 20 &&
+                        previous?.kind === 'day' && next?.kind === 'day';
+                    return !isShortGapBetweenTeaching;
+                });
 
                 if (remainingSegments.length > 0) {
-                    const hasReceptionRoleOnSession = _isReceptionistSession(s);
                     remainingSegments.forEach(segment => {
                         const remainingLabel = hasReceptionRoleOnSession
                             ? `${segment.start}–${segment.end} (Tiếp Tân ngoài lịch)`
                             : `${segment.start}–${segment.end} (Role?)`;
                         chips.push({
                             text: remainingLabel,
-                            class: 'chip-orange',
-                            paidMinutes: segment.minutes,
+                            class: hasReceptionRoleOnSession ? 'chip-orange' : 'chip-gray',
+                            // Chưa có role: giữ chip để đối soát dữ liệu gốc,
+                            // nhưng không được cộng vào tổng giờ hay lương.
+                            paidMinutes: hasReceptionRoleOnSession ? segment.minutes : 0,
                             tooltip: hasReceptionRoleOnSession
                                 ? `Phần tiếp tân ngoài lịch ${segment.start}–${segment.end}; hệ thống đã tách phần dạy cùng phiên để không tính trùng`
-                                : `Phần thời gian ${segment.start}–${segment.end} chưa xác định vai trò; hệ thống đã tách phần dạy cùng phiên để không tính trùng`,
+                                : `Phần thời gian ${segment.start}–${segment.end} chưa xác định vai trò; giữ để đối soát dữ liệu vào/ra nhưng không tính tổng giờ hoặc lương.`,
                             sessionId: s.id,
                             sessionData: chipSessionData,
                             isClickable: true,
