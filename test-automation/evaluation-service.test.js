@@ -821,4 +821,56 @@ function observation(lateMinutes) {
     );
 }
 
+{
+    // Partial cross-role chain: the first teaching attendance segment is
+    // missing, but a later real teaching session remains. The receptionist
+    // label may follow the continuous schedule; payroll may use real minutes
+    // only and must never invent the missing segment.
+    const partialUser = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: { receptionist_normal_rate: 30000 }
+    };
+    const partialSchedule = {
+        evening1: [{
+            start: '18:00', end: '19:30', lop: 'FFS01', lopId: 'subject-ffs',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-04', _originalIndex: 0
+        }],
+        evening2: [{
+            start: '19:30', end: '21:00', lop: 'Pre-I2', lopId: 'subject-ffs',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-04', _originalIndex: 0
+        }]
+    };
+    const partialSessions = [
+        {
+            id: 'partial-reception-session', isAdminEdited: true,
+            checkIn: '2026-07-04T13:30:00+07:00',
+            checkOut: '2026-07-04T18:00:00+07:00',
+            role: 'tiep-tan', roleName: 'Tiếp Tân'
+        },
+        {
+            id: 'partial-teaching-session', isAdminEdited: true,
+            checkIn: '2026-07-04T19:30:00+07:00',
+            checkOut: '2026-07-04T21:00:00+07:00',
+            linkedClassStart: '19:30', role: 'subject-ffs', roleName: 'Pre-I2'
+        }
+    ];
+    const partialChips = context.window.calculateDailyChips(
+        partialSchedule,
+        partialSessions,
+        staffId,
+        '2026-07-04',
+        partialUser,
+        [{ shift: 'afternoon', label: 'CHIỀU', start: '13:30', end: '18:00', branch: 'cs1', isFixedShift: true }]
+    );
+    const partialRecep = partialChips.find(c => c.isReceptionist && c.sessionId === 'partial-reception-session');
+    assert.ok(partialRecep, 'partial chain must keep the receptionist chip');
+    assert.ok(partialRecep.text.includes('13:30') && partialRecep.text.includes('21:00'), 'display must reach the scheduled chain end');
+    assert.ok(partialRecep.text.includes('1h30p'), 'only the real teaching segment is subtracted');
+    assert.equal(partialRecep.paidMinutes, 270, 'missing teaching attendance must not create paid minutes');
+    assert.ok(partialRecep.tooltip.includes('không tính lương'), 'tooltip must disclose the missing attendance segment');
+    assert.equal(partialRecep.sessionData.checkOut, partialSessions[0].checkOut, 'source checkout must remain unchanged');
+}
+
 console.log('evaluation-service regression tests passed');

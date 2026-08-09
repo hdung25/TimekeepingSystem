@@ -1514,6 +1514,52 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const _formatCrossRoleTime = dt => dt
         ? `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
         : '';
+
+    // Build the scheduled teaching chain for a branch. This is used only as a
+    // display boundary when a later, real teaching session is present but an
+    // earlier segment has no attendance record. It must never create paid
+    // minutes or a Firestore session.
+    const _scheduledTeachingChain = (chainStart, branch) => {
+        const slots = [];
+        const seen = new Set();
+        sections.forEach(secKey => {
+            (schedule[secKey] || []).forEach((cls, idx) => {
+                if (!cls || !cls.start || !cls.end) return;
+                if (cls.isClosed === true) return;
+                const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
+                const compositeKey = cls._compositeKey || null;
+                if (compositeKey && cancelledShifts.includes(`${compositeKey}_${secKey}_${originalIdx}`)) return;
+                const assigned = isScheduledSubstitute(cls, staffId) ||
+                    isScheduledMainTeacher(cls, staffId) ||
+                    (cls.registeredTeachers || []).some(t => t.id === staffId);
+                if (!assigned) return;
+                if (branch && cls._branch && cls._branch !== branch) return;
+
+                const key = `${cls._branch || ''}|${cls.start}|${cls.end}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+                slots.push({
+                    start: cls.start,
+                    end: cls.end,
+                    lop: cls.lop || '',
+                    branch: cls._branch || branch || ''
+                });
+            });
+        });
+
+        slots.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+        const chain = [];
+        let cursor = chainStart;
+        while (true) {
+            const next = slots.find(slot => slot.start === _formatCrossRoleTime(cursor));
+            if (!next) break;
+            chain.push(next);
+            cursor = _toCrossRoleDate(next.end);
+            if (!cursor) break;
+        }
+        return chain.length > 0 ? { segments: chain, end: cursor } : null;
+    };
+
     const _findAdjacentTeachingChain = (receptionSession, receptionEnd, branch) => {
         if (!receptionSession || !receptionEnd) return null;
 
@@ -1575,7 +1621,50 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
         }
 
-        if (selectedSegments.length === 0) return null;
+        if (selectedSegments.length === 0) {
+            // Recovery for the exact incident where an earlier teaching chip
+            // was removed but a later real teaching session remains. Extend
+            // the receptionist display to the end of the continuous schedule,
+            // while keeping only real attendance segments for payroll.
+            // Restrict this fallback to admin-edited attendance so normal
+            // employee clocking cannot be converted into schedule-only pay.
+            if (!receptionSession.isAdminEdited) return null;
+            const scheduledChain = _scheduledTeachingChain(receptionEnd, branch);
+            if (!scheduledChain || scheduledChain.segments.length < 2) return null;
+
+            const actualSegments = [];
+            const actualSessionIds = [];
+            scheduledChain.segments.forEach(scheduled => {
+                for (const [sessionId, rawSegments] of Object.entries(teachingSessionsMap)) {
+                    const teachingSession = _attendanceByIdForCrossRole.get(String(sessionId));
+                    if (!teachingSession || teachingSession.isAbsent) continue;
+                    const teachingCheckIn = safeDate(teachingSession.checkIn || teachingSession.start);
+                    const teachingCheckOut = safeDate(teachingSession.checkOut);
+                    if (!teachingCheckIn || !teachingCheckOut) continue;
+                    const isCovered = teachingCheckIn <= _toCrossRoleDate(scheduled.start) &&
+                        teachingCheckOut >= _toCrossRoleDate(scheduled.end);
+                    if (!isCovered) continue;
+                    const segment = (Array.isArray(rawSegments) ? rawSegments : [])
+                        .find(seg => seg.start === scheduled.start && seg.end === scheduled.end);
+                    if (!segment) continue;
+                    actualSegments.push({ ...segment });
+                    actualSessionIds.push(sessionId);
+                    break;
+                }
+            });
+
+            if (actualSegments.length === 0) return null;
+            const actualStarts = new Set(actualSegments.map(seg => seg.start));
+            const missingSegments = scheduledChain.segments.filter(seg => !actualStarts.has(seg.start));
+            return {
+                sessionIds: actualSessionIds,
+                segments: actualSegments,
+                end: scheduledChain.end,
+                endText: _formatCrossRoleTime(scheduledChain.end),
+                inferredFromSchedule: true,
+                missingSegments
+            };
+        }
         return {
             sessionIds: selectedSessionIds,
             segments: selectedSegments,
@@ -1841,14 +1930,27 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const overlappingTeachingMinutes = _daySegments
                     .filter(seg => seg.kind === 'day')
                     .reduce((sum, seg) => sum + seg.minutes, 0);
-                minutes = Math.max(0, minutes - overlappingTeachingMinutes);
+                const inferredMissingTeachingMinutes = _crossRoleChain?.inferredFromSchedule
+                    ? _crossRoleChain.missingSegments.reduce((sum, seg) => {
+                        const missingStart = _toCrossRoleDate(seg.start);
+                        const missingEnd = _toCrossRoleDate(seg.end);
+                        return sum + (missingStart && missingEnd
+                            ? Math.max(0, Math.round((missingEnd - missingStart) / 60000))
+                            : 0);
+                    }, 0)
+                    : 0;
+                // The inferred schedule gap is reserved for teaching in the
+                // combined work window, but is not paid as teaching. Subtract
+                // it from the receptionist side to preserve the original
+                // total until the missing attendance is explicitly restored.
+                minutes = Math.max(0, minutes - overlappingTeachingMinutes - inferredMissingTeachingMinutes);
 
                 const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
                 const actualEndStr = actualEnd ? actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 if (matchedSession.isAdminEdited) {
                     const fullActualMinutes = Math.max(0, Math.round((logicalEndR - _effectiveActualStartR) / 60000));
-                    minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes);
+                    minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes - inferredMissingTeachingMinutes);
                     const displayActualStartStr = _effectiveActualStartR
                         ? _effectiveActualStartR.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
                         : actualStartStr;
@@ -2035,6 +2137,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     crossRoleDaySegmentsBySession[String(id)] = _daySegments;
                 });
                 tooltip += ' | Hệ thống nhận diện chuỗi tiếp tân → dạy liên tục từ các phiên chấm công riêng';
+                if (_crossRoleChain.inferredFromSchedule && _crossRoleChain.missingSegments?.length) {
+                    const missingMinutes = _crossRoleChain.missingSegments.reduce((sum, seg) => {
+                        const start = _toCrossRoleDate(seg.start);
+                        const end = _toCrossRoleDate(seg.end);
+                        return sum + (start && end ? Math.max(0, Math.round((end - start) / 60000)) : 0);
+                    }, 0);
+                    const missingHours = Math.floor(missingMinutes / 60);
+                    const missingRemainder = missingMinutes % 60;
+                    const missingText = missingHours > 0
+                        ? `${missingHours}h${missingRemainder > 0 ? missingRemainder + 'p' : ''}`
+                        : `${missingRemainder}p`;
+                    tooltip += ` | Lịch còn ${missingText} chưa có phiên chấm công thực tế; không tính lương phần này`;
+                }
             }
 
             // === OVERTIME INTEGRATION (Receptionist) ===
