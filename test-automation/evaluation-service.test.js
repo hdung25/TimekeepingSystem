@@ -1022,4 +1022,28 @@ function observation(lateMinutes) {
     assert.ok(huyMorningRemainder, 'Huy: chỉ phần giữa hai ca mới còn Role? để admin đối soát');
 }
 
+{
+    // Phiên đã có vai trò dạy do admin chọn là nguồn dữ liệu thủ công có chủ
+    // đích. Dù người đó kiêm tiếp tân, hệ thống không được tự tách phần dư ra
+    // Role? rồi cộng trùng với chip dạy đã được chọn.
+    const explicitTeachingUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
+    const explicitTeachingSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const explicitTeachingChips = context.window.calculateDailyChips(
+        explicitTeachingSchedule,
+        [{
+            id: 'manual-subject-whole-session', isAdminEdited: true,
+            checkIn: '2026-07-05T07:00:00+07:00', checkOut: '2026-07-05T10:00:00+07:00',
+            role: 'subject-mc', roleName: 'MC'
+        }],
+        staffId, '2026-07-05', explicitTeachingUser
+    );
+    assert.ok(explicitTeachingChips.some(c => c.isTeaching), 'phiên chọn môn vẫn giữ chip dạy');
+    assert.ok(
+        !explicitTeachingChips.some(c => c.sourceSessionSplit),
+        'phiên đã chọn môn không được sinh chip Role? phụ làm cộng trùng'
+    );
+}
+
 console.log('evaluation-service regression tests passed');

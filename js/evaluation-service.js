@@ -2469,6 +2469,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             
             const chipSessionData = { ...s };
 
+            // Nếu admin/nhân viên đã chọn rõ một vai trò dạy cho cả phiên thì
+            // đó là quyết định thủ công có chủ đích. Không được lấy lịch để
+            // tách thêm một chip Role? ở phần dư vì sẽ vừa gây cảnh báo giả,
+            // vừa có nguy cơ cộng trùng giờ. Chỉ tách tự động với phiên trống
+            // vai trò hoặc phiên được ghi rõ là Tiếp Tân.
+            const hasExplicitTeachingRole = !!s.role && !_isReceptionistSession(s);
+            if (isUsedForTeaching && hasReceptionistRole && hasExplicitTeachingRole && !s.isAbsent) {
+                return;
+            }
+
             // Một phiên chấm công dài của nhân sự kiêm nhiệm có thể đã được
             // dùng để khớp ca dạy ở phía trên, nhưng không có ca tiếp tân
             // tương ứng trong lịch. Trước đây phiên đó lại sinh thêm một chip
