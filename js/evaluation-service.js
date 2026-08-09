@@ -1580,6 +1580,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const _formatCrossRoleTime = dt => dt
         ? `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
         : '';
+    // Mã cơ sở trong dữ liệu cũ không thống nhất hoa/thường ("CS1" và
+    // "cs1"). Đây là dữ liệu định danh cùng một cơ sở, nên không được để
+    // khác kiểu chữ làm đứt chuỗi tiếp tân → dạy.
+    const _sameCrossRoleBranch = (left, right) => {
+        if (!left || !right) return true;
+        return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+    };
     const _isReceptionistSession = session => {
         const role = String(session?.role || '').toLowerCase();
         const roleName = removeVietnameseTones(String(session?.roleName || '').toLowerCase());
@@ -1605,7 +1612,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isScheduledMainTeacher(cls, staffId) ||
                     (cls.registeredTeachers || []).some(t => t.id === staffId);
                 if (!assigned) return;
-                if (branch && cls._branch && cls._branch !== branch) return;
+                if (!_sameCrossRoleBranch(cls._branch, branch)) return;
 
                 const key = `${cls._branch || ''}|${cls.start}|${cls.end}`;
                 if (seen.has(key)) return;
@@ -1664,7 +1671,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const segments = (Array.isArray(rawSegments) ? rawSegments : [])
                     .map(seg => ({ ...seg, _startDate: _toCrossRoleDate(seg.start), _endDate: _toCrossRoleDate(seg.end) }))
                     .filter(seg => seg._startDate && seg._endDate && seg._endDate > seg._startDate)
-                    .filter(seg => !branch || !seg.branch || seg.branch === branch)
+                    .filter(seg => _sameCrossRoleBranch(seg.branch, branch))
                     .sort((a, b) => a._startDate - b._startDate);
                 if (segments.length === 0) continue;
 

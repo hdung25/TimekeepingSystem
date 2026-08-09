@@ -675,6 +675,45 @@ function observation(lateMinutes) {
 }
 
 {
+    // REGRESSION HUY 04/07: dữ liệu lịch lưu CS1, còn ca tiếp tân lưu cs1.
+    // Có hai lớp trùng 18:00 (một lớp hiển thị sau khi khử trùng) và chip
+    // 18:00 đã bị xoá, nhưng chip Pre-I2 19:30–21:00 vẫn còn. Khác kiểu chữ
+    // ở mã cơ sở không được làm mất chuỗi 13:30–21:00 trên bảng công.
+    const huyUser = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: {
+            receptionist_normal_rate: 30000,
+            roles: [{ id: 'subject-ffs', name: 'FFS01', rate: 100000 }, { id: 'subject-pre', name: 'Pre- I2', rate: 100000 }]
+        }
+    };
+    const huySchedule = {
+        evening1: [
+            { start: '18:00', end: '19:30', lop: 'FFS01', lopId: 'subject-ffs', gvId: staffId, registeredTeachers: [], _branch: 'CS1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 0 },
+            { start: '18:00', end: '19:30', lop: 'FFS02', lopId: 'subject-ffs', gvId: staffId, registeredTeachers: [], _branch: 'CS1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 1 }
+        ],
+        evening2: [{ start: '19:30', end: '21:00', lop: 'Pre- I2', lopId: 'subject-pre', gvId: staffId, registeredTeachers: [], _branch: 'CS1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 0 }]
+    };
+    const huySessions = [
+        { id: 'huy-reception', isAdminEdited: true, checkIn: '2026-07-04T13:30:00+07:00', checkOut: '2026-07-04T18:00:00+07:00', role: 'tiep-tan', roleName: 'Tiếp Tân' },
+        { id: 'huy-pre-i2', isAdminEdited: true, checkIn: '2026-07-04T19:30:00+07:00', checkOut: '2026-07-04T21:00:00+07:00', linkedClassStart: '19:30', role: 'subject-pre', roleName: 'PRE-I1' }
+    ];
+    const huyChips = context.window.calculateDailyChips(
+        huySchedule, huySessions, staffId, '2026-07-04', huyUser,
+        [{ shift: 'afternoon', label: 'CHIỀU', start: '13:30', end: '18:00', branch: 'cs1', isFixedShift: true }]
+    );
+    const huyRecep = huyChips.find(c => c.sessionId === 'huy-reception');
+    assert.ok(huyRecep, 'phải giữ ca tiếp tân của Huy');
+    assert.match(huyRecep.text, /13:30–21:00/, 'ca tiếp tân phải ghép tới hết Pre-I2 dù CS1/cs1 khác kiểu chữ');
+    assert.match(huyRecep.text, /−1h30p dạy/, 'chỉ được trừ giờ dạy có phiên chấm công thực tế');
+    assert.equal(huyRecep.paidMinutes, 270, 'không được tự trả tiền cho ca dạy thiếu chip');
+    assert.equal(
+        huyRecep.daySegments.map(s => `${s.start}-${s.end}/${s.kind}`).join(' | '),
+        '13:30-18:00/tiep-tan | 18:00-19:30/missing | 19:30-21:00/day',
+        'popup phải phân biệt ca chưa chấm thay vì bịa giờ đã làm'
+    );
+}
+
+{
     // LỖI ẢNH 5: ca vắng phải ghi rõ LỚP. Nếu lịch chưa điền lớp thì phải nói thẳng.
     const noSubjectSchedule = {
         morning1: [{
