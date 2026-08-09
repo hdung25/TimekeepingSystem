@@ -1422,6 +1422,31 @@ async function renderMonthReport(date, forceServer = false) {
                                         correctEndISO = finalEndDate.toISOString();
                                     }
                                 }
+
+                                // Nếu ca tiếp tân kết thúc đúng lúc một ca dạy đã được
+                                // xếp bắt đầu, phiên mở phải theo tiếp chuỗi công việc.
+                                // Trước đây phiên 13:33 bị tự đóng ở 18:00 nên ca dạy
+                                // 18:00–21:00 không còn phiên để ghép vào chip.
+                                let chainStart = matchedRecepShift.end;
+                                let chainEnd = null;
+                                let extended = true;
+                                while (extended) {
+                                    extended = false;
+                                    for (const cls of staffClasses) {
+                                        if (cls.start === chainStart) {
+                                            chainEnd = cls.end;
+                                            chainStart = cls.end;
+                                            extended = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (chainEnd) {
+                                    const finalChainDate = getVietnamDateFromHM(dateKey, chainEnd);
+                                    if (finalChainDate && (!correctEndISO || finalChainDate.toISOString() > correctEndISO)) {
+                                        correctEndISO = finalChainDate.toISOString();
+                                    }
+                                }
                             }
                         }
                     }

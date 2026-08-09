@@ -2177,12 +2177,28 @@ const DBService = {
                 const data = doc.data();
                 if (!data.sessions || !Array.isArray(data.sessions)) return false;
 
-                // Find the open session by ID
-                const idx = data.sessions.findIndex(s => String(s.id) === String(sessionId) && !s.checkOut);
+                // Find the open session by ID. A previous version could have
+                // auto-closed the session at the end of the receptionist shift
+                // before discovering a directly-connected teaching shift. In
+                // that case allow a later, safer end time to extend only the
+                // system-generated stale close; never touch a user/admin close.
+                const idx = data.sessions.findIndex(s =>
+                    String(s.id) === String(sessionId) &&
+                    !s.isAdminEdited &&
+                    (!s.checkOut || s.autoClosedReason === 'stale_session')
+                );
                 if (idx === -1) return false; // Already closed or not found
 
                 // Dùng giờ kết thúc lịch nếu được truyền vào, fallback 23:59
                 const endOfDayISO = correctEndISO || new Date(`${dateKey}T23:59:00`).toISOString();
+                const currentEnd = data.sessions[idx].checkOut ? new Date(data.sessions[idx].checkOut) : null;
+                const nextEnd = new Date(endOfDayISO);
+                // Không rút ngắn một giờ đóng tự động đã có; chỉ mở rộng khi
+                // chuỗi ca liên tiếp chứng minh mốc kết thúc muộn hơn.
+                if (currentEnd && !isNaN(currentEnd.getTime()) &&
+                    (!isNaN(nextEnd.getTime()) && nextEnd <= currentEnd)) {
+                    return false;
+                }
                 data.sessions[idx].checkOut = endOfDayISO;
                 data.sessions[idx].autoClosedReason = 'stale_session'; // Marker
 

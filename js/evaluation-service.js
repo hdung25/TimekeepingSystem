@@ -1567,19 +1567,21 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (usedSessionIdsReceptionist.has(s.id)) return false;
 
             if (rs.isFixedShift) {
-                // Ca Cố Định: Sử dụng logic bao trùm khung giờ
-                if (checkOut) {
-                    return checkIn <= schedEnd && checkOut >= schedStart;
-                } else {
-                    // Session đang mở (chưa checkout): match nếu checkIn trong khung ±90p
-                    const earlyLimit = new Date(schedStart.getTime() - 90 * 60 * 1000);
-                    return checkIn >= earlyLimit && checkIn <= schedEnd;
-                }
-            } else {
-                // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 90 phút) đến schedEnd
+                // Ca Cố Định: chỉ nhận một phiên đã thực sự làm trong ca.
+                // Không dùng điều kiện "checkOut >= schedStart" vì một phiên
+                // kết thúc lệch vài giây sau giờ bắt đầu (ví dụ 13:30:10)
+                // sẽ bị ghép nhầm vào ca 13:30–18:00, tạo nhãn V270p và chiếm
+                // mất phiên vào ca đúng lúc 13:33.
+                if (checkOut) return false;
+
+                // Session đang mở (chưa checkout): match nếu checkIn trong khung ±90p.
                 const earlyLimit = new Date(schedStart.getTime() - 90 * 60 * 1000);
                 return checkIn >= earlyLimit && checkIn <= schedEnd;
             }
+
+            // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 90 phút) đến schedEnd.
+            const earlyLimit = new Date(schedStart.getTime() - 90 * 60 * 1000);
+            return checkIn >= earlyLimit && checkIn <= schedEnd;
         });
 
         if (matchedSession) {
@@ -1711,7 +1713,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // khúc rồi chỉ cộng khúc tiếp tân → 1 lần bấm vào ca vẫn ra đúng: dạy tính giá
                 // dạy, tiếp tân tính giá tiếp tân, không đoạn nào bị tính 2 lần.
                 const teachingShifts = teachingSessionsMap[matchedSession.id] || [];
-                const _recepWinStart = matchedSession.isAdminEdited ? actualStart : schedStart;
+                // Giờ vào thực tế sớm hơn lịch vẫn giữ nguyên trong sessionData để
+                // đối soát, nhưng phần tính/hiển thị của chip phải bám giờ bắt đầu
+                // của chip. Ví dụ check-in 13:29 cho ca 13:30 thì tính từ 13:30.
+                const _effectiveActualStartR = actualStart && actualStart < schedStart
+                    ? schedStart
+                    : actualStart;
+                const _recepWinStart = matchedSession.isAdminEdited ? _effectiveActualStartR : schedStart;
                 const _recepWinEnd = matchedSession.isAdminEdited ? actualEnd : schedEnd;
                 _daySegments = buildCrossRoleDaySegments(
                     _recepWinStart, _recepWinEnd, teachingShifts, _ry, _rm, _rd
@@ -1725,9 +1733,12 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualEndStr = actualEnd ? actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 if (matchedSession.isAdminEdited) {
-                    const fullActualMinutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
+                    const fullActualMinutes = Math.max(0, Math.round((actualEnd - _effectiveActualStartR) / 60000));
                     minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes);
-                    label = `${labelShort} ${actualStartStr}–${actualEndStr}${branchShortR}`;
+                    const displayActualStartStr = _effectiveActualStartR
+                        ? _effectiveActualStartR.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                        : actualStartStr;
+                    label = `${labelShort} ${displayActualStartStr}–${actualEndStr}${branchShortR}`;
                     
                     // Ghi chú đi trễ kể cả khi admin đã sửa
                     if (actualStart > schedStart) {

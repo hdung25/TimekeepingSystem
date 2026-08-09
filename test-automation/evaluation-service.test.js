@@ -550,6 +550,66 @@ function observation(lateMinutes) {
 }
 
 {
+    // REGRESSION: phiên sáng kết thúc sát giờ bắt đầu ca cố định không được
+    // chiếm chip chiều. Phiên đúng 13:33 phải được ghép vào ca 13:30–18:00.
+    const fixedReception = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: { receptionist_normal_rate: 30000 }
+    };
+    const fixedSchedule = { morning1: [], evening1: [] };
+    const fixedSessions = [
+        {
+            id: 'morning-session',
+            checkIn: '2026-07-18T07:30:43+07:00',
+            checkOut: '2026-07-18T13:30:10+07:00',
+            role: 'tiep-tan', roleName: 'Tiếp Tân'
+        },
+        {
+            id: 'afternoon-session',
+            checkIn: '2026-07-18T13:33:15+07:00',
+            checkOut: '2026-07-18T18:00:00+07:00'
+        }
+    ];
+    const fixedChips = context.window.calculateDailyChips(
+        fixedSchedule,
+        fixedSessions,
+        staffId,
+        '2026-07-18',
+        fixedReception,
+        [{ shift: 'afternoon', label: 'CHIỀU', start: '13:30', end: '18:00', branch: 'cs1', isFixedShift: true }]
+    );
+    const afternoonChip = fixedChips.find(c => c.isReceptionist && c.classSectionKey === 'afternoon' && c.sessionId === 'afternoon-session');
+    assert.ok(afternoonChip, 'ca cố định phải ghép phiên 13:33 đúng ca');
+    assert.equal(afternoonChip.paidMinutes, 267, 'ca chiều tính từ 13:33 đến 18:00');
+    assert.ok(!fixedChips.some(c => c.isReceptionist && c.classSectionKey === 'afternoon' && c.sessionId === 'morning-session'), 'không ghép nhầm phiên sáng');
+}
+
+{
+    // REGRESSION: check-in 13:29 cho chip 13:30 phải tính/hiển thị từ 13:30,
+    // nhưng sessionData vẫn giữ giờ thực tế để đối soát.
+    const adminReception = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: { receptionist_normal_rate: 30000 }
+    };
+    const adminSession = {
+        id: 'admin-early',
+        isAdminEdited: true,
+        checkIn: '2026-07-04T13:29:00+07:00',
+        checkOut: '2026-07-04T18:00:00+07:00',
+        role: 'tiep-tan', roleName: 'Tiếp Tân'
+    };
+    const adminChips = context.window.calculateDailyChips(
+        {}, [adminSession], staffId, '2026-07-04', adminReception,
+        [{ shift: 'afternoon', label: 'CHIỀU', start: '13:30', end: '18:00', branch: 'cs1' }]
+    );
+    const adminChip = adminChips.find(c => c.isReceptionist && c.sessionId === 'admin-early');
+    assert.ok(adminChip, 'ca admin chỉnh tay phải vẫn hiện trên chip');
+    assert.match(adminChip.text, /13:30–18:00/, 'chip neo theo giờ bắt đầu 13:30');
+    assert.equal(adminChip.paidMinutes, 270, 'không cộng thêm 1 phút vào ca 13:29');
+    assert.equal(adminChip.sessionData.checkIn, adminSession.checkIn, 'giữ nguyên giờ thực tế trong dữ liệu');
+}
+
+{
     // LỖI ẢNH 5: ca vắng phải ghi rõ LỚP. Nếu lịch chưa điền lớp thì phải nói thẳng.
     const noSubjectSchedule = {
         morning1: [{
