@@ -714,6 +714,29 @@ function observation(lateMinutes) {
 }
 
 {
+    // REGRESSION HUY 18/07: một lần chấm 07:30–13:30 vừa phủ lớp 07:30–09:00
+    // vừa có vai trò tiếp tân, nhưng lịch không có ca tiếp tân sáng. Chip lớp
+    // phải giữ 90 phút; chip tiếp tân ngoài lịch chỉ được còn 09:00–13:30.
+    // Không được tạo lại một chip tiếp tân 07:30–13:30 và đếm trùng 90 phút dạy.
+    const dualRoleUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
+    const dualRoleSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'EMN', lopId: 'subject-emn', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const dualRoleSession = [{
+        id: 'huy-long-session', role: 'tiep-tan', roleName: 'Tiếp Tân',
+        checkIn: '2026-07-18T07:30:00+07:00', checkOut: '2026-07-18T13:30:00+07:00'
+    }];
+    const dualRoleChips = context.window.calculateDailyChips(dualRoleSchedule, dualRoleSession, staffId, '2026-07-18', dualRoleUser);
+    const morningTeaching = dualRoleChips.find(c => c.isTeaching && c.classStart === '07:30');
+    const remainingReception = dualRoleChips.find(c => c.sourceSessionSplit && c.isReceptionist);
+    assert.equal(morningTeaching.paidMinutes, 90, 'phần lớp vẫn được tính đúng 90 phút');
+    assert.ok(remainingReception, 'phải giữ phần tiếp tân còn lại');
+    assert.match(remainingReception.text, /09:00–13:30/, 'chỉ còn phần sau ca dạy là tiếp tân ngoài lịch');
+    assert.equal(remainingReception.paidMinutes, 270, 'không được tính trùng 90 phút lớp');
+    assert.ok(!dualRoleChips.some(c => c.sourceSessionSplit && /07:30–13:30/.test(c.text)), 'không được tạo chip toàn phiên đã gồm giờ dạy');
+}
+
+{
     // LỖI ẢNH 5: ca vắng phải ghi rõ LỚP. Nếu lịch chưa điền lớp thì phải nói thẳng.
     const noSubjectSchedule = {
         morning1: [{

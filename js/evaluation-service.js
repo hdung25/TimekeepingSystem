@@ -2431,6 +2431,63 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             
             const chipSessionData = { ...s };
 
+            // Một phiên chấm công dài của nhân sự kiêm nhiệm có thể đã được
+            // dùng để khớp ca dạy ở phía trên, nhưng không có ca tiếp tân
+            // tương ứng trong lịch. Trước đây phiên đó lại sinh thêm một chip
+            // "Ca Ngoài Lịch" cho TOÀN BỘ khoảng thời gian, làm phần dạy bị
+            // đếm hai lần (điển hình Huy ngày 18 và 25). Tách theo các khung
+            // lớp đã khớp: chỉ phần thời gian còn lại mới là chip ngoài lịch.
+            // Không tự đổi Role?: khi bản ghi không nói đó là tiếp tân, admin
+            // vẫn phải chọn vai trò cho phần còn lại.
+            if (isUsedForTeaching && hasReceptionistRole && !s.isAbsent) {
+                const rawStart = safeDate(s.checkIn || s.start);
+                const rawEnd = safeDate(s.checkOut);
+                const [splitYear, splitMonth, splitDay] = String(dateStr).split('-').map(Number);
+                const splitSegments = rawStart && rawEnd && rawEnd > rawStart
+                    ? buildCrossRoleDaySegments(
+                        rawStart,
+                        rawEnd,
+                        teachingSessionsMap[s.id] || [],
+                        splitYear,
+                        splitMonth,
+                        splitDay
+                    )
+                    : [];
+                // Bỏ phần lẻ dưới 10 phút do vào sớm/ra muộn quanh ca dạy;
+                // đó không phải một ca tiếp tân riêng để sinh chip cảnh báo.
+                const remainingSegments = splitSegments.filter(segment => segment.kind === 'tiep-tan' && segment.minutes >= 10);
+
+                if (remainingSegments.length > 0) {
+                    const hasReceptionRoleOnSession = _isReceptionistSession(s);
+                    remainingSegments.forEach(segment => {
+                        const remainingLabel = hasReceptionRoleOnSession
+                            ? `${segment.start}–${segment.end} (Tiếp Tân ngoài lịch)`
+                            : `${segment.start}–${segment.end} (Role?)`;
+                        chips.push({
+                            text: remainingLabel,
+                            class: 'chip-orange',
+                            paidMinutes: segment.minutes,
+                            tooltip: hasReceptionRoleOnSession
+                                ? `Phần tiếp tân ngoài lịch ${segment.start}–${segment.end}; hệ thống đã tách phần dạy cùng phiên để không tính trùng`
+                                : `Phần thời gian ${segment.start}–${segment.end} chưa xác định vai trò; hệ thống đã tách phần dạy cùng phiên để không tính trùng`,
+                            sessionId: s.id,
+                            sessionData: chipSessionData,
+                            isClickable: true,
+                            isAdminEdited: !!s.isAdminEdited,
+                            isReceptionist: hasReceptionRoleOnSession,
+                            isTeaching: false,
+                            isWarning: !hasReceptionRoleOnSession,
+                            chipFilterName: hasReceptionRoleOnSession
+                                ? normalizeChipFilterName('Tiếp Tân')
+                                : normalizeChipFilterName(s.roleName || s.role || 'Ca Ngoài Lịch'),
+                            daySegments: splitSegments,
+                            sourceSessionSplit: true
+                        });
+                    });
+                }
+                return;
+            }
+
             // Auto-assign role if role is not set
             if (!chipSessionData.role) {
                 let autoRole = null;
