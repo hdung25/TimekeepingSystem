@@ -4546,6 +4546,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
 
     const staffId = getTargetStaffId();
     let matchedRoleId = null;
+    let matchedRoleIds = [];
     if (isLinkable) {
         matchedRoleId = 'tiep-tan';
     } else {
@@ -4566,29 +4567,90 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
                             }
                         });
                     }
+
+                    // Even when no salary role/policy has been configured yet,
+                    // the schedule can still contain valid subject ids/names.
+                    // Include leaf subjects as matching candidates so creating
+                    // a manual session does not unnecessarily ask the admin to
+                    // select subjects again.
+                    const fallbackRate = teachingRoles.length > 0
+                        ? teachingRoles[0].rate
+                        : (user.salary_config?.attendance_rate || 0);
+                    subjects.filter(subject => subject && subject.isGroup !== true).forEach(subject => {
+                        if (!teachingRoles.some(role => String(role.id) === String(subject.id))) {
+                            teachingRoles.push({
+                                id: subject.id,
+                                name: subject.name,
+                                rate: Number(subject.rate) || Number(fallbackRate) || 0
+                            });
+                        }
+                    });
                     
-                    // 1. Try matching by preFill.lopId
-                    if (preFill.lopId) {
-                        const found = teachingRoles.find(r => r.id === preFill.lopId);
-                        if (found) matchedRoleId = found.id;
+                    // A chained class can contain several subject ids/names, for
+                    // example "FSS01+FSS02 + Pre-I2".  The old code only tried
+                    // to match the whole string as one subject, so the modal
+                    // showed the class name but kept the subject selector empty.
+                    const subjectCandidates = [];
+                    const addCandidate = value => {
+                        if (Array.isArray(value)) {
+                            value.forEach(addCandidate);
+                            return;
+                        }
+                        if (value === null || value === undefined) return;
+                        String(value).split('+').map(part => part.trim()).filter(Boolean).forEach(part => {
+                            if (!subjectCandidates.includes(part)) subjectCandidates.push(part);
+                        });
+                    };
+                    addCandidate(preFill.subjectIds);
+                    addCandidate(preFill.lopId);
+                    addCandidate(preFill.lop);
+
+                    const normalizeCandidate = value => {
+                        if (typeof normalizeSubjectLookupName === 'function') {
+                            return normalizeSubjectLookupName(value);
+                        }
+                        return String(value || '').toLowerCase().replace(/\s+/g, '');
+                    };
+                    const candidateIds = new Set();
+                    const addMatchedId = id => {
+                        if (id !== null && id !== undefined && String(id).trim()) {
+                            candidateIds.add(String(id));
+                        }
+                    };
+
+                    subjectCandidates.forEach(candidate => {
+                        const candidateText = String(candidate).trim();
+                        const candidateKey = normalizeCandidate(candidateText);
+                        if (!candidateKey) return;
+
+                        // Prefer an exact id match. This handles composite lopId
+                        // values such as "subject-fss01+subject-fss02".
+                        const byId = teachingRoles.find(role => String(role.id) === candidateText);
+                        if (byId) {
+                            addMatchedId(byId.id);
+                            return;
+                        }
+
+                        // Then match the leaf name. Policy options may display a
+                        // full path such as "Tiếng anh › FSS01", while the
+                        // schedule stores only "FSS01".
+                        const byName = teachingRoles.find(role => {
+                            const roleName = String(role.name || '');
+                            const leafName = roleName.split(/[›>]/).pop().trim();
+                            return normalizeCandidate(roleName) === candidateKey ||
+                                normalizeCandidate(leafName) === candidateKey;
+                        });
+                        if (byName) addMatchedId(byName.id);
+                    });
+
+                    matchedRoleIds = Array.from(candidateIds);
+
+                    // Fallback to a single configured teaching role if there
+                    // is no subject metadata at all.
+                    if (matchedRoleIds.length === 0 && teachingRoles.length === 1) {
+                        matchedRoleIds = [String(teachingRoles[0].id)];
                     }
-                    
-                    // 2. Try matching by string matching on preFill.lop
-                    if (!matchedRoleId && preFill.lop) {
-                        const clean = s => s.toLowerCase().replace(/\s+/g, '');
-                        const classLopClean = clean(preFill.lop);
-                        const found = teachingRoles.find(r => 
-                            clean(r.name) === classLopClean || 
-                            classLopClean.includes(clean(r.name)) || 
-                            clean(r.name).includes(classLopClean)
-                        );
-                        if (found) matchedRoleId = found.id;
-                    }
-                    
-                    // 3. Fallback to single configured teaching role if they only have one
-                    if (!matchedRoleId && teachingRoles.length === 1) {
-                        matchedRoleId = teachingRoles[0].id;
-                    }
+                    matchedRoleId = matchedRoleIds[0] || null;
                 }
             }
         } catch (err) {
@@ -4598,7 +4660,9 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     if (isLinkable) {
         editSelectedSubjectIds = [];
     } else {
-        editSelectedSubjectIds = matchedRoleId ? [matchedRoleId] : [];
+        editSelectedSubjectIds = matchedRoleIds.length > 0
+            ? matchedRoleIds
+            : (matchedRoleId ? [matchedRoleId] : []);
     }
 
     await populateRoleDropdown(staffId, 'edit-role', matchedRoleId);
