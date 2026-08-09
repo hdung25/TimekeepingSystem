@@ -461,6 +461,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // xử lý bên report.js). Cờ này do nơi gọi tính sẵn cho cả tháng rồi truyền xuống.
     const early10PenaltyActive = !!(monthFlags && monthFlags.early10PenaltyActive);
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+    // Giữ lịch gốc trước khi khử trùng các lớp dạy cùng khung giờ. Bộ khử trùng
+    // phục vụ tính lương/chip lớp, nhưng không được làm mất mốc lịch khi đối
+    // soát một chuỗi tiếp tân → dạy có chip trung gian đã bị xoá.
+    const originalSchedule = schedule && typeof schedule === 'object' ? schedule : {};
     const chips = [];
     const usedSessionIdsTeaching = new Set();
 
@@ -1598,11 +1602,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // display boundary when a later, real teaching session is present but an
     // earlier segment has no attendance record. It must never create paid
     // minutes or a Firestore session.
-    const _scheduledTeachingChain = (chainStart, branch) => {
+    const _scheduledTeachingChain = (chainStart, branch, scheduleSource = originalSchedule) => {
         const slots = [];
         const seen = new Set();
         sections.forEach(secKey => {
-            (schedule[secKey] || []).forEach((cls, idx) => {
+            (scheduleSource[secKey] || []).forEach((cls, idx) => {
                 if (!cls || !cls.start || !cls.end) return;
                 if (cls.isClosed === true) return;
                 const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
@@ -1712,7 +1716,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // Restrict this fallback to admin-edited attendance so normal
             // employee clocking cannot be converted into schedule-only pay.
             if (!receptionSession.isAdminEdited) return null;
-            const scheduledChain = _scheduledTeachingChain(receptionEnd, branch);
+            // Dùng lịch gốc, không dùng schedule đã khử trùng. Nếu cùng giờ có
+            // nhiều lớp hoặc chip đầu chuỗi bị xoá, schedule đã khử trùng có thể
+            // không còn mốc đầu để nối với chip dạy thực tế phía sau.
+            const scheduledChain = _scheduledTeachingChain(receptionEnd, branch, originalSchedule);
             if (!scheduledChain || scheduledChain.segments.length < 2) return null;
 
             const actualSegments = [];

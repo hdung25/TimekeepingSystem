@@ -553,7 +553,7 @@ function observation(lateMinutes) {
     // REGRESSION: phiên sáng kết thúc sát giờ bắt đầu ca cố định không được
     // chiếm chip chiều. Phiên đúng 13:33 phải được ghép vào ca 13:30–18:00.
     const fixedReception = {
-        roles: ['teaching_assistant', 'tiep-tan'],
+        roles: ['teaching_assistant', 'receptionist'],
         salary_config: { receptionist_normal_rate: 30000 }
     };
     const fixedSchedule = { morning1: [], evening1: [] };
@@ -680,7 +680,7 @@ function observation(lateMinutes) {
     // 18:00 đã bị xoá, nhưng chip Pre-I2 19:30–21:00 vẫn còn. Khác kiểu chữ
     // ở mã cơ sở không được làm mất chuỗi 13:30–21:00 trên bảng công.
     const huyUser = {
-        roles: ['teaching_assistant', 'tiep-tan'],
+        roles: ['teaching_assistant', 'receptionist'],
         salary_config: {
             receptionist_normal_rate: 30000,
             roles: [{ id: 'subject-ffs', name: 'FFS01', rate: 100000 }, { id: 'subject-pre', name: 'Pre- I2', rate: 100000 }]
@@ -688,10 +688,10 @@ function observation(lateMinutes) {
     };
     const huySchedule = {
         evening1: [
-            { start: '18:00', end: '19:30', lop: 'FFS01', lopId: 'subject-ffs', gvId: staffId, registeredTeachers: [], _branch: 'CS1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 0 },
-            { start: '18:00', end: '19:30', lop: 'FFS02', lopId: 'subject-ffs', gvId: staffId, registeredTeachers: [], _branch: 'CS1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 1 }
+            { start: '18:00', end: '19:30', lop: 'FFS01', lopId: 'subject-ffs', gvId: staffId, gvThayTheId: staffId, registeredTeachers: [], _branch: 'cs1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 0 },
+            { start: '18:00', end: '19:30', lop: 'FFS02', lopId: 'subject-ffs', gvId: staffId, registeredTeachers: [], _branch: 'cs1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 1 }
         ],
-        evening2: [{ start: '19:30', end: '21:00', lop: 'Pre- I2', lopId: 'subject-pre', gvId: staffId, registeredTeachers: [], _branch: 'CS1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 0 }]
+        evening2: [{ start: '19:30', end: '21:00', lop: 'Pre- I2', lopId: 'subject-pre', gvId: staffId, registeredTeachers: [], _branch: 'cs1', _compositeKey: 'cs1__2026-07-04', _originalIndex: 0 }]
     };
     const huySessions = [
         { id: 'huy-reception', isAdminEdited: true, checkIn: '2026-07-04T13:30:00+07:00', checkOut: '2026-07-04T18:00:00+07:00', role: 'tiep-tan', roleName: 'Tiếp Tân' },
