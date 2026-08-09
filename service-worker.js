@@ -1,5 +1,5 @@
 // Service Worker v69 - network-first for app shell/assets, cache fallback for offline.
-const CACHE_NAME = 'tdt-chamcong-v111-quang-huy-chip-fix-20260809';
+const CACHE_NAME = 'tdt-chamcong-v112-manual-subject-prefill-20260809';
 
 const STATIC_ASSETS = [
     '/',
@@ -23,7 +23,7 @@ const STATIC_ASSETS = [
     '/js/main.js?v=20260808-combined-v1',
     '/js/firebase-config.js',
     '/js/db-service.js?v=20260809-payroll-safety-v2',
-    '/js/report.js?v=20260809-chip-policy-v2',
+    '/js/report.js?v=20260809-manual-subject-prefill-v1',
     '/js/evaluation-service.js?v=20260809-chip-subject-v2',
     '/js/shift-oversight.js?v=20260717-gv-absence-v1',
     '/js/ui-service.js?v=20260808-combined-v1',
