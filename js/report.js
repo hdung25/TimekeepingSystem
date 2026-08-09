@@ -2362,20 +2362,9 @@ async function renderMonthReport(date, forceServer = false) {
         totalHoursEl.innerText = `Tổng giờ làm: ${h} giờ ${m} phút`;
     }
 
-    // Auto-save any auto-assigned roles
-    const autoAssigned = window.allMonthChips.filter(c => c.sessionData && c.sessionData._autoAssignedRole);
-    if (autoAssigned.length > 0) {
-        autoAssigned.forEach(chip => {
-            const dateStr = chip.dateStr;
-            if (chip.sessionId && dateStr) {
-                const roleObj = { id: chip.sessionData.role, name: chip.sessionData.roleName };
-                if (chip.sessionData.roleRate !== undefined) roleObj.rate = chip.sessionData.roleRate;
-                // Call DBService.updateSessionRole silently
-                DBService.updateSessionRole(staffId, dateStr, chip.sessionId, roleObj).catch(e => console.warn('Auto-save role failed:', e));
-                chip.sessionData._autoAssignedRole = false; // prevent double save
-            }
-        });
-    }
+    // Rendering payroll must be read-only. A role may only be persisted from
+    // an explicit administrator action in the edit modal; never infer then
+    // silently write it back while the calendar is being viewed.
 
     // Dynamic chip dropdown population
     const displayFilterEl = document.getElementById('display-role-filter');
@@ -5108,6 +5097,7 @@ async function saveEditedTime() {
     if (selectedRoleId === 'tiep-tan') {
         newData.role = 'tiep-tan';
         newData.roleName = 'Tiếp Tân';
+        newData.roleAssignmentSource = 'manual';
         newData.subjectOverride = false;
         
         const checkedRadio = document.querySelector('input[name="edit-shift-type"]:checked');
@@ -5141,6 +5131,7 @@ async function saveEditedTime() {
         
         newData.role = selectedSubjects.map(s => s.id).join('+');
         newData.roleName = selectedSubjects.map(s => s.name).join(' + ');
+        newData.roleAssignmentSource = 'manual';
         // Average rate
         const totalRate = selectedSubjects.reduce((sum, s) => sum + s.rate, 0);
         newData.roleRate = totalRate / selectedSubjects.length;
@@ -5155,6 +5146,7 @@ async function saveEditedTime() {
         newData.role = null;
         newData.roleName = null;
         newData.roleRate = 0;
+        newData.roleAssignmentSource = null;
         newData.subjectOverride = false;
     }
 

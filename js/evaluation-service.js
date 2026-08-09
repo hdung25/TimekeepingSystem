@@ -1155,71 +1155,38 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     const actualEnd = safeDate(matchedSession.checkOut);
                     if (!actualStart || !actualEnd) return; // skip sessions with invalid timestamps
 
-                    const diffMs = schedStart - actualStart; // >0 = vào sớm, <0 = trễ
-
-                    const actualStartStr = actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                    const actualEndStr = actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-                    // Lấy thời gian làm việc thực tế nằm trong khung giờ lịch
+                    // Một chip đã khớp ca/lớp trong lịch luôn hiển thị và tính
+                    // trong khung lịch. Giờ vào sớm/ra muộn chỉ là trạng thái
+                    // đối soát; không được làm chip dài hơn ca đã xếp. Giờ vào
+                    // trễ hoặc ra sớm mới cắt phần công chưa có mặt.
                     const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
                     const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
                     minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
-
                     let isLate = effectiveLateMinutes > 0;
-                    if (matchedSession.isAdminEdited) {
-                        // QUY TẮC GĐ: giờ admin đã sửa là NGUỒN SỰ THẬT — tính đủ phút theo đúng
-                        // khoảng admin đặt, KHÔNG cắt theo khung giờ lịch. (Trước đây admin sửa
-                        // 18:00–20:00 vẫn bị cắt còn 1h30 theo lịch 18:00–19:30; sửa 17:50–19:30
-                        // bị cắt còn 40p vì lịch lớp 17:00–18:30 — giống nhánh tiếp tân đã làm đúng.)
-                        minutes = Math.max(0, Math.round((actualEnd - actualStart) / 60000));
-                        label = `${actualStartStr}–${actualEndStr}${_labelBranchSuffix}`;
-                    } else {
-                        const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
-                        const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
-                        minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
+                    let isEarlyCheckout = false;
 
-                        // Ghi chú vào sớm. Trễ được áp dụng thống nhất ở dưới.
-                        if (actualStart < schedStart) {
-                            const earlyMins = Math.round((schedStart - actualStart) / 60000);
-                            if (earlyMins > 0) {
-                                tooltip += ` | Vào sớm ${earlyMins}p`;
-                            }
-                        }
-
-                        // Ghi chú về sớm
-                        if (actualEnd < schedEnd) {
-                            const earlyCheckoutMins = Math.round((schedEnd - actualEnd) / 60000);
-                            if (earlyCheckoutMins > 0) {
-                                label += ` (V${earlyCheckoutMins}p)`;
-                            }
+                    if (actualStart < schedStart) {
+                        const earlyMins = Math.round((schedStart - actualStart) / 60000);
+                        if (earlyMins > 0) tooltip += ` | Vào sớm ${earlyMins}p`;
+                    }
+                    if (actualEnd < schedEnd) {
+                        const earlyCheckoutMins = Math.round((schedEnd - actualEnd) / 60000);
+                        if (earlyCheckoutMins > 0) {
+                            label += ` (V${earlyCheckoutMins}p)`;
+                            tooltip += ` | Về sớm ${earlyCheckoutMins}p`;
+                            isEarlyCheckout = true;
                         }
                     }
 
-                    if (matchedSession.isAdminEdited) {
-                        // Admin đã xác nhận giờ → không gắn cờ trễ (T..p) theo lịch cũ nữa;
-                        // chỉ giữ ghi nhận trễ TAY của tiếp tân (nếu có) và ghi chú quan sát.
-                        isLate = manualLateMinutes > 0;
-                        if (manualLateMinutes > 0) {
-                            label += ` (T${manualLateMinutes}p)`;
-                            tooltip += ` | Tiếp tân ghi nhận ${manualLateMinutes}p`;
-                            minutes = Math.max(0, minutes - manualLateMinutes);
-                        } else if (systemLateMinutes > 0) {
-                            tooltip += ` | Vào sau giờ lịch ${systemLateMinutes}p (admin đã xác nhận giờ)`;
-                        }
-                        if (observationSummary.notes.length > 0) {
-                            tooltip += ` | Ghi chú: ${observationSummary.notes.join(' / ')}`;
-                        }
-                    } else {
-                        // Khoảng chấm công đã tự khấu trừ số phút trễ hệ thống.
-                        // Chỉ khấu trừ phần lệnh tiếp tân vượt quá số phút đó.
-                        if (manualLateMinutes > systemLateMinutes) {
-                            minutes = Math.max(0, minutes - (manualLateMinutes - systemLateMinutes));
-                        }
-                        appendLateDetails();
+                    // Số phút trễ do log đã được loại khỏi khoảng giao ở trên.
+                    // Nếu tiếp tân xác nhận mức lớn hơn thì chỉ trừ phần chênh.
+                    if (manualLateMinutes > systemLateMinutes) {
+                        minutes = Math.max(0, minutes - (manualLateMinutes - systemLateMinutes));
                     }
+                    appendLateDetails();
 
-                    _paidFrom = matchedSession.isAdminEdited ? actualStart : effectiveStart;
-                    _paidTo = matchedSession.isAdminEdited ? actualEnd : effectiveEnd;
+                    _paidFrom = effectiveStart;
+                    _paidTo = effectiveEnd;
 
                     // Hiển thị thông tin nếu ra muộn (chỉ để tham khảo, không tính lương)
                     if (actualEnd > schedEnd) {
@@ -1282,13 +1249,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             resolvedRoleName = _autoMatch.name || cls.lop || 'Môn học';
                             resolvedRoleRate = _autoMatch.rate;
                             
-                            // Auto-save session role if currently empty in DB
-                            if (!matchedSession.role) {
-                                matchedSession.role = _autoMatch.id;
-                                matchedSession.roleName = _autoMatch.name || cls.lop || 'Môn học';
-                                matchedSession.roleRate = _autoMatch.rate;
-                                matchedSession._autoAssignedRole = true;
-                            }
                         } else {
                             const defaultTeachingRole = _cfgAuto.find(r => r.isDefault);
                             if (defaultTeachingRole) {
@@ -1296,23 +1256,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                                 resolvedRoleName = defaultTeachingRole.name;
                                 resolvedRoleRate = defaultTeachingRole.rate;
                                 
-                                if (!matchedSession.role) {
-                                    matchedSession.role = defaultTeachingRole.id;
-                                    matchedSession.roleName = defaultTeachingRole.name;
-                                    matchedSession.roleRate = defaultTeachingRole.rate;
-                                    matchedSession._autoAssignedRole = true;
-                                }
                             } else if (_cfgAuto.length === 1) {
                                 resolvedRole = _cfgAuto[0].id;
                                 resolvedRoleName = _cfgAuto[0].name;
                                 resolvedRoleRate = _cfgAuto[0].rate;
                                 
-                                if (!matchedSession.role) {
-                                    matchedSession.role = _cfgAuto[0].id;
-                                    matchedSession.roleName = _cfgAuto[0].name;
-                                    matchedSession.roleRate = _cfgAuto[0].rate;
-                                    matchedSession._autoAssignedRole = true;
-                                }
                             }
                         }
                     }
@@ -1366,7 +1314,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                     }
 
-                    cssClass = isLate ? 'chip-orange' : 'chip-green';
+                    cssClass = (isLate || isEarlyCheckout) ? 'chip-orange' : 'chip-green';
                     tooltip += ' - Đã chấm công đầy đủ';
                     isClickable = true;
                 } else {
@@ -1663,6 +1611,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         const roleName = removeVietnameseTones(String(session?.roleName || '').toLowerCase());
         return ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(role) ||
             roleName.includes('tieptan') || roleName.includes('reception');
+    };
+
+    // Chỉ vai trò do quản trị viên chọn rõ ràng mới tạo ca tiếp tân ngoài
+    // lịch. Các role do màn hình từng suy luận/lưu tự động không đủ căn cứ để
+    // biến phần dư của một phiên dạy thành giờ công.
+    const _hasManuallyConfirmedReceptionRole = session => {
+        if (!_isReceptionistSession(session)) return false;
+        return session?.roleAssignmentSource === 'manual' ||
+            session?.roleAssignmentSource === 'admin_manual' ||
+            session?.roleAssignmentSource === 'manual_override';
     };
 
     // Build the scheduled teaching chain for a branch. This is used only as a
@@ -2116,10 +2074,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const _effectiveActualStartR = actualStart && actualStart < schedStart
                     ? schedStart
                     : actualStart;
-                const _recepWinStart = matchedSession.isAdminEdited ? _effectiveActualStartR : schedStart;
-                const _recepWinEnd = matchedSession.isAdminEdited
-                    ? logicalEndR
-                    : logicalSchedEndR;
+                // Ca tiếp tân đã xếp cũng phải bám khung lịch. Bản sửa tay
+                // chỉ xác nhận mốc vào/ra và trạng thái trễ/về sớm, không làm
+                // một chip lịch bị kéo dài ra ngoài ca.
+                const _recepWinStart = schedStart;
+                const _recepWinEnd = logicalSchedEndR;
                 _daySegments = buildCrossRoleDaySegments(
                     _recepWinStart,
                     _recepWinEnd,
@@ -2150,76 +2109,33 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualStartStr = actualStart ? actualStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
                 const actualEndStr = actualEnd ? actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
-                if (matchedSession.isAdminEdited) {
-                    const fullActualMinutes = Math.max(0, Math.round((logicalEndR - _effectiveActualStartR) / 60000));
-                    minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes - inferredMissingTeachingMinutes);
-                    const displayActualStartStr = _effectiveActualStartR
-                        ? _effectiveActualStartR.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-                        : actualStartStr;
-                    const displayActualEndStr = logicalEndR
-                        ? logicalEndR.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-                        : actualEndStr;
-                    label = `${labelShort} ${displayActualStartStr}–${displayActualEndStr}${branchShortR}`;
-                    
-                    // Ghi chú đi trễ kể cả khi admin đã sửa
-                    if (actualStart > schedStart) {
-                        const lateMinutesRaw = Math.round((actualStart - schedStart) / 60000);
-                        if (lateMinutesRaw > 0) {
-                            isLate = true;
-                            label += ` (T${lateMinutesRaw}p)`;
-                        }
-                    } else if (actualStart < schedStart) {
-                        const earlyMins = Math.round((schedStart - actualStart) / 60000);
-                        if (earlyMins > 0) {
-                            tooltip += ` | Vào sớm ${earlyMins}p`;
-                        }
+                if (_crossRoleChain) {
+                    const displayStartR = schedStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    label = `${labelShort} ${displayStartR}–${_crossRoleChain.endText}${branchShortR}`;
+                }
+                let isEarlyCheckout = false;
+                if (actualStart > schedStart) {
+                    const lateMinutesRaw = Math.round((actualStart - schedStart) / 60000);
+                    if (lateMinutesRaw > 0) {
+                        isLate = true;
+                        label += ` (T${lateMinutesRaw}p)`;
                     }
+                } else if (actualStart < schedStart) {
+                    const earlyMins = Math.round((schedStart - actualStart) / 60000);
+                    if (earlyMins > 0) tooltip += ` | Vào sớm ${earlyMins}p`;
+                }
 
-                    // Ghi chú về sớm kể cả khi admin đã sửa
-                    if (actualEnd < schedEnd) {
-                        const earlyCheckoutMins = Math.round((schedEnd - actualEnd) / 60000);
-                        if (earlyCheckoutMins > 0) {
-                            label += ` (V${earlyCheckoutMins}p)`;
-                        }
+                if (actualEnd < schedEnd) {
+                    const earlyCheckoutMins = Math.round((schedEnd - actualEnd) / 60000);
+                    if (earlyCheckoutMins > 0) {
+                        label += ` (V${earlyCheckoutMins}p)`;
+                        tooltip += ` | Về sớm ${earlyCheckoutMins}p`;
+                        isEarlyCheckout = true;
                     }
-
-                    // Hiển thị nếu ra muộn vượt ca kể cả khi admin đã sửa
-                    if (actualEnd > schedEnd) {
-                        const overMins = Math.round((actualEnd - schedEnd) / 60000);
-                        tooltip += ` | Ra muộn ${overMins}p`;
-                    }
-                } else {
-                    if (_crossRoleChain) {
-                        const displayStartR = schedStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                        label = `${labelShort} ${displayStartR}–${_crossRoleChain.endText}${branchShortR}`;
-                    }
-                    // Ghi chú đi trễ
-                    if (actualStart > schedStart) {
-                        const lateMinutesRaw = Math.round((actualStart - schedStart) / 60000);
-                        if (lateMinutesRaw > 0) {
-                            isLate = true;
-                            label += ` (T${lateMinutesRaw}p)`;
-                        }
-                    } else if (actualStart < schedStart) {
-                        const earlyMins = Math.round((schedStart - actualStart) / 60000);
-                        if (earlyMins > 0) {
-                            tooltip += ` | Vào sớm ${earlyMins}p`;
-                        }
-                    }
-
-                    // Ghi chú về sớm
-                    if (actualEnd < schedEnd) {
-                        const earlyCheckoutMins = Math.round((schedEnd - actualEnd) / 60000);
-                        if (earlyCheckoutMins > 0) {
-                            label += ` (V${earlyCheckoutMins}p)`;
-                        }
-                    }
-
-                    // Hiển thị nếu ra muộn vượt ca (chỉ tham khảo, không tính lương)
-                    if (actualEnd > schedEnd) {
-                        const overMins = Math.round((actualEnd - schedEnd) / 60000);
-                        tooltip += ` | Ra muộn ${overMins}p`;
-                    }
+                }
+                if (actualEnd > schedEnd) {
+                    const overMins = Math.round((actualEnd - schedEnd) / 60000);
+                    tooltip += ` | Ra muộn ${overMins}p`;
                 }
 
                 // TRẦN AN TOÀN cho ca tiếp tân: không tính quá giờ lịch ca (đã theo chuỗi gộp) + biên 60p.
@@ -2237,12 +2153,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     chipSessionData.roleRate = Number(currentUserContext.salary_config.receptionist_normal_rate);
                 }
 
-                // Auto-assign: ca khớp lịch tiếp tân → tự động gán 'tiep-tan'
-                if (!matchedSession.role) {
-                    matchedSession.role = 'tiep-tan';
-                    matchedSession.roleName = 'Tiếp Tân';
-                    matchedSession._autoAssignedRole = true; // Flag để auto-save sau
-                }
                 const _displayRoleNameR = chipSessionData.roleName || chipSessionData.role;
                 label += ` (${_displayRoleNameR})`;
                 tooltip += ` - Vai trò: ${_displayRoleNameR}`;
@@ -2273,7 +2183,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                 }
 
-                if (isLate) {
+                if (isLate || isEarlyCheckout) {
                     cssClass = 'chip-orange';
                 } else {
                     cssClass = 'chip-green';
@@ -2530,14 +2440,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         splitDay
                     )
                     : [];
-                // Bỏ phần lẻ dưới 10 phút do vào sớm/ra muộn quanh ca dạy;
-                // đó không phải một ca tiếp tân riêng để sinh chip cảnh báo.
-                const hasReceptionRoleOnSession = _isReceptionistSession(s);
-                // Với phiên không có role, khoảng nghỉ ngắn nằm giữa hai ca
-                // dạy chỉ là khoảng trống lịch; không phải một ca mới.
+                // Không có xác nhận tiếp tân thủ công thì phần thời gian dư
+                // chỉ là chứng cứ của lần vào/ra chung với ca dạy. Không được
+                // tạo Role? hay Tiếp Tân ngoài lịch, kể cả khoảng dư dài.
+                const hasReceptionRoleOnSession = _hasManuallyConfirmedReceptionRole(s);
+                if (!hasReceptionRoleOnSession) return;
+                // Với phiên tiếp tân đã được xác nhận, khoảng nghỉ ngắn nằm
+                // giữa hai ca dạy chỉ là khoảng trống lịch, không phải ca mới.
                 const remainingSegments = splitSegments.filter((segment, index) => {
                     if (segment.kind !== 'tiep-tan' || segment.minutes < 10) return false;
-                    if (hasReceptionRoleOnSession) return true;
                     const previous = splitSegments[index - 1];
                     const next = splitSegments[index + 1];
                     const isShortGapBetweenTeaching = segment.minutes <= 20 &&

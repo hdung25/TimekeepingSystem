@@ -133,8 +133,8 @@ function observation(lateMinutes) {
         checkOut: '2026-07-14T02:00:00.000Z',
         isAdminEdited: true
     });
-    assert.equal(chips[0].class, 'chip-green');
-    assert.ok(!/\(T\d+p\)/.test(chips[0].text), 'admin-edited không gắn cờ trễ hệ thống');
+    assert.equal(chips[0].class, 'chip-orange');
+    assert.match(chips[0].text, /\(T3p\)/, 'admin-edited phải báo trễ theo lịch');
     assert.equal(chips[0].paidMinutes, 87); // 07:33–09:00 đủ theo giờ admin
 }
 
@@ -186,7 +186,7 @@ function observation(lateMinutes) {
     }, [observation(5)]);
     assert.equal(chips[0].class, 'chip-orange');
     assert.match(chips[0].text, /\(T5p\)/);
-    assert.equal(chips[0].paidMinutes, 82); // 87p − 5p ghi nhận tay
+    assert.equal(chips[0].paidMinutes, 85); // 90p theo lịch − 5p ghi nhận tay
 }
 
 {
@@ -723,7 +723,7 @@ function observation(lateMinutes) {
         morning1: [{ start: '07:30', end: '09:00', lop: 'EMN', lopId: 'subject-emn', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
     };
     const dualRoleSession = [{
-        id: 'huy-long-session', role: 'tiep-tan', roleName: 'Tiếp Tân',
+        id: 'huy-long-session', role: 'tiep-tan', roleName: 'Tiếp Tân', roleAssignmentSource: 'manual',
         checkIn: '2026-07-18T07:30:00+07:00', checkOut: '2026-07-18T13:30:00+07:00'
     }];
     const dualRoleChips = context.window.calculateDailyChips(dualRoleSchedule, dualRoleSession, staffId, '2026-07-18', dualRoleUser);
@@ -1018,9 +1018,10 @@ function observation(lateMinutes) {
         !huySplitChips.some(c => c.sourceSessionSplit && /15:30–18:30 \(Role\?\)/.test(c.text)),
         'Huy: không được sinh Role? trùng nguyên ca chiều'
     );
-    const huyMorningRemainder = huySplitChips.find(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text));
-    assert.ok(huyMorningRemainder, 'Huy: chỉ phần giữa hai ca mới còn Role? để admin đối soát');
-    assert.equal(huyMorningRemainder.paidMinutes, 0, 'Huy: phần chưa có role không được cộng tổng giờ/lương');
+    assert.ok(
+        !huySplitChips.some(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text)),
+        'Huy: phần dư của phiên dùng cho ca dạy phải biến mất hoàn toàn'
+    );
 }
 
 {
@@ -1057,13 +1058,79 @@ function observation(lateMinutes) {
         [{ id: 'huy-long-unknown', checkIn: '2026-07-26T07:30:00+07:00', checkOut: '2026-07-26T15:30:00+07:00' }],
         staffId, '2026-07-26', unknownRemainderUser
     );
-    const unknownRemainder = unknownRemainderChips.find(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text));
-    assert.ok(unknownRemainder, 'giữ phần thời gian chưa xác minh để admin đối soát');
-    assert.equal(unknownRemainder.paidMinutes, 0, 'Role? không được cộng giờ trước khi chọn vai trò');
+    assert.ok(
+        !unknownRemainderChips.some(c => c.sourceSessionSplit && /09:00–15:30 \(Role\?\)/.test(c.text)),
+        'phần dư của phiên dạy không được hiện Role?'
+    );
     assert.equal(
         unknownRemainderChips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 90,
         'tổng giờ chỉ còn ca dạy đã xác định'
     );
+}
+
+{
+    // Ca đã xếp luôn bị chặn trong khung lịch, kể cả giờ admin đã nhập để
+    // đối soát lệch vài phút. Đây là hai mẫu 12/07 của Huy: 07:26–09:05 và
+    // 15:27–18:32 không được làm tổng thành 4h44 thay vì 4h30.
+    const boundedUser = { roles: ['teaching_assistant'], salary_config: {} };
+    const boundedSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        afternoon2: [{ start: '15:30', end: '18:30', lop: 'Mover 1 + E5+UP 2', lopId: 'subject-mover', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const boundedChips = context.window.calculateDailyChips(
+        boundedSchedule,
+        [
+            { id: 'huy-early-late-am', isAdminEdited: true, checkIn: '2026-07-12T07:26:00+07:00', checkOut: '2026-07-12T09:05:00+07:00' },
+            { id: 'huy-early-late-pm', isAdminEdited: true, checkIn: '2026-07-12T15:27:00+07:00', checkOut: '2026-07-12T18:32:00+07:00' }
+        ],
+        staffId, '2026-07-12', boundedUser
+    );
+    const boundedMorning = boundedChips.find(c => c.isTeaching && /07:30–09:00/.test(c.text));
+    const boundedAfternoon = boundedChips.find(c => c.isTeaching && /15:30–18:30/.test(c.text));
+    assert.equal(boundedMorning.paidMinutes, 90, 'ca sáng chỉ tính đúng 1h30 theo lịch');
+    assert.equal(boundedAfternoon.paidMinutes, 180, 'ca chiều chỉ tính đúng 3h theo lịch');
+    assert.equal(boundedChips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 270, 'tổng hai chip phải là 4h30');
+}
+
+{
+    // Phiên có role Tiếp Tân do lỗi auto-save cũ nhưng không mang marker chọn
+    // tay không được đẻ ra ca ngoài lịch sau khi đã dùng để nhận ca dạy.
+    const legacyAutoRoleUser = { roles: ['teaching_assistant', 'receptionist'], salary_config: {} };
+    const legacyAutoRoleSchedule = {
+        morning1: [{ start: '07:30', end: '09:00', lop: 'EMN', lopId: 'subject-emn', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const legacyAutoRoleChips = context.window.calculateDailyChips(
+        legacyAutoRoleSchedule,
+        [{
+            id: 'huy-legacy-auto-reception',
+            checkIn: '2026-07-18T07:30:00+07:00',
+            checkOut: '2026-07-18T13:30:00+07:00',
+            role: 'tiep-tan', roleName: 'Tiếp Tân'
+        }],
+        staffId, '2026-07-18', legacyAutoRoleUser
+    );
+    assert.ok(!legacyAutoRoleChips.some(c => /Tiếp Tân ngoài lịch/.test(c.text)), 'role tự lưu cũ không được sinh ca tiếp tân ngoài lịch');
+    assert.equal(legacyAutoRoleChips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 90, 'chỉ còn ca dạy đã xếp được tính');
+}
+
+{
+    // Có chấm công cho 18:00–19:30 nhưng ra lúc 19:17: phải báo về sớm và
+    // chuyển cam, không được xanh như đã làm đủ; ca 19:30–21:00 vẫn vắng vì
+    // không có lần vào ca/phiên nào bao phủ nó.
+    const partialSchedule = {
+        evening1: [{ start: '18:00', end: '19:30', lop: 'FFS01', lopId: 'subject-ffs', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        evening2: [{ start: '19:30', end: '21:00', lop: 'Pre- I2', lopId: 'subject-pre', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const partialChips = context.window.calculateDailyChips(
+        partialSchedule,
+        [{ id: 'huy-left-early', checkIn: '2026-07-11T17:58:00+07:00', checkOut: '2026-07-11T19:17:00+07:00' }],
+        staffId, '2026-07-11', { roles: ['teaching_assistant'], salary_config: {} }
+    );
+    const partialWorked = partialChips.find(c => c.isTeaching && /18:00–19:30/.test(c.text));
+    assert.equal(partialWorked.class, 'chip-orange', 'về sớm phải là chip cam');
+    assert.match(partialWorked.text, /\(V13p\)/, 'chip phải ghi rõ số phút về sớm');
+    assert.equal(partialWorked.paidMinutes, 77, 'chỉ tính phần thời gian có mặt thực tế');
+    assert.ok(partialChips.some(c => /19:30–21:00.*\(V\)/.test(c.text)), 'không được tự bịa lần vào ca cho ca liền sau');
 }
 
 {

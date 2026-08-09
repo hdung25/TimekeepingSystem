@@ -1472,6 +1472,10 @@ const DBService = {
                 const session = data.sessions[index];
                 session.role = roleData.id || '';
                 session.roleName = roleData.name || '';
+                // This API is reached from a deliberate role choice. Keep a
+                // source marker so evaluation never mistakes a historical
+                // auto-inferred role for an approved outside-schedule shift.
+                session.roleAssignmentSource = 'manual';
                 if (roleData.rate !== undefined && roleData.rate !== null) {
                     session.roleRate = roleData.rate;
                 } else if (session.roleRate !== undefined) {
