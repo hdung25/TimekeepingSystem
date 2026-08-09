@@ -473,6 +473,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     const usedSessionIdsReceptionist = new Set();
     const teachingMinutesMap = {}; // sessionId -> total teaching minutes
     const teachingSessionsMap = {}; // sessionId -> array of teaching shifts {start, end, paidMinutes}
+    // Nhóm daySegments theo id phiên để phiên dạy riêng vẫn nhìn thấy cùng một
+    // chuỗi ngày làm khi phiên tiếp tân và phiên dạy được tạo thành 2 bản ghi.
+    // Đây chỉ là chỉ mục trong bộ nhớ, không ghi ngược vào Firestore.
+    const crossRoleDaySegmentsBySession = {};
 
     // === MỘT KHUNG GIỜ CHỈ TÍNH CÔNG MỘT LẦN ===
     // GV dạy 2 lớp cùng khung giờ (hoặc có 2 phiên chấm bù trùng giờ) thì bảng công sinh
@@ -1338,7 +1342,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                             start: seg.start,
                             end: seg.end,
                             lop: seg.lop || cls.lop || '',
-                            paidMinutes: minutes
+                            paidMinutes: minutes,
+                            branch: seg.branch || cls._branch || ''
                         });
                     });
                 }
@@ -1483,6 +1488,101 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // ==================== RECEPTIONIST SHIFTS ====================
     // Process receptionist schedule shifts (from lich-tiep-tan.html)
     // receptionistShifts = [{ shift: 'morning', label: 'SÁNG', start: '07:00', end: '11:30' }, ...]
+
+    // Một ngày có thể được lưu thành 2 phiên độc lập: phiên tiếp tân kết thúc
+    // đúng lúc phiên dạy bắt đầu. Trước đây phần tiếp tân chỉ tìm teaching
+    // segments theo đúng id phiên của nó, nên sau khi admin xoá/tạo lại chip dạy
+    // thì chuỗi bị đứt dù lịch và dữ liệu chấm công đều hợp lệ.
+    //
+    // Quy tắc an toàn của chỉ mục này:
+    // - Chỉ xét phiên dạy đã được calculate ở trên và có checkout thật.
+    // - Chỉ nối đúng mốc lịch liên tục (ca tiếp tân kết thúc = ca dạy bắt đầu).
+    // - Không sửa object attendanceSessions và không tạo bản ghi mới.
+    const _attendanceByIdForCrossRole = new Map(
+        (Array.isArray(attendanceSessions) ? attendanceSessions : [])
+            .filter(s => s && s.id !== undefined && s.id !== null)
+            .map(s => [String(s.id), s])
+    );
+    const _toCrossRoleDate = (timeStr) => {
+        if (!timeStr || !String(timeStr).includes(':')) return null;
+        const [h, m] = String(timeStr).split(':').map(Number);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+        const [y, mo, d] = String(dateStr).split('-').map(Number);
+        const result = new Date(y, mo - 1, d, h, m, 0, 0);
+        return Number.isNaN(result.getTime()) ? null : result;
+    };
+    const _formatCrossRoleTime = dt => dt
+        ? `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+        : '';
+    const _findAdjacentTeachingChain = (receptionSession, receptionEnd, branch) => {
+        if (!receptionSession || !receptionEnd) return null;
+
+        const receptionCheckOut = safeDate(receptionSession.checkOut);
+        // Không kéo dài một ca đã checkout trước giờ kết thúc lịch để “ăn” vào
+        // một ca dạy sau đó. Trường hợp này cần admin xác nhận riêng.
+        if (!receptionCheckOut || receptionCheckOut < receptionEnd) return null;
+
+        let cursor = receptionEnd;
+        const selectedSessionIds = [];
+        const selectedSegments = [];
+        const consumedSessionIds = new Set();
+        let changed = true;
+
+        while (changed) {
+            changed = false;
+            for (const [sessionId, rawSegments] of Object.entries(teachingSessionsMap)) {
+                if (String(sessionId) === String(receptionSession.id) || consumedSessionIds.has(String(sessionId))) continue;
+                const teachingSession = _attendanceByIdForCrossRole.get(String(sessionId));
+                if (!teachingSession || teachingSession.isAbsent) continue;
+
+                const teachingCheckIn = safeDate(teachingSession.checkIn || teachingSession.start);
+                const teachingCheckOut = safeDate(teachingSession.checkOut);
+                if (!teachingCheckIn || !teachingCheckOut) continue;
+
+                const segments = (Array.isArray(rawSegments) ? rawSegments : [])
+                    .map(seg => ({ ...seg, _startDate: _toCrossRoleDate(seg.start), _endDate: _toCrossRoleDate(seg.end) }))
+                    .filter(seg => seg._startDate && seg._endDate && seg._endDate > seg._startDate)
+                    .filter(seg => !branch || !seg.branch || seg.branch === branch)
+                    .sort((a, b) => a._startDate - b._startDate);
+                if (segments.length === 0) continue;
+
+                const first = segments.find(seg =>
+                    seg._startDate.getTime() === cursor.getTime() &&
+                    teachingCheckIn <= seg._startDate &&
+                    teachingCheckOut >= seg._endDate
+                );
+                if (!first) continue;
+
+                const chain = [first];
+                let chainEnd = first._endDate;
+                segments.forEach(seg => {
+                    if (seg === first) return;
+                    if (seg._startDate.getTime() === chainEnd.getTime() && teachingCheckOut >= seg._endDate) {
+                        chain.push(seg);
+                        chainEnd = seg._endDate;
+                    }
+                });
+
+                consumedSessionIds.add(String(sessionId));
+                selectedSessionIds.push(sessionId);
+                chain.forEach(seg => {
+                    const { _startDate, _endDate, ...cleanSegment } = seg;
+                    selectedSegments.push(cleanSegment);
+                });
+                cursor = chainEnd;
+                changed = true;
+                break;
+            }
+        }
+
+        if (selectedSegments.length === 0) return null;
+        return {
+            sessionIds: selectedSessionIds,
+            segments: selectedSegments,
+            end: cursor,
+            endText: _formatCrossRoleTime(cursor)
+        };
+    };
 
     receptionistShifts = mergeAdjacentShifts(receptionistShifts);
 
@@ -1698,6 +1798,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 }
             }
 
+            // Nhận diện chuỗi tiếp tân -> dạy từ 2 phiên chấm công độc lập.
+            // `matchedSession` vẫn là phiên tiếp tân gốc để sửa/xoá đúng bản ghi;
+            // chỉ dùng `_crossRoleChain` cho cách tính và hiển thị trong bộ nhớ.
+            const _crossRoleChain = _findAdjacentTeachingChain(matchedSession, schedEnd, rs.branch);
+            const _crossRoleTeachingShifts = _crossRoleChain ? _crossRoleChain.segments : [];
+            const _crossRoleEnd = _crossRoleChain ? _crossRoleChain.end : null;
+
             if (matchedSession.checkOut) {
                 // === HAS CHECK-OUT ===
                 const actualStart = safeDate(matchedSession.checkIn || matchedSession.start);
@@ -1705,14 +1812,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 
                 // Lấy thời gian làm việc thực tế nằm trong khung giờ lịch
                 const effectiveStartR = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
-                const effectiveEndR = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
+                const logicalEndR = _crossRoleEnd || actualEnd;
+                const logicalSchedEndR = _crossRoleEnd || schedEnd;
+                const effectiveEndR = new Date(Math.min(logicalSchedEndR.getTime(), logicalEndR.getTime()));
                 minutes = Math.max(0, Math.round((effectiveEndR - effectiveStartR) / 60000));
 
                 // Subtract overlapping teaching minutes! (Issue 1)
                 // NGÀY 2 CHỨC NĂNG: khung ca tiếp tân bị lớp dạy "khoét" ra. Cắt khung thành các
                 // khúc rồi chỉ cộng khúc tiếp tân → 1 lần bấm vào ca vẫn ra đúng: dạy tính giá
                 // dạy, tiếp tân tính giá tiếp tân, không đoạn nào bị tính 2 lần.
-                const teachingShifts = teachingSessionsMap[matchedSession.id] || [];
+                const teachingShifts = [
+                    ...(teachingSessionsMap[matchedSession.id] || []),
+                    ..._crossRoleTeachingShifts
+                ];
                 // Giờ vào thực tế sớm hơn lịch vẫn giữ nguyên trong sessionData để
                 // đối soát, nhưng phần tính/hiển thị của chip phải bám giờ bắt đầu
                 // của chip. Ví dụ check-in 13:29 cho ca 13:30 thì tính từ 13:30.
@@ -1720,7 +1832,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     ? schedStart
                     : actualStart;
                 const _recepWinStart = matchedSession.isAdminEdited ? _effectiveActualStartR : schedStart;
-                const _recepWinEnd = matchedSession.isAdminEdited ? actualEnd : schedEnd;
+                const _recepWinEnd = matchedSession.isAdminEdited
+                    ? logicalEndR
+                    : logicalSchedEndR;
                 _daySegments = buildCrossRoleDaySegments(
                     _recepWinStart, _recepWinEnd, teachingShifts, _ry, _rm, _rd
                 );
@@ -1733,12 +1847,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const actualEndStr = actualEnd ? actualEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '??:??';
 
                 if (matchedSession.isAdminEdited) {
-                    const fullActualMinutes = Math.max(0, Math.round((actualEnd - _effectiveActualStartR) / 60000));
+                    const fullActualMinutes = Math.max(0, Math.round((logicalEndR - _effectiveActualStartR) / 60000));
                     minutes = Math.max(0, fullActualMinutes - overlappingTeachingMinutes);
                     const displayActualStartStr = _effectiveActualStartR
                         ? _effectiveActualStartR.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
                         : actualStartStr;
-                    label = `${labelShort} ${displayActualStartStr}–${actualEndStr}${branchShortR}`;
+                    const displayActualEndStr = logicalEndR
+                        ? logicalEndR.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                        : actualEndStr;
+                    label = `${labelShort} ${displayActualStartStr}–${displayActualEndStr}${branchShortR}`;
                     
                     // Ghi chú đi trễ kể cả khi admin đã sửa
                     if (actualStart > schedStart) {
@@ -1768,6 +1885,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ` | Ra muộn ${overMins}p`;
                     }
                 } else {
+                    if (_crossRoleChain) {
+                        const displayStartR = schedStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                        label = `${labelShort} ${displayStartR}–${_crossRoleChain.endText}${branchShortR}`;
+                    }
                     // Ghi chú đi trễ
                     if (actualStart > schedStart) {
                         const lateMinutesRaw = Math.round((actualStart - schedStart) / 60000);
@@ -1906,6 +2027,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const _tStr = _tH > 0 ? `${_tH}h${_tM > 0 ? _tM + 'p' : ''}` : `${_tM}p`;
                 label += ` (−${_tStr} dạy)`;
                 tooltip += ` | Ngày làm 2 chức năng: đã trừ ${_tStr} giờ dạy (${_teachingSegs.map(s => `${s.start}–${s.end} ${s.label}`).join(', ')}) — phần dạy tính ở chip riêng`;
+            }
+
+            if (_crossRoleChain && _daySegments.length > 1) {
+                const relatedSessionIds = [matchedSession.id, ..._crossRoleChain.sessionIds];
+                relatedSessionIds.forEach(id => {
+                    crossRoleDaySegmentsBySession[String(id)] = _daySegments;
+                });
+                tooltip += ' | Hệ thống nhận diện chuỗi tiếp tân → dạy liên tục từ các phiên chấm công riêng';
             }
 
             // === OVERTIME INTEGRATION (Receptionist) ===
@@ -2458,7 +2587,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // NGÀY 2 CHỨC NĂNG: chép bảng chia khúc sang chip ca DẠY cùng phiên, để admin bấm vào bất
     // kỳ chip nào của ngày đó cũng thấy đủ 3 khúc (trực – dạy – trực) trong ô chỉnh sửa.
     {
-        const segsBySession = {};
+        const segsBySession = { ...crossRoleDaySegmentsBySession };
         chips.forEach(c => {
             if (c.sessionId && Array.isArray(c.daySegments) && c.daySegments.length > 1) {
                 segsBySession[String(c.sessionId)] = c.daySegments;

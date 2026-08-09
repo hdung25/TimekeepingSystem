@@ -610,6 +610,71 @@ function observation(lateMinutes) {
 }
 
 {
+    // REGRESSION: tiếp tân và dạy được lưu thành 2 phiên riêng nhưng liền mốc
+    // lịch. Hệ thống phải nhận diện cùng một chuỗi ngày làm ở lớp tính toán,
+    // không sửa checkOut của phiên tiếp tân và không tính trùng 3 giờ dạy.
+    const crossRoleUser = {
+        roles: ['teaching_assistant', 'tiep-tan'],
+        salary_config: {
+            receptionist_normal_rate: 30000,
+            roles: [{ id: 'subject-ffs', name: 'FFS01 + Pre-I2', rate: 100000 }]
+        }
+    };
+    const crossRoleSchedule = {
+        evening1: [{
+            start: '18:00', end: '19:30', lop: 'FFS01', lopId: 'subject-ffs',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-04', _originalIndex: 0
+        }],
+        evening2: [{
+            start: '19:30', end: '21:00', lop: 'Pre-I2', lopId: 'subject-ffs',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-04', _originalIndex: 0
+        }]
+    };
+    const crossRoleSessions = [
+        {
+            id: 'reception-session', isAdminEdited: true,
+            checkIn: '2026-07-04T13:30:00+07:00',
+            checkOut: '2026-07-04T18:00:00+07:00',
+            role: 'tiep-tan', roleName: 'Tiếp Tân'
+        },
+        {
+            id: 'teaching-session', isAdminEdited: true,
+            checkIn: '2026-07-04T18:00:00+07:00',
+            checkOut: '2026-07-04T21:00:00+07:00',
+            linkedClassStart: '18:00', role: 'subject-ffs', roleName: 'FFS01'
+        }
+    ];
+    const crossRoleChips = context.window.calculateDailyChips(
+        crossRoleSchedule,
+        crossRoleSessions,
+        staffId,
+        '2026-07-04',
+        crossRoleUser,
+        [{ shift: 'afternoon', label: 'CHIỀU', start: '13:30', end: '18:00', branch: 'cs1', isFixedShift: true }]
+    );
+    const crossRoleRecep = crossRoleChips.find(c => c.isReceptionist && c.sessionId === 'reception-session');
+    const crossRoleTeach = crossRoleChips.find(c => c.isTeaching && c.sessionId === 'teaching-session');
+    assert.ok(crossRoleRecep, 'phải giữ chip tiếp tân gốc');
+    assert.ok(crossRoleTeach, 'phải giữ chip dạy riêng');
+    assert.match(crossRoleRecep.text, /13:30–21:00/, 'chip tiếp tân phải hiển thị hết chuỗi liên tục');
+    assert.match(crossRoleRecep.text, /−3h dạy/, 'chip tiếp tân phải ghi phần dạy được trừ');
+    assert.equal(crossRoleRecep.paidMinutes, 270, 'tiếp tân vẫn chỉ được trả 4h30');
+    assert.equal(crossRoleTeach.paidMinutes, 180, 'dạy được trả 3h');
+    assert.equal(
+        crossRoleRecep.daySegments.map(s => `${s.start}-${s.end}/${s.kind}`).join(' | '),
+        '13:30-18:00/tiep-tan | 18:00-21:00/day'
+    );
+    assert.equal(crossRoleRecep.sessionData.checkOut, crossRoleSessions[0].checkOut, 'không sửa dữ liệu gốc');
+    assert.equal(
+        crossRoleTeach.daySegments.map(s => `${s.start}-${s.end}/${s.kind}`).join(' | '),
+        '13:30-18:00/tiep-tan | 18:00-21:00/day',
+        'popup của chip dạy cũng thấy cùng chuỗi'
+    );
+}
+
+{
     // LỖI ẢNH 5: ca vắng phải ghi rõ LỚP. Nếu lịch chưa điền lớp thì phải nói thẳng.
     const noSubjectSchedule = {
         morning1: [{

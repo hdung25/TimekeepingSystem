@@ -2235,9 +2235,17 @@ async function renderMonthReport(date, forceServer = false) {
                             }
                         } else if (isAdminRole) {
                             // Creating new session from Registration, pass shift metadata so admin can delete this shift
+                            const manualPrefill = chip.schedData
+                                ? {
+                                    ...chip.schedData,
+                                    subjectIds: chip.subjectIds || chip.schedData.subjectIds || [],
+                                    lopId: chip.lopId || chip.schedData.lopId || null,
+                                    lop: chip.schedData.lop || chip.lop || ''
+                                }
+                                : chip.schedData;
                             openManualModal(
                                 dateStr,
-                                chip.schedData,
+                                manualPrefill,
                                 chip.classCompositeKey,
                                 chip.classSectionKey,
                                 chip.classIndex,
@@ -4506,6 +4514,19 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     const statusEl = document.getElementById('edit-session-status');
     if (statusEl) statusEl.value = 'worked';
 
+    // Modal dùng chung cho Sửa và Tạo mới. Xoá nội dung lần mở trước để popup
+    // Tạo ca không giữ lại bảng chi tiết của ca tiếp tân/dạy vừa xem.
+    const staleBreakdown = document.getElementById('edit-day-breakdown');
+    const staleBreakdownList = document.getElementById('edit-day-breakdown-list');
+    const staleBreakdownTotal = document.getElementById('edit-day-breakdown-total');
+    if (staleBreakdown) staleBreakdown.style.display = 'none';
+    if (staleBreakdownList) staleBreakdownList.innerHTML = '';
+    if (staleBreakdownTotal) staleBreakdownTotal.innerText = '';
+    const staleSplitContainer = document.getElementById('edit-split-subshift-container');
+    const staleSplitList = document.getElementById('edit-split-subshift-list');
+    if (staleSplitContainer) staleSplitContainer.style.display = 'none';
+    if (staleSplitList) staleSplitList.innerHTML = '';
+
     // Reset class metadata fields just in case
     if (document.getElementById('edit-class-composite-key')) {
         document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
@@ -4680,6 +4701,18 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Tạo Ca";
 
     // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
+    const manualSubtitle = document.getElementById('edit-modal-subtitle');
+    if (manualSubtitle) {
+        const kindLabel = isLinkable ? 'Ca tiáº¿p tÃ¢n' : 'Ca dáº¡y';
+        const range = preFill && preFill.start && preFill.end
+            ? ` Â· ${preFill.start}â€“${preFill.end}`
+            : '';
+        const subject = !isLinkable && preFill && preFill.lop
+            ? ` (${preFill.lop})`
+            : '';
+        manualSubtitle.innerText = `${kindLabel} Â· ${dateKey}${range}${subject}`;
+    }
+
     const delSection = document.querySelector('#edit-time-modal .delete-section');
     if (delSection) {
         if (classCompositeKey && classSectionKey) {
