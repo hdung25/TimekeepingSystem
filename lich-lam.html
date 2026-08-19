@@ -275,6 +275,13 @@
             font-weight: 600;
         }
 
+        .gv-chip.is-declared-absent {
+            background: #FFF7ED;
+            border-color: #FB923C;
+            color: #9A3412;
+            font-weight: 700;
+        }
+
         .gv-chip.is-cancelled {
             background: #ECFDF5;
             border-color: #A7F3D0;
@@ -503,7 +510,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260807-multi-gv-bulk-v1'></script>
+    <script src='js/db-service.js?v=20260819-absence-recovery-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -644,8 +651,8 @@
         </main>
     </div>
     <script src="js/ui-service.js?v=20260803-early10-v1"></script>
-    <script src="js/main.js?v=20260807-payslip-mobile-v1"></script>
-    <script src="js/schedule.js?v=20260806-no-false-absent-v1"></script>
+    <script src="js/main.js?v=20260816-early10-old-unset-v3"></script>
+    <script src="js/schedule.js?v=20260819-absence-recovery-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

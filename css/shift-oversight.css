@@ -212,6 +212,11 @@
 .activate-shift-btn:hover, .save-observation-btn:hover, .filter-submit-btn:hover, .view-operation-link:hover { background: var(--oversight-accent-dark); }
 .activate-shift-btn:active, .save-observation-btn:active, .filter-submit-btn:active { transform: translateY(1px); }
 .activate-shift-btn:disabled { cursor: not-allowed; opacity: .48; }
+.activate-shift-btn.is-access-status:disabled {
+    cursor: default;
+    opacity: 1;
+    background: #047857;
+}
 .activate-shift-btn svg, .filter-submit-btn svg, .view-operation-link svg { width: 17px; }
 
 .class-section, .admin-log-section { margin-top: 1rem; }

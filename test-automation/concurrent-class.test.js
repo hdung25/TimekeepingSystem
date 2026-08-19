@@ -30,6 +30,12 @@ const cutFrom = (src, start, file) => {
     // safeDate + getLocalDateKey là phụ thuộc của matchScheduledShiftCoverage
     vm.runInContext(`
         function safeDate(v){ if(!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
+        function hasValidSessionChronology(session){
+            if(!session) return false;
+            const checkIn = safeDate(session.checkIn || session.start);
+            const checkOut = safeDate(session.checkOut);
+            return !!checkIn && (!checkOut || checkOut >= checkIn);
+        }
         function getLocalDateKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
     `, context);
     const fn = evalSrc.slice(

@@ -631,6 +631,32 @@ button {
     box-sizing: border-box;
 }
 
+/* Report chips have a full-width text row and a separate wrapping action row.
+   This prevents Sớm/Tăng ca pills from squeezing the class name to one letter. */
+.report-schedule-chip {
+    flex-wrap: wrap;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    column-gap: 0.35rem;
+    row-gap: 0.3rem;
+}
+
+.report-schedule-chip > .report-chip-main {
+    display: block;
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+.report-schedule-chip > .report-chip-action {
+    flex: 0 0 auto;
+    max-width: 100%;
+    margin-left: 0 !important;
+}
+
 .chip-green {
     background-color: #D1FAE5;
     /* Emerald 100 */
@@ -1569,6 +1595,22 @@ button {
         padding: 0.3rem 0.4rem !important;
         white-space: normal !important;
         overflow-wrap: anywhere;
+    }
+
+    .report-schedule-chip {
+        align-content: flex-start;
+        overflow: visible !important;
+        row-gap: 0.35rem;
+    }
+
+    .report-schedule-chip > .report-chip-main {
+        overflow-wrap: break-word !important;
+        word-break: normal !important;
+    }
+
+    .report-schedule-chip > .report-chip-action {
+        min-height: 24px !important;
+        padding: 3px 6px !important;
     }
 
     #personal-specific-header-controls {

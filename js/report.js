@@ -18,6 +18,18 @@ function escapeReportHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+function hasReceptionistEmploymentRole(value) {
+    if (window.RolePolicy) return window.RolePolicy.hasReceptionistEmploymentRole(value);
+    const roles = Array.isArray(value) ? value : [];
+    return roles.some(r => ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant'].includes(r));
+}
+
+function hasTeachingEmploymentRole(value) {
+    if (window.RolePolicy) return window.RolePolicy.hasTeachingEmploymentRole(value);
+    const roles = Array.isArray(value) ? value : [];
+    return roles.some(r => ['assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r));
+}
+
 async function initReport() {
     // Reset role filter select to default 'all'
     const roleFilterEl = document.getElementById('salary-role-filter');
@@ -387,12 +399,12 @@ window.filterStaffListByRole = function() {
     if (filterVal === 'tiep-tan') {
         filteredUsers = window._allStaffList.filter(u => {
             const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
-            return roles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant'].includes(r));
+            return hasReceptionistEmploymentRole(roles);
         });
     } else if (filterVal === 'giao-vien') {
         filteredUsers = window._allStaffList.filter(u => {
             const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
-            return roles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            return hasTeachingEmploymentRole(roles);
         });
     }
     
@@ -961,7 +973,9 @@ async function renderMonthReport(date, forceServer = false) {
     // resolver.  Failure is non-fatal: all payroll paths then keep chip snapshots.
     window.currentSubjectCatalog = [];
     try {
-        const subjectCatalog = await DBService.getSubjects();
+        // Luôn hỏi server khi mở/tải lại báo cáo để thay đổi "Sớm 10p" từ
+        // trang Môn Học có hiệu lực ngay trên PWA đang mở lâu ngày.
+        const subjectCatalog = await DBService.getSubjects(true);
         if (!isCurrentRender()) return;
         window.currentSubjectCatalog = Array.isArray(subjectCatalog) ? subjectCatalog : [];
     } catch (e) {
@@ -1152,9 +1166,7 @@ async function renderMonthReport(date, forceServer = false) {
     const receptionistShiftsMap = {}; // "YYYY-MM-DD" -> [{ shift, label, start, end }]
     // FIX: staffRoles đã xử lý đúng cả roles[] lẫn role string — dùng lại thay vì parseRoles()
     // (parseRoles() không handle array từ Firestore, gây isReceptionistStaff = false sai)
-    const isReceptionistStaff = currentUserContext && staffRoles.some(r =>
-        ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
-    );
+    const isReceptionistStaff = currentUserContext && hasReceptionistEmploymentRole(staffRoles);
 
     if (isReceptionistStaff) {
         try {
@@ -1691,7 +1703,7 @@ async function renderMonthReport(date, forceServer = false) {
 
         filteredChips.forEach(chip => {
             const div = document.createElement('div');
-            div.className = `schedule-chip ${chip.class}`;
+            div.className = `schedule-chip report-schedule-chip ${chip.class}`;
             div.style.display = 'flex';
             div.style.justifyContent = 'space-between';
             div.style.alignItems = 'center';
@@ -1741,7 +1753,7 @@ async function renderMonthReport(date, forceServer = false) {
 
             const chipDisplayText = absenceChipDisplayText(chip, _cachedStaffNotes);
 
-            div.innerHTML = `<span style="min-width:0">${chipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
+            div.innerHTML = `<span class="report-chip-main" style="min-width:0">${chipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
@@ -1970,17 +1982,20 @@ async function renderMonthReport(date, forceServer = false) {
             const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist && isTargetTA;
             const isAdminRole2 = roles2.some(r => ['admin', 'senior_assistant'].includes(r));
             const isStaffViewer2 = roles2.includes('teaching_assistant') && !isAdminRole2;
-            const isOldModeTarget = typeof Early10 !== 'undefined' && Early10.isOldModeTeacher(_targetCtx);
             const subjectCatalogForEarly10 = Array.isArray(window.currentSubjectCatalog)
                 ? window.currentSubjectCatalog
                 : [];
             const subjectMapForEarly10 = typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10Map
                 ? Early10.buildSubjectEarly10Map(subjectCatalogForEarly10)
                 : {};
-            const chipSubjectAllowedForEarly10 = typeof Early10 !== 'undefined' && Early10.isChipEarly10Allowed
-                ? Early10.isChipEarly10Allowed(chip, subjectMapForEarly10)
-                : false;
-            const chipMayRequestEarly10 = chipSubjectAllowedForEarly10 && (!isStaffViewer2 || isOldModeTarget);
+            const early10Eligibility = typeof Early10 !== 'undefined' && Early10.evaluatePolicyEligibility
+                ? Early10.evaluatePolicyEligibility({
+                    subjectIds: Early10.getChipSubjectIds ? Early10.getChipSubjectIds(chip) : [],
+                    subjectMap: subjectMapForEarly10,
+                    user: _targetCtx
+                })
+                : { ok: false, code: 'module', teachingMode: 'unset' };
+            const chipMayRequestEarly10 = early10Eligibility.ok === true;
 
             if (canSeeBonus10 && chip.sessionId &&
                 chip.class !== 'chip-blue' &&
@@ -1989,7 +2004,8 @@ async function renderMonthReport(date, forceServer = false) {
                 chip.class !== 'chip-waiting') {
 
                 const b10Btn = document.createElement('button');
-                b10Btn.style.cssText = 'font-size:0.68rem;padding:1px 5px;border-radius:4px;border:none;cursor:pointer;margin-left:2px;vertical-align:middle;';
+                b10Btn.className = 'report-chip-action report-chip-early10-action';
+                b10Btn.style.cssText = 'font-size:0.68rem;padding:3px 7px;border-radius:999px;border:1px solid transparent;cursor:pointer;margin-left:4px;vertical-align:middle;display:inline-flex;align-items:center;justify-content:center;gap:3px;line-height:1.15;white-space:nowrap;min-height:26px;';
 
                 const b10Status = chip.bonus10Status;
                 const hasBonus = chip.sessionData && chip.sessionData.bonus10;
@@ -2075,18 +2091,26 @@ async function renderMonthReport(date, forceServer = false) {
                         };
                     }
                 } else if (!chipMayRequestEarly10) {
-                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Không áp dụng';
-                    b10Btn.style.background = '#F3F4F6';
-                    b10Btn.style.color = '#6B7280';
-                    b10Btn.title = isStaffViewer2 && !isOldModeTarget
-                        ? 'Chỉ nhân viên chế độ cũ mới được chọn sớm 10 phút'
-                        : 'Chip này không thuộc môn/nhánh đã bật chính sách sớm 10 phút';
+                    const mode = early10Eligibility.teachingMode || 'unset';
+                    const isSubjectBlocked = early10Eligibility.code === 'subject';
+                    const isNewModeBlocked = early10Eligibility.code === 'mode' && mode === 'new';
+                    const label = isSubjectBlocked
+                        ? 'Không áp dụng'
+                        : (isNewModeBlocked ? 'Chế độ mới' : 'Không thể kiểm tra');
+                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ` ${label}`;
+                    b10Btn.style.background = isSubjectBlocked ? '#F3F4F6' : '#FFF7ED';
+                    b10Btn.style.color = isSubjectBlocked ? '#6B7280' : '#C2410C';
+                    b10Btn.style.borderColor = isSubjectBlocked ? '#E5E7EB' : '#FED7AA';
+                    b10Btn.title = isSubjectBlocked
+                        ? 'Môn này chưa bật chính sách Sớm 10p'
+                        : (isNewModeBlocked
+                            ? 'Nhân viên chế độ mới không áp dụng Sớm 10p'
+                            : 'Chưa tải được quy tắc Sớm 10p; hãy tải lại trang');
                     b10Btn.onclick = async (e) => {
                         e.stopPropagation();
-                        const message = isStaffViewer2 && !isOldModeTarget
-                            ? 'Bạn không được phép chọn sớm 10 phút vì đang thuộc chế độ mới.'
-                            : 'Ca này không được phép sớm 10 phút. Chỉ các chip thuộc môn/nhánh đã bật chính sách trong trang Môn Học mới được chọn.';
-                        await UIService.notice(message, 'Không đủ điều kiện sớm 10 phút', 'warning');
+                        const message = early10Eligibility.message ||
+                            'Chưa tải được quy tắc sớm 10 phút. Hãy tải lại trang.';
+                        await UIService.notice(message, 'Chưa đủ điều kiện Sớm 10p', 'warning');
                     };
                 } else {
                     // Chưa có → cho nhân viên tự bấm; hệ thống tự kiểm tra & duyệt.
@@ -2138,6 +2162,28 @@ async function renderMonthReport(date, forceServer = false) {
 
                 div.onclick = async (e) => {
                     e.stopPropagation();
+                    if (chip.isCancelled && canConfirmAbsent && !window.isStudentCountSelectMode &&
+                        !window.isBonusSelectMode && !window.isFixedShiftMode) {
+                        const shiftLabel = chip.text || 'ca này';
+                        const agreed = await UIService.confirm(
+                            `Khôi phục ${shiftLabel} ngày ${dateStr}?\n\n` +
+                            'Ca sẽ xuất hiện lại trong Bảng Công và được tính theo dữ liệu chấm công thực tế.'
+                        );
+                        if (!agreed) return;
+                        try {
+                            if (typeof UIService !== 'undefined') UIService.showLoading('Đang khôi phục ca...');
+                            const cancelKey = `${chip.classCompositeKey}_${chip.classSectionKey}_${chip.classIndex}`;
+                            await DBService.restoreCancelledShift(dateStr.substring(0, 7), staffId, cancelKey);
+                            _cachedStaffId = null;
+                            await renderMonthReport(currentDate, true);
+                            if (typeof UIService !== 'undefined') UIService.toast('Đã khôi phục ca làm.', 'success');
+                        } catch (error) {
+                            if (typeof UIService !== 'undefined') UIService.toast(error.message || 'Không thể khôi phục ca.', 'error');
+                        } finally {
+                            if (typeof UIService !== 'undefined') UIService.hideLoading();
+                        }
+                        return;
+                    }
                     if (window.isStudentCountSelectMode) {
                         if (chip.isReceptionist || !chip.sessionId) {
                             if (typeof UIService !== 'undefined') UIService.toast('Chỉ có thể chọn ca dạy của giáo viên.', 'warning');
@@ -2285,14 +2331,16 @@ async function renderMonthReport(date, forceServer = false) {
                 div.appendChild(editBtn);
             }
 
-            // Staff: add ⏱️ Overtime Request button on completed sessions with no pending OT
+            // Tăng ca là chức năng khác hoàn toàn với "Sớm 10p". Dùng nút có
+            // chữ rõ ràng thay cho một icon đồng hồ đơn độc để tránh bấm nhầm.
             if (role !== 'admin' && chip.sessionId && chip.sessionData && chip.sessionData.checkOut && !chip.overtimePending && !chip.overtimeMinutes) {
-                const otBtn = document.createElement('span');
-                otBtn.innerHTML = window.getIconHtml('clock', {width: '14', height: '14'});
-                otBtn.title = 'Yêu cầu tăng ca';
-                otBtn.style.cssText = 'cursor:pointer;font-size:0.85em;margin-left:4px;opacity:0.6;';
-                otBtn.onmouseover = () => otBtn.style.opacity = '1';
-                otBtn.onmouseout = () => otBtn.style.opacity = '0.6';
+                const otBtn = document.createElement('button');
+                otBtn.type = 'button';
+                otBtn.className = 'report-chip-action report-chip-overtime-action';
+                otBtn.innerHTML = window.getIconHtml('clock', {width: '12', height: '12'}) + '<span>Tăng ca</span>';
+                otBtn.title = 'Gửi yêu cầu tăng ca (không phải Sớm 10p)';
+                otBtn.setAttribute('aria-label', 'Yêu cầu tăng ca');
+                otBtn.style.cssText = 'cursor:pointer;font-size:0.66rem;margin-left:4px;padding:3px 7px;border-radius:999px;border:1px solid #BFDBFE;background:#EFF6FF;color:#1D4ED8;display:inline-flex;align-items:center;gap:3px;white-space:nowrap;min-height:26px;';
                 otBtn.onclick = (e) => {
                     e.stopPropagation();
                     openOvertimeModal(dateStr, chip.sessionId, chip.sessionData);
@@ -2384,12 +2432,8 @@ async function renderMonthReport(date, forceServer = false) {
                 ? currentUserContext.roles
                 : [currentUserContext.role || ''])
             : [];
-        const isReceptionistStaff = currentUserContext && staffRoles.some(r =>
-            ['tiep-tan', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'assistant', 'admin'].includes(r)
-        );
-        const isTeachingStaff = currentUserContext && staffRoles.some(r =>
-            ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r)
-        );
+        const isReceptionistStaff = currentUserContext && hasReceptionistEmploymentRole(staffRoles);
+        const isTeachingStaff = currentUserContext && hasTeachingEmploymentRole(staffRoles);
         const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
         const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && isReceptionistStaff && !isTeachingStaff) ? 'tiep-tan' : 'giao-vien';
 
@@ -2526,8 +2570,8 @@ function renderEvaluationTable(savedData = []) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
     const isRecep = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching);
@@ -3176,7 +3220,7 @@ function calculateSalary() {
     let isRecep = false;
     if (staffUser) {
         const staffRoles = (staffUser.roles && staffUser.roles.length > 0) ? staffUser.roles : [staffUser.role || ''];
-        isRecep = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
+        isRecep = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
     }
 
     // Redistribution logic for Receptionist collective bonus pool
@@ -3223,8 +3267,8 @@ function calculateSalary() {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-            hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+            hasTeaching = hasTeachingEmploymentRole(staffRoles);
         }
         const isPureRecep = hasReceptionist && !hasTeaching;
         const recepSettings = (window.currentLoadedRoleKey === 'tiep_tan')
@@ -3565,8 +3609,8 @@ async function saveSalarySettings() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
     const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
@@ -3676,8 +3720,8 @@ async function loadSalarySettings() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
     let activeFilter = 'giao-vien';
@@ -4449,8 +4493,8 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         if (!user) return;
 
         const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-        const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
-        const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        const hasReceptionistRole = hasReceptionistEmploymentRole(userRolesArr);
+        const hasTeachingRole = hasTeachingEmploymentRole(userRolesArr);
 
         let hasSelected = false;
 
@@ -5526,8 +5570,8 @@ async function openRoleSelectModal(dateKey, session) {
     }
 
     const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-    const hasReceptionistRole = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
-    const hasTeachingRole = userRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    const hasReceptionistRole = hasReceptionistEmploymentRole(userRolesArr);
+    const hasTeachingRole = hasTeachingEmploymentRole(userRolesArr);
     let teachingRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles.slice() : [];
     if (hasTeachingRole) {
         try {
@@ -5703,14 +5747,14 @@ async function submitOvertimeRequest() {
 
 // ================= BONUS 10P UI FUNCTIONS =================
 
-// Kiểm tra 3 điều kiện sớm 10p cho 1 ca: môn cho phép, giáo viên chế độ cũ,
-// và giờ chấm công vào thực tế sớm ít nhất 10 phút so với giờ vào ca.
+// Kiểm tra 3 điều kiện sớm 10p cho 1 ca: môn cho phép, nhân viên thuộc chế độ
+// cũ hoặc chưa phân loại, và giờ vào thực tế sớm ít nhất 10 phút.
 async function evaluateEarly10ForChip(chip, staffId) {
     if (typeof Early10 === 'undefined') {
         return { ok: false, code: 'missing-module', message: 'Chưa tải được quy tắc sớm 10 phút. Hãy tải lại trang.' };
     }
     const [subjects, users] = await Promise.all([
-        DBService.getSubjects().catch(() => []),
+        DBService.getSubjects(true).catch(() => []),
         DBService.getUsers().catch(() => [])
     ]);
     const user = users.find(u => u.id === staffId) || null;
@@ -6013,6 +6057,9 @@ function classifyAbsentChip(chip, notesMap) {
     if (chip.isCancelled) {
         return 'VP';
     }
+    if (chip.absenceType === 'VP' || chip.absenceType === 'VDX') {
+        return chip.absenceType;
+    }
     const dateStr = chip.dateStr;
     const noteText = ((notesMap || {})[dateStr] || '').toLowerCase().trim();
     // Ghi chú ngày (do trợ lý/admin đánh dấu) là SỰ THẬT — phải thắng cờ chip.isVDX.
@@ -6070,8 +6117,8 @@ function handleMoneyInput(e) {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-            hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+            hasTeaching = hasTeachingEmploymentRole(staffRoles);
         }
         const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
         const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
@@ -6210,8 +6257,8 @@ async function openClassRateModal() {
     const hasTeachingConfig = (cfg.roles && cfg.roles.length > 0) || (Number(cfg.rate) > 0);
     const hasReceptionistConfig = (Number(cfg.receptionist_normal_rate) > 0) || (Number(cfg.receptionist_fixed_rate) > 0);
         
-    let hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r)) || teachingShiftCount > 0 || hasTeachingConfig;
-    let hasReceptionist = staffRoles.some(r => ['receptionist', 'receptionist_assistant', 'tiep-tan', 'tiep_tan', 'receptionist_lead', 'receptionist_staff'].includes(r)) || receptionistShiftCount > 0 || hasReceptionistConfig;
+    let hasTeaching = hasTeachingEmploymentRole(staffRoles) || teachingShiftCount > 0 || hasTeachingConfig;
+    let hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || receptionistShiftCount > 0 || hasReceptionistConfig;
     
     const roleToggle = document.getElementById('modal-role-toggle-container');
     if (hasTeaching && hasReceptionist) {
@@ -6288,8 +6335,8 @@ async function populateModalCurrentTab() {
     // Fallback to general settings if missing in monthlySettingsAll
     const user = window.currentUserContext || {};
     const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-    const hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-    const hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+    const hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+    const hasTeaching = hasTeachingEmploymentRole(staffRoles);
     
     let gvSettings = monthlySettingsAll['giao_vien'] || monthlySettingsAll['giao-vien'];
     let ttSettings = monthlySettingsAll['tiep_tan'] || monthlySettingsAll['tiep-tan'];
@@ -7702,7 +7749,7 @@ async function loadAndComputeAllReceptionists(monthStr) {
     const allUsers = window._allStaffList || [];
     const receptionists = allUsers.filter(u => {
         const roles = Array.isArray(u.roles) ? u.roles : [u.role || ''];
-        return roles.some(r => ['receptionist', 'receptionist_assistant', 'tiep-tan', 'tiep_tan', 'receptionist_lead', 'receptionist_staff', 'admin', 'senior_assistant', 'assistant'].includes(r));
+        return hasReceptionistEmploymentRole(roles);
     });
     
     const allMonthlySettings = await DBService.getAllMonthlySalarySettings(monthStr);
@@ -7982,8 +8029,8 @@ async function saveRecepExtras() {
             let hasTeaching = false;
             if (user) {
                 const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-                hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-                hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+                hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+                hasTeaching = hasTeachingEmploymentRole(staffRoles);
             }
             const isPureRecep = hasReceptionist && !hasTeaching;
             if (isPureRecep) {
@@ -8033,8 +8080,8 @@ async function saveRecepExtras() {
         let hasTeaching = false;
         if (user) {
             const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-            hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+            hasTeaching = hasTeachingEmploymentRole(staffRoles);
         }
         const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
         const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
@@ -8121,8 +8168,8 @@ async function publishSalary() {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     
     let payloadGV = null;
@@ -8268,8 +8315,8 @@ function renderSalaryDashboardTable() {
         }
         
         const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
-        const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
-        const isRecep = uRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
+        const isTeacher = hasTeachingEmploymentRole(uRoles);
+        const isRecep = hasReceptionistEmploymentRole(uRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
         
         let primaryRole = 'Staff';
         if (isTeacher && isRecep) primaryRole = 'Dual (GV & TT)';
@@ -8503,8 +8550,8 @@ function getCurrentCalculationPayload(role) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
@@ -9026,8 +9073,8 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
     let hasTeaching = false;
     if (user) {
         const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-        hasReceptionist = staffRoles.some(r => (['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)))));
-        hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+        hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     
     let payloadGV = null;
@@ -9187,12 +9234,12 @@ async function openBulkPublishModal(opts) {
         const staffList = window._allStaffList || [];
         staffList.forEach(u => {
             const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
-            const isTeacher = uRoles.some(r => ['admin', 'senior_assistant', 'assistant', 'teaching_assistant', 'staff'].includes(r));
+            const isTeacher = hasTeachingEmploymentRole(uRoles);
             // CHỈ xét chức danh của CHÍNH người này. Bản cũ có thêm vế
             // `(window.unfilteredAllMonthChips||[]).some(...)` — vế đó KHÔNG dùng biến `u`, nó soi
             // chip của người đang mở trên trang; nên chỉ cần đang xem một tiếp tân là TOÀN BỘ giáo
             // viên bị đổ sang cột Tiếp Tân, và nút "Gửi bên Tiếp Tân" sẽ gửi lẫn cả giáo viên.
-            const isRecep = uRoles.some(r => ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan'].includes(r));
+            const isRecep = hasReceptionistEmploymentRole(uRoles);
 
             const docData = allSettings[u.id] || {};
             const pub = docData.published;

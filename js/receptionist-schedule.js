@@ -511,6 +511,10 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
     const shiftLabel = shiftConfig[shift]?.label || shift;
     const [y, m, d] = dayDateStr.split('-');
     const displayDate = `${d}/${m}`;
+    const mondayDateStr = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}-${String(currentWeekStart.getDate()).padStart(2, '0')}`;
+    const shiftKey = `${currentBranch}_${mondayDateStr}_${shift}_${dayKey}`;
+    const staffCancelledShifts = window.allCancelledShiftsMap?.[staffEntry.id] || [];
+    const isCancelled = staffCancelledShifts.includes(shiftKey);
 
     const popup = document.createElement('div');
     popup.className = 'absent-confirm-popup';
@@ -535,8 +539,8 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
 
     popup.innerHTML = `
         <div style="font-weight:700;color:#1F2937;margin-bottom:8px;">❓ ${shortName} — ${shiftLabel} ${displayDate}</div>
-        <div style="color:#6B7280;margin-bottom:12px;font-size:0.82rem;">Chọn hành động:</div>
-        <button id="popup-btn-absent" style="width:100%;padding:7px 12px;background:#FEF3C7;color:#92400E;border:1px solid #D97706;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;margin-bottom:6px;">&#10003; Xác nhận Vắng</button>
+        <div style="color:#6B7280;margin-bottom:12px;font-size:0.82rem;">${isCancelled ? 'Ca đang được đánh dấu vắng. Có thể khôi phục ngay khi nhân viên đi làm lại.' : 'Chọn hành động:'}</div>
+        <button id="popup-btn-absence-toggle" style="width:100%;padding:7px 12px;background:${isCancelled ? '#D1FAE5' : '#FEF3C7'};color:${isCancelled ? '#065F46' : '#92400E'};border:1px solid ${isCancelled ? '#10B981' : '#D97706'};border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:700;margin-bottom:6px;">${isCancelled ? '↩ Khôi phục ca làm' : '&#10003; Xác nhận Vắng'}</button>
         <button id="popup-btn-edit" style="width:100%;padding:7px 12px;background:#EFF6FF;color:#1D4ED8;border:1px solid #93C5FD;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;margin-bottom:6px;">✏️ Chỉnh sửa ca</button>
         <button id="popup-btn-cancel" style="width:100%;padding:5px 12px;background:#F9FAFB;color:#6B7280;border:1px solid #E5E7EB;border-radius:8px;cursor:pointer;font-size:0.82rem;">Hủy</button>
     `;
@@ -555,36 +559,37 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
         openCellModal(shift, dayKey);
     };
 
-    popup.querySelector('#popup-btn-absent').onclick = async (e) => {
+    popup.querySelector('#popup-btn-absence-toggle').onclick = async (e) => {
         e.stopPropagation();
         closePopup();
 
-        // Build shiftKey matching evaluation-service.js format:
-        // cancelledShifts.includes(`${compositeKeyLocal}_${rs.shift}_${dayKeyLocal}`)
-        // compositeKeyLocal = `${rs.branch}_${mondayKeyLocal}` e.g. "cs1_2026-04-27"
-        // mondayKey from getWeekCompositeKey() = "cs1__2026-04-27" (double underscore)
-        // But evaluation-service uses single underscore: branch_YYYY-MM-DD
-        // Let's extract: compositeKeyLocal = branch + "_" + mondayDateStr
-        const branchPart = currentBranch;
-        const mondayDate = currentWeekStart;
-        const mondayDateStr = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}-${String(mondayDate.getDate()).padStart(2, '0')}`;
-        const compositeKeyLocal = `${branchPart}_${mondayDateStr}`;
-        const shiftKey = `${compositeKeyLocal}_${shift}_${dayKey}`;
-
-        const ok = confirm(`Xác nhận ${shortName} VẮNG ca ${shiftLabel} ngày ${displayDate}?\n(Ca sẽ biến mất khỏi báo cáo tháng)`);
+        const ok = confirm(isCancelled
+            ? `Khôi phục ca ${shiftLabel} ngày ${displayDate} cho ${shortName}?\n(Ca sẽ xuất hiện lại trong Bảng Công và được tính theo chấm công thực tế.)`
+            : `Xác nhận ${shortName} VẮNG ca ${shiftLabel} ngày ${displayDate}?\n(Ca được giữ trên lịch dưới trạng thái vắng và có thể khôi phục.)`);
         if (!ok) return;
 
         try {
-            await DBService.cancelShift(monthStr, staffEntry.id, shiftKey);
+            if (isCancelled) {
+                await DBService.restoreCancelledShift(monthStr, staffEntry.id, shiftKey);
+            } else {
+                await DBService.cancelShift(monthStr, staffEntry.id, shiftKey);
+            }
             
-            // Update local state and re-render to show strikethrough
+            // Update local state and re-render immediately; Firestore remains the source of truth.
             if (!window.allCancelledShiftsMap) window.allCancelledShiftsMap = {};
             if (!window.allCancelledShiftsMap[staffEntry.id]) window.allCancelledShiftsMap[staffEntry.id] = [];
-            window.allCancelledShiftsMap[staffEntry.id].push(shiftKey);
+            if (isCancelled) {
+                window.allCancelledShiftsMap[staffEntry.id] = window.allCancelledShiftsMap[staffEntry.id]
+                    .filter(key => key !== shiftKey);
+            } else if (!window.allCancelledShiftsMap[staffEntry.id].includes(shiftKey)) {
+                window.allCancelledShiftsMap[staffEntry.id].push(shiftKey);
+            }
             renderTable();
 
             if (typeof UIService !== 'undefined') {
-                UIService.toast(`Đã xác nhận ${shortName} vắng ca ${shiftLabel} ngày ${displayDate}`, 'success');
+                UIService.toast(isCancelled
+                    ? `Đã khôi phục ca ${shiftLabel} ngày ${displayDate} cho ${shortName}`
+                    : `Đã xác nhận ${shortName} vắng ca ${shiftLabel} ngày ${displayDate}`, 'success');
             }
         } catch (err) {
             alert('Lỗi: ' + (err.message || err));

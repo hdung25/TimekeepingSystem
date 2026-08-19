@@ -1,5 +1,13 @@
 // Schedule Management Logic
 
+function hasTeachingEmploymentRole(value) {
+    if (window.RolePolicy) return window.RolePolicy.hasTeachingEmploymentRole(value);
+    const roles = Array.isArray(value)
+        ? value
+        : (Array.isArray(value?.roles) && value.roles.length ? value.roles : [value?.role || '']);
+    return roles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'assistant', 'staff'].includes(r));
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     if (window.waitAuth) {
         await window.waitAuth();
@@ -420,6 +428,25 @@ function getGVList(row, fieldType) {
     return name ? [{ id, name }] : [];
 }
 
+function getRowTeacherAbsence(row, teacherId) {
+    if (typeof getTeacherAbsenceRecord === 'function') {
+        return getTeacherAbsenceRecord(row, teacherId);
+    }
+    return (Array.isArray(row?.teacherAbsences) ? row.teacherAbsences : []).find(item =>
+        item && String(item.teacherId || item.id || '') === String(teacherId)
+    ) || null;
+}
+
+function isRowMainTeacherAbsent(row, teacherId) {
+    if (typeof isMainTeacherAbsentFromClass === 'function') {
+        return isMainTeacherAbsentFromClass(row, teacherId);
+    }
+    if (!getGVList(row, 'gv').some(g => String(g.id) === String(teacherId))) return false;
+    return Array.isArray(row?.teacherAbsences)
+        ? !!getRowTeacherAbsence(row, teacherId)
+        : getGVList(row, 'gvThayTe').length > 0;
+}
+
 // Render compact multi-teacher cell
 function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap = {}) {
     const isGV = fieldType === 'gv';
@@ -462,13 +489,22 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             const userCancelledShifts = cancelledShiftsMap[g.id] || [];
             const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
             const isAbsent = !isCancelled && absent.some(a => a.id === g.id);
+            const declaredAbsence = isGV ? getRowTeacherAbsence(row, g.id) : null;
+            const isDeclaredAbsent = !isCancelled && isGV && isRowMainTeacherAbsent(row, g.id);
 
             let chipClass = 'gv-chip';
             if (isCancelled) chipClass += ' is-cancelled';
+            else if (isDeclaredAbsent) chipClass += ' is-declared-absent';
             else if (isAbsent) chipClass += ' is-absent';
             else if (!isGV) chipClass += ' is-substitute';
 
-            const suffix = isCancelled ? ' (Admin Hủy)' : '';
+            const suffix = isCancelled
+                ? ' (Admin Hủy)'
+                : (isDeclaredAbsent
+                    ? (declaredAbsence?.status === 'covered' || getGVList(row, 'gvThayTe').length > 0
+                        ? ' (Đã có GV thay)'
+                        : ' (Chờ GV thay)')
+                    : '');
             const fixedBadge = g.pendingFixed
                 ? ` <span title="Chuẩn bị cố định từ tuần sau" style="color:#9A3412;font-weight:700;">⏳</span>`
                 : '';
@@ -682,7 +718,7 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
     } catch (e) {
         currentRoles = currentRole ? [currentRole] : [];
     }
-    const isTeacherOrTA = currentRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+    const isTeacherOrTA = hasTeachingEmploymentRole(currentRoles);
     if (!isTeacherOrTA) {
         alert("Bạn không có chức danh Giáo viên hoặc Trợ giảng để nhận lớp này!");
         return;
@@ -815,7 +851,7 @@ window.openGVPicker = function (compositeKey, caType, index, fieldType) {
         // Filter: only show users with teaching roles
         const filteredTeachers = teachers.filter(t => {
             const roles = Array.isArray(t.roles) ? t.roles : [t.role || ''];
-            return roles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+            return hasTeachingEmploymentRole(roles);
         });
 
         const rows = filteredTeachers.map(t => {
@@ -897,7 +933,7 @@ window.saveGVPickerResult = async function (compositeKey, caType, index, fieldTy
         const u = teachers.find(t => t.id === item.id);
         if (u) {
             const roles = Array.isArray(u.roles) ? u.roles : [u.role || ''];
-            const isTeacherOrTA = roles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+            const isTeacherOrTA = hasTeachingEmploymentRole(roles);
             if (!isTeacherOrTA) {
                 alert(`Không thể chọn nhân sự "${item.name}" vì không có chức danh Giáo viên hoặc Trợ giảng.`);
                 return;
@@ -927,14 +963,34 @@ window.saveGVPickerResult = async function (compositeKey, caType, index, fieldTy
     if (fieldType === 'gv') {
         dayData[caType][index].gv = newList[0]?.name || '';
         dayData[caType][index].gvId = newList[0]?.id || '';
+        if (Array.isArray(row.teacherAbsences)) {
+            const keptIds = new Set(newList.map(item => String(item.id)));
+            row.teacherAbsences = row.teacherAbsences.filter(item =>
+                keptIds.has(String(item?.teacherId || item?.id || ''))
+            );
+        }
     } else {
         dayData[caType][index].gvThayThe = newList[0]?.name || '';
         dayData[caType][index].gvThayTheId = newList[0]?.id || '';
     }
+    let marked = [];
+    if (autoAbsenceInfo) {
+        marked = await autoMarkAbsenceForMainTeachers(dayData[caType][index], autoAbsenceInfo, dayData);
+    } else if (fieldType !== 'gv' && newList.length === 0 && Array.isArray(row.teacherAbsences)) {
+        // Gỡ GV thay không đồng nghĩa GV chính đi làm lại: giữ bản ghi báo nghỉ và
+        // chuyển về "chờ người thay". Nút Khôi phục ca là thao tác đảo ngược riêng.
+        row.teacherAbsences = row.teacherAbsences.map(item => ({
+            ...item,
+            status: 'pending',
+            replacementIds: [],
+            replacementNames: [],
+            updatedAt: new Date().toISOString()
+        }));
+    }
+
     await DBService.saveSchedule(compositeKey, dayData);
 
     if (autoAbsenceInfo) {
-        const marked = await autoMarkAbsenceForMainTeachers(dayData[caType][index], autoAbsenceInfo, dayData);
         if (marked.length > 0) {
             const label = marked[0].type === 'VP' ? 'Vắng phép' : 'Vắng đột xuất';
             const msg = `Đã tự đánh dấu "${label}" cho ${marked.map(m => m.name).join(', ')}`;
@@ -1051,7 +1107,8 @@ window.executeCopyWeek = async function () {
                             // đánh vắng) vẫn bị sao chép sang tuần sau.
                             const { registeredTeachers, isClosed,
                                 gvThayThe, gvThayTheId, gvThayTheList,
-                                gvThayTe, gvThayTeId, gvThayTeList, ...rest } = row;
+                                gvThayTe, gvThayTeId, gvThayTeList,
+                                gvThayTheAt, teacherAbsences, ...rest } = row;
                             return {
                                 ...rest,
                                 gvThayThe: '', gvThayTheId: '', gvThayTheList: [],
@@ -1240,7 +1297,9 @@ async function autoMarkAbsenceForMainTeachers(row, info, dayData) {
     if (!verdict) return [];
     const canonical = verdict.type === 'VP' ? 'Vắng phép' : 'Vắng đột xuất';
     const subIds = new Set(getGVList(row, 'gvThayTe').map(g => g.id).filter(Boolean));
+    const replacements = getGVList(row, 'gvThayTe');
     const marked = [];
+    if (!Array.isArray(row.teacherAbsences)) row.teacherAbsences = [];
 
     for (const g of getGVList(row, 'gv')) {
         if (!g.id) continue;
@@ -1250,11 +1309,31 @@ async function autoMarkAbsenceForMainTeachers(row, info, dayData) {
         // Đã có chấm công phủ lên khung giờ đó → đi làm, không phải vắng.
         if (await teacherWorkedDuring(g.id, info.dateKey, info.start, row.end)) continue;
         try {
+            const existingIndex = row.teacherAbsences.findIndex(item =>
+                String(item?.teacherId || item?.id || '') === String(g.id)
+            );
+            const existing = existingIndex >= 0 ? row.teacherAbsences[existingIndex] : null;
+            const record = {
+                ...(existing || {}),
+                teacherId: g.id,
+                teacherName: g.name,
+                type: existing?.type || verdict.type,
+                status: 'covered',
+                reportedAt: existing?.reportedAt || info.markedAt,
+                replacementIds: replacements.map(item => item.id).filter(Boolean),
+                replacementNames: replacements.map(item => item.name).filter(Boolean),
+                updatedAt: new Date().toISOString()
+            };
+            if (existingIndex >= 0) row.teacherAbsences[existingIndex] = record;
+            else row.teacherAbsences.push(record);
+
             const notes = { ...(await DBService.getDailyNotes(g.id) || {}) };
-            if ((notes[info.dateKey] || '').trim()) continue; // đã có ghi chú → giữ nguyên
-            notes[info.dateKey] = canonical;
-            await DBService.saveDailyNotes(g.id, notes);
-            marked.push({ id: g.id, name: g.name, type: verdict.type });
+            if (!(notes[info.dateKey] || '').trim()) {
+                notes[info.dateKey] = existing?.type === 'VP' ? 'Vắng phép' :
+                    (existing?.type === 'VDX' ? 'Vắng đột xuất' : canonical);
+                await DBService.saveDailyNotes(g.id, notes);
+            }
+            marked.push({ id: g.id, name: g.name, type: record.type });
         } catch (e) {
             console.warn('Không tự đánh dấu vắng được cho', g.name, e);
         }
@@ -1287,7 +1366,7 @@ window.openGVAbsenceModal = async function () {
   <div style="background:linear-gradient(135deg,#F97316,#EA580C);padding:1.1rem 1.4rem;display:flex;justify-content:space-between;align-items:center;gap:0.75rem;">
     <div style="min-width:0;">
       <h3 style="color:white;margin:0;font-size:1.15rem;font-weight:700;">Vắng GV — ${DAYS[selectedDayIndex]}, ${formatDateShort(dayDate)}</h3>
-      <div style="color:rgba(255,255,255,0.9);font-size:0.75rem;margin-top:2px;">Tự phân loại theo giờ xếp GV thay thế · báo trước ≥ 24h = Vắng phép</div>
+      <div style="color:rgba(255,255,255,0.9);font-size:0.75rem;margin-top:2px;">Ghi nhận nghỉ theo từng ca · có thể lưu “chưa tìm được người thay” · báo trước ≥ 24h = Vắng phép</div>
     </div>
     <button onclick="document.getElementById('gv-absence-overlay').remove()" style="background:rgba(255,255,255,0.22);border:none;color:white;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:1.2rem;flex-shrink:0;">✕</button>
   </div>
@@ -1295,8 +1374,8 @@ window.openGVAbsenceModal = async function () {
     <div style="text-align:center;color:#9CA3AF;padding:2rem;">Đang tải danh sách GV của ngày...</div>
   </div>
   <div style="padding:0.75rem 1.1rem;border-top:1px solid #E5E7EB;font-size:0.75rem;color:#6B7280;line-height:1.6;">
-    Hệ thống tự đánh dấu khi trợ lý xếp <b>GV thay thế</b>; ghi chú ngày đã có sẵn thì giữ nguyên.
-    Bấm nút để <b>sửa lại trạng thái</b> bất cứ lúc nào. Không đánh dấu = Vắng không phép (nếu GV vắng).
+    Bấm <b>Báo nghỉ · chưa có người thay</b> ngay khi GV báo; sau đó có thể chọn GV thay hoặc <b>Khôi phục ca</b> nếu GV đi làm lại.
+    Ghi chú ngày có sẵn được giữ nguyên. Không đánh dấu = Vắng không phép (nếu GV thực sự vắng).
   </div>
 </div>`;
     document.body.appendChild(overlay);
@@ -1304,30 +1383,45 @@ window.openGVAbsenceModal = async function () {
     // Gom GV được xếp trong ngày (GV chính + GV thay thế, mọi ca) — chỉ cơ sở đang xem
     const dayData = await DBService.getSchedule(compositeKey) || {};
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
-    const seen = new Map(); // id -> { id, name, classes: [], absentShifts: [] }
+    const seen = new Map(); // id -> { id, name, classes, scheduledShifts, absentShifts }
     sections.forEach(sec => {
-        (dayData[sec] || []).forEach(row => {
+        (dayData[sec] || []).forEach((row, rowIndex) => {
             const mains = getGVList(row, 'gv');
             const subs = getGVList(row, 'gvThayTe');
             const subIds = new Set(subs.map(g => g.id).filter(Boolean));
 
             [...mains, ...subs].forEach(g => {
                 if (!g.id) return; // không có ID thì không ghi note được — bỏ qua
-                if (!seen.has(g.id)) seen.set(g.id, { id: g.id, name: g.name, classes: [], absentShifts: [] });
+                if (!seen.has(g.id)) seen.set(g.id, { id: g.id, name: g.name, classes: [], scheduledShifts: [], absentShifts: [] });
                 if (row.lop && !seen.get(g.id).classes.includes(row.lop)) seen.get(g.id).classes.push(row.lop);
             });
 
-            // Ca có GV thay thế → GV chính của ca đó là người nghỉ
-            if (subs.length === 0) return;
             mains.forEach(g => {
                 if (!g.id || subIds.has(g.id)) return;
-                seen.get(g.id).absentShifts.push({
+                const explicit = getRowTeacherAbsence(row, g.id);
+                const legacyImplicit = !Array.isArray(row.teacherAbsences) && subs.length > 0;
+                const absence = explicit || (legacyImplicit ? {
+                    teacherId: g.id,
+                    teacherName: g.name,
+                    type: classifyAbsenceByLeadTime(dateKey, row.start, row.gvThayTheAt)?.type || 'VDX',
+                    status: 'covered',
+                    reportedAt: row.gvThayTheAt || ''
+                } : null);
+                const shiftInfo = {
+                    compositeKey,
+                    section: sec,
+                    index: rowIndex,
                     start: row.start || '',
                     end: row.end || '',
                     lop: row.lop || '',
                     subNames: subs.map(s => s.name).filter(Boolean).join(', '),
-                    verdict: classifyAbsenceByLeadTime(dateKey, row.start, row.gvThayTheAt)
-                });
+                    absence,
+                    verdict: absence
+                        ? { type: absence.type || 'VDX', leadMinutes: classifyAbsenceByLeadTime(dateKey, row.start, absence.reportedAt || row.gvThayTheAt)?.leadMinutes }
+                        : null
+                };
+                seen.get(g.id).scheduledShifts.push(shiftInfo);
+                if (absence) seen.get(g.id).absentShifts.push(shiftInfo);
             });
         });
     });
@@ -1392,28 +1486,59 @@ function pickAbsenceSuggestion(absentShifts) {
     return verdicts.find(v => v.type === 'VDX') || verdicts[0];
 }
 
+function renderTeacherShiftAbsenceActions(t, dateKey) {
+    const shifts = Array.isArray(t.scheduledShifts) ? t.scheduledShifts : [];
+    if (shifts.length === 0) return '';
+    const encodedName = encodeURIComponent(t.name || '');
+
+    return '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">' + shifts.map(s => {
+        const label = [s.lop || 'Ca dạy', s.start && s.end ? `${s.start}–${s.end}` : ''].filter(Boolean).join(' ');
+        const absence = s.absence || null;
+        const covered = !!absence && !!s.subNames;
+        const status = absence
+            ? (covered
+                ? `<span style="color:#065F46;font-weight:700;">Đã có GV thay: ${s.subNames}</span>`
+                : '<span style="color:#9A3412;font-weight:700;">Chưa tìm được người thay</span>')
+            : '<span style="color:#6B7280;">Đang đi dạy</span>';
+        const action = absence ? 'RESTORE' : 'PENDING';
+        const actionLabel = absence ? '↩ Khôi phục ca' : 'Báo nghỉ · chưa có người thay';
+        const actionStyle = absence
+            ? 'background:#ECFDF5;color:#047857;border:1px solid #6EE7B7;'
+            : 'background:#FFF7ED;color:#9A3412;border:1px solid #FDBA74;';
+        const replacementBtn = absence && !covered
+            ? `<button onclick="openReplacementPickerFromAbsence('${s.compositeKey}','${s.section}',${s.index})" style="padding:5px 9px;border-radius:7px;border:1px solid #93C5FD;background:#EFF6FF;color:#1D4ED8;font-size:0.7rem;font-weight:700;cursor:pointer;">Chọn GV thay</button>`
+            : '';
+
+        return `<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:9px;padding:7px 8px;">
+            <div style="font-size:0.74rem;color:#374151;font-weight:600;">${label}</div>
+            <div style="font-size:0.7rem;margin-top:2px;">${status}</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;">
+                <button onclick="setTeacherShiftAbsence('${s.compositeKey}','${s.section}',${s.index},'${t.id}','${encodedName}','${dateKey}','${action}')" style="padding:5px 9px;border-radius:7px;${actionStyle}font-size:0.7rem;font-weight:700;cursor:pointer;">${actionLabel}</button>
+                ${replacementBtn}
+            </div>
+        </div>`;
+    }).join('') + '</div>';
+}
+
+window.openReplacementPickerFromAbsence = function (compositeKey, section, index) {
+    document.getElementById('gv-absence-overlay')?.remove();
+    openGVPicker(compositeKey, section, index, 'gvThayTe');
+};
+
 function renderGVAbsenceRow(t, dateKey) {
     const safeName = (t.name || '').replace(/"/g, '&quot;');
     const cls = t.classes.length ? `<div style="font-size:0.72rem;color:#9CA3AF;margin-top:2px;">${t.classes.join(', ')}</div>` : '';
 
-    let shiftsHtml = '';
-    if (t.absentShifts && t.absentShifts.length > 0) {
-        shiftsHtml = '<div style="margin-top:5px;display:flex;flex-direction:column;gap:3px;">' + t.absentShifts.map(s => {
-            const when = s.verdict
-                ? `${formatLeadTime(s.verdict.leadMinutes)} → <b style="color:${s.verdict.type === 'VP' ? '#065F46' : '#9A3412'};">${s.verdict.type === 'VP' ? 'Vắng phép' : 'Vắng ĐX'}</b>`
-                : '<span style="color:#9CA3AF;">chưa có mốc giờ xếp thay (lịch cũ)</span>';
-            const label = [s.lop, s.start && s.end ? `${s.start}–${s.end}` : ''].filter(Boolean).join(' ');
-            return `<div style="font-size:0.72rem;color:#6B7280;">↳ ${label || 'Ca'} · thay: ${s.subNames || '?'} · ${when}</div>`;
-        }).join('') + '</div>';
-    }
+    const shiftsHtml = renderTeacherShiftAbsenceActions(t, dateKey);
 
     const btn = (label, type, active, bg, fg) =>
         `<button onclick="setGVAbsence('${t.id}','${safeName}','${dateKey}','${type}')"
             style="padding:7px 13px;border-radius:9px;border:1.5px solid ${active ? fg : '#E5E7EB'};cursor:pointer;font-size:0.78rem;font-weight:700;background:${active ? bg : 'white'};color:${active ? fg : '#6B7280'};white-space:nowrap;">${label}</button>`;
 
     const shiftsData = encodeURIComponent(JSON.stringify(t.absentShifts || []));
+    const scheduledShiftsData = encodeURIComponent(JSON.stringify(t.scheduledShifts || []));
 
-    return `<div id="gv-abs-row-${t.id}" data-note="${(t.noteText || '').replace(/"/g, '&quot;')}" data-classes="${t.classes.join(', ').replace(/"/g, '&quot;')}" data-shifts="${shiftsData}"
+    return `<div id="gv-abs-row-${t.id}" data-note="${(t.noteText || '').replace(/"/g, '&quot;')}" data-classes="${t.classes.join(', ').replace(/"/g, '&quot;')}" data-shifts="${shiftsData}" data-scheduled-shifts="${scheduledShiftsData}"
         style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.7rem 0.4rem;border-bottom:1px solid #F3F4F6;flex-wrap:wrap;">
         <div style="flex:1;min-width:180px;">
             <div style="font-size:0.92rem;font-weight:600;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">${t.name} ${absenceStatusBadge(t.status, t.noteText)}</div>
@@ -1453,11 +1578,14 @@ window.setGVAbsence = async function (teacherId, teacherName, dateKey, type) {
         if (rowEl) {
             const noteText = type === 'CLEAR' ? '' : canonical;
             let absentShifts = [];
+            let scheduledShifts = [];
             try { absentShifts = JSON.parse(decodeURIComponent(rowEl.dataset.shifts || '%5B%5D')); } catch (e) { absentShifts = []; }
+            try { scheduledShifts = JSON.parse(decodeURIComponent(rowEl.dataset.scheduledShifts || '%5B%5D')); } catch (e) { scheduledShifts = []; }
             const t = {
                 id: teacherId, name: teacherName,
                 classes: (rowEl.dataset.classes || '').split(', ').filter(Boolean),
                 absentShifts,
+                scheduledShifts,
                 noteText, status: classifyAbsenceNote(noteText)
             };
             rowEl.outerHTML = renderGVAbsenceRow(t, dateKey);
@@ -1465,5 +1593,112 @@ window.setGVAbsence = async function (teacherId, teacherName, dateKey, type) {
     } catch (e) {
         console.error('Lỗi lưu đánh dấu vắng:', e);
         alert('Có lỗi khi lưu đánh dấu vắng: ' + (e.message || e));
+    }
+};
+
+function getScheduleRows(dayData) {
+    return ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2']
+        .flatMap(section => (dayData?.[section] || []));
+}
+
+async function hasRemainingTeacherAbsence(dateKey, teacherId) {
+    const schedules = await Promise.all(['cs1', 'cs2', 'cs3'].map(branch =>
+        DBService.getSchedule(`${branch}__${dateKey}`).catch(() => ({}))
+    ));
+    return schedules.some(dayData => getScheduleRows(dayData).some(row => {
+        if (!getGVList(row, 'gv').some(g => String(g.id) === String(teacherId))) return false;
+        return Array.isArray(row.teacherAbsences)
+            ? !!getRowTeacherAbsence(row, teacherId)
+            : getGVList(row, 'gvThayTe').length > 0;
+    }));
+}
+
+async function syncTeacherDailyAbsenceNote(teacherId, dateKey, type, restoring) {
+    const notes = { ...(await DBService.getDailyNotes(teacherId) || {}) };
+    const current = String(notes[dateKey] || '').trim();
+    const currentType = classifyAbsenceNote(current);
+
+    if (!restoring) {
+        // Không đè ghi chú tự do. Nếu ngày đã là VĐX thì không hạ xuống VP chỉ
+        // vì ca mới được báo sớm hơn.
+        if (!current || currentType === 'VP') {
+            notes[dateKey] = type === 'VDX' ? 'Vắng đột xuất' : 'Vắng phép';
+            await DBService.saveDailyNotes(teacherId, notes);
+        }
+        return;
+    }
+
+    if (currentType && !(await hasRemainingTeacherAbsence(dateKey, teacherId))) {
+        delete notes[dateKey];
+        await DBService.saveDailyNotes(teacherId, notes);
+    }
+}
+
+window.setTeacherShiftAbsence = async function (compositeKey, section, index, teacherId, encodedTeacherName, dateKey, action) {
+    const teacherName = decodeURIComponent(encodedTeacherName || '');
+    const dayData = await DBService.getSchedule(compositeKey);
+    const row = dayData?.[section]?.[index];
+    if (!row) return;
+    if (!getGVList(row, 'gv').some(g => String(g.id) === String(teacherId))) {
+        alert('Giáo viên không còn được xếp ở ca này. Hãy tải lại lịch.');
+        return;
+    }
+
+    const shiftLabel = `${row.lop || 'Ca dạy'} ${row.start || ''}–${row.end || ''}`.trim();
+    const existing = getRowTeacherAbsence(row, teacherId);
+    if (action === 'PENDING' && isScheduleTimePast(compositeKey, row.start)) {
+        alert('Ca đã bắt đầu hoặc đã qua. Chỉ có thể ghi nhận báo nghỉ sớm cho ca chưa diễn ra.');
+        return;
+    }
+
+    const confirmed = await UIService.confirm(action === 'RESTORE'
+        ? `Khôi phục ${shiftLabel} cho ${teacherName}?\n\nNếu ca này chỉ có một người báo nghỉ, GV thay thế đã xếp cũng sẽ được gỡ khỏi ca.`
+        : `Ghi nhận ${teacherName} báo nghỉ ${shiftLabel}?\n\nTrạng thái sẽ là “Chưa tìm được người thay” và có thể khôi phục bất cứ lúc nào.`);
+    if (!confirmed) return;
+
+    try {
+        const nowISO = new Date().toISOString();
+        if (!Array.isArray(row.teacherAbsences)) row.teacherAbsences = [];
+
+        if (action === 'RESTORE') {
+            row.teacherAbsences = row.teacherAbsences.filter(item =>
+                String(item?.teacherId || item?.id || '') !== String(teacherId)
+            );
+            if (row.teacherAbsences.length === 0) {
+                row.gvThayTeList = [];
+                row.gvThayTheList = [];
+                row.gvThayThe = '';
+                row.gvThayTheId = '';
+                row.gvThayTe = '';
+                row.gvThayTeId = '';
+                row.gvThayTheAt = '';
+            }
+            await DBService.saveSchedule(compositeKey, dayData);
+            await syncTeacherDailyAbsenceNote(teacherId, dateKey, existing?.type || 'VP', true);
+            UIService.toast(`Đã khôi phục ca cho ${teacherName}.`, 'success');
+        } else {
+            const verdict = classifyAbsenceByLeadTime(dateKey, row.start, nowISO) || { type: 'VP' };
+            row.teacherAbsences.push({
+                teacherId,
+                teacherName,
+                type: verdict.type,
+                status: 'pending',
+                reportedAt: nowISO,
+                reportedById: localStorage.getItem('currentUserId') || '',
+                reportedByName: localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || '',
+                replacementIds: [],
+                replacementNames: [],
+                updatedAt: nowISO
+            });
+            await DBService.saveSchedule(compositeKey, dayData);
+            await syncTeacherDailyAbsenceNote(teacherId, dateKey, verdict.type, false);
+            UIService.toast(`${teacherName}: đã lưu “Chưa tìm được người thay”.`, 'success');
+        }
+
+        await renderTable();
+        await openGVAbsenceModal();
+    } catch (error) {
+        console.error('Lỗi cập nhật nghỉ theo ca:', error);
+        alert('Không thể cập nhật trạng thái nghỉ: ' + (error.message || error));
     }
 };

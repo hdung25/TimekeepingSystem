@@ -1,5 +1,5 @@
-// Kiểm tra luật "sớm 10 phút": môn cho phép + giáo viên chế độ cũ + chấm công
-// sớm thật sự ít nhất 10 phút so với giờ vào ca.
+// Kiểm tra luật "sớm 10 phút": môn cho phép + chế độ cũ/chưa phân loại + chấm
+// công sớm thật sự ít nhất 10 phút. Chế độ mới bị chặn.
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -20,6 +20,7 @@ const UNSET_TEACHER = { id: 'u3', name: 'Hà' };
 
 // Ngày cố định để test không phụ thuộc hôm nay là ngày nào.
 const at = (clock) => new Date(`2026-08-03T${clock}:00`);
+const atSecond = (clock) => new Date(`2026-08-03T${clock}`);
 
 {
     // Bản đồ môn: thiếu cờ = không cho phép.
@@ -64,6 +65,31 @@ const at = (clock) => new Date(`2026-08-03T${clock}:00`);
     assert.equal(Early10.getEarlyMinutes(at('07:20'), '07:30'), 10);
     assert.equal(Early10.getEarlyMinutes(null, '07:30'), null);
     assert.equal(Early10.getEarlyMinutes(at('07:20'), 'giờ sai'), null);
+
+    // Biên phải tính đến giây: 07:20:01 chưa đủ 10 phút, 07:20:00 vừa đủ.
+    assert.ok(Early10.getEarlyMinutes(atSecond('07:20:01'), '07:30') < 10);
+    assert.equal(Early10.getEarlyMinutes(atSecond('07:20:00'), '07:30'), 10);
+}
+
+{
+    // Cũ và chưa phân loại đều hợp lệ; chế độ mới và môn sai vẫn bị chặn.
+    const unset = Early10.evaluatePolicyEligibility({
+        subjectIds: ['en-talk'], subjectMap: SUBJECT_MAP, user: UNSET_TEACHER
+    });
+    assert.equal(unset.ok, true);
+    assert.equal(unset.code, 'ok');
+    assert.equal(unset.teachingMode, 'unset');
+
+    const newer = Early10.evaluatePolicyEligibility({
+        subjectIds: ['en-talk'], subjectMap: SUBJECT_MAP, user: NEW_TEACHER
+    });
+    assert.equal(newer.code, 'mode');
+    assert.equal(newer.teachingMode, 'new');
+
+    const blockedSubject = Early10.evaluatePolicyEligibility({
+        subjectIds: ['math'], subjectMap: SUBJECT_MAP, user: OLD_TEACHER
+    });
+    assert.equal(blockedSubject.code, 'subject');
 }
 
 {
@@ -115,6 +141,19 @@ const at = (clock) => new Date(`2026-08-03T${clock}:00`);
 }
 
 {
+    // Chỉ thiếu một giây vẫn phải bị chặn, không được làm tròn thành 10 phút.
+    const result = Early10.evaluateEarly10Request({
+        sessionRole: 'en-talk',
+        subjectMap: SUBJECT_MAP,
+        user: OLD_TEACHER,
+        checkIn: atSecond('07:20:01'),
+        classStart: '07:30'
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'checkin');
+}
+
+{
     // Môn không áp dụng → chặn, kể cả khi đến rất sớm.
     const result = Early10.evaluateEarly10Request({
         sessionRole: 'math',
@@ -156,7 +195,7 @@ const at = (clock) => new Date(`2026-08-03T${clock}:00`);
 }
 
 {
-    // Chưa phân loại → chặn, và lời nhắn phải chỉ chỗ để sửa.
+    // Chưa phân loại + đúng môn + đủ 10 phút → duyệt.
     const result = Early10.evaluateEarly10Request({
         sessionRole: 'en-talk',
         subjectMap: SUBJECT_MAP,
@@ -164,9 +203,36 @@ const at = (clock) => new Date(`2026-08-03T${clock}:00`);
         checkIn: at('07:00'),
         classStart: '07:30'
     });
+    assert.equal(result.ok, true);
+    assert.equal(result.code, 'ok');
+    assert.equal(result.earlyMinutes, 30);
+    assert.equal(result.teachingMode, 'unset');
+}
+
+{
+    // Chưa phân loại không được lách hai luật còn lại: sai môn vẫn chặn.
+    const result = Early10.evaluateEarly10Request({
+        sessionRole: 'math',
+        subjectMap: SUBJECT_MAP,
+        user: UNSET_TEACHER,
+        checkIn: at('07:00'),
+        classStart: '07:30'
+    });
     assert.equal(result.ok, false);
-    assert.equal(result.code, 'mode');
-    assert.match(result.message, /Nhân Sự/);
+    assert.equal(result.code, 'subject');
+}
+
+{
+    // Chưa phân loại nhưng thiếu đúng 1 giây vẫn không đủ điều kiện.
+    const result = Early10.evaluateEarly10Request({
+        sessionRole: 'en-talk',
+        subjectMap: SUBJECT_MAP,
+        user: UNSET_TEACHER,
+        checkIn: atSecond('07:20:01'),
+        classStart: '07:30'
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'checkin');
 }
 
 {

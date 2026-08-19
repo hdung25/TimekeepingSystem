@@ -10,6 +10,7 @@
         afternoon: ['afternoon1', 'afternoon2'],
         evening: ['evening1', 'evening2']
     };
+    const OVERSIGHT_BRANCHES = ['cs1', 'cs2', 'cs3'];
     const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
     const state = {
@@ -23,7 +24,7 @@
         users: [],
         userMap: {},
         assignedReceptionists: [],
-        presence: [],
+        currentUserAssignments: [],
         observations: [],
         attendanceRecords: [],
         classEntries: [],
@@ -141,7 +142,6 @@
             });
         });
         document.getElementById('oversight-refresh-btn').addEventListener('click', loadReceptionistView);
-        document.getElementById('activate-shift-btn').addEventListener('click', activateCurrentShift);
         document.getElementById('observation-form').addEventListener('submit', submitObservation);
         document.getElementById('observation-late-minutes').addEventListener('input', updateEffectivePreview);
         document.querySelectorAll('[data-close-modal]').forEach(item => item.addEventListener('click', closeObservationModal));
@@ -160,9 +160,11 @@
         try {
             const compositeKey = `${state.branch}__${state.dateKey}`;
             const mondayKey = getMondayKey(state.dateKey);
-            const [schedule, receptionistSchedule, observations, attendanceRecords] = await Promise.all([
+            const [schedule, receptionistSchedules, observations, attendanceRecords] = await Promise.all([
                 DBService.getSchedule(compositeKey),
-                DBService.getReceptionistSchedule(`${state.branch}__${mondayKey}`),
+                Promise.all(OVERSIGHT_BRANCHES.map(branch =>
+                    DBService.getReceptionistSchedule(`${branch}__${mondayKey}`)
+                )),
                 DBService.getShiftObservationsForDate(state.dateKey),
                 DBService.getAttendanceRecordsForDate(state.dateKey)
             ]);
@@ -170,12 +172,14 @@
             state.observations = observations || [];
             state.attendanceRecords = attendanceRecords || [];
             const dayKey = getDayKey(state.dateKey);
-            state.assignedReceptionists = receptionistSchedule?.[state.shiftKey]?.[dayKey] || [];
-            state.presence = await DBService.getReceptionistShiftPresence(
-                state.dateKey,
-                state.branch,
-                state.shiftKey,
-                state.assignedReceptionists.map(item => item.id)
+            const schedulesByBranch = Object.fromEntries(
+                OVERSIGHT_BRANCHES.map((branch, index) => [branch, receptionistSchedules[index] || {}])
+            );
+            state.assignedReceptionists = schedulesByBranch[state.branch]?.[state.shiftKey]?.[dayKey] || [];
+            state.currentUserAssignments = OVERSIGHT_BRANCHES.flatMap(branch =>
+                (schedulesByBranch[branch]?.[state.shiftKey]?.[dayKey] || [])
+                    .filter(item => String(item?.id || '') === String(state.currentUserId))
+                    .map(item => ({ ...item, branch }))
             );
             state.classEntries = buildClassEntries(schedule || {}, compositeKey);
             updateDutyPanel();
@@ -194,13 +198,23 @@
                 if (!cls?.start || !cls?.end || cls.isClosed === true) return;
                 // Lớp có thể xếp nhiều GV → lấy cả danh sách, không chỉ người đầu tiên
                 const substituteIds = [...getScheduledSubstituteIds(cls)];
+                const mainTeacherIds = [...getScheduledMainTeacherIds(cls)];
+                const availableMainTeacherIds = mainTeacherIds.filter(id =>
+                    typeof isMainTeacherAbsentFromClass !== 'function' || !isMainTeacherAbsentFromClass(cls, id)
+                );
+                const hasReportedAbsence = mainTeacherIds.some(id =>
+                    typeof isMainTeacherAbsentFromClass === 'function' && isMainTeacherAbsentFromClass(cls, id)
+                );
                 const teacherIds = substituteIds.length > 0
                     ? substituteIds
-                    : [...getScheduledMainTeacherIds(cls), ...(cls.registeredTeachers || []).map(item => item.id)].filter(Boolean);
+                    : [...availableMainTeacherIds, ...(cls.registeredTeachers || []).map(item => item.id)].filter(Boolean);
                 const uniqueTeacherIds = [...new Set(teacherIds)];
 
                 if (uniqueTeacherIds.length === 0) {
-                    entries.push(createClassEntry(cls, sectionKey, classIndex, compositeKey, '', 'Chưa xếp giáo viên'));
+                    entries.push(createClassEntry(
+                        cls, sectionKey, classIndex, compositeKey, '',
+                        hasReportedAbsence ? 'Chưa có GV thay (GV đã báo nghỉ)' : 'Chưa xếp giáo viên'
+                    ));
                     return;
                 }
                 uniqueTeacherIds.forEach(teacherId => {
@@ -272,61 +286,57 @@
         const status = document.getElementById('duty-status-text');
         const list = document.getElementById('assigned-staff-list');
         const button = document.getElementById('activate-shift-btn');
-        const activeIds = new Set(state.presence.filter(item => item.status === 'active').map(item => item.staffId));
-        const isAssigned = state.assignedReceptionists.some(item => item.id === state.currentUserId);
-        const isActive = activeIds.has(state.currentUserId);
+        const assignmentBranches = [...new Set(state.currentUserAssignments.map(item => item.branch))];
+        const isAssignedAnywhere = assignmentBranches.length > 0;
 
         list.innerHTML = state.assignedReceptionists.length
             ? state.assignedReceptionists.map(item => `
-                <span class="staff-presence-chip ${activeIds.has(item.id) ? 'active' : ''}">
+                <span class="staff-presence-chip ${String(item.id) === String(state.currentUserId) ? 'active' : ''}">
                     <span class="presence-mark"></span>${escapeHtml(item.name || state.userMap[item.id]?.name || item.id)}
                 </span>`).join('')
             : '<span class="staff-presence-chip">Chưa xếp tiếp tân</span>';
 
         panel.classList.remove('is-active', 'is-blocked');
+        button.classList.remove('is-access-status');
         if (isAdminRole()) {
             state.canOperate = true;
             panel.classList.add('is-active');
             status.textContent = `Quản trị viên đang xem ca ${SHIFT_LABELS[state.shiftKey].toLowerCase()}.`;
             button.disabled = true;
+            button.classList.add('is-access-status');
             button.innerHTML = '<i data-lucide="shield-check"></i><span>Quyền quản trị</span>';
-        } else if (isActive) {
+        } else if (isAssignedAnywhere) {
             state.canOperate = true;
             panel.classList.add('is-active');
-            status.textContent = 'Ca trực đã hoạt động. Bạn có thể ghi nhận cho các lớp bên dưới.';
+            const branchLabel = assignmentBranches.map(branch => branch.toUpperCase()).join(', ');
+            status.textContent = `Bạn có lịch tiếp tân tại ${branchLabel}. Quyền ghi nhận đã mở cho tất cả cơ sở trong ca này.`;
             button.disabled = true;
-            button.innerHTML = '<i data-lucide="check-circle-2"></i><span>Đang hoạt động</span>';
-        } else if (isAssigned) {
-            panel.classList.add('is-blocked');
-            status.textContent = 'Bạn có tên trong lịch. Hãy bắt đầu ca trực để mở quyền thao tác.';
-            button.disabled = false;
-            button.innerHTML = '<i data-lucide="radio"></i><span>Bắt đầu ca trực</span>';
+            button.classList.add('is-access-status');
+            button.innerHTML = '<i data-lucide="check-circle-2"></i><span>Đã mở tự động</span>';
         } else {
             panel.classList.add('is-blocked');
-            status.textContent = 'Tài khoản này không có trong lịch tiếp tân của ca đã chọn.';
+            status.textContent = 'Tài khoản này không có lịch tiếp tân tại bất kỳ cơ sở nào trong ca đã chọn.';
             button.disabled = true;
             button.innerHTML = '<i data-lucide="lock-keyhole"></i><span>Chưa được phân ca</span>';
         }
         refreshIcons();
     }
 
-    async function activateCurrentShift() {
-        const button = document.getElementById('activate-shift-btn');
-        button.disabled = true;
-        try {
-            await DBService.activateReceptionistShift(
-                state.dateKey,
-                state.branch,
-                state.shiftKey,
-                state.currentUserId,
-                state.currentUserName
-            );
-            toast('Đã bắt đầu ca trực. Các thao tác đã được mở.', 'success');
-            await loadReceptionistView();
-        } catch (error) {
-            toast(error.message || 'Không thể bắt đầu ca trực.', 'error');
-            button.disabled = false;
+    async function ensureObservationAccess() {
+        if (isAdminRole()) return;
+        if (state.currentUserAssignments.length === 0) {
+            throw new Error('Bạn không có lịch tiếp tân trong ca đã chọn.');
         }
+
+        // Firestore vẫn yêu cầu một presence document để chống ghi trực tiếp trái phép.
+        // Tạo ngầm cho cơ sở đang quan sát để tiếp tân không phải bấm thêm một bước.
+        await DBService.activateReceptionistShift(
+            state.dateKey,
+            state.branch,
+            state.shiftKey,
+            state.currentUserId,
+            state.currentUserName
+        );
     }
 
     function renderClassList() {
@@ -419,6 +429,7 @@
         button.disabled = true;
         errorBox.classList.remove('visible');
         try {
+            await ensureObservationAccess();
             await DBService.createShiftObservation({
                 dateKey: state.dateKey,
                 branch: state.branch,

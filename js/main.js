@@ -1,23 +1,57 @@
-const APP_VERSION = '20260808-combined-v1';
+const APP_VERSION = '20260816-early10-old-unset-v3';
+
+// Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
+// Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
+// chỉ tính lương dạy khi hồ sơ có thêm một vai trò dạy học riêng.
+if (!window.RolePolicy) {
+    const receptionistRoles = new Set([
+        'receptionist', 'receptionist_assistant', 'receptionist_lead',
+        'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant'
+    ]);
+    const teachingRoles = new Set([
+        'teacher', 'giao-vien', 'giao_vien', 'teaching_assistant',
+        'assistant', 'staff', 'tro-giang', 'tro_giang'
+    ]);
+    const managementRoles = new Set(['admin', 'senior_assistant']);
+    const getRoles = value => {
+        if (Array.isArray(value)) return value.map(String);
+        if (typeof value === 'string') return [value];
+        if (!value) return [];
+        if (Array.isArray(value.roles) && value.roles.length) return value.roles.map(String);
+        return value.role ? [String(value.role)] : [];
+    };
+    const hasAny = (value, roleSet) => getRoles(value)
+        .some(role => roleSet.has(String(role || '').trim()));
+
+    window.RolePolicy = Object.freeze({
+        getRoles,
+        hasManagementAccess: value => hasAny(value, managementRoles),
+        hasReceptionistEmploymentRole: value => hasAny(value, receptionistRoles),
+        hasTeachingEmploymentRole: value => hasAny(value, teachingRoles)
+    });
+}
 
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
 
     let refreshing = false;
-    const reloadOnceForVersion = () => {
+    const reloadOnceForVersion = (announcedVersion = APP_VERSION) => {
         if (refreshing) return;
         const reloadKey = 'tdt-app-reloaded-version';
-        if (sessionStorage.getItem(reloadKey) === APP_VERSION) return;
+        // Dùng version DO service worker thông báo. Trước đây chỉ so APP_VERSION
+        // đang chạy nên tab cũ có thể bỏ qua chính bản cập nhật mới cần tải.
+        const targetVersion = String(announcedVersion || APP_VERSION);
+        if (sessionStorage.getItem(reloadKey) === targetVersion) return;
 
         refreshing = true;
-        sessionStorage.setItem(reloadKey, APP_VERSION);
+        sessionStorage.setItem(reloadKey, targetVersion);
         window.location.reload();
     };
 
     navigator.serviceWorker.addEventListener('controllerchange', reloadOnceForVersion);
     navigator.serviceWorker.addEventListener('message', event => {
         if (event.data && event.data.type === 'APP_UPDATED') {
-            reloadOnceForVersion();
+            reloadOnceForVersion(event.data.version);
         }
     });
 
@@ -1495,13 +1529,14 @@ window.formatUserSpecialty = function(user) {
         ? user.roles
         : (user.role ? [user.role] : ['staff']);
     
-    const isReceptionist = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+    const isReceptionist = window.RolePolicy.hasReceptionistEmploymentRole(userRolesArr);
+    const hasTeachingRole = window.RolePolicy.hasTeachingEmploymentRole(userRolesArr);
     
     let parts = [];
-    if (isTA) parts.push('TG TA');
-    if (isTTV) parts.push('TG T-TV');
+    if (hasTeachingRole && isTA) parts.push('TG TA');
+    if (hasTeachingRole && isTTV) parts.push('TG T-TV');
     
-    if (parts.length === 0 && !isReceptionist) {
+    if (parts.length === 0 && hasTeachingRole && !isReceptionist) {
         parts.push('TG TA'); // Default to TG TA
     }
     
@@ -2059,7 +2094,7 @@ window.checkUpcomingMeetingsAndShifts = async function() {
 
         // 2. Check shift check-in reminder (Receptionists only)
         const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : ['staff']);
-        const isReceptionist = userRolesArr.some(r => ['receptionist', 'receptionist_assistant'].includes(r));
+        const isReceptionist = window.RolePolicy.hasReceptionistEmploymentRole(userRolesArr);
 
         if (isReceptionist) {
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
@@ -2755,7 +2790,7 @@ const ANN_ICONS = ['bell', 'calendar', 'clipboard-list', 'shield', 'clock', 'mes
 const ANN_GROUPS = {
     all: { label: 'Tất cả nhân sự', roles: null },
     gv: { label: 'Giáo viên & Trợ giảng', roles: ['giao-vien', 'teacher', 'teaching_assistant', 'assistant'] },
-    tt: { label: 'Tiếp tân', roles: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'] }
+    tt: { label: 'Tiếp tân', roles: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant'] }
 };
 
 function annEsc(s) {
@@ -2766,13 +2801,13 @@ function annUserRoles(u) {
     return Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
 }
 
-// Người nhận hợp lệ: loại tài khoản admin/senior_assistant (họ không có chuông thông báo)
+// Trợ lý cấp cao vẫn nhận thông báo như Tiếp tân; chỉ loại tài khoản Admin thuần.
 function annFilterRecipients(users, groupKey) {
     const g = ANN_GROUPS[groupKey] || ANN_GROUPS.all;
     return (users || []).filter(u => {
         if (!u.id) return false;
         const roles = annUserRoles(u);
-        if (roles.includes('admin') || roles.includes('senior_assistant')) return false;
+        if (roles.includes('admin')) return false;
         if (!g.roles) return true;
         return roles.some(r => g.roles.includes(r));
     });

@@ -54,7 +54,8 @@ service cloud.firestore {
       return hasRole('receptionist') ||
         hasRole('receptionist_assistant') ||
         hasRole('receptionist_lead') ||
-        hasRole('receptionist_staff');
+        hasRole('receptionist_staff') ||
+        hasRole('senior_assistant');
     }
 
     // --- COLLECTIONS ---

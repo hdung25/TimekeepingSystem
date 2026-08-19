@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Report chip mobile fixture</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    body { margin: 0; padding: 12px; background: #f0fdf4; }
+    #calendar-grid { width: 100%; }
+    .calendar-cell { background: #fff; border: 1px solid #d1d5db; padding: 10px; }
+    .schedule-chip { border-left: 3px solid #10b981; }
+  </style>
+</head>
+<body>
+  <main id="calendar-grid">
+    <section class="calendar-cell">
+      <div class="schedule-chip report-schedule-chip chip-green" style="display:flex;justify-content:space-between;align-items:center">
+        <span class="report-chip-main" style="min-width:0">15:30–18:30 CS1 (Pre I1 + e9) ☆ +10p</span>
+        <button class="report-chip-action report-chip-early10-action">☆ +10p</button>
+        <button class="report-chip-action report-chip-overtime-action">◷ Tăng ca</button>
+      </div>
+    </section>
+    <section class="calendar-cell">
+      <div class="schedule-chip report-schedule-chip chip-green" style="display:flex;justify-content:space-between;align-items:center">
+        <span class="report-chip-main" style="min-width:0">09:15–10:45 CS1 (Toán 4)</span>
+        <button class="report-chip-action report-chip-early10-action">☆ Không áp dụng</button>
+        <button class="report-chip-action report-chip-overtime-action">◷ Tăng ca</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

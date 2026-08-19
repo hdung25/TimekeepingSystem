@@ -13,6 +13,7 @@ const report = read('js/report.js');
 const personnel = read('js/personnel.js');
 const monHocJs = read('js/mon-hoc.js');
 const serviceWorker = read('service-worker.js');
+const style = read('css/style.css');
 
 for (const [name, source] of [
   ['nhan-su.html', nhanSu],
@@ -29,15 +30,22 @@ assert.match(nhanSu, /value="receptionist_assistant"/);
 assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
 assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(baoCao, /db-service\.js\?v=20260809-history-overtime-v8/);
-assert.match(baoCao, /report\.js\?v=20260809-history-overtime-v8/);
+assert.match(baoCao, /db-service\.js\?v=20260816-early10-old-unset-v3/);
+assert.match(baoCao, /report\.js\?v=20260816-report-chip-mobile-v4/);
+assert.match(baoCao, /style\.css\?v=20260816-report-chip-mobile-v1/);
 assert.match(report, /DBService\.getMonthlyReceptionistShifts/);
 assert.match(dbService, /getMonthlyReceptionistShifts:\s*async/);
 assert.match(report, /DBService\.getOvertimeRequestsForStaff\(staffId, prevMonthStr\)/);
 assert.doesNotMatch(report, /getMonthlyOvertimeRequests/);
+assert.match(report, /report-schedule-chip/);
+assert.match(report, /report-chip-main/);
+assert.match(report, /report-chip-action/);
+assert.match(style, /\.report-schedule-chip\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+assert.match(style, /\.report-schedule-chip\s*>\s*\.report-chip-main[\s\S]*?flex:\s*1 1 100%/);
+assert.match(style, /\.report-schedule-chip\s*>\s*\.report-chip-action[\s\S]*?margin-left:\s*0 !important/);
 
 assert.match(monHoc, /class="mh-page"/);
-assert.match(monHoc, /app-build" content="20260809-chip-policy-v1"/);
+assert.match(monHoc, /app-build" content="20260816-early10-old-unset-v3"/);
 assert.match(monHocJs, /allowEarly10/);
 assert.match(monHocJs, /function getRootGroups\(\)/);
 assert.match(monHocJs, /function getDescendantLeaves\(groupId/);
@@ -59,8 +67,8 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v125-history-overtime-20260809/);
+assert.match(serviceWorker, /tdt-chamcong-v132-cross-branch-oversight-20260816/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /20260809-history-overtime-v8/);
+assert.match(serviceWorker, /20260816-report-chip-mobile-v4/);
 
 console.log('page compatibility checks passed');

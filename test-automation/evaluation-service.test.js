@@ -1162,4 +1162,114 @@ function observation(lateMinutes) {
     );
 }
 
+{
+    // Mỹ Yến 11/08: lần bấm lỗi mang giờ ra buổi sáng không được che lần bấm
+    // hợp lệ ngay sau đó. Phiên đang mở của ngày cũ được khép theo cuối chuỗi lịch.
+    const myYenSchedule = {
+        evening1: [{ start: '18:00', end: '19:30', lop: 'Mover 1', lopId: 'mover-1', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }],
+        evening2: [{ start: '19:30', end: '21:00', lop: 'PRE-I1', lopId: 'pre-i1', gvId: staffId, registeredTeachers: [], _branch: 'cs1' }]
+    };
+    const myYenChips = context.window.calculateDailyChips(
+        myYenSchedule,
+        [
+            { id: 'corrupt-evening', checkIn: '2026-08-11T17:49:48+07:00', checkOut: '2026-08-11T10:45:00+07:00' },
+            { id: 'valid-evening', checkIn: '2026-08-11T17:50:37+07:00', checkOut: null }
+        ],
+        staffId, '2026-08-11', { roles: ['teaching_assistant'], salary_config: {} }
+    );
+    const worked = myYenChips.find(chip => chip.isTeaching && /18:00/.test(chip.text));
+    assert.ok(worked, 'phải giữ ca tối hợp lệ của Mỹ Yến');
+    assert.equal(worked.sessionId, 'valid-evening', 'không được chọn phiên có giờ ra trước giờ vào');
+    assert.equal(worked.paidMinutes, 180, 'chuỗi 18:00–21:00 phải tính đủ 3 giờ');
+}
+
+{
+    // Luồng Mỹ Yến 15/08: cờ session và request cùng tồn tại do transaction,
+    // nhưng chip/lương chỉ được cộng đúng MỘT lần 10 phút.
+    const dateKey = '2026-08-15';
+    const staffId = 'nv-myyen';
+    const sessionId = '1786781750885';
+    const schedule = {
+        afternoon2: [{
+            start: '15:30', end: '17:00', lop: 'PRE-I1',
+            lopId: 't1ajt5FjkjvYAe1lUThH', gvId: staffId,
+            registeredTeachers: [], _branch: 'cs1'
+        }]
+    };
+    const sessions = [{
+        id: sessionId,
+        checkIn: `${dateKey}T15:15:50+07:00`,
+        checkOut: `${dateKey}T17:00:00+07:00`,
+        bonus10: true
+    }];
+    const bonus10Map = {
+        [sessionId]: { id: 'auto-myyen', status: 'approved', sessionId }
+    };
+    const chips = context.window.calculateDailyChips(
+        schedule, sessions, staffId, dateKey,
+        { roles: ['teaching_assistant'], teachingMode: 'old' },
+        [], {}, [], bonus10Map
+    );
+    const worked = chips.find(chip => chip.isTeaching && chip.sessionId === sessionId);
+    assert.ok(worked, 'phải tạo chip PRE-I1 của Mỹ Yến');
+    assert.equal(worked.paidMinutes, 100, '90 phút lịch + đúng một lần thưởng 10 phút');
+    assert.equal((worked.text.match(/\+10p/g) || []).length, 1, 'chip chỉ hiện một nhãn +10p');
+}
+
+{
+    // GV báo nghỉ từ sớm nhưng chưa tìm được người thay phải vẫn có chip nghỉ
+    // theo đúng ca, không cần lạm dụng trường GV thay thế để suy đoán.
+    const pendingSchedule = {
+        morning1: [{
+            start: '07:30', end: '09:00', lop: 'E7', lopId: 'subject-e7',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-14', _originalIndex: 0,
+            teacherAbsences: [{
+                teacherId: staffId,
+                teacherName: 'Teacher Hang',
+                type: 'VP',
+                status: 'pending',
+                reportedAt: '2026-07-01T08:00:00+07:00'
+            }]
+        }]
+    };
+    const pendingChips = context.window.calculateDailyChips(
+        pendingSchedule, [], staffId, dateKey, user
+    );
+    assert.equal(pendingChips.length, 1);
+    assert.equal(pendingChips[0].isVDX, true);
+    assert.equal(pendingChips[0].absenceType, 'VP');
+    assert.equal(pendingChips[0].isPendingReplacement, true);
+    assert.equal(pendingChips[0].paidMinutes, 0);
+    assert.match(pendingChips[0].tooltip, /chưa tìm được GV thay thế/);
+
+    // Nếu GV đổi ý và thực tế chấm công, dữ liệu có mặt thắng cờ báo nghỉ.
+    const attendedChips = context.window.calculateDailyChips(
+        pendingSchedule,
+        [{ id: 'returned-to-work', checkIn: `${dateKey}T07:30:00+07:00`, checkOut: `${dateKey}T09:00:00+07:00` }],
+        staffId, dateKey, user
+    );
+    assert.ok(attendedChips.some(chip => chip.isTeaching && chip.paidMinutes === 90));
+    assert.ok(!attendedChips.some(chip => chip.isVDX), 'đã đi làm thì không còn chip nghỉ');
+}
+
+{
+    // Mảng teacherAbsences rỗng là trạng thái đã khôi phục. Dù dữ liệu ca còn
+    // GV thay, hệ thống mới không được suy đoán GV chính vẫn nghỉ như dữ liệu cũ.
+    const restoredSchedule = {
+        morning1: [{
+            start: '07:30', end: '09:00', lop: 'MC', lopId: 'subject-mc',
+            gvId: staffId,
+            gvThayTeList: [{ id: 'teacher-sub', name: 'Sub' }],
+            teacherAbsences: [],
+            registeredTeachers: [],
+            _branch: 'cs1', _compositeKey: 'cs1__2026-07-14', _originalIndex: 0
+        }]
+    };
+    const restoredChips = context.window.calculateDailyChips(
+        restoredSchedule, [], staffId, dateKey, user
+    );
+    assert.ok(!restoredChips.some(chip => chip.isVDX), 'khôi phục ca phải gỡ trạng thái VĐX/VP');
+}
+
 console.log('evaluation-service regression tests passed');

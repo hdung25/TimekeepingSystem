@@ -1,7 +1,7 @@
 // ================= CHÍNH SÁCH SỚM 10 PHÚT =================
 // Một ca chỉ được cộng 10p khi thỏa CẢ BA điều kiện:
 //   1. Môn học của ca được đánh dấu "cho phép sớm 10p" (trang Môn Học).
-//   2. Người dạy được xếp loại "giáo viên chế độ cũ" (trang Nhân Sự).
+//   2. Người dạy thuộc chế độ cũ HOẶC chưa phân loại. Chỉ chế độ mới bị chặn.
 //   3. Giờ chấm công vào thực tế sớm hơn giờ vào ca ÍT NHẤT 10 phút.
 //
 // Quên bấm "Sớm 10p" thì không được cộng — hệ thống không tự đi tìm.
@@ -106,8 +106,7 @@
 
     // --- Giáo viên -------------------------------------------------------
 
-    // 'old' | 'new' | 'unset'. Chưa phân loại KHÔNG được hưởng 10p, nhưng để
-    // riêng một trạng thái để admin nhìn ra ai còn thiếu phân loại.
+    // 'old' | 'new' | 'unset'. Cả old và unset đều được áp dụng Sớm 10p.
     function getTeachingMode(user) {
         var mode = user && user.teachingMode;
         if (mode === 'old' || mode === 'new') return mode;
@@ -156,6 +155,13 @@
         return date.getHours() * 60 + date.getMinutes();
     }
 
+    function getSecondsOfDay(value) {
+        var date = toDate(value);
+        if (!date) return null;
+        return date.getHours() * 3600 + date.getMinutes() * 60 +
+            date.getSeconds() + date.getMilliseconds() / 1000;
+    }
+
     function formatMinutesOfDay(totalMinutes) {
         if (totalMinutes === null || totalMinutes === undefined) return '??:??';
         var normalized = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
@@ -166,15 +172,48 @@
 
     // Số phút đến sớm so với giờ vào ca. Âm = đến muộn.
     function getEarlyMinutes(checkIn, classStart) {
-        var checkInMinutes = getMinutesOfDay(checkIn);
+        var checkInSeconds = getSecondsOfDay(checkIn);
         var startMinutes = parseClockToMinutes(classStart);
-        if (checkInMinutes === null || startMinutes === null) return null;
+        if (checkInSeconds === null || startMinutes === null) return null;
 
-        var diff = startMinutes - checkInMinutes;
+        // Không bỏ qua giây: 07:20:01 so với ca 07:30 mới chỉ sớm 9p59s,
+        // không được làm tròn thành đủ 10 phút.
+        var diff = (startMinutes * 60 - checkInSeconds) / 60;
         // Ca đêm/qua ngày: chênh lệch quá nửa ngày thì quy về cùng vòng 24h.
         if (diff > 720) diff -= 1440;
         if (diff < -720) diff += 1440;
         return diff;
+    }
+
+    // Trạng thái chính sách dùng chung cho chip và bước xác nhận.
+    function evaluatePolicyEligibility(input) {
+        var options = input || {};
+        var subjectMap = options.subjectMap || buildSubjectEarly10Map(options.subjects);
+        var subjectAllowed = Array.isArray(options.subjectIds) && options.subjectIds.length > 0
+            ? isSubjectIdsEarly10Allowed(options.subjectIds, subjectMap)
+            : isSubjectEarly10Allowed(options.sessionRole, subjectMap);
+
+        if (!subjectAllowed) {
+            return {
+                ok: false,
+                code: 'subject',
+                teachingMode: getTeachingMode(options.user),
+                message: 'Môn học của ca này không áp dụng chính sách sớm 10 phút. ' +
+                    'Chính sách chỉ áp dụng cho các môn được đánh dấu trong trang Môn Học.'
+            };
+        }
+
+        var mode = getTeachingMode(options.user);
+        if (mode === 'new') {
+            return {
+                ok: false,
+                code: 'mode',
+                teachingMode: mode,
+                message: 'Nhân viên này đã được xác định là chế độ mới nên không áp dụng chính sách sớm 10 phút.'
+            };
+        }
+
+        return { ok: true, code: 'ok', teachingMode: mode, message: '' };
     }
 
     // --- Quyết định ------------------------------------------------------
@@ -187,7 +226,8 @@
         var startLabel = options.classStart || '??:??';
         var checkInMinutes = getMinutesOfDay(options.checkIn);
         var checkInLabel = checkInMinutes === null ? '??:??' : formatMinutesOfDay(checkInMinutes);
-        var earlyMinutes = getEarlyMinutes(options.checkIn, options.classStart);
+        var earlyMinutesExact = getEarlyMinutes(options.checkIn, options.classStart);
+        var earlyMinutes = earlyMinutesExact === null ? null : Math.floor(earlyMinutesExact + 1e-9);
 
         function fail(code, message) {
             return {
@@ -200,22 +240,13 @@
             };
         }
 
-        var subjectAllowed = Array.isArray(options.subjectIds) && options.subjectIds.length > 0
-            ? isSubjectIdsEarly10Allowed(options.subjectIds, subjectMap)
-            : isSubjectEarly10Allowed(options.sessionRole, subjectMap);
-
-        if (!subjectAllowed) {
-            return fail('subject', 'Môn học của ca này không áp dụng chính sách sớm 10 phút. ' +
-                'Chính sách chỉ áp dụng cho các môn được đánh dấu trong trang Môn Học.');
-        }
-
-        if (!isOldModeTeacher(options.user)) {
-            var mode = getTeachingMode(options.user);
-            return fail('mode', mode === 'new'
-                ? 'Chính sách sớm 10 phút chỉ áp dụng cho giáo viên chế độ cũ.'
-                : 'Nhân viên này chưa được phân loại chế độ cũ / chế độ mới. ' +
-                  'Vào trang Nhân Sự để phân loại trước.');
-        }
+        var eligibility = evaluatePolicyEligibility({
+            sessionRole: options.sessionRole,
+            subjectIds: options.subjectIds,
+            subjectMap: subjectMap,
+            user: options.user
+        });
+        if (!eligibility.ok) return fail(eligibility.code, eligibility.message);
 
         if (checkInMinutes === null) {
             return fail('no-checkin', 'Ca này chưa có giờ chấm công vào nên không kiểm tra được điều kiện sớm 10 phút.');
@@ -225,7 +256,7 @@
             return fail('no-schedule', 'Ca này không có giờ vào ca theo lịch nên không kiểm tra được điều kiện sớm 10 phút.');
         }
 
-        if (earlyMinutes < EARLY10_REQUIRED_MINUTES) {
+        if (earlyMinutesExact < EARLY10_REQUIRED_MINUTES) {
             return fail('checkin', 'Giờ vào ca của bạn là ' + checkInLabel +
                 ', không hợp lệ để nhận sớm 10 phút. Ca bắt đầu lúc ' + startLabel +
                 ' nên bạn phải chấm công trước ' + formatMinutesOfDay(parseClockToMinutes(options.classStart) - EARLY10_REQUIRED_MINUTES) + '.');
@@ -237,7 +268,8 @@
             message: 'Đã xác nhận vào sớm ' + earlyMinutes + ' phút (' + checkInLabel + ' so với giờ vào ca ' + startLabel + ').',
             earlyMinutes: earlyMinutes,
             checkInLabel: checkInLabel,
-            startLabel: startLabel
+            startLabel: startLabel,
+            teachingMode: eligibility.teachingMode
         };
     }
 
@@ -269,6 +301,7 @@
         formatMinutesOfDay: formatMinutesOfDay,
         getEarlyMinutes: getEarlyMinutes,
         evaluateEarly10Request: evaluateEarly10Request,
+        evaluatePolicyEligibility: evaluatePolicyEligibility,
         isMonthlyBonusPenaltyActive: isMonthlyBonusPenaltyActive
     };
 

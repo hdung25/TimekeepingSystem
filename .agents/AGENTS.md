@@ -94,3 +94,19 @@
 * Before a migration, bulk data change, or activation of automatic payroll, verify a
   recoverable backup path, keep source snapshots/audit history, and run regression
   tests for monthly report, edited sessions, early-10 policy, and payout month.
+
+### 3.6 Cross-Flow Impact Analysis & Reversible Operations (Rule HD)
+* Never treat the screen or prompt where a problem is reported as the full scope of
+  the fix. Trace the complete state flow: every writer, Firestore representation,
+  cache, derived calculation, permission rule, and every page that reads or mutates
+  that state (including schedule, attendance, reports, payroll, and oversight).
+* Before declaring a change complete, verify both the forward path and the correction
+  path on all affected pages. An administrator must be able to reverse operational
+  states such as absent/cancelled/replaced without deleting unrelated attendance,
+  notes, salary data, or assignments.
+* Model intermediate real-world states explicitly instead of inferring them from a
+  later step. Example: "teacher reported absent; replacement not found yet" is a
+  first-class per-shift state and must not require assigning a substitute first.
+* Preserve backward compatibility for existing Firestore documents, but make the new
+  explicit state the source of truth once present. Add regression tests for legacy
+  data, the new state, restoration, and downstream display/calculation behavior.

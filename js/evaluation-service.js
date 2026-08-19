@@ -108,6 +108,33 @@ function safeDate(val) {
     return isNaN(d.getTime()) ? null : d;
 }
 
+// A corrupted legacy row can contain a checkout earlier than its check-in
+// (usually a morning checkout copied onto an evening tap). It must never win
+// schedule matching over a valid/open session from the same shift.
+function hasValidSessionChronology(session) {
+    if (!session) return false;
+    const checkIn = safeDate(session.checkIn || session.start);
+    if (!checkIn) return false;
+    const checkOut = safeDate(session.checkOut);
+    return !checkOut || checkOut >= checkIn;
+}
+
+function getClassTeacherAbsenceRecord(cls, staffId) {
+    if (!cls || !staffId || !Array.isArray(cls.teacherAbsences)) return null;
+    return cls.teacherAbsences.find(item =>
+        item && String(item.teacherId || item.id || '') === String(staffId)
+    ) || null;
+}
+
+function isMainTeacherAbsentForEvaluation(cls, staffId) {
+    if (!isScheduledMainTeacher(cls, staffId)) return false;
+    // teacherAbsences (kể cả []) là mô hình mới và là nguồn sự thật theo từng
+    // GV. Dữ liệu cũ chưa có trường này mới suy đoán theo GV thay thế.
+    return Array.isArray(cls?.teacherAbsences)
+        ? !!getClassTeacherAbsenceRecord(cls, staffId)
+        : hasScheduledSubstitute(cls);
+}
+
 function timeStrToMin(t) {
     if (!t || typeof t !== 'string' || !t.includes(':')) return 0;
     const [h, m] = t.split(':').map(Number);
@@ -334,7 +361,7 @@ function matchScheduledShiftCoverage(shifts, attendanceSessions, dateStr) {
 
     const sessionStates = (Array.isArray(attendanceSessions) ? attendanceSessions : [])
         .map((session, index) => {
-            if (!session || session.isAbsent) return null;
+            if (!session || session.isAbsent || !hasValidSessionChronology(session)) return null;
             const checkIn = safeDate(session.checkIn || session.start);
             if (!checkIn) return null;
             let checkOut = safeDate(session.checkOut);
@@ -545,7 +572,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     sections.forEach(sk => {
         (schedule[sk] || []).forEach((c, idx) => {
             if (!c.start || !c.end) return;
-            const isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
+            const isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
+                !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
             const ck = c._compositeKey || null;
             const originalIdx = c._originalIndex !== undefined ? c._originalIndex : idx;
             if (isOriginalVDX) {
@@ -561,9 +589,9 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             ? currentUserContext.roles
             : [currentUserContext.role || ''])
         : [];
-    const receptionistRoleKeys = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'];
+    const receptionistRoleKeys = ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant'];
     const hasReceptionistRole = staffRoles.some(r => receptionistRoleKeys.includes(r));
-    const hasTeachingRole = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'senior_assistant', 'assistant'].includes(r));
+    const hasTeachingRole = staffRoles.some(r => ['giao-vien', 'teacher', 'teaching_assistant', 'assistant'].includes(r));
     // Phiên admin đã chọn rõ môn là một bản ghi thủ công có chủ đích. Một
     // phiên dài có thể phủ nhiều hàng lịch rời nhau, nhưng không được nhân cả
     // khoảng giờ thủ công cho từng hàng — chỉ đại diện một lần, còn các hàng
@@ -581,7 +609,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             (schedule[sk] || []).forEach((c, i) => {
                 if (!c.start || !c.end) return;
                 const _isSubstitute = isScheduledSubstitute(c, staffId);
-                const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
+                const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
+                    !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
                         (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -641,7 +670,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             localSchedule[sk] = [];
             (schedule[sk] || []).forEach((c, i) => {
                 const _isSubstitute = isScheduledSubstitute(c, staffId);
-                const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
+                const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
+                    !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
                         (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -676,7 +706,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             if (!c || !c.start || !c.end) return;
             if (c.isClosed === true) return;
             const _isSubstitute = isScheduledSubstitute(c, staffId);
-            const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
+            const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
+                !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
             const _isReg = _isSubstitute ||
                 (!_isOriginalVDX && (
                     (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -706,7 +737,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 if (c.isClosed === true) return; // skip explicitly closed classes
                 // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
                 const _isSubstitute = isScheduledSubstitute(c, staffId);
-                const _isOriginalVDX = hasScheduledSubstitute(c) && isScheduledMainTeacher(c, staffId);
+                const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
+                    !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
                         (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -807,7 +839,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         classes.forEach((cls, idx) => {
             // 1. Kiểm tra GV thay thế
             const isSubstitute = isScheduledSubstitute(cls, staffId);
-            const isOriginalVDX = hasScheduledSubstitute(cls) && isScheduledMainTeacher(cls, staffId);
+            const absenceRecord = getClassTeacherAbsenceRecord(cls, staffId);
+            const isOriginalVDX = isMainTeacherAbsentForEvaluation(cls, staffId);
 
             const classCompositeKey = cls._compositeKey || null;
             const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
@@ -818,19 +851,27 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             }
 
             // GV gốc bị thay → tạo chip VĐX riêng (không tính giờ/lương) rồi return
-            if (isOriginalVDX) {
-                // Cùng giờ đó GV có chấm công đi làm (bị mượn dạy lớp khác) → KHÔNG tính vắng
-                if (hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) return;
+            if (isOriginalVDX && !hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) {
+                // Không có chấm công phủ ca: giữ trạng thái nghỉ đã báo. Nếu GV
+                // thực tế vẫn đi làm thì chấm công thắng và luồng dưới tính công bình thường.
                 const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
                 const branchLabel = cls._branch ? cls._branch.toUpperCase() : '';
+                const replacementNames = (absenceRecord?.replacementNames || [])
+                    .filter(Boolean).join(', ') || cls.gvThayThe || '';
+                const absenceType = absenceRecord?.type || 'VDX';
+                const isPendingReplacement = !hasScheduledSubstitute(cls);
                 chips.push({
                     text: `VĐX: ${lopLabel} ${cls.start}–${cls.end}${branchLabel ? ' (' + branchLabel + ')' : ''}`,
                     class: 'chip-red',
                     paidMinutes: 0,
                     isWarning: false,
                     isVDX: true,
+                    absenceType,
+                    isPendingReplacement,
                     chipFilterName: normalizeChipFilterName(cls.lop),
-                    tooltip: `Vắng đột xuất — GV thay thế: ${cls.gvThayThe || '?'}`,
+                    tooltip: isPendingReplacement
+                        ? `${absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất'} — chưa tìm được GV thay thế`
+                        : `${absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất'} — GV thay thế: ${replacementNames || '?'}`,
                     sessionId: null,
                     schedData: { start: cls.start, end: cls.end },
                     isClickable: true,
@@ -889,6 +930,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             const _chainStartDates = [..._chainStarts].map(_toClassDate);
 
             let matchedSession = attendanceSessions.find(s => {
+                if (!hasValidSessionChronology(s)) return false;
                 if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
                     (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
                 return s.linkedClassStart && _chainStarts.has(s.linkedClassStart);
@@ -896,6 +938,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
+                    if (!hasValidSessionChronology(s)) return false;
                     if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
                         (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
                     if (_hasLiveClassLink(s)) return false; // Already linked to another class
@@ -909,6 +952,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (!matchedSession) {
                 matchedSession = attendanceSessions.find(s => {
+                    if (!hasValidSessionChronology(s)) return false;
                     if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
                         (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
                     if (_hasLiveClassLink(s)) return false; // Already linked to another class
@@ -943,6 +987,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // Gom các phiên còn lại thuộc cùng chuỗi ca. Trước đây các phiên này bị
                 // đánh dấu "đã dùng" nhưng phút làm chỉ lấy từ phiên đầu, làm mất công ca 2.
                 attendanceSessions.forEach(s => {
+                    if (!hasValidSessionChronology(s)) return;
                     if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return;
                     if (_matchedTeachingSessions.some(item => item.id === s.id)) return;
                     if (s.isAbsent) return;

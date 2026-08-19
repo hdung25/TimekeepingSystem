@@ -272,8 +272,8 @@ let _cmpLimit = 15;         // 0 = tất cả
 let _cmpRole = 'all';       // 'all' | 'gv' | 'tt'
 
 const CMP_ROLE_GROUPS = {
-    gv: ['giao-vien', 'teacher', 'teaching_assistant', 'assistant', 'senior_assistant'],
-    tt: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff']
+    gv: ['giao-vien', 'teacher', 'teaching_assistant', 'assistant'],
+    tt: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant']
 };
 
 function cmpUserRoles(u) {
@@ -282,6 +282,10 @@ function cmpUserRoles(u) {
 
 function cmpUserInRole(u, group) {
     if (group === 'all') return true;
+    if (window.RolePolicy) {
+        if (group === 'gv') return window.RolePolicy.hasTeachingEmploymentRole(u);
+        if (group === 'tt') return window.RolePolicy.hasReceptionistEmploymentRole(u);
+    }
     const wanted = CMP_ROLE_GROUPS[group] || [];
     return cmpUserRoles(u).some(r => wanted.includes(r));
 }

@@ -56,6 +56,29 @@ function hasScheduledSubstitute(cls) {
     return getScheduledSubstituteIds(cls).size > 0;
 }
 
+// Trạng thái GV báo nghỉ được lưu THEO TỪNG LỚP/CA, thay vì suy đoán từ việc
+// đã có GV thay thế. Nhờ vậy người xếp lịch có thể ghi nhận "đang chờ người
+// thay" từ sớm và vẫn khôi phục đúng một ca khi GV đi làm lại.
+function getTeacherAbsenceRecord(cls, staffId) {
+    if (!cls || !staffId || !Array.isArray(cls.teacherAbsences)) return null;
+    return cls.teacherAbsences.find(item =>
+        item && String(item.teacherId || item.id || '') === String(staffId)
+    ) || null;
+}
+
+function isTeacherExplicitlyAbsent(cls, staffId) {
+    return !!getTeacherAbsenceRecord(cls, staffId);
+}
+
+function isMainTeacherAbsentFromClass(cls, staffId) {
+    if (!isScheduledMainTeacher(cls, staffId)) return false;
+    // Có mảng mới (kể cả rỗng) thì nó là nguồn sự thật theo từng GV. Chỉ dữ
+    // liệu cũ chưa có trường này mới phải suy đoán "có GV thay = GV chính nghỉ".
+    return Array.isArray(cls?.teacherAbsences)
+        ? isTeacherExplicitlyAbsent(cls, staffId)
+        : hasScheduledSubstitute(cls);
+}
+
 // GV được xếp cho lớp (GV chính, GV thay thế, hoặc tự nhận lớp)
 function isAssignedToClass(cls, staffId) {
     return isScheduledMainTeacher(cls, staffId) ||
@@ -522,6 +545,8 @@ const DBService = {
                             // sang tuần sau (dữ liệu cũ tồn tại cả 2 cách viết The/Te).
                             newRow.gvThayThe = ''; newRow.gvThayTheId = ''; newRow.gvThayTheList = [];
                             newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
+                            delete newRow.gvThayTheAt;
+                            delete newRow.teacherAbsences;
                             return newRow;
                         });
                     }
@@ -636,6 +661,8 @@ const DBService = {
                                 // GV thay thế không kế thừa sang ngày mới (cả 2 cách viết The/Te)
                                 newRow.gvThayThe = ''; newRow.gvThayTheId = ''; newRow.gvThayTheList = [];
                                 newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
+                                delete newRow.gvThayTheAt;
+                                delete newRow.teacherAbsences;
                                 return newRow;
                             });
                         }
@@ -1024,14 +1051,25 @@ const DBService = {
     },
 
     // 9a. Subjects (Môn học) CRUD
-    getSubjects: async () => {
+    getSubjects: async (forceServer = false) => {
         const cacheKey = 'subjects_all';
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+        if (!forceServer && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
             try {
-                const snap = await db.collection('subjects').orderBy('name').get();
-                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const query = db.collection('subjects').orderBy('name');
+                let snap;
+                try {
+                    snap = forceServer ? await query.get({ source: 'server' }) : await query.get();
+                } catch (networkError) {
+                    // PWA có thể đang offline; giữ khả năng xem dữ liệu cache nhưng không
+                    // biến một lần mất mạng thành danh sách môn rỗng/"Không áp dụng" hàng loạt.
+                    console.warn('getSubjects server refresh failed; using cache:', networkError);
+                    snap = await query.get({ source: 'cache' });
+                }
+                const result = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                DBService._cache[cacheKey] = Promise.resolve(result);
+                return result;
             } catch (e) {
                 console.warn('getSubjects error:', e);
                 return [];
@@ -3125,6 +3163,34 @@ const DBService = {
         }
     },
 
+    restoreCancelledShift: async (monthStr, staffId, shiftKey) => {
+        try {
+            const docId = `${monthStr}_${staffId}`;
+            const result = await db.runTransaction(async transaction => {
+                const docRef = db.collection('cancelled_shifts').doc(docId);
+                const doc = await transaction.get(docRef);
+                if (!doc.exists) return false;
+
+                const data = doc.data() || {};
+                const shifts = (Array.isArray(data.shifts) ? data.shifts : [])
+                    .filter(key => key !== shiftKey);
+
+                transaction.set(docRef, {
+                    userId: staffId,
+                    month: monthStr,
+                    shifts,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                return true;
+            });
+            DBService._invalidate(`cancelled_shifts_${monthStr}_${staffId}`);
+            return result;
+        } catch (error) {
+            console.error('[CancelledShifts] Error restoring:', error);
+            throw error;
+        }
+    },
+
     // ================= BONUS 10P REQUESTS =================
 
     createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
@@ -3162,8 +3228,8 @@ const DBService = {
         }
     },
 
-    // Hệ thống đã tự xác minh đủ điều kiện (môn cho phép + GV chế độ cũ + chấm công
-    // sớm ≥10 phút) nên ghi thẳng trạng thái 'approved'.
+    // Hệ thống đã tự xác minh đủ điều kiện (môn cho phép + chế độ cũ/chưa phân loại
+    // + chấm công sớm ≥10 phút) nên ghi thẳng trạng thái 'approved'.
     // KHÔNG dùng create rồi update: firestore.rules chỉ cho admin update
     // bonus10_requests, trong khi người bấm nút ở đây là giáo viên.
     createApprovedBonus10Request: async (staffId, staffName, dateKey, sessionId, meta) => {
@@ -3179,25 +3245,53 @@ const DBService = {
             });
             if (already) throw new Error('Ca này đã được ghi nhận sớm 10p rồi!');
 
-            const docRef = await db.collection('bonus10_requests').add({
-                staffId,
-                staffName: staffName || 'N/A',
-                dateKey,
-                sessionId: String(sessionId),
-                status: 'approved',
-                autoApproved: true,
-                earlyMinutes: (meta && meta.earlyMinutes) || null,
-                checkInAt: (meta && meta.checkInLabel) || null,
-                scheduledStart: (meta && meta.startLabel) || null,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                approvedBy: 'Hệ thống tự duyệt',
-                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            // ID ổn định + transaction: hai lần chạm nhanh không thể tạo hai yêu cầu;
+            // request và cờ trên attendance luôn cùng thành công hoặc cùng thất bại.
+            const normalizedSessionId = String(sessionId);
+            const requestId = `auto_${dateKey}_${staffId}_${normalizedSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const requestRef = db.collection('bonus10_requests').doc(requestId);
+            const attendanceRef = db.collection('attendance_logs').doc(`${dateKey}_${staffId}`);
+
+            await db.runTransaction(async transaction => {
+                const [requestDoc, attendanceDoc] = await Promise.all([
+                    transaction.get(requestRef),
+                    transaction.get(attendanceRef)
+                ]);
+                if (requestDoc.exists) throw new Error('Ca này đã được ghi nhận sớm 10p rồi!');
+                if (!attendanceDoc.exists) throw new Error('Không tìm thấy dữ liệu chấm công của ca này.');
+
+                const attendance = attendanceDoc.data() || {};
+                const sessions = Array.isArray(attendance.sessions)
+                    ? attendance.sessions.map(session => ({ ...session }))
+                    : [];
+                const index = sessions.findIndex(session => String(session.id) === normalizedSessionId);
+                if (index < 0) throw new Error('Không tìm thấy phiên vào/ra tương ứng để cộng 10 phút.');
+                sessions[index].bonus10 = true;
+
+                transaction.set(requestRef, {
+                    staffId,
+                    staffName: staffName || 'N/A',
+                    dateKey,
+                    sessionId: normalizedSessionId,
+                    status: 'approved',
+                    autoApproved: true,
+                    earlyMinutes: meta?.earlyMinutes ?? null,
+                    checkInAt: meta?.checkInLabel ?? null,
+                    scheduledStart: meta?.startLabel ?? null,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    approvedBy: 'Hệ thống tự duyệt',
+                    approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                transaction.set(attendanceRef, {
+                    sessions,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
             });
 
-            await DBService.setSessionBonus10(staffId, dateKey, sessionId, true);
             DBService._invalidate('bonus10_requests_');
-            console.log('[Bonus10] Auto-approved:', docRef.id);
-            return docRef.id;
+            DBService._invalidate(`monthly_attendance_${dateKey.slice(0, 7)}_${staffId}`);
+            console.log('[Bonus10] Auto-approved atomically:', requestId);
+            return requestId;
         } catch (e) {
             console.error('[Bonus10] Error auto-approving:', e);
             throw e;
