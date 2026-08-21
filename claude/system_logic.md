@@ -18,7 +18,7 @@
   - Client-Side Rendering — không có server truyền thống, Firebase là BaaS toàn bộ
   - Không dùng framework (100% Vanilla JS)
   - Firebase Auth dùng email ảo: `username@tuduytre.com` (lowercase)
-  - **6 Role hệ thống:** `admin` | `senior_assistant` | `assistant` | `staff` | `receptionist` | `receptionist_assistant`
+  - **8 Role hệ thống:** `admin` | `senior_assistant` | `assistant` | `staff` | `teaching_assistant` | `receptionist` | `receptionist_assistant` | `office_staff`
   - Document ID Convention: `users` → `nv_timestamp`, `attendance_logs` → `YYYY-MM-DD_userId`, `schedules` → `branch__YYYY-MM-DD` hoặc legacy `YYYY-MM-DD`
   - App Check: **DISABLED** (commented out trong `firebase-config.js`)
 
@@ -37,6 +37,7 @@
 ├── bao-cao.html            ← Báo Cáo / Tính Lương / Bảng Công
 ├── he-thong.html           ← Cài đặt Hệ Thống (admin-only)
 ├── lich-tiep-tan.html      ← Lịch Tiếp Tân theo tuần
+├── lich-van-phong.html     ← Lịch Nhân Viên Văn Phòng theo tuần (roster riêng)
 ├── gioi-thieu.html         ← Giới Thiệu (public, không cần login)
 ├── firebase.json
 ├── firestore.rules
@@ -90,7 +91,7 @@
 | `report.js` | Báo cáo & Tính Lương (~890 dòng): calendar grid, salary calculation UI, notes system (Firestore-synced), admin edit/manual modals, session role selection, overtime approval UI. |
 | `evaluation-service.js` | Logic tính toán thuần (~250 dòng): `EVALUATION_CRITERIA` (10 tiêu chí), `calculateDailyChips()`, `removeVietnameseTones()`. |
 | `pdf-export.js` | `exportSalaryPDF()` — custom PDF bảng lương chi tiết (~190 dòng). |
-| `receptionist-schedule.js` | Lịch Tiếp Tân: branch tabs CS1/CS2/CS3, week picker, shift config, cell editor modal, `clearCurrentWeek()`, `toggleScheduleFixedShiftMode()`, inheritance banner. |
+| `receptionist-schedule.js` | Engine lịch vận hành dùng chung nhưng tách context: Tiếp Tân (`receptionist_schedules`) và Văn Phòng (`office_schedules`); branch tabs, week picker, shift config, cell editor, inheritance. |
 | `analytics.js` | Thống kê: 6 chart types (Chart.js), multi-select staff comparison, month navigation. |
 | `chart-service.js` | Data service cho charts: memory cache, batch fetch, compute functions. |
 | `ui-service.js` | Toast notification + confirm dialog. Override `window.alert` toàn cục. |
@@ -100,12 +101,12 @@
 
 ---
 
-# 4. DATABASE — FIRESTORE COLLECTIONS (12 collections)
+# 4. DATABASE — FIRESTORE COLLECTIONS (13 collections)
 
 ### 1. `users` — Thông tin nhân viên
 - **Doc ID:** `nv_timestamp` (VD: `nv_1707000000000`)
 - **Fields:** `id`, `username`, `password` (plaintext — chủ đích để admin reset), `name`, `role`, `salary_config` (`roles[]`: `{ id, name, rate, color, isDefault }`), `scheduleColor`, `createdAt`
-- **Roles hợp lệ:** `admin` | `senior_assistant` | `assistant` | `staff` | `receptionist` | `receptionist_assistant`
+- **Roles hợp lệ:** `admin` | `senior_assistant` | `assistant` | `staff` | `teaching_assistant` | `receptionist` | `receptionist_assistant` | `office_staff`
 
 ### 2. `user_roles` — Ánh xạ Auth UID → Role (dùng cho Firestore Rules)
 - **Doc ID:** Firebase Auth UID
@@ -126,7 +127,7 @@
 
 ### 5. `settings` — Cấu hình hệ thống
 - **Doc ID:** `system`
-- **Fields:** `companyName`, `allowedIP` (comma-separated whitelist), `receptionistShifts` (global default shifts), `receptionistShifts_cs1/cs2/cs3` (per-branch override)
+- **Fields:** `companyName`, `allowedIP` (comma-separated whitelist), `receptionistShifts` (global default shifts), `receptionistShifts_cs1/cs2/cs3` (per-branch override), `officeShifts_cs1/cs2/cs3` (ca văn phòng theo cơ sở)
 - **Các doc phụ (trong cùng collection):** `schedule_manifest_cs1`, `schedule_manifest_cs2`, `schedule_manifest_cs3`, legacy `schedule_manifest`
 
 ### 6. `unregistered_alerts` — Cảnh báo check-in không có lớp
@@ -141,6 +142,11 @@
 - **Doc ID:** `branch__YYYY-MM-DD` (Monday của tuần)
 - **Structure:** `{ morning: { mon: [{id, name, color, customStart?, customEnd?, isFixedShift?}], ... }, afternoon: {...}, evening: {...}, _notes: { "morning_mon": "..." } }`
 
+### 8.1. `office_schedules` — Lịch nhân viên văn phòng theo tuần
+- **Doc ID:** `branch__YYYY-MM-DD` (Monday của tuần), schema giống lịch tiếp tân nhưng roster hoàn toàn tách biệt.
+- **Link chấm công:** session khớp lịch dùng `linkedOfficeShift`; không dùng `linkedReceptionistShift`.
+- **Quyền:** mọi tài khoản đăng nhập được đọc; chỉ `admin`, `senior_assistant`, `assistant` được ghi.
+
 ### 9. `daily_notes` — Ghi chú ngày *(Firestore-synced, đã thay localStorage)*
 - **Doc ID:** `staffId`
 - **Fields:** `{ "YYYY-MM-DD": "nội dung ghi chú", ... }`
@@ -153,9 +159,9 @@
 - **Doc ID:** auto-generated
 - **Fields:** `staffId`, `staffName`, `dateKey`, `sessionId`, `duration` ("HH:MM"), `minutes`, `status` (`pending`|`approved`|`rejected`), `createdAt`, `approvedBy`, `approvedAt`
 
-### 12. `cancelled_shifts` — Ca bị hủy (receptionist)
+### 12. `cancelled_shifts` — Ca bị hủy (tiếp tân / văn phòng)
 - **Doc ID:** `YYYY-MM_staffId`
-- **Fields:** `userId`, `month`, `shifts[]` (array shiftKey: `branch_mondayKey_shiftKey_dayKey`)
+- **Fields:** `userId`, `month`, `shifts[]`; khóa văn phòng bắt buộc có namespace `office_branch_mondayKey_shiftKey_dayKey` để không đụng ca tiếp tân.
 
 > **⚠️ Dead code:** `fixed_shifts` collection có CRUD trong `db-service.js` nhưng chưa được gọi từ bất kỳ UI nào.
 
@@ -282,17 +288,18 @@ Chip hiển thị: ⏱️? (pending) | ⏱️+Xh (approved)
 
 # 8. SIDEBAR NAVIGATION (Theo Role)
 
-| Trang | admin | senior_asst | assistant | staff | receptionist | recep_asst |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Tổng Quan | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Nhân Sự | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Bảng Cá Nhân | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Chấm Công | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Xếp/Lịch Làm | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Lịch Tiếp Tân | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Tính Lương/Bảng Công | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Hệ Thống | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Bảo Trì / Thống Kê | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Trang | admin | senior_asst | assistant | staff | receptionist | recep_asst | office_staff |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Tổng Quan | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Nhân Sự | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Bảng Cá Nhân | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Chấm Công | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Xếp/Lịch Làm | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Lịch Tiếp Tân | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ |
+| Lịch Văn Phòng | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| Tính Lương/Bảng Công | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Hệ Thống | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Bảo Trì / Thống Kê | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -307,6 +314,7 @@ settings       : Read — auth. Write — auth. ⚠️ LỎNG: tất cả user w
 unregistered_alerts: Read/Delete — admin. Create/Update — auth. ✅
 admin_notifications: Read, Write — auth.
 receptionist_schedules: Read — auth. Write — auth. ⚠️ LỎNG.
+office_schedules: Read — auth. Write — admin/senior_assistant/assistant. ✅
 daily_notes    : Read, Write — auth.
 salary_settings: Read — auth. Write — admin only. ✅
 overtime_requests: Read/Create — auth. Update/Delete — admin. ✅
@@ -578,3 +586,14 @@ là bảng 4 cột với nhãn dọc như cũ.
   6. **Box nhập liệu tiếp tân:** `#pdf-tieptan-inputs` ẩn mặc định, chỉ hiện khi filter = `tiep-tan`. Gồm: Phí tư vấn, DT Tổng, DT CS2, DT CS3.
   7. **`togglePdfTieptanInputs()`:** Hàm global sync hiển thị box — được gọi từ `onchange` của `salary-role-filter` và từ `selectStaffFromDropdown`.
 - **Files sửa:** `js/pdf-export.js` (rewrite), `js/report.js` (thêm auto-detect vào `selectStaffFromDropdown`), `bao-cao.html` (thêm HTML inputs + sửa onchange)
+
+### 22/08/2026 — Role Nhân Viên Văn Phòng + sửa hiển thị giờ ca lẻ
+- Thêm role hệ thống `office_staff` và trang riêng `lich-van-phong.html`.
+- Tách tuyệt đối roster `office_schedules`, cấu hình `officeShifts_{branch}`, liên kết session
+  `linkedOfficeShift`, và namespace hủy ca `office_...`; không migrate hoặc ghi đè lịch tiếp tân.
+- Nhân viên văn phòng dùng luồng chấm công, nhắc ca, tự đóng ca, bảng công, chấm bù và tường trình
+  giống luồng vận hành tiếp tân; tạm dùng cùng policy lương vận hành cho tới khi có policy riêng.
+- Sửa nguyên tắc chip giờ: khi session admin/manual khớp đúng phân công thì hiển thị giờ lịch nhưng
+  giữ nguyên timestamp thực tế; nếu không khớp thì tiếp tục hiển thị giờ thực tế kèm cảnh báo rõ ràng,
+  không tự sửa dữ liệu lịch sử.
+- PWA cache/version: `20260822-office-role-v1`, cache `tdt-chamcong-v134-office-role-20260822`.

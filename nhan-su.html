@@ -242,7 +242,7 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260819-absence-recovery-v1'></script>
+    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -368,6 +368,7 @@
                             <label class="ns-check"><input type="checkbox" value="teaching_assistant"> Trợ giảng / GV TA</label>
                             <label class="ns-check"><input type="checkbox" value="receptionist"> Tiếp tân</label>
                             <label class="ns-check"><input type="checkbox" value="receptionist_assistant"> Trợ lý tiếp tân</label>
+                            <label class="ns-check"><input type="checkbox" value="office_staff"> Nhân viên văn phòng</label>
                             <label class="ns-check"><input type="checkbox" value="staff"> Nhân viên (trợ giảng)</label>
                         </div>
                     </div>
@@ -378,7 +379,7 @@
                             <input type="color" id="ns-staff-color" value="#4CAF50" oninput="NhanSu.previewColor()">
                             <span class="ns-color-prev" id="ns-color-prev" style="background:#4CAF50;color:#fff;">Xem trước</span>
                         </div>
-                        <p class="ns-note">Dùng để phân biệt người này trên bảng lịch tiếp tân.</p>
+                        <p class="ns-note">Dùng để phân biệt người này trên bảng lịch tiếp tân hoặc văn phòng.</p>
                     </div>
                 </div>
                 <div class="ns-sheet-foot">
@@ -503,9 +504,9 @@
     <script src="js/early10.js?v=20260816-early10-old-unset-v3"></script>
     <script src="js/payroll-automation.js?v=20260809-payroll-safety-v1"></script>
     <script src="js/subject-rate-policy.js?v=20260809-subject-rate-v1"></script>
-    <script src="js/main.js?v=20260816-early10-old-unset-v3"></script>
+    <script src="js/main.js?v=20260822-office-role-v1"></script>
     <script src="js/auth-helper.js"></script>
-    <script src="js/personnel.js?v=20260814-senior-receptionist-v1"></script>
+    <script src="js/personnel.js?v=20260822-office-role-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

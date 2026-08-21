@@ -1,6 +1,30 @@
-// Receptionist Schedule — Week-view horizontal table
-// Features: Branch tabs (CS1/CS2), Week picker, 3 shifts × 7 days, Admin edit modal
-// Only shows staff with role = 'receptionist' in the picker
+// Operational staff schedule — shared by receptionist and office pages.
+// Each page supplies WORK_SCHEDULE_CONTEXT before this file loads. The two
+// schedule types deliberately use different collections/settings/cancel keys.
+
+const WORK_SCHEDULE_CONTEXT = Object.freeze((() => {
+    const requestedType = window.WORK_SCHEDULE_CONTEXT?.type;
+    const isOffice = requestedType === 'office';
+    return {
+        type: isOffice ? 'office' : 'receptionist',
+        label: isOffice ? 'Văn phòng' : 'Tiếp tân',
+        labelTitle: isOffice ? 'Văn Phòng' : 'Tiếp Tân',
+        roleIds: isOffice
+            ? ['office_staff']
+            : ['receptionist', 'receptionist_assistant', 'senior_assistant'],
+        settingsPrefix: isOffice ? 'officeShifts' : 'receptionistShifts'
+    };
+})());
+const getWorkSchedule = key => WORK_SCHEDULE_CONTEXT.type === 'office'
+    ? DBService.getOfficeSchedule(key)
+    : DBService.getReceptionistSchedule(key);
+const saveWorkSchedule = (key, data) => WORK_SCHEDULE_CONTEXT.type === 'office'
+    ? DBService.saveOfficeSchedule(key, data)
+    : DBService.saveReceptionistSchedule(key, data);
+const getCancelledShiftKey = (branch, monday, shift, day) => {
+    const prefix = WORK_SCHEDULE_CONTEXT.type === 'office' ? 'office_' : '';
+    return `${prefix}${branch}_${monday}_${shift}_${day}`;
+};
 
 // ==================== STATE ====================
 let currentBranch = localStorage.getItem('currentBranch') || 'cs1';
@@ -57,7 +81,10 @@ const isEditor = (() => {
     let roles = [];
     try { const p = JSON.parse(roleRaw); roles = Array.isArray(p) ? p : [roleRaw]; }
     catch(e) { roles = [roleRaw]; }
-    return roles.some(r => ['admin', 'assistant', 'receptionist_assistant', 'senior_assistant'].includes(r));
+    const editorRoles = WORK_SCHEDULE_CONTEXT.type === 'office'
+        ? ['admin', 'assistant', 'senior_assistant']
+        : ['admin', 'assistant', 'receptionist_assistant', 'senior_assistant'];
+    return roles.some(r => editorRoles.includes(r));
 })();
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -69,21 +96,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (window.waitAuth) {
         await window.waitAuth();
     }
-    if (isEditor) {
-        const saveArea = document.getElementById('save-area');
-        if (saveArea) saveArea.style.display = 'flex';
+    const saveArea = document.getElementById('save-area');
+    if (saveArea) {
+        saveArea.classList.toggle('schedule-actions-hidden', !isEditor);
+        saveArea.style.display = isEditor ? 'flex' : 'none';
     }
 
     document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`tab-${currentBranch}`)?.classList.add('active');
 
-    // Load staff list — ONLY receptionist, receptionist_assistant, senior_assistant roles
+    // Chỉ tải nhân sự thuộc đúng loại lịch; không trộn hai roster.
     try {
         const allUsers = await DBService.getUsers();
         allLoadedUsers = allUsers; // Store globally
         receptionistStaff = allUsers.filter(u => {
             const roles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : (u.role ? [u.role] : []);
-            return roles.some(r => ['receptionist', 'receptionist_assistant', 'senior_assistant'].includes(r));
+            return roles.some(r => WORK_SCHEDULE_CONTEXT.roleIds.includes(r));
         });
     } catch (e) {
         console.error('Failed to load staff', e);
@@ -130,8 +158,8 @@ async function loadShiftConfig() {
     try {
         const settings = await DBService.getSystemSettings();
         // Per-branch config key, fallback to global
-        const branchKey = `receptionistShifts_${currentBranch}`;
-        const saved = settings?.[branchKey] || settings?.receptionistShifts;
+        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
+        const saved = settings?.[branchKey] || settings?.[WORK_SCHEDULE_CONTEXT.settingsPrefix];
         if (saved) {
             SHIFTS.forEach(shift => {
                 if (saved[shift]) {
@@ -182,7 +210,7 @@ async function saveShiftConfigToFirestore() {
     SHIFTS.forEach(s => { data[s] = { start: shiftConfig[s].start, end: shiftConfig[s].end }; });
     try {
         // Save per-branch config
-        const branchKey = `receptionistShifts_${currentBranch}`;
+        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
         await DBService.saveSystemSettings({ [branchKey]: data });
     } catch (e) {
         console.warn('Failed to save shift config:', e);
@@ -215,7 +243,7 @@ function navigateWeek(offset) {
 // Load data from Firestore and render — used on init, branch switch, week change
 async function loadAndRender() {
     const key = getWeekCompositeKey();
-    const data = await DBService.getReceptionistSchedule(key);
+    const data = await getWorkSchedule(key);
 
     // Load cancelled shifts for the month(s) in this week (supporting month spanning)
     const mondayDate = new Date(currentWeekStart);
@@ -296,7 +324,7 @@ async function loadAndRender() {
                 const m = String(prevMonday.getMonth() + 1).padStart(2, '0');
                 const d = String(prevMonday.getDate()).padStart(2, '0');
                 const prevKey = `${currentBranch}__${y}-${m}-${d}`;
-                const prevData = await DBService.getReceptionistSchedule(prevKey);
+                const prevData = await getWorkSchedule(prevKey);
                 if (prevData) {
                     // Found a template! Deep clone to avoid mutating original
                     weekData = JSON.parse(JSON.stringify(prevData));
@@ -450,8 +478,7 @@ function renderTable() {
                     // Check if cancelled
                     const branchPart = currentBranch;
                     const mondayDateStr = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}-${String(currentWeekStart.getDate()).padStart(2, '0')}`;
-                    const compositeKeyLocal = `${branchPart}_${mondayDateStr}`;
-                    const shiftKey = `${compositeKeyLocal}_${shift}_${day}`;
+                    const shiftKey = getCancelledShiftKey(branchPart, mondayDateStr, shift, day);
                     const staffCancelledShifts = window.allCancelledShiftsMap ? window.allCancelledShiftsMap[s.id] || [] : [];
                     const isCancelled = staffCancelledShifts.includes(shiftKey);
 
@@ -512,7 +539,7 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
     const [y, m, d] = dayDateStr.split('-');
     const displayDate = `${d}/${m}`;
     const mondayDateStr = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}-${String(currentWeekStart.getDate()).padStart(2, '0')}`;
-    const shiftKey = `${currentBranch}_${mondayDateStr}_${shift}_${dayKey}`;
+    const shiftKey = getCancelledShiftKey(currentBranch, mondayDateStr, shift, dayKey);
     const staffCancelledShifts = window.allCancelledShiftsMap?.[staffEntry.id] || [];
     const isCancelled = staffCancelledShifts.includes(shiftKey);
 
@@ -612,14 +639,14 @@ function openCellModal(shift, dayKey) {
     const currentStaff = weekData[shift]?.[dayKey] || [];
     const currentIds = currentStaff.map(s => s.id);
 
-    // Render checkbox list — ONLY receptionist role
+    // Danh sách đã được lọc đúng vai trò của trang hiện tại.
     const listEl = document.getElementById('staff-checkbox-list');
     let html = '';
 
     if (receptionistStaff.length === 0) {
         html = `<div style="padding:1.5rem;text-align:center;color:var(--text-muted)">
-            <p style="margin-bottom:0.5rem">Chưa có nhân viên tiếp tân nào.</p>
-            <p style="font-size:0.8rem">Vào <strong>Nhân Sự</strong> để tạo tài khoản với vai trò <strong>Tiếp Tân</strong>.</p>
+            <p style="margin-bottom:0.5rem">Chưa có nhân viên ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()} nào.</p>
+            <p style="font-size:0.8rem">Vào <strong>Nhân Sự</strong> để tạo tài khoản với vai trò <strong>${WORK_SCHEDULE_CONTEXT.labelTitle}</strong>.</p>
         </div>`;
     } else {
         receptionistStaff.forEach(user => {
@@ -742,7 +769,7 @@ window.toggleCustomTime = function (btn) {
 async function clearCurrentWeek() {
     // Confirmation dialog
     const confirmed = typeof UIService !== 'undefined'
-        ? await UIService.confirm('⚠️ Bạn có chắc muốn XÓA TOÀN BỘ lịch tiếp tân tuần này?\n\n(Dữ liệu sẽ bị xóa trên màn hình. Bấm "Lưu Lịch Tuần" để lưu thay đổi.)')
+        ? await UIService.confirm(`⚠️ Bạn có chắc muốn XÓA TOÀN BỘ lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()} tuần này?\n\n(Dữ liệu chỉ bị xóa trên màn hình. Bấm "Lưu Lịch Tuần" để xác nhận.)`)
         : confirm('Bạn có chắc muốn xóa toàn bộ lịch tuần này?');
 
     if (!confirmed) return;
@@ -787,15 +814,15 @@ async function saveFullWeek() {
     };
     try {
         const settings = await DBService.getSystemSettings();
-        const branchKey = `receptionistShifts_${currentBranch}`;
-        oldShiftConfig = settings?.[branchKey] || settings?.receptionistShifts || oldShiftConfig;
+        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
+        oldShiftConfig = settings?.[branchKey] || settings?.[WORK_SCHEDULE_CONTEXT.settingsPrefix] || oldShiftConfig;
     } catch(e) {}
 
     // 2. Fetch existing week data to preserve past days' exact schedules
     const key = getWeekCompositeKey();
     let existingData = null;
     try {
-        existingData = await DBService.getReceptionistSchedule(key);
+        existingData = await getWorkSchedule(key);
     } catch(e) {}
 
     const todayStr = getLocalDateStr(new Date());
@@ -864,7 +891,7 @@ async function saveFullWeek() {
 
     try {
         // 5. Save the modified weekData to Firestore
-        await DBService.saveReceptionistSchedule(key, weekData);
+        await saveWorkSchedule(key, weekData);
 
         // Clear inherited state after successful save
         if (isInheritedTemplate) {
@@ -876,9 +903,9 @@ async function saveFullWeek() {
         }
 
         if (typeof UIService !== 'undefined') {
-            UIService.toast('Đã lưu lịch tiếp tân!', 'success');
+            UIService.toast(`Đã lưu lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()}!`, 'success');
         } else {
-            alert('Đã lưu lịch tiếp tân!');
+            alert(`Đã lưu lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()}!`);
         }
     } catch (e) {
         console.error('Save error:', e);

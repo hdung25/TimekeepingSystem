@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lịch Tiếp Tân - Hệ Thống Chấm Công</title>
+    <title>Lịch Văn Phòng - Hệ Thống Chấm Công</title>
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
@@ -482,8 +482,8 @@
         <main class="main-content">
             <header class="page-header" style="margin-bottom: 1.5rem;">
                 <div>
-                    <h1 style="font-size: 1.5rem; font-weight: 700;"><i data-lucide="clipboard"></i> Lịch Tiếp Tân</h1>
-                    <p style="color: var(--text-muted); margin-top: 0.25rem;">Quản lý lịch trực tiếp tân theo tuần</p>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;"><i data-lucide="clipboard"></i> Lịch Văn Phòng</h1>
+                    <p style="color: var(--text-muted); margin-top: 0.25rem;">Quản lý lịch làm việc văn phòng theo tuần</p>
                 </div>
                 <div id="save-area" class="schedule-actions-hidden" style="display:none; gap: 0.5rem; flex-wrap: wrap;">
                     <button id="btn-mark-fixed" class="btn" onclick="toggleScheduleFixedShiftMode()"
@@ -561,9 +561,9 @@
         <div class="cell-modal-content">
             <h3 id="cell-modal-title"
                 style="margin-bottom: 1.25rem; color: var(--primary-color); font-size: 1.05rem; font-weight: 700;"></h3>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Chọn nhân viên tiếp tân cho
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Chọn nhân viên văn phòng cho
                 ca này:</p>
-            <input type="text" id="modal-staff-search" class="list-search-input" placeholder="Tìm tiếp tân..."
+            <input type="text" id="modal-staff-search" class="list-search-input" placeholder="Tìm nhân viên văn phòng..."
                 oninput="filterModalStaff(this.value)" style="margin-bottom: 0.5rem;">
             <div class="staff-checkbox-list" id="staff-checkbox-list">
                 <!-- Populated by JS -->
@@ -581,6 +581,7 @@
     </div>
 
     <script src="js/main.js?v=20260822-office-role-v1"></script>
+    <script>window.WORK_SCHEDULE_CONTEXT = { type: 'office' };</script>
     <script src="js/receptionist-schedule.js?v=20260822-office-role-v1"></script>
 
     <script>

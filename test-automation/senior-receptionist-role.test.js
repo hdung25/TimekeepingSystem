@@ -21,8 +21,8 @@ assert(teachingPolicy, 'Teaching role policy must exist');
 assert(!teachingPolicy[1].includes('senior_assistant'),
     'Senior assistant must not be implicitly classified as teaching staff');
 
-assert.match(report, /const hasReceptionistRole = hasReceptionistEmploymentRole\(userRolesArr\)/,
-    'Shift role dropdown must use receptionist employment policy');
+assert.match(report, /const hasReceptionistRole = userRolesArr\.some\(role => \[[\s\S]*?'senior_assistant'/,
+    'Shift role dropdown must keep senior assistant in the receptionist roster roles');
 assert.match(report, /const hasTeachingRole = hasTeachingEmploymentRole\(userRolesArr\)/,
     'Shift role dropdown must use teaching employment policy');
 assert(!report.includes("hasTeaching = staffRoles.some(r => ['admin', 'senior_assistant'"),
@@ -49,9 +49,9 @@ assert(scheduleTeachingPolicy && !scheduleTeachingPolicy[1].includes('senior_ass
 assert.match(rules, /isReceptionistOperator\(\)[\s\S]*?hasRole\('senior_assistant'\)/,
     'Firestore receptionist operations must allow senior assistant');
 
-assert.match(worker, /tdt-chamcong-v133-absence-recovery-20260819/,
+assert.match(worker, /tdt-chamcong-v134-office-role-20260822/,
     'Service worker cache must be bumped');
-assert.match(read('bao-cao.html'), /report\.js\?v=20260819-absence-recovery-v1/,
+assert.match(read('bao-cao.html'), /report\.js\?v=20260822-office-role-v1/,
     'Report page must load the new role policy bundle');
 
 console.log('✓ Senior assistant receptionist-role regression tests passed');

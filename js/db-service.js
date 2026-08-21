@@ -815,28 +815,49 @@ const DBService = {
 
         const shifts = [];
         for (const branch of BRANCHES) {
-            const weekData = await DBService.getReceptionistSchedule(`${branch}__${mondayKey}`);
-            if (!weekData) continue;
+            const compositeKey = `${branch}__${mondayKey}`;
+            const sources = await Promise.all([
+                Promise.all([
+                    DBService.getReceptionistSchedule(compositeKey),
+                    DBService.getReceptionistShiftConfig(branch)
+                ]).then(([weekData, config]) => ({ weekData, config, scheduleType: 'receptionist' })),
+                Promise.all([
+                    DBService.getOfficeSchedule(compositeKey),
+                    DBService.getOfficeShiftConfig(branch)
+                ]).then(([weekData, config]) => ({ weekData, config, scheduleType: 'office' }))
+            ]);
 
-            const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
-            for (const shiftKey of SHIFT_KEYS) {
-                const shiftData = weekData[shiftKey];
-                const staffEntry = shiftData?.[dayKey]?.find(s => s.id === userId);
-                if (!staffEntry) continue;
+            for (const source of sources) {
+                const weekData = source.weekData;
+                if (!weekData) continue;
+                for (const shiftKey of SHIFT_KEYS) {
+                    const shiftData = weekData[shiftKey];
+                    const staffEntry = shiftData?.[dayKey]?.find(s => String(s.id) === String(userId));
+                    if (!staffEntry) continue;
 
-                const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
-                const start = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start;
-                const end = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end;
-                if (!start || !end) continue;
+                    const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
+                    const start = staffEntry.customStart || weekShiftCfg?.start || source.config?.[shiftKey]?.start;
+                    const end = staffEntry.customEnd || weekShiftCfg?.end || source.config?.[shiftKey]?.end;
+                    if (!start || !end) continue;
 
-                const [startHour, startMinute] = start.split(':').map(Number);
-                const [endHour, endMinute] = end.split(':').map(Number);
-                shifts.push({
-                    start,
-                    end,
-                    shiftStart: new Date(year, month - 1, day, startHour, startMinute, 0, 0),
-                    shiftEnd: new Date(year, month - 1, day, endHour, endMinute, 0, 0)
-                });
+                    const [startHour, startMinute] = start.split(':').map(Number);
+                    const [endHour, endMinute] = end.split(':').map(Number);
+                    shifts.push({
+                        shift: shiftKey,
+                        label: { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' }[shiftKey],
+                        start,
+                        end,
+                        branch,
+                        scheduleType: source.scheduleType,
+                        documentKey: compositeKey,
+                        cancelCompositeKey: source.scheduleType === 'office'
+                            ? `office_${branch}_${mondayKey}`
+                            : `${branch}_${mondayKey}`,
+                        isFixedShift: staffEntry.isFixedShift === true,
+                        shiftStart: new Date(year, month - 1, day, startHour, startMinute, 0, 0),
+                        shiftEnd: new Date(year, month - 1, day, endHour, endMinute, 0, 0)
+                    });
+                }
             }
         }
 
@@ -1411,6 +1432,7 @@ const DBService = {
                     role: session.role || null,
                     linkedClassStart: session.linkedClassStart || null,
                     linkedReceptionistShift: session.linkedReceptionistShift || null,
+                    linkedOfficeShift: session.linkedOfficeShift || null,
                     isAbsent: !!session.isAbsent
                 };
                 const hasOwn = (key) => Object.prototype.hasOwnProperty.call(newData || {}, key);
@@ -1426,17 +1448,26 @@ const DBService = {
 
                 const hasClassLink = hasOwn('linkedClassStart');
                 const hasReceptionistLink = hasOwn('linkedReceptionistShift');
+                const hasOfficeLink = hasOwn('linkedOfficeShift');
                 if (clearScheduleLinks) {
                     delete session.linkedClassStart;
                     delete session.linkedReceptionistShift;
+                    delete session.linkedOfficeShift;
                 } else if (hasClassLink) {
                     if (patch.linkedClassStart) session.linkedClassStart = patch.linkedClassStart;
                     else delete session.linkedClassStart;
                     delete session.linkedReceptionistShift;
+                    delete session.linkedOfficeShift;
                 } else if (hasReceptionistLink) {
                     if (patch.linkedReceptionistShift) session.linkedReceptionistShift = patch.linkedReceptionistShift;
                     else delete session.linkedReceptionistShift;
                     delete session.linkedClassStart;
+                    delete session.linkedOfficeShift;
+                } else if (hasOfficeLink) {
+                    if (patch.linkedOfficeShift) session.linkedOfficeShift = patch.linkedOfficeShift;
+                    else delete session.linkedOfficeShift;
+                    delete session.linkedClassStart;
+                    delete session.linkedReceptionistShift;
                 }
 
                 // QUAN TRỌNG: admin đã sửa giờ tay -> bỏ cờ auto-close.
@@ -1446,7 +1477,7 @@ const DBService = {
 
                 // Merge ordinary fields after protected role/link fields.
                 Object.keys(patch).forEach((key) => {
-                    if (['role', 'roleName', 'roleRate', 'isFixedShift', 'linkedClassStart', 'linkedReceptionistShift'].includes(key)) return;
+                    if (['role', 'roleName', 'roleRate', 'isFixedShift', 'linkedClassStart', 'linkedReceptionistShift', 'linkedOfficeShift'].includes(key)) return;
                     session[key] = patch[key];
                 });
 
@@ -1468,6 +1499,7 @@ const DBService = {
                     role: session.role || null,
                     linkedClassStart: session.linkedClassStart || null,
                     linkedReceptionistShift: session.linkedReceptionistShift || null,
+                    linkedOfficeShift: session.linkedOfficeShift || null,
                     isAbsent: !!session.isAbsent
                 };
                 const history = Array.isArray(session.editHistory) ? session.editHistory.slice(-19) : [];
@@ -1993,7 +2025,7 @@ const DBService = {
         const req = r || {};
         const s = req.session || {};
         const missing = [];
-        const isTT = s.role === 'tiep-tan' || req.shiftKind === 'tt';
+        const isTT = ['tiep-tan', 'van-phong', 'office_staff'].includes(s.role) || ['tt', 'vp'].includes(req.shiftKind);
         if (!req.dateKey) missing.push('ngày');
         if (!req.branch) missing.push('cơ sở');
         if (req.type !== 'scheduled') {
@@ -2094,7 +2126,9 @@ const DBService = {
         // Neo ca vừa duyệt vào đúng ô lịch để Bảng Công không phải đoán:
         //  - ca có lịch  → linkedClassStart = giờ bắt đầu ca đã chọn
         //  - ca tiếp tân → linkedReceptionistShift = sáng/chiều/tối
-        if (s.linkedReceptionistShift) sessionData.linkedReceptionistShift = s.linkedReceptionistShift;
+        if (s.linkedOfficeShift) sessionData.linkedOfficeShift = s.linkedOfficeShift;
+        else if (req.shiftKind === 'vp' && req.shiftKey) sessionData.linkedOfficeShift = req.shiftKey;
+        else if (s.linkedReceptionistShift) sessionData.linkedReceptionistShift = s.linkedReceptionistShift;
         else if (req.shiftKind === 'tt' && req.shiftKey) sessionData.linkedReceptionistShift = req.shiftKey;
         else if (req.shiftStart) sessionData.linkedClassStart = req.shiftStart;
         if (req.branch) sessionData.branch = req.branch;
@@ -2280,6 +2314,26 @@ const DBService = {
         return promise;
     },
 
+    // Cùng schema tuần với lịch tiếp tân nhưng tách collection để mọi thao tác
+    // xếp/xóa lịch văn phòng không thể ảnh hưởng lịch tiếp tân hiện hữu.
+    async getOfficeSchedule(compositeKey) {
+        const cacheKey = `office_schedule_${compositeKey}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            try {
+                const doc = await db.collection('office_schedules').doc(compositeKey).get();
+                return doc.exists ? doc.data() : null;
+            } catch (e) {
+                console.error('[OfficeSchedule] Error getting:', e);
+                return null;
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
+    },
+
     // Read the weekly receptionist roster back into concrete daily shifts for
     // a month.  Payroll history needs the exact same source as the current
     // month view; it must never infer a receptionist shift from an attendance
@@ -2287,7 +2341,7 @@ const DBService = {
     getMonthlyReceptionistShifts: async (monthStr, staffId) => {
         if (!monthStr || !staffId) return [];
 
-        const cacheKey = `monthly_receptionist_shifts_${monthStr}_${staffId}`;
+        const cacheKey = `monthly_operational_shifts_${monthStr}_${staffId}`;
         if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
@@ -2314,17 +2368,31 @@ const DBService = {
 
                 const monthDays = Array.from({ length: daysInMonth }, (_, index) => new Date(year, month, index + 1));
                 const mondayKeys = [...new Set(monthDays.map(day => dateKeyOf(getMonday(day))))];
-                const [shiftConfigs, rosterRows] = await Promise.all([
+                const [shiftConfigs, officeShiftConfigs, rosterRows] = await Promise.all([
                     Promise.all(branches.map(branch => DBService.getReceptionistShiftConfig(branch))),
+                    Promise.all(branches.map(branch => DBService.getOfficeShiftConfig(branch))),
                     Promise.all(branches.flatMap(branch => mondayKeys.map(mondayKey =>
-                        DBService.getReceptionistSchedule(`${branch}__${mondayKey}`).then(data => ({
-                            branch,
-                            mondayKey,
-                            data: data || {}
-                        }))
+                        Promise.all([
+                            DBService.getReceptionistSchedule(`${branch}__${mondayKey}`).then(data => ({
+                                branch,
+                                mondayKey,
+                                scheduleType: 'receptionist',
+                                documentKey: `${branch}__${mondayKey}`,
+                                data: data || {}
+                            })),
+                            DBService.getOfficeSchedule(`${branch}__${mondayKey}`).then(data => ({
+                                branch,
+                                mondayKey,
+                                scheduleType: 'office',
+                                documentKey: `${branch}__${mondayKey}`,
+                                data: data || {}
+                            }))
+                        ])
                     )))
                 ]);
                 const shiftConfigByBranch = Object.fromEntries(branches.map((branch, index) => [branch, shiftConfigs[index] || {}]));
+                const officeShiftConfigByBranch = Object.fromEntries(branches.map((branch, index) => [branch, officeShiftConfigs[index] || {}]));
+                const flatRosterRows = rosterRows.flat();
                 const shiftsByDate = {};
 
                 monthDays.forEach(day => {
@@ -2333,7 +2401,7 @@ const DBService = {
                     const dayIndex = day.getDay() === 0 ? 6 : day.getDay() - 1;
                     const dayKey = dayKeys[dayIndex];
 
-                    rosterRows.forEach(roster => {
+                    flatRosterRows.forEach(roster => {
                         if (roster.mondayKey !== mondayKey) return;
 
                         shiftKeys.forEach(shiftKey => {
@@ -2343,7 +2411,9 @@ const DBService = {
                             const staffEntry = staffList.find(entry => String(entry?.id || '') === String(staffId));
                             if (!staffEntry) return;
 
-                            const branchConfig = shiftConfigByBranch[roster.branch] || {};
+                            const branchConfig = roster.scheduleType === 'office'
+                                ? (officeShiftConfigByBranch[roster.branch] || {})
+                                : (shiftConfigByBranch[roster.branch] || {});
                             const weekConfig = roster.data?._shiftConfig?.[shiftKey] || {};
                             const defaultStart = staffEntry.customStart || weekConfig.start || branchConfig[shiftKey]?.start || '07:00';
                             const defaultEnd = staffEntry.customEnd || weekConfig.end || branchConfig[shiftKey]?.end || '11:30';
@@ -2354,6 +2424,11 @@ const DBService = {
                                 start: staffEntry.customStart || defaultStart,
                                 end: staffEntry.customEnd || defaultEnd,
                                 branch: roster.branch,
+                                scheduleType: roster.scheduleType,
+                                documentKey: roster.documentKey,
+                                cancelCompositeKey: roster.scheduleType === 'office'
+                                    ? `office_${roster.branch}_${mondayKey}`
+                                    : `${roster.branch}_${mondayKey}`,
                                 isFixedShift: staffEntry.isFixedShift === true
                             });
                         });
@@ -2380,6 +2455,17 @@ const DBService = {
             return true;
         } catch (e) {
             console.error('[ReceptionistSchedule] Error saving:', e);
+            throw e;
+        }
+    },
+
+    async saveOfficeSchedule(compositeKey, data) {
+        try {
+            await db.collection('office_schedules').doc(compositeKey).set(data);
+            DBService._invalidate(`office_schedule_${compositeKey}`);
+            return true;
+        } catch (e) {
+            console.error('[OfficeSchedule] Error saving:', e);
             throw e;
         }
     },
@@ -2422,6 +2508,32 @@ const DBService = {
         }
     },
 
+    async unassignOfficeStaff(compositeKey, shiftKey, dayKey, staffId) {
+        try {
+            const result = await db.runTransaction(async (transaction) => {
+                const docRef = db.collection('office_schedules').doc(compositeKey);
+                const doc = await transaction.get(docRef);
+                if (!doc.exists) return false;
+
+                const data = doc.data();
+                if (!data[shiftKey] || !Array.isArray(data[shiftKey][dayKey])) return false;
+
+                const originalLength = data[shiftKey][dayKey].length;
+                data[shiftKey][dayKey] = data[shiftKey][dayKey]
+                    .filter(staff => String(staff?.id || '') !== String(staffId));
+                if (data[shiftKey][dayKey].length === originalLength) return false;
+
+                transaction.update(docRef, { [shiftKey]: data[shiftKey] });
+                return true;
+            });
+            DBService._invalidate(`office_schedule_${compositeKey}`);
+            return result;
+        } catch (e) {
+            console.error('[OfficeSchedule] Error unassigning:', e);
+            throw e;
+        }
+    },
+
     // Get receptionist shift time config from system settings (per-branch)
     async getReceptionistShiftConfig(branch) {
         const cacheKey = `receptionist_config_${branch || 'global'}`;
@@ -2443,6 +2555,35 @@ const DBService = {
                 return settings?.receptionistShifts || defaults;
             } catch (e) {
                 console.warn('[ReceptionistSchedule] Using default shift config');
+                return defaults;
+            }
+        })();
+
+        DBService._cache[cacheKey] = promise;
+        return promise;
+    },
+
+    // Cấu hình ca văn phòng dùng cùng cấu trúc với tiếp tân nhưng có namespace
+    // riêng để thay đổi giờ văn phòng không ảnh hưởng lịch tiếp tân hiện hữu.
+    async getOfficeShiftConfig(branch) {
+        const cacheKey = `office_config_${branch || 'global'}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+
+        const promise = (async () => {
+            const defaults = {
+                morning: { start: '07:00', end: '11:30' },
+                afternoon: { start: '14:00', end: '18:00' },
+                evening: { start: '17:30', end: '21:30' }
+            };
+            try {
+                const settings = await this.getSystemSettings();
+                if (branch) {
+                    const branchKey = `officeShifts_${branch}`;
+                    if (settings?.[branchKey]) return settings[branchKey];
+                }
+                return settings?.officeShifts || defaults;
+            } catch (e) {
+                console.warn('[OfficeSchedule] Using default shift config');
                 return defaults;
             }
         })();

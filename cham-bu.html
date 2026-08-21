@@ -11,9 +11,9 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260819-absence-recovery-v1'></script>
-    <script src='js/evaluation-service.js?v=20260819-absence-recovery-v1'></script>
+    <script src='js/auth-guard.js?v=20260822-office-role-v1'></script>
+    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
+    <script src='js/evaluation-service.js?v=20260822-office-role-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -255,10 +255,12 @@ window.switchMode=function(m){
 function fillRoles(){
     const r=myRoles();
     const tt=r.some(x=>['tiep-tan','receptionist','receptionist_assistant','receptionist_lead','receptionist_staff'].includes(x));
+    const vp=r.some(x=>['office_staff','van-phong','van_phong'].includes(x));
     const gv=r.some(x=>['giao-vien','teacher','teaching_assistant','assistant','senior_assistant','staff'].includes(x));
     let o='';
     if(gv)o+='<option value="gv">Giáo viên / Trợ giảng</option>';
     if(tt)o+='<option value="tiep-tan">Tiếp tân</option>';
+    if(vp)o+='<option value="van-phong">Văn phòng</option>';
     document.getElementById('ex-role').innerHTML=o||'<option value="gv">Nhân viên</option>';
     onExtraRoleChange();
 }
@@ -266,7 +268,8 @@ function fillRoles(){
 // Ca ngoài lịch: GV phải khai Môn/Lớp, tiếp tân phải khai Ca trực → admin mới có căn cứ duyệt
 // và hệ thống mới áp được đúng đơn giá.
 window.onExtraRoleChange=function(){
-    const isTT=document.getElementById('ex-role').value==='tiep-tan';
+    const rv=document.getElementById('ex-role').value;
+    const isTT=rv==='tiep-tan'||rv==='van-phong';
     const sub=document.getElementById('ex-subject-box'),sh=document.getElementById('ex-shift-box');
     if(sub)sub.style.display=isTT?'none':'block';
     if(sh)sh.style.display=isTT?'block':'none';
@@ -317,8 +320,10 @@ async function loadMonth(){
             DBService.getSchedule(b+'__'+k).then(v=>({k:k,b:b,v:v||{}})).catch(()=>({k:k,b:b,v:{}})))));
         const mons=new Set();
         dates.forEach(k=>{const d=new Date(k+'T12:00:00'),w=d.getDay(),m=new Date(d);m.setDate(d.getDate()-w+(w===0?-6:1));mons.add(dk(m))});
-        const recRes=await Promise.all([...mons].flatMap(mk=>BRS.map(b=>
-            DBService.getReceptionistSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,v:v||{}})).catch(()=>({mk:mk,b:b,v:{}})))));
+        const recRes=await Promise.all([...mons].flatMap(mk=>BRS.flatMap(b=>[
+            DBService.getReceptionistSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,kind:'tt',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'tt',v:{}})),
+            DBService.getOfficeSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
+        ])));
 
         const noteExcuse=(k)=>excusedNote(k);
         dates.forEach(k=>{
@@ -349,8 +354,10 @@ async function loadMonth(){
                 const en=((r.v[sk]||{})[dayk]||[]).find(x=>x.id===me); if(!en)return;
                 const cf=(r.v._shiftConfig&&r.v._shiftConfig[sk])||{};
                 let excuse=dayExcuse;
-                if(!excuse&&cancelledSet.has(r.b+'_'+mk+'_'+sk+'_'+dayk))excuse='Vắng phép (đã báo trước)';
-                shifts.push({kind:'tt',branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:'Tiếp Tân ('+RS[sk].l+')',excuse:excuse});
+                const cancelPrefix=r.kind==='vp'?'office_':'';
+                if(!excuse&&cancelledSet.has(cancelPrefix+r.b+'_'+mk+'_'+sk+'_'+dayk))excuse='Vắng phép (đã báo trước)';
+                const workLabel=r.kind==='vp'?'Văn Phòng':'Tiếp Tân';
+                shifts.push({kind:r.kind,branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:workLabel+' ('+RS[sk].l+')',shiftKey:sk,excuse:excuse});
             }));
             shifts.sort((a,b)=>a.start.localeCompare(b.start));
             const merged=mergeConcurrentTeaching(shifts);
@@ -428,13 +435,13 @@ function renderDay(){
         if((s.classNames||[]).length>1)act='<div class="note" style="margin:0 0 .6rem">'+
             '<b>'+esc(s.classNames.length)+' lớp cùng khung giờ này</b>'+
             esc(s.classNames.join(', '))+' — bạn chỉ vào ca một lần nên đây là <b>một ca công</b>, xin chấm bù một lần cho cả '+esc(s.classNames.length)+' lớp.</div>'+act;
-        const letter=s.kind==='tt'?'T':String(s.label||'C').trim().charAt(0).toUpperCase();
+        const letter=s.kind==='tt'?'T':(s.kind==='vp'?'V':String(s.label||'C').trim().charAt(0).toUpperCase());
         return '<div class="sc'+cls+(on?' pick':'')+'">'+
             '<div class="sc-t">'+s.start+'<small>'+s.end+'</small></div>'+
             '<div class="sc-b"><div class="sc-r1">'+
                 '<div style="display:flex;gap:9px;min-width:0"><div class="av">'+esc(letter)+'</div>'+
                 '<div style="min-width:0"><div class="sc-nm">'+esc(s.label)+'</div>'+
-                '<div class="sc-sb">'+(s.kind==='tt'?'Ca tiếp tân':'Ca dạy')+' · Cơ sở '+s.branch.replace('cs','')+'</div></div></div>'+bdg+
+                '<div class="sc-sb">'+(s.kind==='tt'?'Ca tiếp tân':(s.kind==='vp'?'Ca văn phòng':'Ca dạy'))+' · Cơ sở '+s.branch.replace('cs','')+'</div></div></div>'+bdg+
             '</div>'+
             '<div class="sc-meta"><span><i data-lucide="clock" style="width:13px;height:13px"></i> '+dur(mins(s.start,s.end))+'</span>'+
             '<span><i data-lucide="map-pin" style="width:13px;height:13px"></i> '+s.branch.toUpperCase()+'</span></div>'+
@@ -465,12 +472,15 @@ window.submitSched=async function(){
     try{
         await DBService.createMakeupRequests(sel.map(function(s){return{
             staffId:uid(),staffName:uname(),type:'scheduled',dateKey:selDate,branch:s.branch,shiftLabel:s.lbl,
-            className:s.kind==='tt'?'':s.label,
+            className:(s.kind==='tt'||s.kind==='vp')?'':s.label,
             // Nhiều lớp cùng giờ → giữ danh sách để quản lý thấy rõ đây là 1 ca gộp
-            classNames:s.kind==='tt'?[]:(s.classNames||[]),
+            classNames:(s.kind==='tt'||s.kind==='vp')?[]:(s.classNames||[]),
             shiftStart:s.start, shiftEnd:s.end, shiftKind:s.kind,
             session:{checkIn:iso(selDate,s.start),checkOut:iso(selDate,s.end),
-                     role:s.kind==='tt'?'tiep-tan':null,roleName:s.kind==='tt'?'Tiếp Tân':(s.label||null)},
+                     role:s.kind==='tt'?'tiep-tan':(s.kind==='vp'?'van-phong':null),
+                     roleName:s.kind==='tt'?'Tiếp Tân':(s.kind==='vp'?'Văn Phòng':(s.label||null)),
+                     linkedReceptionistShift:s.kind==='tt'?(s.shiftKey||null):null,
+                     linkedOfficeShift:s.kind==='vp'?(s.shiftKey||null):null},
             reason:reason}}));
         alert('Đã gửi '+sel.length+' yêu cầu. Chờ admin duyệt.');
         const keep=selDate; picked.clear(); reasonCache='';
@@ -487,6 +497,8 @@ window.submitExtra=async function(){
     const b10=document.getElementById('ex-b10').checked;
     const rs=document.getElementById('ex-reason').value.trim();
     const tt=rv==='tiep-tan';
+    const vp=rv==='van-phong';
+    const operational=tt||vp;
     const subj=(document.getElementById('ex-subject').value||'').trim();
     const shk=document.getElementById('ex-shift').value;
     const room=(document.getElementById('ex-room').value||'').trim();
@@ -496,8 +508,8 @@ window.submitExtra=async function(){
     // không kiểm chứng được và cũng không tính được lương cho ca đó.
     if(!d){alert('Vui lòng chọn ngày.');return}
     if(!br){alert('Vui lòng chọn Cơ sở.');return}
-    if(!tt&&!subj){alert('Vui lòng ghi rõ Môn / Lớp đã dạy.');return}
-    if(tt&&!shk){alert('Vui lòng chọn Ca trực (Sáng / Chiều / Tối).');return}
+    if(!operational&&!subj){alert('Vui lòng ghi rõ Môn / Lớp đã dạy.');return}
+    if(operational&&!shk){alert('Vui lòng chọn Ca làm (Sáng / Chiều / Tối).');return}
     if(st==='worked'&&(!ti||!to)){alert('Vui lòng nhập giờ vào và giờ ra.');return}
     if(st==='worked'&&to<=ti){alert('Giờ ra phải sau giờ vào.');return}
     if(!appr){alert('Vui lòng ghi ai đã phân công / duyệt miệng ca này.');return}
@@ -508,7 +520,7 @@ window.submitExtra=async function(){
     // vẫn 0đ. Bắt chọn đúng tên trong danh sách, kèm gợi ý tên gần đúng.
     const subjList=(window._subjectsCB||[]);
     let matched=null;
-    if(!tt){
+    if(!operational){
         const norm=(v)=>String(v||'').trim().toLowerCase().replace(/\s+/g,' ');
         matched=subjList.find(s=>norm(s.name)===norm(subj))||null;
         if(!matched){
@@ -525,19 +537,20 @@ window.submitExtra=async function(){
     }
 
     const SHIFT_VN={morning:'Sáng',afternoon:'Chiều',evening:'Tối'};
-    const what=tt?('Tiếp Tân ca '+(SHIFT_VN[shk]||shk)):(matched?matched.name:subj);
+    const what=operational?((vp?'Văn Phòng':'Tiếp Tân')+' ca '+(SHIFT_VN[shk]||shk)):(matched?matched.name:subj);
     const label=(st==='absent'?'Vắng':(ti+'–'+to))+' '+br.toUpperCase()+' ('+what+')'+(room?' – '+room:'');
     if(!confirm('Gửi yêu cầu ca ngoài lịch ngày '+d+'?\n'+label))return;
     try{
         await DBService.createMakeupRequests([{
             staffId:uid(),staffName:uname(),type:'unscheduled',dateKey:d,branch:br,
-            className:tt?'':(matched?matched.name:subj), classId:matched?matched.id:'', room:room,
-            shiftKey:tt?shk:'', approvedBy:appr,
+            className:operational?'':(matched?matched.name:subj), classId:matched?matched.id:'', room:room,
+            shiftKey:operational?shk:'', approvedBy:appr,
             shiftLabel:label,
             session:{checkIn:st==='worked'?iso(d,ti):iso(d,'12:00'),checkOut:st==='worked'?iso(d,to):null,
-                     role:tt?'tiep-tan':(matched?matched.id:null),
-                     roleName:tt?'Tiếp Tân':((matched?matched.name:subj)||'Giáo viên / Trợ giảng'),
+                     role:tt?'tiep-tan':(vp?'van-phong':(matched?matched.id:null)),
+                     roleName:tt?'Tiếp Tân':(vp?'Văn Phòng':((matched?matched.name:subj)||'Giáo viên / Trợ giảng')),
                      linkedReceptionistShift:tt?shk:null,
+                     linkedOfficeShift:vp?shk:null,
                      isAbsent:st==='absent',bonus10:b10,overtimeMinutes:ot},
             reason:rs}]);
         alert('Đã gửi yêu cầu. Chờ admin duyệt.');

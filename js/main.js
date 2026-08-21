@@ -1,4 +1,4 @@
-const APP_VERSION = '20260816-early10-old-unset-v3';
+const APP_VERSION = '20260822-office-role-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -6,8 +6,10 @@ const APP_VERSION = '20260816-early10-old-unset-v3';
 if (!window.RolePolicy) {
     const receptionistRoles = new Set([
         'receptionist', 'receptionist_assistant', 'receptionist_lead',
-        'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant'
+        'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant',
+        'office_staff', 'van-phong', 'van_phong'
     ]);
+    const officeRoles = new Set(['office_staff', 'van-phong', 'van_phong']);
     const teachingRoles = new Set([
         'teacher', 'giao-vien', 'giao_vien', 'teaching_assistant',
         'assistant', 'staff', 'tro-giang', 'tro_giang'
@@ -27,6 +29,7 @@ if (!window.RolePolicy) {
         getRoles,
         hasManagementAccess: value => hasAny(value, managementRoles),
         hasReceptionistEmploymentRole: value => hasAny(value, receptionistRoles),
+        hasOfficeEmploymentRole: value => hasAny(value, officeRoles),
         hasTeachingEmploymentRole: value => hasAny(value, teachingRoles)
     });
 }
@@ -572,7 +575,7 @@ function resolveWorkChainEnd(blocks, checkInTime) {
     return end;
 }
 
-// Trả về danh sách khúc ca TIẾP TÂN của nhân viên trong ngày ([] nếu không có).
+// Trả về các khúc ca vận hành (Tiếp tân + Văn phòng) trong ngày.
 async function findReceptionistShiftBlocks(userId, dateKey) {
     try {
         const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
@@ -601,35 +604,42 @@ async function findReceptionistShiftBlocks(userId, dateKey) {
 
         for (const branch of BRANCHES) {
             const compositeKey = `${branch}__${mondayKey}`;
-            const weekData = await DBService.getReceptionistSchedule(compositeKey);
-            if (!weekData) continue;
+            const sources = await Promise.all([
+                Promise.all([
+                    DBService.getReceptionistSchedule(compositeKey),
+                    DBService.getReceptionistShiftConfig(branch)
+                ]).then(([weekData, config]) => ({ weekData, config, kind: 'tiep-tan' })),
+                Promise.all([
+                    DBService.getOfficeSchedule(compositeKey),
+                    DBService.getOfficeShiftConfig(branch)
+                ]).then(([weekData, config]) => ({ weekData, config, kind: 'van-phong' }))
+            ]);
 
-            const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
+            for (const source of sources) {
+                const weekData = source.weekData;
+                if (!weekData) continue;
+                for (const shiftKey of SHIFT_KEYS) {
+                    const shiftData = weekData[shiftKey];
+                    if (!shiftData || !shiftData[dayKey]) continue;
 
-            for (const shiftKey of SHIFT_KEYS) {
-                const shiftData = weekData[shiftKey];
-                if (!shiftData || !shiftData[dayKey]) continue;
+                    const staffEntry = shiftData[dayKey].find(s => String(s.id) === String(userId));
+                    if (!staffEntry) continue;
 
-                const staffEntry = shiftData[dayKey].find(s => s.id === userId);
-                if (!staffEntry) continue;
+                    const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
+                    const startStr = staffEntry.customStart || weekShiftCfg?.start || source.config?.[shiftKey]?.start || '07:00';
+                    const endStr = staffEntry.customEnd || weekShiftCfg?.end || source.config?.[shiftKey]?.end || '11:30';
+                    const shiftStart = getVietnamDateFromHM(dateKey, startStr);
+                    const shiftEnd = getVietnamDateFromHM(dateKey, endStr);
 
-                // Dùng _shiftConfig từ weekData nếu có
-                const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
-                const startStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
-                const endStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
-
-                // FIX: dùng local time, tránh UTC parse gây lệch 7h
-                const shiftStart = getVietnamDateFromHM(dateKey, startStr);
-                const shiftEnd = getVietnamDateFromHM(dateKey, endStr);
-
-                allShifts.push({ shiftStart, shiftEnd, startStr, endStr });
+                    allShifts.push({ shiftStart, shiftEnd, startStr, endStr, kind: source.kind });
+                }
             }
         }
 
         // Việc nối các khúc liền nhau do resolveWorkChainEnd lo — ở đây chỉ trả dữ liệu thô.
         return allShifts
             .filter(s => s.shiftStart && s.shiftEnd)
-            .map(s => ({ start: s.shiftStart, end: s.shiftEnd, kind: 'tiep-tan' }));
+            .map(s => ({ start: s.shiftStart, end: s.shiftEnd, kind: s.kind }));
     } catch (e) {
         console.warn('[GlobalAutoCheckout] Receptionist error:', e);
         return [];
@@ -938,7 +948,7 @@ function renderSidebar() {
     const roleRaw = localStorage.getItem('currentRole') || 'staff';
     const roles = parseRoles(roleRaw);
     // Compat: role = role ưu tiên cao nhất (admin > senior_assistant > assistant > teaching_assistant > receptionist > receptionist_assistant > staff)
-    const ROLE_PRIORITY = ['admin','senior_assistant','assistant','teaching_assistant','receptionist','receptionist_assistant','staff'];
+    const ROLE_PRIORITY = ['admin','senior_assistant','assistant','teaching_assistant','receptionist','receptionist_assistant','office_staff','staff'];
     const role = ROLE_PRIORITY.find(r => roles.includes(r)) || roles[0] || 'staff';
 
     // Dynamic Naming logic
@@ -957,17 +967,18 @@ function renderSidebar() {
         { name: 'Tổng Quan', link: 'admin.html', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>', roles: ['admin', 'senior_assistant'] },
         { name: 'Nhân Sự', link: 'nhan-su.html', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>', roles: ['admin', 'senior_assistant'] },
         { name: 'Họp Định Kỳ', link: 'hop-dinh-ky.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M9 16l2 2 4-4"></path>', roles: ['admin', 'senior_assistant'] },
-        { name: 'Bảng Cá Nhân', link: 'nhan-vien.html', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant', 'senior_assistant', 'admin'] },
-        { name: 'Họp Của Tôi', link: 'hop-cua-toi.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M9 16l2 2 4-4"></path>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant', 'senior_assistant', 'admin'] },
+        { name: 'Bảng Cá Nhân', link: 'nhan-vien.html', icon: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant', 'senior_assistant', 'admin'] },
+        { name: 'Họp Của Tôi', link: 'hop-cua-toi.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M9 16l2 2 4-4"></path>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant', 'senior_assistant', 'admin'] },
         // Chấm Công: Visible for Staff, Assistant, Receptionist
-        { name: 'Chấm Công', link: 'cham-cong.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'senior_assistant', 'teaching_assistant'] },
+        { name: 'Chấm Công', link: 'cham-cong.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'senior_assistant', 'teaching_assistant'] },
         { name: scheduleName, link: 'lich-lam.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant'] },
-        { name: 'Chấm Công Bù', link: 'cham-bu.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant'] },
+        { name: 'Chấm Công Bù', link: 'cham-bu.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant'] },
         { name: 'Lịch Tiếp Tân', link: 'lich-tiep-tan.html', icon: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>', roles: ['admin', 'senior_assistant', 'receptionist', 'receptionist_assistant'] },
+        { name: 'Lịch Văn Phòng', link: 'lich-van-phong.html', icon: '<rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V4h8v3"></path><path d="M3 12h18"></path>', roles: ['admin', 'senior_assistant', 'assistant', 'office_staff'] },
         { name: 'Quan Sát Ca', link: 'quan-sat-ca.html', icon: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12"></path><circle cx="12" cy="12" r="3"></circle>', roles: ['admin', 'senior_assistant', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'] },
         { name: 'Nhật Ký Ca', link: 'nhat-ky-ca.html', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line>', roles: ['admin', 'senior_assistant'] },
         { name: 'Tường Trình', link: 'tuong-trinh.html', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line>', roles: ['admin', 'senior_assistant'] },
-        { name: reportName, link: 'bao-cao.html', icon: '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="10" x2="16" y2="18"></line><line x1="8" y1="10" x2="12" y2="10"></line><line x1="8" y1="14" x2="12" y2="14"></line><line x1="8" y1="18" x2="12" y2="18"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant'] },
+        { name: reportName, link: 'bao-cao.html', icon: '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="10" x2="16" y2="18"></line><line x1="8" y1="10" x2="12" y2="10"></line><line x1="8" y1="14" x2="12" y2="14"></line><line x1="8" y1="18" x2="12" y2="18"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant'] },
         { name: 'Môn Học', link: 'mon-hoc.html', icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>', roles: ['admin'] },
         { name: 'Hệ Thống', link: 'he-thong.html', icon: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>', roles: ['admin', 'senior_assistant', 'assistant'] },
         // NEW: Maintenance
@@ -999,6 +1010,7 @@ function renderSidebar() {
     if (role === 'assistant') displayRole = 'Trợ Lý';
     if (role === 'receptionist') displayRole = 'Tiếp Tân';
     if (role === 'receptionist_assistant') displayRole = 'Trợ Lí Tiếp Tân';
+    if (role === 'office_staff') displayRole = 'Nhân Viên Văn Phòng';
     if (role === 'teaching_assistant') displayRole = 'Trợ giảng/ GV TA';
     if (role === 'senior_assistant') displayRole = 'Trợ Lý Cấp Cao';
 
@@ -1011,6 +1023,7 @@ function renderSidebar() {
             'teaching_assistant': 'Trợ giảng/ GV TA',
             'receptionist': 'Tiếp Tân',
             'receptionist_assistant': 'Trợ Lí Tiếp Tân',
+            'office_staff': 'Nhân Viên Văn Phòng',
             'staff': 'Nhân Viên'
         };
         displayRole = roles.map(r => roleLabels[r] || r).join(' · ');
@@ -1529,19 +1542,27 @@ window.formatUserSpecialty = function(user) {
         ? user.roles
         : (user.role ? [user.role] : ['staff']);
     
-    const isReceptionist = window.RolePolicy.hasReceptionistEmploymentRole(userRolesArr);
+    const isOffice = window.RolePolicy.hasOfficeEmploymentRole?.(userRolesArr) || userRolesArr.includes('office_staff');
+    const isReceptionist = userRolesArr.some(role => [
+        'receptionist', 'receptionist_assistant', 'receptionist_lead',
+        'receptionist_staff', 'senior_assistant', 'tiep-tan', 'tiep_tan'
+    ].includes(role));
+    const isOperational = isReceptionist || isOffice;
     const hasTeachingRole = window.RolePolicy.hasTeachingEmploymentRole(userRolesArr);
     
     let parts = [];
     if (hasTeachingRole && isTA) parts.push('TG TA');
     if (hasTeachingRole && isTTV) parts.push('TG T-TV');
     
-    if (parts.length === 0 && hasTeachingRole && !isReceptionist) {
+    if (parts.length === 0 && hasTeachingRole && !isOperational) {
         parts.push('TG TA'); // Default to TG TA
     }
     
     if (isReceptionist) {
         parts.push('TIẾP TÂN');
+    }
+    if (isOffice) {
+        parts.push('VĂN PHÒNG');
     }
     
     return parts.length > 0 ? parts.join(' / ') : 'TG TA';
@@ -2092,11 +2113,12 @@ window.checkUpcomingMeetingsAndShifts = async function() {
             }
         }
 
-        // 2. Check shift check-in reminder (Receptionists only)
+        // 2. Check operational shift reminders (receptionist + office schedules)
         const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : ['staff']);
         const isReceptionist = window.RolePolicy.hasReceptionistEmploymentRole(userRolesArr);
+        const isOffice = window.RolePolicy.hasOfficeEmploymentRole(userRolesArr);
 
-        if (isReceptionist) {
+        if (isReceptionist || isOffice) {
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
             const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
             const BRANCHES = ['cs1', 'cs2', 'cs3'];
@@ -2118,44 +2140,51 @@ window.checkUpcomingMeetingsAndShifts = async function() {
 
             for (const branch of BRANCHES) {
                 const compositeKey = `${branch}__${mondayKey}`;
-                const weekData = await DBService.getReceptionistSchedule(compositeKey);
-                if (!weekData) continue;
+                const sources = await Promise.all([
+                    Promise.all([
+                        DBService.getReceptionistSchedule(compositeKey),
+                        DBService.getReceptionistShiftConfig(branch)
+                    ]).then(([weekData, config]) => ({ weekData, config, type: 'receptionist', label: 'trực ca' })),
+                    Promise.all([
+                        DBService.getOfficeSchedule(compositeKey),
+                        DBService.getOfficeShiftConfig(branch)
+                    ]).then(([weekData, config]) => ({ weekData, config, type: 'office', label: 'làm việc văn phòng' }))
+                ]);
 
-                const branchShiftConfig = await DBService.getReceptionistShiftConfig(branch);
+                for (const source of sources) {
+                    const weekData = source.weekData;
+                    if (!weekData) continue;
+                    for (const shiftKey of SHIFT_KEYS) {
+                        const shiftData = weekData[shiftKey];
+                        if (!shiftData || !shiftData[dayKey]) continue;
 
-                for (const shiftKey of SHIFT_KEYS) {
-                    const shiftData = weekData[shiftKey];
-                    if (!shiftData || !shiftData[dayKey]) continue;
+                        const staffEntry = shiftData[dayKey].find(s => String(s.id) === String(currentUserId));
+                        if (!staffEntry) continue;
 
-                    const staffEntry = shiftData[dayKey].find(s => s.id === currentUserId);
-                    if (!staffEntry) continue;
+                        const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
+                        const startStr = staffEntry.customStart || weekShiftCfg?.start || source.config?.[shiftKey]?.start || '07:00';
+                        const endStr = staffEntry.customEnd || weekShiftCfg?.end || source.config?.[shiftKey]?.end || '11:30';
 
-                    const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
-                    const startStr = staffEntry.customStart || weekShiftCfg?.start || branchShiftConfig[shiftKey]?.start || '07:00';
-                    const endStr = staffEntry.customEnd || weekShiftCfg?.end || branchShiftConfig[shiftKey]?.end || '11:30';
+                        const [_acy, _acm, _acd] = dateKey.split('-').map(Number);
+                        const [_ssh, _ssm] = startStr.split(':').map(Number);
+                        const shiftStart = new Date(_acy, _acm - 1, _acd, _ssh, _ssm, 0, 0);
+                        const timeDiffMins = (shiftStart.getTime() - now.getTime()) / (60 * 1000);
 
-                    const [_acy, _acm, _acd] = dateKey.split('-').map(Number);
-                    const [_ssh, _ssm] = startStr.split(':').map(Number);
-                    const [_seh, _sem] = endStr.split(':').map(Number);
-                    const shiftStart = new Date(_acy, _acm - 1, _acd, _ssh, _ssm, 0, 0);
-                    const shiftEnd = new Date(_acy, _acm - 1, _acd, _seh, _sem, 0, 0);
+                        // Trigger if shift starts in 15 mins OR started but <= 30 mins ago
+                        if (timeDiffMins <= 15 && timeDiffMins >= -30) {
+                            const notifiedKey = `notified_shift_checkin_${source.type}_${dateKey}_${branch}_${shiftKey}`;
+                            if (!localStorage.getItem(notifiedKey)) {
+                                const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);
+                                const hasOpenSession = attendance && attendance.sessions && attendance.sessions.some(s => s.checkIn && !s.checkOut);
 
-                    const timeDiffMins = (shiftStart.getTime() - now.getTime()) / (60 * 1000);
-
-                    // Trigger if shift starts in 15 mins OR started but <= 30 mins ago
-                    if (timeDiffMins <= 15 && timeDiffMins >= -30) {
-                        const notifiedKey = `notified_shift_checkin_${dateKey}_${shiftKey}`;
-                        if (!localStorage.getItem(notifiedKey)) {
-                            const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);
-                            const hasOpenSession = attendance && attendance.sessions && attendance.sessions.some(s => s.checkIn && !s.checkOut);
-
-                            if (!hasOpenSession) {
-                                window.showLocalNotification(
-                                    `Nhắc ca làm việc: ${shiftKey === 'morning' ? 'Ca Sáng' : shiftKey === 'afternoon' ? 'Ca Chiều' : 'Ca Tối'}`,
-                                    `Đã đến giờ trực ca của bạn (${startStr} - ${endStr}). Vui lòng Chấm Công để Vào ca!`,
-                                    `shift_checkin_${dateKey}_${shiftKey}`
-                                );
-                                localStorage.setItem(notifiedKey, 'true');
+                                if (!hasOpenSession) {
+                                    window.showLocalNotification(
+                                        `Nhắc ca làm việc: ${shiftKey === 'morning' ? 'Ca Sáng' : shiftKey === 'afternoon' ? 'Ca Chiều' : 'Ca Tối'}`,
+                                        `Đã đến giờ ${source.label} của bạn (${startStr} - ${endStr}). Vui lòng Chấm Công để Vào ca!`,
+                                        `shift_checkin_${source.type}_${dateKey}_${branch}_${shiftKey}`
+                                    );
+                                    localStorage.setItem(notifiedKey, 'true');
+                                }
                             }
                         }
                     }
@@ -2547,7 +2576,7 @@ function renderDetailedSalaryTable(details, status) {
                         : `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:700;display:inline-block;">Đã công bố</span>`
                     }
                     <span style="background: rgba(255, 255, 255, 0.25); padding: 4px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
-                        ${details.role === 'tiep-tan' ? 'Tiếp Tân' : 'Giáo Viên'}
+                        ${details.role === 'tiep-tan' ? (details.operationalLabel || 'Tiếp Tân') : 'Giáo Viên'}
                     </span>
                 </div>
             </div>
@@ -2790,7 +2819,8 @@ const ANN_ICONS = ['bell', 'calendar', 'clipboard-list', 'shield', 'clock', 'mes
 const ANN_GROUPS = {
     all: { label: 'Tất cả nhân sự', roles: null },
     gv: { label: 'Giáo viên & Trợ giảng', roles: ['giao-vien', 'teacher', 'teaching_assistant', 'assistant'] },
-    tt: { label: 'Tiếp tân', roles: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant'] }
+    tt: { label: 'Tiếp tân', roles: ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant'] },
+    vp: { label: 'Nhân viên văn phòng', roles: ['office_staff', 'van-phong', 'van_phong'] }
 };
 
 function annEsc(s) {
@@ -2867,6 +2897,7 @@ window.openAnnouncementComposer = async function () {
         <select id="ann-group" onchange="annRefreshRecipientPicker()" style="width:100%;padding:0.6rem;border:1.5px solid #E5E7EB;border-radius:10px;font-size:0.88rem;">
           <option value="gv">Giáo viên & Trợ giảng</option>
           <option value="tt">Tiếp tân</option>
+          <option value="vp">Nhân viên văn phòng</option>
           <option value="all">Tất cả nhân sự</option>
         </select>
       </div>

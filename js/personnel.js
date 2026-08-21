@@ -14,11 +14,13 @@
         teaching_assistant: 'Trợ giảng / GV TA',
         receptionist: 'Tiếp tân',
         receptionist_assistant: 'Trợ lý tiếp tân',
+        office_staff: 'Nhân viên văn phòng',
         staff: 'Nhân viên'
     };
     var ROLE_PRIORITY = ['admin', 'senior_assistant', 'assistant', 'teaching_assistant',
-        'receptionist', 'receptionist_assistant', 'staff'];
-    var RECEP_ROLES = ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant'];
+        'receptionist', 'receptionist_assistant', 'office_staff', 'staff'];
+    // Văn phòng dùng cùng nhóm cấu hình đơn giá ca thường/cố định với tiếp tân.
+    var RECEP_ROLES = ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant', 'office_staff'];
     var TEACH_ROLES = ['admin', 'assistant', 'teaching_assistant', 'staff'];
     var AVATAR_COLORS = ['#059669', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#14B8A6', '#EF4444', '#6366F1'];
 

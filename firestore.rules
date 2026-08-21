@@ -50,6 +50,10 @@ service cloud.firestore {
       return hasRole('assistant') || hasRole('receptionist_assistant');
     }
 
+    function isOfficeScheduleManager() {
+      return isAdmin() || hasRole('assistant');
+    }
+
     function isReceptionistOperator() {
       return hasRole('receptionist') ||
         hasRole('receptionist_assistant') ||
@@ -119,6 +123,14 @@ service cloud.firestore {
     match /receptionist_schedules/{weekId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
+    }
+
+    // 7.0.1 Office schedules use the same weekly schema but a separate
+    // collection. Office staff can view their roster; only management roles
+    // may change assignments, preventing accidental edits from the staff page.
+    match /office_schedules/{weekId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOfficeScheduleManager();
     }
 
     // 7.1 Receptionist shift activation. A receptionist can only activate

@@ -415,31 +415,34 @@ function renderTodayChips() {
     const currentUserContext = {
         userId: currentUserId,
         role: localStorage.getItem('currentRole') || 'staff',
+        roles: typeof parseRoles === 'function'
+            ? parseRoles(localStorage.getItem('currentRole') || 'staff')
+            : [localStorage.getItem('currentRole') || 'staff'],
         userName: localStorage.getItem('currentUserName') || 'Unknown'
     };
 
     const BRANCHES = ['cs1', 'cs2', 'cs3'];
     const branchPromises = BRANCHES.map(branch => {
         const compositeKey = `${branch}__${dateKey}`;
-        return Promise.all([
-            DBService.getSchedule(compositeKey),
-            DBService.getPersonalAttendance(dateKey, currentUserId)
-        ]).then(([schedule, attendance]) => ({
+        return DBService.getSchedule(compositeKey).then(schedule => ({
             schedule: schedule || {},
-            attendance: attendance || {},
             branch,
             compositeKey
         }));
     });
 
-    Promise.all(branchPromises).then(results => {
+    Promise.all([
+        Promise.all(branchPromises),
+        DBService.getPersonalAttendance(dateKey, currentUserId),
+        DBService._getDashboardReceptionistShifts(currentUserId, dateKey)
+    ]).then(([results, attendance, operationalShifts]) => {
         try {
             // Merge all schedule data
             const mergedSchedule = {};
-            const attendanceSessions = [];
+            const attendanceSessions = attendance?.sessions || [];
             const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
 
-            results.forEach(({ schedule, attendance, branch }) => {
+            results.forEach(({ schedule, branch }) => {
                 sections.forEach(sec => {
                     if (schedule[sec]) {
                         if (!mergedSchedule[sec]) mergedSchedule[sec] = [];
@@ -448,10 +451,6 @@ function renderTodayChips() {
                         );
                     }
                 });
-                // Collect attendance sessions from all branches
-                if (attendance.sessions) {
-                    attendanceSessions.push(...attendance.sessions);
-                }
             });
 
             // Calculate chips for today
@@ -460,7 +459,8 @@ function renderTodayChips() {
                 attendanceSessions,
                 currentUserId,
                 dateKey,
-                currentUserContext
+                currentUserContext,
+                operationalShifts || []
             );
 
             if (chips.length === 0) {

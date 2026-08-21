@@ -21,7 +21,13 @@ function escapeReportHtml(value) {
 function hasReceptionistEmploymentRole(value) {
     if (window.RolePolicy) return window.RolePolicy.hasReceptionistEmploymentRole(value);
     const roles = Array.isArray(value) ? value : [];
-    return roles.some(r => ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant'].includes(r));
+    return roles.some(r => ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant', 'office_staff', 'van-phong', 'van_phong'].includes(r));
+}
+
+function hasOfficeEmploymentRole(value) {
+    if (window.RolePolicy?.hasOfficeEmploymentRole) return window.RolePolicy.hasOfficeEmploymentRole(value);
+    const roles = Array.isArray(value) ? value : [];
+    return roles.some(r => ['office_staff', 'van-phong', 'van_phong'].includes(r));
 }
 
 function hasTeachingEmploymentRole(value) {
@@ -268,6 +274,7 @@ function renderStaffDropdownItems(users) {
         'teaching_assistant': 'Trợ giảng/ GV TA',
         'receptionist': 'Tiếp Tân',
         'receptionist_assistant': 'Trợ Lí Tiếp Tân',
+        'office_staff': 'Nhân Viên Văn Phòng',
         'staff': 'Nhân Viên'
     };
 
@@ -1171,9 +1178,11 @@ async function renderMonthReport(date, forceServer = false) {
     if (isReceptionistStaff) {
         try {
             // 1. Get shift config PER BRANCH
-            const shiftConfigMap = {}; // branch -> config
+            const shiftConfigMap = {}; // branch -> receptionist config
+            const officeShiftConfigMap = {}; // branch -> office config
             for (const branch of BRANCHES) {
                 shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
+                officeShiftConfigMap[branch] = await DBService.getOfficeShiftConfig(branch);
             }
             const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
@@ -1208,6 +1217,17 @@ async function renderMonthReport(date, forceServer = false) {
                         DBService.getReceptionistSchedule(compositeKey).then(data => ({
                             branch,
                             mondayKey,
+                            scheduleType: 'receptionist',
+                            documentKey: compositeKey,
+                            data: data || {}
+                        }))
+                    );
+                    recepPromises.push(
+                        DBService.getOfficeSchedule(compositeKey).then(data => ({
+                            branch,
+                            mondayKey,
+                            scheduleType: 'office',
+                            documentKey: compositeKey,
                             data: data || {}
                         }))
                     );
@@ -1244,7 +1264,9 @@ async function renderMonthReport(date, forceServer = false) {
                         if (!receptionistShiftsMap[dateStr]) receptionistShiftsMap[dateStr] = [];
 
                         // Use per-branch shift config, with custom times override
-                        const branchConfig = shiftConfigMap[result.branch] || {};
+                        const branchConfig = result.scheduleType === 'office'
+                            ? (officeShiftConfigMap[result.branch] || {})
+                            : (shiftConfigMap[result.branch] || {});
                         // Ưu tiên shiftConfig snapshot từ weekData doc, fallback về branch global config
                         const weekShiftConfig = result.data?._shiftConfig?.[shiftKey];
                         const defaultStart = staffEntry.customStart || weekShiftConfig?.start || branchConfig[shiftKey]?.start || '07:00';
@@ -1257,6 +1279,11 @@ async function renderMonthReport(date, forceServer = false) {
                             start: staffEntry.customStart || defaultStart,
                             end: staffEntry.customEnd || defaultEnd,
                             branch: result.branch,
+                            scheduleType: result.scheduleType,
+                            documentKey: result.documentKey,
+                            cancelCompositeKey: result.scheduleType === 'office'
+                                ? `office_${result.branch}_${mondayKey}`
+                                : `${result.branch}_${mondayKey}`,
                             isFixedShift: staffEntry.isFixedShift ? true : false
                         });
                     });
@@ -1303,9 +1330,10 @@ async function renderMonthReport(date, forceServer = false) {
                     // Chỉ merge khi 2 ca cùng loại (cùng CĐ hoặc cùng thường).
                     // Ca CĐ kề ca thường → giữ riêng để stats/lương/hiển thị không lẫn lộn.
                     const sameFixedType = (currentShift.isFixedShift || false) === (nextShift.isFixedShift || false);
+                    const sameScheduleType = (currentShift.scheduleType || 'receptionist') === (nextShift.scheduleType || 'receptionist');
 
                     // Merge if shifts touch, overlap, or have a gap of <= 60 minutes
-                    if (sameFixedType && nextStartMin - currentEndMin <= 60) {
+                    if (sameFixedType && sameScheduleType && nextStartMin - currentEndMin <= 60) {
                         if (nextShift.end > currentShift.end) {
                             currentShift.end = nextShift.end;
                         }
@@ -2172,7 +2200,8 @@ async function renderMonthReport(date, forceServer = false) {
                         if (!agreed) return;
                         try {
                             if (typeof UIService !== 'undefined') UIService.showLoading('Đang khôi phục ca...');
-                            const cancelKey = `${chip.classCompositeKey}_${chip.classSectionKey}_${chip.classIndex}`;
+                            const cancelComposite = `${chip.isOffice ? 'office_' : ''}${String(chip.classCompositeKey || '').replace('__', '_')}`;
+                            const cancelKey = `${cancelComposite}_${chip.classSectionKey}_${chip.classIndex}`;
                             await DBService.restoreCancelledShift(dateStr.substring(0, 7), staffId, cancelKey);
                             _cachedStaffId = null;
                             await renderMonthReport(currentDate, true);
@@ -2274,7 +2303,7 @@ async function renderMonthReport(date, forceServer = false) {
                                     chip.classCompositeKey,
                                     chip.classSectionKey,
                                     chip.classIndex,
-                                    chip.isReceptionist
+                                    chip.isOffice ? 'office' : chip.isReceptionist
                                 );
                             } else {
                                 openRoleSelectModal(dateStr, chip.sessionData);
@@ -2295,7 +2324,7 @@ async function renderMonthReport(date, forceServer = false) {
                                 chip.classCompositeKey,
                                 chip.classSectionKey,
                                 chip.classIndex,
-                                chip.isReceptionist ? true : false
+                                chip.isOffice ? 'office' : (chip.isReceptionist ? true : false)
                             );
                         }
                     }
@@ -2325,7 +2354,7 @@ async function renderMonthReport(date, forceServer = false) {
                         chip.classCompositeKey,
                         chip.classSectionKey,
                         chip.classIndex,
-                        chip.isReceptionist
+                        chip.isOffice ? 'office' : chip.isReceptionist
                     );
                 };
                 div.appendChild(editBtn);
@@ -3520,7 +3549,7 @@ function calculateSalary() {
                     </td>
                     <td style="padding: 0.75rem 0.5rem; text-align: center; color: #2563EB; font-weight: 500;">${checkInTime}</td>
                     <td style="padding: 0.75rem 0.5rem; text-align: center; color: #DC2626; font-weight: 500;">${checkOutTime}</td>
-                    <td style="padding: 0.75rem 0.5rem; text-align: right; font-weight: 600; color: var(--secondary-color);">${s.roleName || (s.role === 'tiep-tan' ? 'Tiếp Tân' : 'Dạy học')}</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: right; font-weight: 600; color: var(--secondary-color);">${s.roleName || (['van-phong', 'van_phong', 'office_staff'].includes(s.role) ? 'Văn Phòng' : (s.role === 'tiep-tan' ? 'Tiếp Tân' : 'Dạy học'))}</td>
                 `;
                 adminEditedBody.appendChild(tr);
             });
@@ -4164,7 +4193,7 @@ window.selectRoleItem = function(val, text, rate) {
     
     const shiftTypeContainer = document.getElementById('edit-shift-type-container');
     if (shiftTypeContainer) {
-        shiftTypeContainer.style.display = (val === 'tiep-tan') ? 'block' : 'none';
+        shiftTypeContainer.style.display = (val === 'tiep-tan' || val === 'van-phong') ? 'block' : 'none';
     }
     const subjectsContainer = document.getElementById('edit-subjects-container');
     if (subjectsContainer) {
@@ -4493,7 +4522,11 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         if (!user) return;
 
         const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-        const hasReceptionistRole = hasReceptionistEmploymentRole(userRolesArr);
+        const hasOfficeRole = hasOfficeEmploymentRole(userRolesArr);
+        const hasReceptionistRole = userRolesArr.some(role => [
+            'receptionist', 'receptionist_assistant', 'receptionist_lead',
+            'receptionist_staff', 'senior_assistant', 'tiep-tan', 'tiep_tan'
+        ].includes(role));
         const hasTeachingRole = hasTeachingEmploymentRole(userRolesArr);
 
         let hasSelected = false;
@@ -4511,12 +4544,26 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
             select.appendChild(opt);
         }
 
-        // 2. Option Giáo Viên / Trợ Giảng
+        // 2. Option Văn Phòng — vẫn dùng đơn giá ca vận hành chung nhưng giữ
+        // role riêng để bảng công và liên kết lịch không bị ghi thành Tiếp Tân.
+        if (hasOfficeRole) {
+            const opt = document.createElement('option');
+            opt.value = 'van-phong';
+            opt.textContent = 'Văn Phòng';
+            opt.dataset.rate = user.salary_config?.receptionist_normal_rate || 0;
+            if (['van-phong', 'van_phong', 'office_staff'].includes(currentRoleId)) {
+                opt.selected = true;
+                hasSelected = true;
+            }
+            select.appendChild(opt);
+        }
+
+        // 3. Option Giáo Viên / Trợ Giảng
         if (hasTeachingRole) {
             const opt = document.createElement('option');
             opt.value = 'giao-vien';
             opt.textContent = 'Giáo Viên / Trợ Giảng';
-            if (!hasSelected || (currentRoleId && currentRoleId !== 'tiep-tan' && currentRoleId !== 'receptionist')) {
+            if (!hasSelected || (currentRoleId && !['tiep-tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'].includes(currentRoleId))) {
                 opt.selected = true;
             }
             select.appendChild(opt);
@@ -4539,7 +4586,7 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
     const val = selectedOpt ? selectedOpt.value : '';
     const shiftTypeContainer = document.getElementById('edit-shift-type-container');
     if (shiftTypeContainer) {
-        shiftTypeContainer.style.display = (val === 'tiep-tan') ? 'block' : 'none';
+        shiftTypeContainer.style.display = (val === 'tiep-tan' || val === 'van-phong') ? 'block' : 'none';
     }
     const subjectsContainer = document.getElementById('edit-subjects-container');
     if (subjectsContainer) {
@@ -4548,6 +4595,7 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
 }
 
 async function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
+    const linkType = isLinkable === 'office' ? 'office' : (isLinkable ? 'receptionist' : 'teaching');
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
@@ -4572,7 +4620,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
         document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
         document.getElementById('edit-class-section-key').value = classSectionKey || '';
         document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
-        document.getElementById('edit-class-is-receptionist').value = isLinkable ? 'true' : '';
+        document.getElementById('edit-class-is-receptionist').value = linkType === 'office' ? 'office' : (linkType === 'receptionist' ? 'true' : '');
     }
     const linkedEl = document.getElementById('edit-linked-class-start');
     if (linkedEl) {
@@ -4609,7 +4657,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     let matchedRoleId = null;
     let matchedRoleIds = [];
     if (isLinkable) {
-        matchedRoleId = 'tiep-tan';
+        matchedRoleId = linkType === 'office' ? 'van-phong' : 'tiep-tan';
     } else {
         try {
             if (preFill) {
@@ -4744,7 +4792,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     // Show delete button if this shift belongs to a schedule (so admin can delete it entirely)
     const manualSubtitle = document.getElementById('edit-modal-subtitle');
     if (manualSubtitle) {
-        const kindLabel = isLinkable ? 'Ca tiáº¿p tÃ¢n' : 'Ca dáº¡y';
+        const kindLabel = linkType === 'office' ? 'Ca văn phòng' : (isLinkable ? 'Ca tiếp tân' : 'Ca dạy');
         const range = preFill && preFill.start && preFill.end
             ? ` Â· ${preFill.start}â€“${preFill.end}`
             : '';
@@ -4765,6 +4813,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
 }
 
 async function openEditModal(dateKey, sessionId, chip, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
+    const linkType = isReceptionist === 'office' ? 'office' : (isReceptionist ? 'receptionist' : 'teaching');
     const sessionData = chip.sessionData || chip;
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
@@ -4777,7 +4826,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     document.getElementById('edit-class-composite-key').value = classCompositeKey || '';
     document.getElementById('edit-class-section-key').value = classSectionKey || '';
     document.getElementById('edit-class-index').value = classIndex !== undefined ? classIndex : '';
-    document.getElementById('edit-class-is-receptionist').value = isReceptionist ? 'true' : '';
+    document.getElementById('edit-class-is-receptionist').value = linkType === 'office' ? 'office' : (linkType === 'receptionist' ? 'true' : '');
 
     const toLocalISO = (isoStr) => {
         if (!isoStr) return '';
@@ -4809,8 +4858,10 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
 
     const staffId = getTargetStaffId();
 
-    const isRecep = sessionData && (sessionData.role === 'tiep-tan' || sessionData.role === 'receptionist');
-    if (isRecep) {
+    const isOperationalSession = sessionData && [
+        'tiep-tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'
+    ].includes(sessionData.role);
+    if (isOperationalSession) {
         editSelectedSubjectIds = [];
     } else {
         editSelectedSubjectIds = (sessionData && sessionData.role) ? sessionData.role.split('+') : [];
@@ -4822,7 +4873,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     // A linked class is the normal source of truth. Old admin-edited rows can
     // retain a stale roleName; make the modal show the current scheduled
     // subject unless the admin previously chose an explicit override.
-    if (!isRecep && chip?.usesScheduledSubject === true && sessionData?.subjectOverride !== true && chip.scheduledSubjectName) {
+    if (!isOperationalSession && chip?.usesScheduledSubject === true && sessionData?.subjectOverride !== true && chip.scheduledSubjectName) {
         const scheduleNames = String(chip.scheduledSubjectName).split('+').map(name => normalizeSubjectLookupName(name));
         const suggested = allAvailableSubjects
             .filter(subject => scheduleNames.includes(normalizeSubjectLookupName(subject.name)))
@@ -4846,7 +4897,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     const subtitleEl = document.getElementById('edit-modal-subtitle');
     if (subtitleEl) {
         const plainChipText = String(chip.text || '').replace(/<[^>]*>/g, '').trim();
-        const kindLabel = isReceptionist ? 'Ca tiếp tân' : 'Ca dạy';
+        const kindLabel = linkType === 'office' ? 'Ca văn phòng' : (isReceptionist ? 'Ca tiếp tân' : 'Ca dạy');
         subtitleEl.innerText = `${kindLabel} · ${dateKey}${plainChipText ? ' · ' + plainChipText : ''}`;
     }
 
@@ -4873,7 +4924,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                 const accent = isMissing ? '#B91C1C' : (isTeach ? '#B45309' : '#3730A3');
                 const bg = isMissing ? '#FEF2F2' : (isTeach ? '#FEF3C7' : '#FFFFFF');
                 const border = isMissing ? '#FCA5A5' : (isTeach ? '#FCD34D' : '#C7D2FE');
-                const tag = isMissing ? 'CHƯA CHẤM' : (isTeach ? 'DẠY' : 'TIẾP TÂN');
+                const tag = isMissing ? 'CHƯA CHẤM' : (isTeach ? 'DẠY' : (chip.isOffice ? 'VĂN PHÒNG' : 'TIẾP TÂN'));
                 const minutesText = isMissing
                     ? `${fmt(seg.scheduledMinutes || 0)} · chưa tính`
                     : fmt(seg.minutes);
@@ -4886,7 +4937,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             }).join('');
 
             if (breakdownTotal) {
-                breakdownTotal.innerText = `Tiếp tân ${fmt(recepMin)} · Dạy ${fmt(teachMin)}${missingMin > 0 ? ` · Chưa chấm ${fmt(missingMin)}` : ''}`;
+                breakdownTotal.innerText = `${chip.isOffice ? 'Văn phòng' : 'Tiếp tân'} ${fmt(recepMin)} · Dạy ${fmt(teachMin)}${missingMin > 0 ? ` · Chưa chấm ${fmt(missingMin)}` : ''}`;
             }
             breakdownBox.style.display = 'block';
         } else {
@@ -5105,7 +5156,9 @@ async function saveEditedTime() {
 
     const linkedClassStart = document.getElementById('edit-linked-class-start')?.value || null;
     const classSectionKey = document.getElementById('edit-class-section-key')?.value || '';
-    const classIsReceptionist = document.getElementById('edit-class-is-receptionist')?.value === 'true';
+    const classLinkType = document.getElementById('edit-class-is-receptionist')?.value || '';
+    const classIsReceptionist = classLinkType === 'true';
+    const classIsOffice = classLinkType === 'office';
 
     const roleSelect = document.getElementById('edit-role');
     const selectedRoleId = roleSelect?.value || null;
@@ -5135,12 +5188,14 @@ async function saveEditedTime() {
         },
         ...(linkedClassStart ? { linkedClassStart } : {}),
         ...(classSectionKey && classIsReceptionist ? { linkedReceptionistShift: classSectionKey } : {}),
+        ...(classSectionKey && classIsOffice ? { linkedOfficeShift: classSectionKey } : {}),
         ...(absentSubShifts !== null ? { absentSubShifts } : {})
     };
 
-    if (selectedRoleId === 'tiep-tan') {
-        newData.role = 'tiep-tan';
-        newData.roleName = 'Tiếp Tân';
+    if (selectedRoleId === 'tiep-tan' || selectedRoleId === 'van-phong') {
+        const isOfficeRole = selectedRoleId === 'van-phong';
+        newData.role = isOfficeRole ? 'van-phong' : 'tiep-tan';
+        newData.roleName = isOfficeRole ? 'Văn Phòng' : 'Tiếp Tân';
         newData.roleAssignmentSource = 'manual';
         newData.subjectOverride = false;
         
@@ -5464,7 +5519,8 @@ async function deleteSessionFromModal() {
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
             console.log("[DeleteSession] Unregistering from class...");
             const monthStr = dateKey.substring(0, 7);
-            const cancelKey = `${classCompositeKey}_${classSectionKey}_${classIndexRaw}`;
+            const normalizedScheduleKey = String(classCompositeKey).replace('__', '_');
+            const cancelKey = `${isReceptionistStr === 'office' ? 'office_' : ''}${normalizedScheduleKey}_${classSectionKey}_${classIndexRaw}`;
 
             // 1. Ghi log huỷ ca vào DBService (BƯỚC QUAN TRỌNG NHẤT)
             await DBService.cancelShift(monthStr, staffId, cancelKey);
@@ -5472,6 +5528,8 @@ async function deleteSessionFromModal() {
             if (isReceptionistStr === 'true') {
                 // Delete from receptionist schedule
                 await DBService.unassignReceptionist(classCompositeKey, classSectionKey, classIndexRaw, staffId);
+            } else if (isReceptionistStr === 'office') {
+                await DBService.unassignOfficeStaff(classCompositeKey, classSectionKey, classIndexRaw, staffId);
             } else {
                 // Delete from teaching schedule
                 const classIndex = Number(classIndexRaw);
@@ -5570,7 +5628,11 @@ async function openRoleSelectModal(dateKey, session) {
     }
 
     const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []);
-    const hasReceptionistRole = hasReceptionistEmploymentRole(userRolesArr);
+    const hasOfficeRole = hasOfficeEmploymentRole(userRolesArr);
+    const hasReceptionistRole = userRolesArr.some(role => [
+        'receptionist', 'receptionist_assistant', 'receptionist_lead',
+        'receptionist_staff', 'senior_assistant', 'tiep-tan', 'tiep_tan'
+    ].includes(role));
     const hasTeachingRole = hasTeachingEmploymentRole(userRolesArr);
     let teachingRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles.slice() : [];
     if (hasTeachingRole) {
@@ -5591,7 +5653,7 @@ async function openRoleSelectModal(dateKey, session) {
     }
 
     // Kiểm tra có ít nhất 1 option để chọn
-    if (!hasReceptionistRole && teachingRoles.length === 0) {
+    if (!hasReceptionistRole && !hasOfficeRole && teachingRoles.length === 0) {
         // Suppress alert silently for teachers as they calculate by subject
         return;
     }
@@ -5623,15 +5685,28 @@ async function openRoleSelectModal(dateKey, session) {
         container.appendChild(btn);
     }
 
+    if (hasOfficeRole) {
+        const cfg = user.salary_config || {};
+        const officeRate = cfg.receptionist_normal_rate || 0;
+        const officeRole = { id: 'van-phong', name: 'Văn Phòng', rate: officeRate, isReceptionist: true, isOffice: true };
+        const btn = document.createElement('div');
+        btn.style.cssText = 'padding:1rem;border:2px solid #C7D2FE;border-radius:var(--radius-md);cursor:pointer;background:#EEF2FF;transition:0.2s;';
+        btn.innerHTML = `<strong>💼 Văn Phòng</strong> <span style="float:right;color:#4338CA">${new Intl.NumberFormat('vi-VN').format(officeRate)}đ/h</span>`;
+        btn.onmouseover = () => { btn.style.background = '#E0E7FF'; btn.style.borderColor = '#6366F1'; };
+        btn.onmouseout = () => { btn.style.background = '#EEF2FF'; btn.style.borderColor = '#C7D2FE'; };
+        btn.onclick = () => selectRoleForSession(officeRole);
+        container.appendChild(btn);
+    }
+
     // Thêm các môn học (chỉ hiện nếu có role dạy)
     if (hasTeachingRole) {
-        if (teachingRoles.length === 0 && !hasReceptionistRole) {
+        if (teachingRoles.length === 0 && !hasReceptionistRole && !hasOfficeRole) {
             const emptyDiv = document.createElement('div');
             emptyDiv.style.cssText = 'padding:0.75rem;color:var(--text-muted);text-align:center;font-size:0.9rem;';
             emptyDiv.textContent = 'Chưa có môn học nào. Hãy cài đặt lương trong trang Nhân Sự.';
             container.appendChild(emptyDiv);
         } else {
-            if (hasReceptionistRole && teachingRoles.length > 0) {
+            if ((hasReceptionistRole || hasOfficeRole) && teachingRoles.length > 0) {
                 const sep = document.createElement('div');
                 sep.style.cssText = 'font-size:0.78rem;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.05em;margin-top:0.5rem;margin-bottom:0.25rem;';
                 sep.textContent = 'Môn Học (Dạy):'
@@ -7756,8 +7831,10 @@ async function loadAndComputeAllReceptionists(monthStr) {
     
     const BRANCHES = ['cs1', 'cs2', 'cs3'];
     const shiftConfigMap = {};
+    const officeShiftConfigMap = {};
     for (const branch of BRANCHES) {
         shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
+        officeShiftConfigMap[branch] = await DBService.getOfficeShiftConfig(branch);
     }
     
     const [yearStr, monthValStr] = monthStr.split('-');
@@ -7791,6 +7868,17 @@ async function loadAndComputeAllReceptionists(monthStr) {
                 DBService.getReceptionistSchedule(compositeKey).then(data => ({
                     branch,
                     mondayKey,
+                    scheduleType: 'receptionist',
+                    documentKey: compositeKey,
+                    data: data || {}
+                }))
+            );
+            recepPromises.push(
+                DBService.getOfficeSchedule(compositeKey).then(data => ({
+                    branch,
+                    mondayKey,
+                    scheduleType: 'office',
+                    documentKey: compositeKey,
                     data: data || {}
                 }))
             );
@@ -7851,7 +7939,9 @@ async function loadAndComputeAllReceptionists(monthStr) {
 
                     if (!receptionistShiftsMap[dateStr]) receptionistShiftsMap[dateStr] = [];
 
-                    const branchConfig = shiftConfigMap[result.branch] || {};
+                    const branchConfig = result.scheduleType === 'office'
+                        ? (officeShiftConfigMap[result.branch] || {})
+                        : (shiftConfigMap[result.branch] || {});
                     const weekShiftConfig = result.data?._shiftConfig?.[shiftKey];
                     const defaultStart = staffEntry.customStart || weekShiftConfig?.start || branchConfig[shiftKey]?.start || '07:00';
                     const defaultEnd = staffEntry.customEnd || weekShiftConfig?.end || branchConfig[shiftKey]?.end || '11:30';
@@ -7862,6 +7952,11 @@ async function loadAndComputeAllReceptionists(monthStr) {
                         start: staffEntry.customStart || defaultStart,
                         end: staffEntry.customEnd || defaultEnd,
                         branch: result.branch,
+                        scheduleType: result.scheduleType,
+                        documentKey: result.documentKey,
+                        cancelCompositeKey: result.scheduleType === 'office'
+                            ? `office_${result.branch}_${mondayKey}`
+                            : `${result.branch}_${mondayKey}`,
                         isFixedShift: staffEntry.isFixedShift ? true : false
                     });
                 });
@@ -8316,12 +8411,13 @@ function renderSalaryDashboardTable() {
         
         const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
         const isTeacher = hasTeachingEmploymentRole(uRoles);
+        const isOffice = hasOfficeEmploymentRole(uRoles);
         const isRecep = hasReceptionistEmploymentRole(uRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
         
         let primaryRole = 'Staff';
-        if (isTeacher && isRecep) primaryRole = 'Dual (GV & TT)';
+        if (isTeacher && isRecep) primaryRole = isOffice ? 'Kiêm nhiệm (GV & Văn Phòng)' : 'Dual (GV & TT)';
         else if (isTeacher) primaryRole = 'Giáo Viên';
-        else if (isRecep) primaryRole = 'Tiếp Tân';
+        else if (isRecep) primaryRole = isOffice ? 'Nhân Viên Văn Phòng' : 'Tiếp Tân';
         
         if (roleFilter === 'giao-vien' && !isTeacher) return;
         if (roleFilter === 'tiep-tan' && !isRecep) return;
@@ -8980,6 +9076,20 @@ function getCurrentCalculationPayload(role) {
         attendanceAdjustments: roundedAttendanceAdjustments,
         stats: stats
     };
+
+    if (role === 'tiep-tan') {
+        const employmentRoles = Array.isArray(window.currentUserContext?.roles) && window.currentUserContext.roles.length > 0
+            ? window.currentUserContext.roles
+            : [window.currentUserContext?.role || ''];
+        const hasOfficeRole = hasOfficeEmploymentRole(employmentRoles);
+        const hasStrictReceptionRole = employmentRoles.some(r => [
+            'receptionist', 'receptionist_assistant', 'receptionist_lead',
+            'receptionist_staff', 'tiep-tan', 'tiep_tan', 'senior_assistant'
+        ].includes(r));
+        details.operationalLabel = hasOfficeRole
+            ? (hasStrictReceptionRole ? 'Tiếp Tân / Văn Phòng' : 'Văn Phòng')
+            : 'Tiếp Tân';
+    }
     
     if (role === 'tiep-tan') {
         const phiTuVan = evalItems.find(item => item.id === 1)?.amount || 0;

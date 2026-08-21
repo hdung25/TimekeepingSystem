@@ -110,3 +110,21 @@
 * Preserve backward compatibility for existing Firestore documents, but make the new
   explicit state the source of truth once present. Add regression tests for legacy
   data, the new state, restoration, and downstream display/calculation behavior.
+
+#### Office staff schedule and attendance invariant
+* `office_staff` is a distinct employment role. Its roster lives only in
+  `office_schedules`, is edited from `lich-van-phong.html`, and uses per-branch
+  `officeShifts_{branch}` settings. Never migrate, merge, overwrite, or delete the
+  corresponding `receptionist_schedules` roster while changing an office schedule.
+* Office staff clock in and out through the normal attendance flow. A matched office
+  session uses `linkedOfficeShift`; manual edits must preserve that link unless the
+  editor explicitly replaces or clears it. Until a dedicated office pay policy is
+  approved, office hours use the existing operational/receptionist pay bucket while
+  all user-facing labels remain "Văn Phòng".
+* Cancellation document keys for office shifts must be namespaced as
+  `office_{branch}_{monday}_{shift}_{day}` so a cancelled office shift cannot cancel
+  the receptionist shift in the same branch/time slot.
+* A time chip may display scheduled hours only when the employee has one valid,
+  uniquely matched assignment. Otherwise retain the actual check-in/check-out values,
+  show an unmatched warning, and require an explicit roster/link correction. Never
+  rewrite historical attendance merely to make the display agree with a schedule.

@@ -18,7 +18,7 @@
     }
     const currentRoles = parseRoles(currentRole);
     const hasAdminAccess = currentRoles.some(r => r === 'admin' || r === 'senior_assistant');
-    const hasStaffAccess = currentRoles.some(r => ['staff','assistant','receptionist','receptionist_assistant','teaching_assistant'].includes(r));
+    const hasStaffAccess = currentRoles.some(r => ['staff','assistant','receptionist','receptionist_assistant','office_staff','teaching_assistant'].includes(r));
 
     const path = window.location.pathname;
 
@@ -60,6 +60,15 @@
             'receptionist_assistant',
             'receptionist_lead',
             'receptionist_staff'
+        ].includes(r));
+    }
+
+    if (path.includes('lich-van-phong.html')) {
+        isAllowed = currentRoles.some(r => [
+            'admin',
+            'senior_assistant',
+            'assistant',
+            'office_staff'
         ].includes(r));
     }
 

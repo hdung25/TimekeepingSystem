@@ -1272,4 +1272,59 @@ function observation(lateMinutes) {
     assert.ok(!restoredChips.some(chip => chip.isVDX), 'khôi phục ca phải gỡ trạng thái VĐX/VP');
 }
 
+{
+    // Ảnh lỗi 1: ca MC có lịch 14:30–16:40 nhưng bản ghi admin giữ giờ thực
+    // tế 14:22–16:30. Chip phải bám giờ lịch, còn sessionData vẫn giữ nguyên
+    // mốc thực tế để đối soát; tuyệt đối không sửa dữ liệu lịch sử.
+    const mcSchedule = {
+        afternoon1: [{
+            start: '14:30', end: '16:40', lop: 'MC', lopId: 'subject-mc',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-07-14', _originalIndex: 0
+        }]
+    };
+    const mcSession = {
+        id: 'image-1-admin-session', type: 'admin_add', isAdminEdited: true,
+        checkIn: '2026-07-14T14:22:00+07:00',
+        checkOut: '2026-07-14T16:30:00+07:00',
+        role: 'subject-mc', roleName: 'MC', roleAssignmentSource: 'manual'
+    };
+    const mcChips = context.window.calculateDailyChips(
+        mcSchedule, [mcSession], staffId, '2026-07-14',
+        { roles: ['teaching_assistant'], salary_config: { roles: [{ id: 'subject-mc', name: 'MC', rate: 100000 }] } }
+    );
+    const mcChip = mcChips.find(chip => chip.sessionId === mcSession.id && chip.isTeaching);
+    assert.ok(mcChip, 'ca MC được xếp phải ghép vào lịch thay vì rơi xuống ca thêm');
+    assert.match(mcChip.text, /14:30–16:40/, 'chip hiển thị khung lịch 14:30–16:40');
+    assert.equal(mcChip.sessionData.checkIn, mcSession.checkIn, 'giữ nguyên giờ vào thực tế 14:22');
+    assert.equal(mcChip.sessionData.checkOut, mcSession.checkOut, 'giữ nguyên giờ ra thực tế 16:30');
+    assert.equal(mcChip.isWarning, undefined, 'ca đã khớp không còn cảnh báo ngoài lịch');
+}
+
+{
+    // Nhân viên văn phòng dùng engine ca vận hành như tiếp tân, nhưng nhãn,
+    // role và link lịch phải giữ namespace Văn phòng.
+    const officeSession = {
+        id: 'office-worked', checkIn: '2026-07-14T08:00:00+07:00',
+        checkOut: '2026-07-14T11:30:00+07:00', linkedOfficeShift: 'morning'
+    };
+    const officeChips = context.window.calculateDailyChips(
+        {}, [officeSession], 'office-1', '2026-07-14',
+        { roles: ['office_staff'], salary_config: { receptionist_normal_rate: 30000 } },
+        [{
+            shift: 'morning', label: 'SÁNG', start: '08:00', end: '11:30',
+            branch: 'cs1', scheduleType: 'office', documentKey: 'cs1__2026-07-14',
+            cancelCompositeKey: 'office_cs1_2026-07-14'
+        }]
+    );
+    const officeChip = officeChips.find(chip => chip.sessionId === officeSession.id);
+    assert.ok(officeChip, 'ca văn phòng phải xuất hiện trong bảng công');
+    assert.equal(officeChip.isOffice, true);
+    assert.equal(officeChip.isReceptionist, true, 'giữ chung bucket lương ca vận hành');
+    assert.equal(officeChip.sessionData.role, 'van-phong');
+    assert.equal(officeChip.sessionData.linkedOfficeShift, 'morning');
+    assert.match(officeChip.text, /Văn Phòng/);
+    assert.equal(officeChip.paidMinutes, 210);
+}
+
 console.log('evaluation-service regression tests passed');

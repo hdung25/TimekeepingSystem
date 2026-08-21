@@ -11,9 +11,9 @@
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js'></script>
-    <script src='js/auth-guard.js?v=20260725-admin-edit-fix-v1'></script>
-    <script src='js/db-service.js?v=20260819-absence-recovery-v1'></script>
-    <script src='js/evaluation-service.js?v=20260819-absence-recovery-v1'></script>
+    <script src='js/auth-guard.js?v=20260822-office-role-v1'></script>
+    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
+    <script src='js/evaluation-service.js?v=20260822-office-role-v1'></script>
     <script src='js/ui-service.js?v=20260807-tuong-trinh-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -433,14 +433,18 @@ async function buildVerdicts(reqs){
             const mk=dkOf(mo),dayk=DK_TT[w===0?6:w-1];
             const rshifts=[];
             for(const b of BRS_TT){
-                let v=null; try{ v=await DBService.getReceptionistSchedule(b+'__'+mk) }catch(e){}
-                if(!v)continue;
-                Object.keys(RS_TT).forEach(sk=>{
-                    const en=((v[sk]||{})[dayk]||[]).find(x=>x.id===staffId); if(!en)return;
-                    const cf=(v._shiftConfig&&v._shiftConfig[sk])||{};
-                    rshifts.push({branch:b,shift:sk,
-                        start:en.customStart||cf.start||RS_TT[sk].s,
-                        end:en.customEnd||cf.end||RS_TT[sk].e});
+                const sources=[];
+                try{ sources.push({kind:'tt',v:await DBService.getReceptionistSchedule(b+'__'+mk)}) }catch(e){}
+                try{ sources.push({kind:'vp',v:await DBService.getOfficeSchedule(b+'__'+mk)}) }catch(e){}
+                sources.forEach(src=>{
+                    const v=src.v;if(!v)return;
+                    Object.keys(RS_TT).forEach(sk=>{
+                        const en=((v[sk]||{})[dayk]||[]).find(x=>x.id===staffId); if(!en)return;
+                        const cf=(v._shiftConfig&&v._shiftConfig[sk])||{};
+                        rshifts.push({branch:b,shift:sk,kind:src.kind,
+                            start:en.customStart||cf.start||RS_TT[sk].s,
+                            end:en.customEnd||cf.end||RS_TT[sk].e});
+                    });
                 });
             }
             recepByDate[dkey]=rshifts;
@@ -481,7 +485,11 @@ async function buildVerdicts(reqs){
 
             // 2) Ca có thật trên lịch và đúng người không?
             const startHM=s.checkIn?hmOfIso(s.checkIn):'',endHM=s.checkOut?hmOfIso(s.checkOut):'';
-            const rows=schedByDate[r.dateKey]||[],rsh=recepByDate[r.dateKey]||[];
+            const rows=schedByDate[r.dateKey]||[];
+            const allOperationalShifts=recepByDate[r.dateKey]||[];
+            const rsh=['tt','vp'].includes(r.shiftKind)
+                ? allOperationalShifts.filter(x=>x.kind===r.shiftKind)
+                : allOperationalShifts;
             const myRows=rows.filter(x=>x.mine).concat(rsh);
             const spans=mergeSpans(myRows);
             const inSpan=!!(startHM&&endHM&&spans.some(sp=>
@@ -760,7 +768,7 @@ window.loadTab=async function(tab){
 function kindOf(r){
     const s=r.session||{};
     if(s.isAbsent)return 'absent';
-    if(s.role==='tiep-tan'||r.shiftKind==='tt'||(!r.className&&r.shiftKey))return 'tt';
+    if(['tiep-tan','van-phong','office_staff'].includes(s.role)||['tt','vp'].includes(r.shiftKind)||(!r.className&&r.shiftKey))return 'tt';
     return 'gv';
 }
 function extraOf(r){
@@ -972,7 +980,8 @@ function renderRows(){
         const isEx=r.type!=='scheduled',isAbs=!!s.isAbsent;
         const tm=isAbs?'VẮNG':(ft(s.checkIn)+'–'+ft(s.checkOut));
         const kind=kindOf(r);
-        const what=r.className?r.className:(r.shiftKey?('Ca '+(SHIFT_VN[r.shiftKey]||r.shiftKey)):(kind==='tt'?'Tiếp Tân':'—'));
+        const operationalName=(s.role==='van-phong'||s.role==='office_staff'||r.shiftKind==='vp')?'Văn Phòng':'Tiếp Tân';
+        const what=r.className?r.className:(r.shiftKey?(`${operationalName} · Ca `+(SHIFT_VN[r.shiftKey]||r.shiftKey)):(kind==='tt'?operationalName:'—'));
         const sub=[(r.branch?String(r.branch).toUpperCase():'⚠ chưa khai cơ sở'),what].filter(Boolean).join(' · ');
         html+='<div class="row'+(activeId===r.id?' sel':'')+'" onclick="openDetail(\''+r.id+'\')">'+
             (curTab==='pending'?'<label class="ckwrap" onclick="event.stopPropagation()" title="Chọn để duyệt/từ chối hàng loạt">'+
@@ -1092,7 +1101,7 @@ function renderDetail(){
             (kind==='tt'?need('ca trực',r.shiftKey?('Ca '+(SHIFT_VN[r.shiftKey]||r.shiftKey)):'','ca trực')
                         :need('môn/lớp',r.className||'','môn/lớp'))+'</td></tr>'+
           (r.room?'<tr><td class="k">Phòng</td><td class="v">'+esc(r.room)+'</td></tr>':'')+
-          '<tr><td class="k">Vai trò</td><td class="v">'+esc(s.roleName||(kind==='tt'?'Tiếp Tân':'Giáo viên / Trợ giảng'))+'</td></tr>'+
+          '<tr><td class="k">Vai trò</td><td class="v">'+esc(s.roleName||(kind==='tt'?((s.role==='van-phong'||s.role==='office_staff'||r.shiftKind==='vp')?'Văn Phòng':'Tiếp Tân'):'Giáo viên / Trợ giảng'))+'</td></tr>'+
           '<tr><td class="k">Người phân công</td><td class="v">'+(isEx?need('người phân công',r.approvedBy||'','người phân công'):esc(r.approvedBy||'(ca có lịch — không cần)'))+'</td></tr>'+
           ((s.bonus10||s.overtimeMinutes>0)?'<tr><td class="k">Phát sinh</td><td class="v">'+
              (s.bonus10?'<span class="bdg b-a">Xin Sớm 10p</span> ':'')+
@@ -1164,7 +1173,8 @@ window.saveCompleteForm=async function(id){
     }
     // Nhãn ca hiển thị lại cho khớp thông tin mới
     const s=r.session||{};
-    const what=kind==='tt'?('Tiếp Tân ca '+(SHIFT_VN[patch.shiftKey||r.shiftKey]||'')):(patch.className||r.className||'');
+    const operationalName=(s.role==='van-phong'||s.role==='office_staff'||r.shiftKind==='vp')?'Văn Phòng':'Tiếp Tân';
+    const what=kind==='tt'?(operationalName+' ca '+(SHIFT_VN[patch.shiftKey||r.shiftKey]||'')):(patch.className||r.className||'');
     const tmLbl=s.isAbsent?'Vắng':(ft(s.checkIn)+'–'+ft(s.checkOut));
     patch.shiftLabel=tmLbl+' '+String(patch.branch||r.branch||'').toUpperCase()+' ('+what+')'+((patch.room||r.room)?' – '+(patch.room||r.room):'');
 
