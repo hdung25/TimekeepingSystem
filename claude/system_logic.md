@@ -630,3 +630,16 @@ là bảng 4 cột với nhãn dọc như cũ.
   gộp cảnh báo trùng và không có console error.
 - PWA cache/version: `20260827-attendance-reliable-v2`, cache
   `tdt-chamcong-v136-attendance-reliable-20260827`.
+
+### 27/08/2026 — Sửa ca BTH của Trần Thị Triệu Vy ngày 22 và 27/08
+- Ảnh phản ánh ngày 22/08 hiện ca lẻ. Dữ liệu thật cho thấy attendance đã đúng 10:30–14:30 nhưng
+  `linkedClassStart='09:15'`, vì dòng lịch BTH riêng của Vy bị xếp nhầm 09:15–10:45. Dòng BTH
+  10:30–14:00 của Nguyễn Thị Ngọc Giàu là một dòng độc lập và không được sửa.
+- Sửa atomic có precondition: chỉ đổi dòng `schedules/cs1__2026-08-22 morning2[11]` của Vy thành
+  10:30–14:30, đổi liên kết phiên công cũ sang 10:30, và thêm công 27/08 theo dòng lịch BTH
+  10:30–14:30 đã tồn tại. Không thay đổi phiên/dòng lịch của người khác.
+- Backup Firestore: `migration_backups/trieu-vy-bth-20260822-27-v1`, kèm bản sao local và lệnh
+  rollback có safety gate. Verification so sánh với backup xác nhận 12 dòng lịch còn lại và toàn bộ
+  thuộc tính phiên công cũ không mất dữ liệu.
+- Kết quả tính chip production: 22/08 chip xanh `10:30–14:30 CS1 (BTH) +10p`, 250 phút (giữ nguyên
+  thưởng sớm 10p có sẵn); 27/08 chip xanh `10:30–14:30 CS1 (BTH)`, 240 phút.
