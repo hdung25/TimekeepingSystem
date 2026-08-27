@@ -1,4 +1,4 @@
-const APP_VERSION = '20260822-office-role-v1';
+const APP_VERSION = '20260827-location-retry-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -1228,6 +1228,8 @@ function withTimeout(promise, ms = 10000) {
 
 // 1. GLOBAL CHECK-IN/OUT (Cloud Isolated)
 window.globalCheckIn = async function (btn) {
+    if (window.__attendanceCheckInPending) return;
+    window.__attendanceCheckInPending = true;
     if (btn) {
         btn.disabled = true;
         btn.innerText = "Đang xử lý...";
@@ -1246,24 +1248,30 @@ window.globalCheckIn = async function (btn) {
     if (!currentUserId) {
         alert("Vui lòng đăng nhập lại!");
         if (btn) btn.disabled = false;
+        window.__attendanceCheckInPending = false;
         return;
     }
 
     try {
-        await withTimeout(DBService.checkInPersonal(currentUserId, userFullName), 30000);
+        // Do not race a Firestore mutation against a UI timeout: the underlying
+        // write cannot be cancelled and could otherwise succeed after a false
+        // timeout message. Location acquisition already has bounded timeouts.
+        await DBService.checkInPersonal(currentUserId, userFullName);
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
         if (typeof renderTodayChips === 'function') renderTodayChips();
 
         // Check if user has registered for any class today → alert Admin if not
         await checkAndAlertUnregistered(currentUserId, userFullName);
     } catch (e) {
-        alert("Lỗi: " + e.message);
+        alert(e?.name === 'AttendanceLocationError'
+            ? e.message
+            : ("Lỗi: " + e.message));
         if (btn) {
             btn.disabled = false;
             btn.innerText = "VÀO CA"; // Reset text
         }
-        // Force refresh UI just in case state is desynced
-        if (typeof renderGlobalCheckIn === 'function') renderGlobalCheckIn();
+    } finally {
+        window.__attendanceCheckInPending = false;
     }
 };
 

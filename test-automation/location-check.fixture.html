@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Attendance Location Flow Fixture</title>
+    <link rel="icon" href="../images/TUDUYTRE.jpg">
+    <link rel="stylesheet" href="../css/style.css?v=20260816-report-chip-mobile-v1">
+</head>
+<body>
+    <main style="max-width:560px;margin:40px auto;padding:24px">
+        <h1>Kiểm thử luồng VÀO CA</h1>
+        <p id="status">READY</p>
+        <button id="check-in" class="btn btn-primary">VÀO CA</button>
+    </main>
+    <script>
+        window.firebase = { firestore: { FieldValue: { serverTimestamp: () => ({ __serverTimestamp: true }) } } };
+        window.__fixtureWrites = [];
+        window.db = {
+            collection(name) {
+                return {
+                    doc(id) {
+                        return {
+                            name, id,
+                            async get() {
+                                if (name === 'settings' && id === 'system') {
+                                    return { exists: true, data: () => ({ gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 }) };
+                                }
+                                return { exists: false, data: () => null };
+                            }
+                        };
+                    }
+                };
+            },
+            async runTransaction(callback) {
+                const transaction = {
+                    get: async () => ({ exists: false, data: () => null }),
+                    set: (ref, data) => window.__fixtureWrites.push({ ref: { name: ref.name, id: ref.id }, data })
+                };
+                return callback(transaction);
+            }
+        };
+    </script>
+    <script src="../js/ui-service.js?v=20260827-location-retry-v1"></script>
+    <script src="../js/db-service.js?v=20260827-location-retry-v1"></script>
+    <script>
+        document.getElementById('check-in').addEventListener('click', async event => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            document.getElementById('status').textContent = 'RUNNING';
+            try {
+                await DBService.checkInPersonal('fixture-user', 'Fixture User');
+                document.getElementById('status').textContent = 'WRITE_OK';
+            } catch (error) {
+                document.getElementById('status').textContent = `ERROR:${error.name}:${error.message}`;
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

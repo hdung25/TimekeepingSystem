@@ -74,8 +74,21 @@ const UIService = {
         this.init();
         const container = document.querySelector('.toast-container');
 
+        // A failed check can be retried while the previous toast is still on
+        // screen. Reuse the active identical toast instead of stacking copies.
+        const toastKey = `${type}:${String(message)}`;
+        const existingToast = [...container.querySelectorAll('.toast')]
+            .find(item => item.dataset.toastKey === toastKey);
+        if (existingToast) {
+            existingToast.classList.remove('toast-pulse');
+            void existingToast.offsetWidth;
+            existingToast.classList.add('toast-pulse');
+            return existingToast;
+        }
+
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
+        toast.dataset.toastKey = toastKey;
 
         // Icons based on type
         let iconName = 'info';
@@ -103,6 +116,7 @@ const UIService = {
                 toast.remove();
             });
         }, 3000);
+        return toast;
     },
 
     // Async Confirm Dialog

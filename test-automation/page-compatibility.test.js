@@ -13,6 +13,7 @@ const report = read('js/report.js');
 const personnel = read('js/personnel.js');
 const monHocJs = read('js/mon-hoc.js');
 const serviceWorker = read('service-worker.js');
+const chamCong = read('cham-cong.html');
 const style = read('css/style.css');
 
 for (const [name, source] of [
@@ -68,9 +69,14 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v134-office-role-20260822/);
+assert.match(serviceWorker, /tdt-chamcong-v135-location-retry-20260827/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
 assert.match(serviceWorker, /report\.js\?v=20260822-office-role-v1/);
 assert.match(serviceWorker, /lich-van-phong\.html/);
+assert.match(chamCong, /db-service\.js\?v=20260827-location-retry-v1/);
+assert.match(chamCong, /main\.js\?v=20260827-location-retry-v1/);
+assert.match(chamCong, /timekeeping\.js\?v=20260827-location-retry-v1/);
+assert.match(serviceWorker, /db-service\.js\?v=20260827-location-retry-v1/);
+assert.match(serviceWorker, /timekeeping\.js\?v=20260827-location-retry-v1/);
 
 console.log('page compatibility checks passed');

@@ -597,3 +597,21 @@ là bảng 4 cột với nhãn dọc như cũ.
   giữ nguyên timestamp thực tế; nếu không khớp thì tiếp tục hiển thị giờ thực tế kèm cảnh báo rõ ràng,
   không tự sửa dữ liệu lịch sử.
 - PWA cache/version: `20260822-office-role-v1`, cache `tdt-chamcong-v134-office-role-20260822`.
+
+### 27/08/2026 — Sửa false-negative vị trí trên máy mới + khôi phục công có kiểm soát
+- Xác nhận luồng chấm công thực tế chỉ dùng tọa độ/radius của CS1–CS3; câu IP/Wifi tiếp tục là
+  thông báo bắt buộc cho nhân viên. Vai trò và ngày tạo tài khoản không tham gia vào cổng vị trí.
+- Bỏ việc tự xin vị trí khi vừa mở `cham-cong.html`. Trình duyệt chỉ xin quyền từ thao tác **VÀO CA**,
+  tránh máy mới/PWA chặn hoặc bỏ qua prompt ngoài user gesture.
+- Nếu điểm cache/coarse nằm ngoài cả 3 cơ sở, `db-service.js` xóa cache và lấy lại đúng một điểm mới
+  với `maximumAge: 0`; vẫn giữ nguyên radius và chỉ cộng sai số tối đa 250m như policy cũ.
+- Chuẩn hóa lỗi nội bộ bằng mã (`PERMISSION_DENIED`, `TIMEOUT`, `OUTSIDE_ALLOWED_RADIUS`, ...),
+  nhưng UI chỉ nhận đúng câu IP/Wifi, không lưu tọa độ và không lộ GPS.
+- `globalCheckIn` có single-flight, không còn race mutation Firestore với timeout giao diện; toast giống
+  nhau đang hiện được gộp thành một thẻ để không xếp chồng khi người dùng thử lại.
+- Khôi phục công theo lịch bằng CLI atomic, có `migration_backups` và rollback guard:
+  Lê Thuý Hằng 24/08 (NV8 18:00–19:30 + NV9 19:30–21:00) và Trần Thị Triệu Vy 26/08
+  (BTH 10:30–14:30). Mọi session có `linkedClassStart`, subject role và `dataRepairId`.
+- Đã chạy toàn bộ regression suite, browser geolocation fixture và tính chip từ dữ liệu production:
+  Hằng 180 phút (chip xanh 18:00–21:00), Triệu Vy 240 phút (chip xanh 10:30–14:30).
+- PWA cache/version: `20260827-location-retry-v1`, cache `tdt-chamcong-v135-location-retry-20260827`.

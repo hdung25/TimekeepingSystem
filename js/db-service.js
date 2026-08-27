@@ -106,12 +106,25 @@ async function resolveDDNS(domain) {
 }
 
 const LOCATION_CACHE_TTL_MS = 2 * 60 * 1000;
+const ATTENDANCE_LOCATION_PUBLIC_MESSAGE = "IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.";
 let lastBrowserLocation = null;
+
+function createAttendanceLocationError(code, cause = null) {
+    const error = new Error(ATTENDANCE_LOCATION_PUBLIC_MESSAGE);
+    error.name = 'AttendanceLocationError';
+    error.code = code;
+    // Keep the technical cause available to developers without changing the
+    // staff-facing message or storing precise coordinates anywhere.
+    if (cause) error.cause = cause;
+    return error;
+}
 
 function getBrowserLocation(options = {}) {
     return new Promise((resolve, reject) => {
-        const maximumAge = options.maximumAge ?? LOCATION_CACHE_TTL_MS;
+        const forceFresh = options.forceFresh === true;
+        const maximumAge = forceFresh ? 0 : (options.maximumAge ?? LOCATION_CACHE_TTL_MS);
         if (
+            !forceFresh &&
             lastBrowserLocation &&
             maximumAge > 0 &&
             Date.now() - lastBrowserLocation.timestamp <= maximumAge
@@ -121,7 +134,9 @@ function getBrowserLocation(options = {}) {
         }
 
         if (typeof window === 'undefined' || !navigator.geolocation) {
-            reject(new Error("Trình duyệt không hỗ trợ định vị GPS!"));
+            const error = new Error('Geolocation is unavailable.');
+            error.locationCode = 'UNSUPPORTED';
+            reject(error);
             return;
         }
         const handleSuccess = position => {
@@ -141,20 +156,23 @@ function getBrowserLocation(options = {}) {
                 ) {
                     navigator.geolocation.getCurrentPosition(
                         handleSuccess,
-                        () => {
-                            let msg = "Không thể lấy vị trí GPS.";
-                            reject(new Error(msg));
+                        fallbackError => {
+                            const finalError = new Error('Unable to acquire a browser location fix.');
+                            finalError.locationCode = fallbackError?.code === fallbackError?.TIMEOUT
+                                ? 'TIMEOUT'
+                                : 'POSITION_UNAVAILABLE';
+                            reject(finalError);
                         },
                         { enableHighAccuracy: false, timeout: 12000, maximumAge }
                     );
                     return;
                 }
 
-                let msg = "Không thể lấy vị trí GPS.";
-                if (error.code === error.PERMISSION_DENIED) {
-                    msg = "Vui lòng cấp quyền truy cập Vị trí (GPS) trên điện thoại/trình duyệt để chấm công!";
-                }
-                reject(new Error(msg));
+                const finalError = new Error('Unable to acquire a browser location fix.');
+                finalError.locationCode = error.code === error.PERMISSION_DENIED
+                    ? 'PERMISSION_DENIED'
+                    : (error.code === error.TIMEOUT ? 'TIMEOUT' : 'POSITION_UNAVAILABLE');
+                reject(finalError);
             },
             { enableHighAccuracy: true, timeout: options.timeout ?? 15000, maximumAge }
         );
@@ -181,35 +199,59 @@ function getConfiguredGPSCampuses(settings = {}) {
         { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, radius: settings.gpsCS1Radius || 200, name: 'CS1' },
         { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, radius: settings.gpsCS2Radius || 150, name: 'CS2' },
         { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, radius: settings.gpsCS3Radius || 200, name: 'CS3' }
-    ].filter(c =>
-        c.lat !== undefined && c.lat !== null && c.lat !== '' &&
-        c.lng !== undefined && c.lng !== null && c.lng !== ''
+    ].map(campus => ({
+        ...campus,
+        lat: Number(campus.lat),
+        lng: Number(campus.lng),
+        radius: Number(campus.radius)
+    })).filter(campus =>
+        Number.isFinite(campus.lat) && campus.lat >= -90 && campus.lat <= 90 &&
+        Number.isFinite(campus.lng) && campus.lng >= -180 && campus.lng <= 180 &&
+        Number.isFinite(campus.radius) && campus.radius > 0
     );
+}
+
+function isAttendanceLocationAllowed(coords, campuses) {
+    if (!coords || !Number.isFinite(Number(coords.latitude)) || !Number.isFinite(Number(coords.longitude))) {
+        return false;
+    }
+    return campuses.some(campus => {
+        const dist = calculateDistanceInMeters(
+            Number(coords.latitude), Number(coords.longitude), campus.lat, campus.lng
+        );
+        const accuracy = Number.isFinite(Number(coords.accuracy)) ? Math.max(0, Number(coords.accuracy)) : 0;
+        const allowedRadius = campus.radius + Math.min(accuracy, 250);
+        return dist <= allowedRadius;
+    });
 }
 
 async function assertAttendanceLocationAllowed(settings = {}) {
     const campuses = getConfiguredGPSCampuses(settings);
     if (campuses.length === 0) return false;
 
-    let coords;
+    let firstCoords;
     try {
-        coords = await getBrowserLocation();
+        firstCoords = await getBrowserLocation();
     } catch (e) {
-        console.error("GPS check error:", e);
-        throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
+        console.warn('[AttendanceLocation] Initial browser fix failed:', e?.locationCode || 'UNKNOWN');
+        throw createAttendanceLocationError(e?.locationCode || 'ACQUIRE_FAILED', e);
     }
 
-    const isNearAnyCampus = campuses.some(campus => {
-        const dist = calculateDistanceInMeters(coords.latitude, coords.longitude, campus.lat, campus.lng);
-        const allowedRadius = campus.radius + Math.min(coords.accuracy || 0, 250);
-        return dist <= allowedRadius;
-    });
+    if (isAttendanceLocationAllowed(firstCoords, campuses)) return true;
 
-    if (!isNearAnyCampus) {
-        throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.");
+    // A browser may return a cached/coarse position when a device has just
+    // arrived at the campus. Retry once with maximumAge=0 before refusing the
+    // write. This keeps the radius rule strict while avoiding false negatives.
+    lastBrowserLocation = null;
+    try {
+        const freshCoords = await getBrowserLocation({ forceFresh: true, timeout: 20000 });
+        if (isAttendanceLocationAllowed(freshCoords, campuses)) return true;
+    } catch (e) {
+        console.warn('[AttendanceLocation] Fresh browser fix failed:', e?.locationCode || 'UNKNOWN');
+        throw createAttendanceLocationError(`FRESH_${e?.locationCode || 'ACQUIRE_FAILED'}`, e);
     }
 
-    return true;
+    throw createAttendanceLocationError('OUTSIDE_ALLOWED_RADIUS');
 }
 
 const DBService = {
@@ -1217,8 +1259,7 @@ const DBService = {
     prepareAttendanceLocationPermission: async () => {
         const settings = await DBService.getSystemSettings();
         if (getConfiguredGPSCampuses(settings).length === 0) return false;
-        await getBrowserLocation({ maximumAge: LOCATION_CACHE_TTL_MS, timeout: 10000 });
-        return true;
+        return assertAttendanceLocationAllowed(settings);
     },
 
     checkInPersonal: async (userId, userFullName) => {
