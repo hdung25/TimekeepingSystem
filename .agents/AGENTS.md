@@ -14,7 +14,7 @@
 * **NEVER** mention "GPS", "Location", "Quyền vị trí", or "Định vị" in user-facing alert messages. Keep this secret strictly between developers and the Admin.
 * **Acquisition invariant:** Do not request the attendance position automatically on page load. Request it only from the user's explicit **VÀO CA** gesture so a new phone/browser can show its permission prompt reliably.
 * **Fresh-fix invariant:** If a cached/coarse browser position falls outside every configured campus, clear the in-memory value and retry exactly once with `maximumAge: 0` before refusing check-in. The retry must not widen the configured campus radius or bypass the location gate.
-* **Mutation invariant:** Do not wrap `checkInPersonal()` in a UI `Promise.race` timeout. A Firestore write cannot be cancelled; reporting a timeout while the write later succeeds creates a phantom failure and duplicate retries.
+* **Mutation invariant:** Do not wrap `checkInPersonal()` or `checkOutPersonal()` in a UI `Promise.race` timeout. A Firestore write cannot be cancelled; reporting a timeout while the write later succeeds creates a phantom failure and duplicate retries. Guard both actions with a single-flight flag so repeated taps cannot start concurrent attendance transactions.
 
 ### 1.2. PWA Caching & Forced Updates
 * The application runs as a Progressive Web App (PWA) with a Service Worker caching assets aggressively.

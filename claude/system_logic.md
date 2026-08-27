@@ -615,3 +615,18 @@ là bảng 4 cột với nhãn dọc như cũ.
 - Đã chạy toàn bộ regression suite, browser geolocation fixture và tính chip từ dữ liệu production:
   Hằng 180 phút (chip xanh 18:00–21:00), Triệu Vy 240 phút (chip xanh 10:30–14:30).
 - PWA cache/version: `20260827-location-retry-v1`, cache `tdt-chamcong-v135-location-retry-20260827`.
+
+### 27/08/2026 — Siết độ tin cậy cả VÀO CA và RA CA
+- Audit production đối chiếu Firestore `users` với Firebase Authentication: 78 hồ sơ gồm 75 nhân viên
+  và 3 admin; 75/75 nhân viên có tài khoản đăng nhập hoạt động, không disabled, không thiếu hoặc trùng
+  username, và mọi role nhân viên hiện hữu đều đi qua quyền Chấm Công. Ruleset production cho phép mọi
+  tài khoản đã xác thực đọc/ghi `attendance_logs`; cấu hình vị trí của CS1–CS3 đều hợp lệ.
+- Phát hiện `globalCheckOut` vẫn bọc transaction Firestore trong timeout UI 10 giây. Nếu mạng chậm,
+  transaction có thể ghi thành công sau khi UI báo lỗi, làm nhân viên bấm RA CA lại và hiểu sai trạng thái.
+- Bỏ timeout không thể hủy ở RA CA, chờ đúng kết quả transaction và thêm single-flight
+  `__attendanceCheckOutPending`, đồng bộ với bảo vệ đã có ở VÀO CA. Không thay đổi timestamp, lịch,
+  attendance lịch sử hoặc policy GPS.
+- Regression suite 19 nhóm, syntax check và browser fixture đều đạt; fixture ghi đúng một phiên vào ca,
+  gộp cảnh báo trùng và không có console error.
+- PWA cache/version: `20260827-attendance-reliable-v2`, cache
+  `tdt-chamcong-v136-attendance-reliable-20260827`.

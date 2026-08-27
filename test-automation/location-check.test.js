@@ -108,6 +108,11 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     assert.doesNotMatch(mainSource, /withTimeout\(DBService\.checkInPersonal/,
         'không race một mutation không thể hủy với timeout giao diện');
     assert.match(mainSource, /__attendanceCheckInPending/);
+    assert.match(mainSource, /await DBService\.checkOutPersonal\(currentUserId\)/);
+    assert.doesNotMatch(mainSource, /withTimeout\(DBService\.checkOutPersonal/,
+        'ra ca cũng phải chờ đúng kết quả transaction, không báo timeout giả');
+    assert.match(mainSource, /__attendanceCheckOutPending/,
+        'ra ca phải chống hai lần chạm tạo transaction đồng thời');
     assert.match(uiSource, /dataset\.toastKey/);
     assert.match(uiSource, /find\(item => item\.dataset\.toastKey === toastKey\)/,
         'cảnh báo giống nhau đang hiện phải được gộp');

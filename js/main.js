@@ -1,4 +1,4 @@
-const APP_VERSION = '20260827-location-retry-v1';
+const APP_VERSION = '20260827-attendance-reliable-v2';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -1219,13 +1219,6 @@ window.confirmClass = async function (id) {
     }
 };
 
-function withTimeout(promise, ms = 10000) {
-    return Promise.race([
-        promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Hết thời gian phản hồi từ máy chủ (Timeout). Vui lòng thử lại sau!")), ms))
-    ]);
-}
-
 // 1. GLOBAL CHECK-IN/OUT (Cloud Isolated)
 window.globalCheckIn = async function (btn) {
     if (window.__attendanceCheckInPending) return;
@@ -1316,6 +1309,8 @@ async function checkAndAlertUnregistered(userId, userName) {
 }
 
 window.globalCheckOut = async function (btn) {
+    if (window.__attendanceCheckOutPending) return;
+    window.__attendanceCheckOutPending = true;
     if (btn) {
         btn.disabled = true;
         btn.innerText = "Đang xử lý...";
@@ -1329,11 +1324,14 @@ window.globalCheckOut = async function (btn) {
     if (!currentUserId) {
         alert("Vui lòng đăng nhập lại!");
         if (btn) btn.disabled = false;
+        window.__attendanceCheckOutPending = false;
         return;
     }
 
     try {
-        await withTimeout(DBService.checkOutPersonal(currentUserId), 10000);
+        // Like check-in, this write cannot be cancelled. Waiting for the actual
+        // transaction result prevents a false timeout followed by a duplicate tap.
+        await DBService.checkOutPersonal(currentUserId);
         // alert("Check-out thành công!");
         if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
         if (typeof renderTodayChips === 'function') renderTodayChips();
@@ -1344,6 +1342,8 @@ window.globalCheckOut = async function (btn) {
             btn.innerText = "RA CA";
         }
         if (typeof renderGlobalCheckIn === 'function') renderGlobalCheckIn();
+    } finally {
+        window.__attendanceCheckOutPending = false;
     }
 };
 
