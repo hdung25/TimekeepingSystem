@@ -75,6 +75,18 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     }
 
     {
+        const { hooks, calls } = loadHooks([
+            { error: 3 },
+            { error: 2 },
+            makePosition(10.0001, 106.0001, 15)
+        ]);
+        assert.equal(await hooks.assertAttendanceLocationAllowed(settings), true);
+        assert.equal(calls.length, 3,
+            'timeout + approximate unavailable phải chạy đúng một chu kỳ fresh cuối');
+        assert.equal(calls[2].maximumAge, 0, 'chu kỳ phục hồi cuối không được dùng cache');
+    }
+
+    {
         const { hooks, calls } = loadHooks([{ error: 1 }]);
         await assert.rejects(
             hooks.assertAttendanceLocationAllowed(settings),
@@ -116,6 +128,8 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     assert.match(uiSource, /dataset\.toastKey/);
     assert.match(uiSource, /find\(item => item\.dataset\.toastKey === toastKey\)/,
         'cảnh báo giống nhau đang hiện phải được gộp');
+    assert.match(dbSource, /await recordAttendanceLocationFailure\([\s\S]*?locationError\?\.code/,
+        'lỗi cổng vị trí phải ghi mã chẩn đoán trước khi trả lỗi cho nhân viên');
 
     console.log('location-check.test.js: all assertions passed');
 })().catch(error => {

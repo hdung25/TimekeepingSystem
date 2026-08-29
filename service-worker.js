@@ -1,5 +1,5 @@
-// Service Worker v136 - reliable check-in/out and resilient location acquisition.
-const CACHE_NAME = 'tdt-chamcong-v136-attendance-reliable-20260827';
+// Service Worker v137 - device recovery and privacy-safe attendance diagnostics.
+const CACHE_NAME = 'tdt-chamcong-v137-location-diagnostics-20260829';
 
 const STATIC_ASSETS = [
     '/',
@@ -21,13 +21,13 @@ const STATIC_ASSETS = [
     '/css/style.css?v=20260816-report-chip-mobile-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260827-attendance-reliable-v2',
+    '/js/main.js?v=20260829-location-diagnostics-v3',
     '/js/firebase-config.js',
-    '/js/db-service.js?v=20260827-attendance-reliable-v2',
+    '/js/db-service.js?v=20260829-location-diagnostics-v3',
     '/js/report.js?v=20260822-office-role-v1',
     '/js/evaluation-service.js?v=20260822-office-role-v1',
     '/js/shift-oversight.js?v=20260819-absence-recovery-v1',
-    '/js/ui-service.js?v=20260827-attendance-reliable-v2',
+    '/js/ui-service.js?v=20260829-location-diagnostics-v3',
     '/js/early10.js?v=20260816-early10-old-unset-v3',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
@@ -40,7 +40,7 @@ const STATIC_ASSETS = [
     '/js/schedule.js?v=20260819-absence-recovery-v1',
     '/js/pdf-export.js?v=20260814-senior-receptionist-v1',
     '/js/receptionist-schedule.js?v=20260822-office-role-v1',
-    '/js/timekeeping.js?v=20260827-attendance-reliable-v2',
+    '/js/timekeeping.js?v=20260829-location-diagnostics-v3',
     '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',

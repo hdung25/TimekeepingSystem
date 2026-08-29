@@ -107,6 +107,7 @@ async function resolveDDNS(domain) {
 
 const LOCATION_CACHE_TTL_MS = 2 * 60 * 1000;
 const ATTENDANCE_LOCATION_PUBLIC_MESSAGE = "IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.";
+const ATTENDANCE_LOCATION_DIAGNOSTIC_COLLECTION = 'attendance_location_events';
 let lastBrowserLocation = null;
 
 function createAttendanceLocationError(code, cause = null) {
@@ -117,6 +118,69 @@ function createAttendanceLocationError(code, cause = null) {
     // staff-facing message or storing precise coordinates anywhere.
     if (cause) error.cause = cause;
     return error;
+}
+
+async function getAttendanceLocationPermissionState() {
+    try {
+        if (!navigator.permissions?.query) return 'unsupported';
+        const status = await navigator.permissions.query({ name: 'geolocation' });
+        return ['granted', 'prompt', 'denied'].includes(status?.state) ? status.state : 'unknown';
+    } catch (_) {
+        return 'unknown';
+    }
+}
+
+function getAttendanceClientContext() {
+    const ua = String(navigator.userAgent || '').toLowerCase();
+    const standalone = window.matchMedia?.('(display-mode: standalone)')?.matches === true ||
+        window.navigator.standalone === true;
+    let browserContext = standalone ? 'standalone' : 'browser';
+    if (/zalo/.test(ua)) browserContext = 'zalo';
+    else if (/fbav|fban|instagram/.test(ua)) browserContext = 'social_webview';
+    else if (/; wv\)|\bwv\b|version\/4\.0.*chrome/.test(ua)) browserContext = 'android_webview';
+
+    let platform = 'desktop';
+    if (/android/.test(ua)) platform = 'android';
+    else if (/iphone|ipad|ipod/.test(ua)) platform = 'ios';
+
+    return {
+        browserContext,
+        platform,
+        secureContext: window.isSecureContext === true,
+        online: navigator.onLine !== false
+    };
+}
+
+async function recordAttendanceLocationFailure(userId, code, stage = 'location_gate') {
+    try {
+        const authUid = firebase.auth().currentUser?.uid;
+        if (!authUid || !userId || !db) return false;
+        const dateKey = getLocalDateKeyFromDate(new Date());
+        const safeCode = String(code || 'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64);
+        const safeStage = String(stage || 'location_gate').replace(/[^a-z0-9_]/gi, '_').slice(0, 32);
+        const permissionState = await getAttendanceLocationPermissionState();
+        const context = getAttendanceClientContext();
+        const appVersion = typeof APP_VERSION !== 'undefined' ? String(APP_VERSION) : 'unknown';
+        const eventId = `${dateKey}_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await db.collection(ATTENDANCE_LOCATION_DIAGNOSTIC_COLLECTION).doc(eventId).set({
+            authUid,
+            staffId: String(userId),
+            dateKey,
+            code: safeCode,
+            stage: safeStage,
+            permissionState,
+            browserContext: context.browserContext,
+            platform: context.platform,
+            secureContext: context.secureContext,
+            online: context.online,
+            appVersion,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return true;
+    } catch (diagnosticError) {
+        console.warn('[AttendanceLocation] Diagnostic write failed:', diagnosticError?.code || diagnosticError?.message || 'UNKNOWN');
+        return false;
+    }
 }
 
 function getBrowserLocation(options = {}) {
@@ -234,7 +298,20 @@ async function assertAttendanceLocationAllowed(settings = {}) {
         firstCoords = await getBrowserLocation();
     } catch (e) {
         console.warn('[AttendanceLocation] Initial browser fix failed:', e?.locationCode || 'UNKNOWN');
-        throw createAttendanceLocationError(e?.locationCode || 'ACQUIRE_FAILED', e);
+        const initialCode = e?.locationCode || 'ACQUIRE_FAILED';
+        if (!['TIMEOUT', 'POSITION_UNAVAILABLE'].includes(initialCode)) {
+            throw createAttendanceLocationError(initialCode, e);
+        }
+
+        // Some Android/WebView devices need a completely new provider request
+        // after the first precise + approximate cycle reports unavailable/timeout.
+        lastBrowserLocation = null;
+        try {
+            firstCoords = await getBrowserLocation({ forceFresh: true, timeout: 20000 });
+        } catch (freshError) {
+            console.warn('[AttendanceLocation] Recovery browser fix failed:', freshError?.locationCode || 'UNKNOWN');
+            throw createAttendanceLocationError(`RECOVERY_${freshError?.locationCode || 'ACQUIRE_FAILED'}`, freshError);
+        }
     }
 
     if (isAttendanceLocationAllowed(firstCoords, campuses)) return true;
@@ -1269,8 +1346,18 @@ const DBService = {
             const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
 
             if (hasGPS) {
-                // Strictly verify GPS location. Do not catch error. Let it throw to abort check-in.
-                await assertAttendanceLocationAllowed(settings);
+                // Strictly verify location. On failure, store only a privacy-safe
+                // internal code for Admin diagnosis; never store coordinates.
+                try {
+                    await assertAttendanceLocationAllowed(settings);
+                } catch (locationError) {
+                    await recordAttendanceLocationFailure(
+                        userId,
+                        locationError?.code || 'UNKNOWN',
+                        'location_gate'
+                    );
+                    throw locationError;
+                }
             }
         }
 

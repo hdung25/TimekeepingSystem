@@ -85,6 +85,35 @@ service cloud.firestore {
       allow read, write: if isAuthenticated(); // Keep open for Check-In flow
     }
 
+    // Privacy-safe client diagnostics for failed attendance location gates.
+    // Coordinates, accuracy, distance, and full user-agent strings are not accepted.
+    match /attendance_location_events/{eventId} {
+      allow create: if isAuthenticated()
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.staffId is string
+        && request.resource.data.staffId == getUserId()
+        && request.resource.data.staffId.size() <= 80
+        && request.resource.data.dateKey is string
+        && request.resource.data.dateKey.size() == 10
+        && request.resource.data.code is string
+        && request.resource.data.code.size() <= 64
+        && request.resource.data.stage == 'location_gate'
+        && request.resource.data.permissionState in ['granted', 'prompt', 'denied', 'unsupported', 'unknown']
+        && request.resource.data.browserContext in ['browser', 'standalone', 'zalo', 'social_webview', 'android_webview']
+        && request.resource.data.platform in ['android', 'ios', 'desktop']
+        && request.resource.data.secureContext is bool
+        && request.resource.data.online is bool
+        && request.resource.data.appVersion is string
+        && request.resource.data.appVersion.size() <= 80
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'authUid', 'staffId', 'dateKey', 'code', 'stage', 'permissionState',
+          'browserContext', 'platform', 'secureContext', 'online', 'appVersion', 'createdAt'
+        ]);
+      allow read, delete: if isAuthenticated() && isAdmin();
+      allow update: if false;
+    }
+
     // 3. Schedules
     // Admin & Assistant can create schedules
     // All authenticated users can update (needed for "Nhận Lớp" → writes registeredTeachers)

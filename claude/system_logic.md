@@ -643,3 +643,24 @@ là bảng 4 cột với nhãn dọc như cũ.
   thuộc tính phiên công cũ không mất dữ liệu.
 - Kết quả tính chip production: 22/08 chip xanh `10:30–14:30 CS1 (BTH) +10p`, 250 phút (giữ nguyên
   thưởng sớm 10p có sẵn); 27/08 chip xanh `10:30–14:30 CS1 (BTH)`, 240 phút.
+
+### 29/08/2026 — Tự phục hồi lỗi lấy vị trí và chẩn đoán an toàn trên điện thoại
+- Đối chiếu production xác nhận hệ thống vẫn ghi nhận bình thường cho người khác (30 attendance ngày
+  28/08 và 15 attendance ngày 29/08 tại thời điểm điều tra), trong khi Lê Thuý Hằng và Trần Thị
+  Triệu Vy không tạo được document mới. Tài khoản, role, lịch và cấu hình radius CS1–CS3 đều hợp lệ;
+  lỗi xảy ra trước Firestore write, ở bước trình duyệt/WebView lấy vị trí, không liên quan việc là nhân viên mới.
+- Khi lần lấy chính xác và lần fallback gần đúng đều bị `TIMEOUT`/`POSITION_UNAVAILABLE`, luồng
+  `VÀO CA` xóa cache và thực hiện đúng một chu kỳ lấy mới cuối cùng với `maximumAge: 0`. Không retry
+  khi người dùng từ chối quyền hoặc trình duyệt không hỗ trợ; không nới radius và không bỏ qua cổng vị trí.
+- Thêm collection chỉ-ghi `attendance_location_events` để admin biết mã lỗi nội bộ sau lần bấm thật.
+  Event chỉ lưu mã lỗi, trạng thái permission, loại môi trường coarse (browser/PWA/WebView), nền tảng,
+  secure/online, app version, staff/auth id và thời gian server; rules không chấp nhận tọa độ, accuracy,
+  distance hoặc user-agent đầy đủ. Lỗi ghi diagnostic không được che lỗi chấm công gốc.
+- Khôi phục atomic công đã kết thúc của Lê Thuý Hằng ngày 28/08 theo đúng lịch CS1: NV8
+  18:00–19:30 và NV6 19:30–21:00. Backup `migration_backups/hang-location-failure-20260828-v1`;
+  verification production đạt chip xanh `18:00–21:00 CS1 (NV8 + NV6)`, đủ 180 phút.
+- Không tự tạo công cho ca BTH đang diễn ra của Triệu Vy ngày 29/08 để tránh bịa giờ vào/ra; nhân viên
+  phải thử lại trên bản đã deploy, sau đó admin dùng event chẩn đoán để xác định mã lỗi thiết bị nếu còn thất bại.
+- Regression suite 20 nhóm, rules dry-run, syntax check và browser geolocation fixture đều đạt.
+- PWA cache/version: `20260829-location-diagnostics-v3`, cache
+  `tdt-chamcong-v137-location-diagnostics-20260829`.
