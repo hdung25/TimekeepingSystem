@@ -6,6 +6,27 @@
 (function () {
     const currentUser = localStorage.getItem('currentUser');
     const currentRole = localStorage.getItem('currentRole');
+
+    function clearMissingSessionAndRedirect() {
+        [
+            'currentUser',
+            'currentRole',
+            'currentUserId',
+            'currentAuthUid',
+            'userFullName',
+            'currentUserName'
+        ].forEach(key => localStorage.removeItem(key));
+
+        const redirect = () => window.location.replace('index.html');
+        const primaryAuth = window.auth;
+        if (primaryAuth && typeof primaryAuth.signOut === 'function') {
+            primaryAuth.signOut()
+                .catch(error => console.warn('Auth Guard: Firebase sign-out failed:', error))
+                .finally(redirect);
+        } else {
+            redirect();
+        }
+    }
     
     // Parse role — hỗ trợ cả string lẫn JSON array
     function parseRoles(roleStr) {
@@ -31,21 +52,30 @@
     if (!currentUser) {
         if (!isPublic) {
             console.warn("Auth Guard: Unauthorized access attempt. Redirecting to login.");
-            // Store return URL to redirect back after login (optional future enhancement)
-            window.location.href = 'index.html';
+            clearMissingSessionAndRedirect();
         }
         return; // Stop execution
     }
 
     // 2. Check Role Access checks
     // Admin Only Pages
-    const adminPages = ['he-thong.html', 'nhan-su.html', 'admin.html', 'nhat-ky-ca.html', 'tuong-trinh.html'];
+    const adminPages = [
+        'he-thong.html',
+        'nhan-su.html',
+        'admin.html',
+        'nhat-ky-ca.html',
+        'tuong-trinh.html',
+        'hop-dinh-ky.html',
+        'mon-hoc.html'
+    ];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
     const hasAssistantAccess = currentRoles.some(r => r === 'assistant');
     let isAllowed = true;
     if (isTargetingAdminPage) {
-        if (path.includes('he-thong.html')) {
+        if (path.includes('mon-hoc.html')) {
+            isAllowed = currentRoles.includes('admin');
+        } else if (path.includes('he-thong.html')) {
             isAllowed = hasAdminAccess || hasAssistantAccess;
         } else {
             isAllowed = hasAdminAccess;

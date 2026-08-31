@@ -135,6 +135,35 @@ function isMainTeacherAbsentForEvaluation(cls, staffId) {
         : hasScheduledSubstitute(cls);
 }
 
+function getMappedReplacementIdsForEvaluation(cls, staffId) {
+    if (typeof TeacherShiftState !== 'undefined' && TeacherShiftState?.getReplacementIdsForTeacher) {
+        return TeacherShiftState.getReplacementIdsForTeacher(cls, staffId);
+    }
+    const record = getClassTeacherAbsenceRecord(cls, staffId);
+    const explicit = Array.isArray(record?.replacementIds) ? record.replacementIds.filter(Boolean) : [];
+    if (explicit.length) return Array.from(new Set(explicit));
+    const substituteLists = [cls?.gvThayTeList, cls?.gvThayTheList].filter(Array.isArray).flat();
+    const mapped = substituteLists
+        .filter(item => Array.isArray(item?.replacesTeacherIds) && item.replacesTeacherIds.includes(staffId))
+        .map(item => item.id)
+        .filter(Boolean);
+    if (mapped.length) return Array.from(new Set(mapped));
+    const mainIds = typeof getScheduledMainTeacherIds === 'function'
+        ? Array.from(getScheduledMainTeacherIds(cls))
+        : [
+            ...(Array.isArray(cls?.gvList) ? cls.gvList.map(item => item?.id) : []),
+            cls?.gvId
+        ].filter(Boolean);
+    const substituteIds = typeof getScheduledSubstituteIds === 'function'
+        ? Array.from(getScheduledSubstituteIds(cls))
+        : substituteLists.map(item => item?.id).filter(Boolean);
+    const absentMainIds = mainIds
+        .filter(id => isMainTeacherAbsentForEvaluation(cls, id));
+    return absentMainIds.length === 1 && String(absentMainIds[0]) === String(staffId)
+        ? substituteIds
+        : [];
+}
+
 function timeStrToMin(t) {
     if (!t || typeof t !== 'string' || !t.includes(':')) return 0;
     const [h, m] = t.split(':').map(Number);
@@ -852,31 +881,43 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 return; // Skip this explicitly cancelled/deleted shift
             }
 
-            // GV gốc bị thay → tạo chip VĐX riêng (không tính giờ/lương) rồi return
+            // GV chính đã báo nghỉ → chip lấy đúng loại VP/VĐX theo từng người.
             if (isOriginalVDX && !hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) {
                 // Không có chấm công phủ ca: giữ trạng thái nghỉ đã báo. Nếu GV
                 // thực tế vẫn đi làm thì chấm công thắng và luồng dưới tính công bình thường.
                 const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
                 const branchLabel = cls._branch ? cls._branch.toUpperCase() : '';
-                const replacementNames = (absenceRecord?.replacementNames || [])
-                    .filter(Boolean).join(', ') || cls.gvThayThe || '';
-                const absenceType = absenceRecord?.type || 'VDX';
-                const isPendingReplacement = !hasScheduledSubstitute(cls);
+                const absenceType = String(absenceRecord?.type || 'VDX').toUpperCase() === 'VP' ? 'VP' : 'VDX';
+                const mappedReplacementIds = getMappedReplacementIdsForEvaluation(cls, staffId);
+                const mappedIdSet = new Set(mappedReplacementIds.map(String));
+                const replacementEntries = [
+                    ...(Array.isArray(cls.gvThayTeList) ? cls.gvThayTeList : []),
+                    ...(Array.isArray(cls.gvThayTheList) ? cls.gvThayTheList : [])
+                ];
+                const replacementNames = Array.from(new Set([
+                    ...(Array.isArray(absenceRecord?.replacementNames) ? absenceRecord.replacementNames : []),
+                    ...replacementEntries.filter(item => mappedIdSet.has(String(item?.id || ''))).map(item => item?.name)
+                ].filter(Boolean))).join(', ');
+                const isPendingReplacement = mappedReplacementIds.length === 0;
+                const absencePrefix = absenceType === 'VP' ? 'VP' : 'VĐX';
                 chips.push({
-                    text: `VĐX: ${lopLabel} ${cls.start}–${cls.end}${branchLabel ? ' (' + branchLabel + ')' : ''}`,
-                    class: 'chip-red',
+                    text: `${absencePrefix}: ${lopLabel} ${cls.start}–${cls.end}${branchLabel ? ' (' + branchLabel + ')' : ''}`,
+                    class: absenceType === 'VP' ? 'chip-gray chip-absence-vp' : 'chip-red chip-absence-vdx',
                     paidMinutes: 0,
                     isWarning: false,
-                    isVDX: true,
+                    isVDX: absenceType === 'VDX',
+                    isAbsence: true,
                     absenceType,
+                    payStatus: 'nonpayable',
                     isPendingReplacement,
                     chipFilterName: normalizeChipFilterName(cls.lop),
                     tooltip: isPendingReplacement
                         ? `${absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất'} — chưa tìm được GV thay thế`
                         : `${absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất'} — GV thay thế: ${replacementNames || '?'}`,
                     sessionId: null,
-                    schedData: { start: cls.start, end: cls.end },
+                    schedData: { start: cls.start, end: cls.end, shiftId: cls.shiftId || '' },
                     isClickable: true,
+                    shiftId: cls.shiftId || '',
                     classCompositeKey: classCompositeKey,
                     classSectionKey: secKey,
                     classIndex: originalIdx

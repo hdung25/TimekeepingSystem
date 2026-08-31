@@ -99,12 +99,14 @@ window.toggleClassClosure = async function (compositeKey, caType, index, isCheck
     try {
         const dayData = await DBService.getSchedule(compositeKey);
         if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-        
-        // Update isClosed property
-        dayData[caType][index].isClosed = isChecked;
-        
-        // Save to Firestore
-        await DBService.saveSchedule(compositeKey, dayData);
+        const row = dayData[caType][index];
+        await DBService.updateScheduleRowAtomic(
+            compositeKey,
+            caType,
+            scheduleRowLocator(row, index),
+            latestRow => ({ ...latestRow, isClosed: isChecked === true }),
+            dayData
+        );
         
         // Re-render table
         await renderTable();
@@ -118,6 +120,7 @@ window.toggleClassClosure = async function (compositeKey, caType, index, isCheck
 let currentWeekStart = new Date(); // Start of the currently selected week (Monday)
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
 let currentBranch = 'cs1'; // Multi-branch support
+let scheduleRenderGeneration = 0;
 let currentShiftFilter = 'all'; // Filter for shifts (all, morning, afternoon, evening)
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 
@@ -172,10 +175,9 @@ function initSchedule() {
         loadSubjectListForSchedule();
     }
 
-    // Nút "Vắng GV" — CHỈ dành cho chức vụ Trợ lý ('assistant'), theo yêu cầu:
-    // trợ lý kiểm/chỉnh trạng thái Vắng phép / Vắng đột xuất cho giáo viên.
-    // (Không mở cho role khác; admin đã có đường chỉnh qua Bảng Công.)
-    if (roles.includes('assistant')) {
+    // Danh sách điều phối nhanh theo ngày dành cho mọi vai trò được phép xếp lịch.
+    // Quyền thật vẫn được kiểm soát ở Firestore Rules, không dựa vào việc ẩn nút.
+    if (isEditor) {
         const btnAbs = document.getElementById('btn-gv-absence');
         if (btnAbs) btnAbs.style.display = 'flex';
     }
@@ -276,6 +278,7 @@ function getLocalDateKey(date) {
 }
 
 async function renderTable() {
+    const renderGeneration = ++scheduleRenderGeneration;
     const tbody = document.getElementById('table-body');
     const todayDate = new Date(currentWeekStart);
     todayDate.setDate(todayDate.getDate() + selectedDayIndex);
@@ -302,13 +305,15 @@ async function renderTable() {
 
     // Load Data from Cloud (branch-prefixed)
     const dayData = await DBService.getSchedule(compositeKey) || {};
+    if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
     const timesheetData = JSON.parse(localStorage.getItem('timesheet_data')) || {};
 
     // Fetch attendance for GV absent highlight (past/today only)
-    let presentUserIds = new Set();
+    let attendanceEvidence = new Map();
     const todayRealKey = getLocalDateKey(new Date());
     if (dateKey <= todayRealKey) {
-        try { presentUserIds = await DBService.getDayAttendance(dateKey); } catch(e) {}
+        try { attendanceEvidence = await DBService.getDayAttendance(dateKey); } catch(e) {}
+        if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
     }
 
     // Fetch all cancelled shifts for the month
@@ -319,6 +324,7 @@ async function renderTable() {
     } catch (e) {
         console.error("Error loading cancelled shifts map:", e);
     }
+    if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
 
     // Determine Role
     const currentRole = localStorage.getItem('currentRole');
@@ -398,7 +404,7 @@ async function renderTable() {
 
         rows.forEach((row, idx) => {
             const rowId = `${dateKey}-${section.key}-${idx}`;
-            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff, presentUserIds, dateKey, todayRealKey, cancelledShiftsMap);
+            html += renderRow(row, idx, section.key, isAdmin, compositeKey, rowId, isToday, timesheetData[rowId], isTeacherOrStaff, attendanceEvidence, dateKey, todayRealKey, cancelledShiftsMap);
         });
 
         if (isAdmin) {
@@ -412,6 +418,7 @@ async function renderTable() {
         }
     });
 
+    if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
     tbody.innerHTML = html;
     tbody.style.opacity = '';
     tbody.dataset.rendered = '1';
@@ -421,11 +428,77 @@ async function renderTable() {
 
 // Helper: get array of {id,name} from row data (backward compat)
 function getGVList(row, fieldType) {
-    const listField = fieldType + 'List';
-    if (row[listField] && Array.isArray(row[listField]) && row[listField].length > 0) return row[listField];
-    const name = fieldType === 'gv' ? (row.gv || '') : (row.gvThayThe || '');
-    const id   = fieldType === 'gv' ? (row.gvId || '') : (row.gvThayTheId || '');
+    if (window.TeacherShiftState) {
+        return fieldType === 'gv'
+            ? TeacherShiftState.getMainTeachers(row)
+            : TeacherShiftState.getSubstituteTeachers(row);
+    }
+    const isMain = fieldType === 'gv';
+    const listFields = isMain ? ['gvList'] : ['gvThayTeList', 'gvThayTheList'];
+    const values = listFields.flatMap(field => Array.isArray(row?.[field]) ? row[field] : []);
+    if (values.length) return values;
+    const name = isMain ? (row?.gv || '') : (row?.gvThayTe || row?.gvThayThe || '');
+    const id = isMain ? (row?.gvId || '') : (row?.gvThayTeId || row?.gvThayTheId || '');
     return name ? [{ id, name }] : [];
+}
+
+function isScheduleRenderCurrent(renderGeneration, compositeKey) {
+    if (renderGeneration !== scheduleRenderGeneration) return false;
+    const activeDate = new Date(currentWeekStart);
+    activeDate.setDate(activeDate.getDate() + selectedDayIndex);
+    return getCompositeKey(getLocalDateKey(activeDate)) === compositeKey;
+}
+
+function scheduleShiftDateTime(dateKey, timeValue) {
+    const match = String(timeValue || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+    const dateMatch = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match || !dateMatch) return null;
+    const result = new Date(
+        Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]),
+        Number(match[1]), Number(match[2]), 0, 0
+    );
+    return Number.isNaN(result.getTime()) ? null : result;
+}
+
+function hasAttendanceEvidenceForShift(evidenceByUser, userId, dateKey, startValue, endValue, now = new Date()) {
+    if (!(evidenceByUser instanceof Map)) return false;
+    const sessions = evidenceByUser.get(String(userId)) || evidenceByUser.get(userId) || [];
+    if (!Array.isArray(sessions) || sessions.length === 0) return false;
+    const shiftStart = scheduleShiftDateTime(dateKey, startValue);
+    let shiftEnd = scheduleShiftDateTime(dateKey, endValue);
+    if (!shiftStart || !shiftEnd) return false;
+    if (shiftEnd <= shiftStart) shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000);
+
+    return sessions.some(session => {
+        if (!session || session.isAbsent) return false;
+        const sessionStart = new Date(session.checkIn || session.start || '');
+        const sessionEnd = session.checkOut
+            ? new Date(session.checkOut)
+            : (session.end ? new Date(session.end) : new Date(now));
+        if (Number.isNaN(sessionStart.getTime()) || Number.isNaN(sessionEnd.getTime())) return false;
+        return sessionStart < shiftEnd && sessionEnd > shiftStart;
+    });
+}
+
+function scheduleEscapeHTML(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function scheduleEscapeAttr(value) {
+    return scheduleEscapeHTML(value).replace(/`/g, '&#096;');
+}
+
+function getMappedReplacementIds(row, teacherId) {
+    if (window.TeacherShiftState) {
+        return TeacherShiftState.getReplacementIdsForTeacher(row, teacherId);
+    }
+    const record = getRowTeacherAbsence(row, teacherId);
+    return Array.isArray(record?.replacementIds) ? record.replacementIds : [];
 }
 
 function getRowTeacherAbsence(row, teacherId) {
@@ -448,7 +521,7 @@ function isRowMainTeacherAbsent(row, teacherId) {
 }
 
 // Render compact multi-teacher cell
-function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap = {}) {
+function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, attendanceEvidence, isPastOrToday, dateKey, cancelledShiftsMap = {}) {
     const isGV = fieldType === 'gv';
     const gvList = getGVList(row, fieldType);
 
@@ -476,11 +549,13 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             }
         }
 
-        const absent = isShiftPastOrStarted ? gvList.filter(g => {
+        const unverified = isShiftPastOrStarted ? gvList.filter(g => {
             if (!g.id) return false;
             const userCancelledShifts = cancelledShiftsMap[g.id] || [];
             const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
-            return !presentUserIds.has(g.id) && !isCancelled;
+            const isDeclaredAbsent = isGV && isRowMainTeacherAbsent(row, g.id);
+            return !isCancelled && !isDeclaredAbsent &&
+                !hasAttendanceEvidenceForShift(attendanceEvidence, g.id, dateKey, row.start, row.end);
         }) : [];
 
         // Hiện ĐẦY ĐỦ tên từng GV (dạng thẻ, tự xuống dòng) thay vì "Tên +1" —
@@ -488,32 +563,33 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
         const chips = gvList.map(g => {
             const userCancelledShifts = cancelledShiftsMap[g.id] || [];
             const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
-            const isAbsent = !isCancelled && absent.some(a => a.id === g.id);
+            const isUnverified = !isCancelled && unverified.some(a => a.id === g.id);
             const declaredAbsence = isGV ? getRowTeacherAbsence(row, g.id) : null;
             const isDeclaredAbsent = !isCancelled && isGV && isRowMainTeacherAbsent(row, g.id);
 
+            const absenceType = String(declaredAbsence?.type || '').toUpperCase();
+            const mappedReplacementIds = isGV ? getMappedReplacementIds(row, g.id) : [];
             let chipClass = 'gv-chip';
             if (isCancelled) chipClass += ' is-cancelled';
-            else if (isDeclaredAbsent) chipClass += ' is-declared-absent';
-            else if (isAbsent) chipClass += ' is-absent';
+            else if (isDeclaredAbsent) chipClass += absenceType === 'VP' ? ' is-absence-vp' : ' is-absence-vdx';
+            else if (isUnverified) chipClass += ' is-unverified';
             else if (!isGV) chipClass += ' is-substitute';
 
             const suffix = isCancelled
                 ? ' (Admin Hủy)'
-                : (isDeclaredAbsent
-                    ? (declaredAbsence?.status === 'covered' || getGVList(row, 'gvThayTe').length > 0
-                        ? ' (Đã có GV thay)'
-                        : ' (Chờ GV thay)')
-                    : '');
+                    : (isDeclaredAbsent
+                     ? ` · ${absenceType === 'VP' ? 'VP' : 'VĐX'} · ${mappedReplacementIds.length ? 'Đã có GV thay' : 'Chờ GV thay'}`
+                    : (isUnverified ? ' · Chưa xác minh chấm công' : ''));
             const fixedBadge = g.pendingFixed
                 ? ` <span title="Chuẩn bị cố định từ tuần sau" style="color:#9A3412;font-weight:700;">⏳</span>`
                 : '';
-            const safeTitle = `${g.name || ''}${suffix}`.replace(/"/g, '&quot;');
-            return `<span class="${chipClass}" title="${safeTitle}">${g.name || ''}${suffix}${fixedBadge}</span>`;
+            const safeName = scheduleEscapeHTML(g.name || '');
+            const safeTitle = scheduleEscapeAttr(`${g.name || ''}${suffix}${declaredAbsence?.reason ? ` · ${declaredAbsence.reason}` : ''}`);
+            return `<span class="${chipClass}" title="${safeTitle}">${safeName}${scheduleEscapeHTML(suffix)}${fixedBadge}</span>`;
         }).join('');
 
         nameHtml = `<div class="gv-chip-list">${chips}</div>`;
-        if (absent.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#EF4444;margin-top:2px;">Vắng: ${absent.length}</div>`;
+        if (unverified.length > 0) nameHtml += `<div style="font-size:0.65rem;color:#B45309;margin-top:2px;">Chưa xác minh chấm công: ${unverified.length}</div>`;
     }
 
     const safeList = encodeURIComponent(JSON.stringify(gvList));
@@ -536,14 +612,15 @@ function renderTimeCell(label, value, canEdit, compositeKey, caType, index, fiel
     // data-field: khoá ASCII cố định để CSS (bản mobile) bắt đúng ô — không phụ thuộc dấu
     // tiếng Việt trong data-label, tránh lỗi selector khi file bị lệch bảng mã.
     const fieldKey = field === 'start' ? 'start' : 'end';
+    const safeValue = scheduleEscapeAttr(value || '');
     if (!canEdit) {
-        return `<td data-field="${fieldKey}" data-label="${label}"><span class="time-text">${value || '—'}</span></td>`;
+        return `<td data-field="${fieldKey}" data-label="${label}"><span class="time-text">${scheduleEscapeHTML(value || '—')}</span></td>`;
     }
-    return `<td data-field="${fieldKey}" data-label="${label}"><input type="time" lang="vi" class="table-input time-input" value="${value || ''}"
+    return `<td data-field="${fieldKey}" data-label="${label}"><input type="time" lang="vi" class="table-input time-input" value="${safeValue}"
         onchange="updateRow('${compositeKey}', '${caType}', ${index}, '${field}', this.value)"></td>`;
 }
 
-function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, presentUserIds = new Set(), dateKey = '', todayRealKey = '', cancelledShiftsMap = {}) {
+function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, attendanceEvidence = new Map(), dateKey = '', todayRealKey = '', cancelledShiftsMap = {}) {
     const isPastClass = isScheduleTimePast(compositeKey, data.start);
     const rowIsAdmin = isAdmin && !isPastClass;
     const inputClass = rowIsAdmin ? 'table-input' : 'table-input read-only-input';
@@ -551,18 +628,20 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
 
     // === GV FIELD (multi-teacher) ===
     const isPastOrToday = dateKey && todayRealKey && dateKey <= todayRealKey;
-    const gvCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gv', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
+    // Personnel status remains editable for schedule managers after a shift starts so
+    // an actual last-minute absence can be recorded. Subject/time/room stay locked.
+    const gvCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gv', attendanceEvidence, isPastOrToday, dateKey, cancelledShiftsMap);
 
     // === SỐ HS FIELD ===
     let soHSCell = '';
     if (rowIsAdmin) {
-        soHSCell = `<td data-field="hs" data-label="Số HS"><input type="number" class="table-input" value="${data.soHS || ''}" placeholder="HS" min="0"
+        soHSCell = `<td data-field="hs" data-label="Số HS"><input type="number" class="table-input" value="${scheduleEscapeAttr(data.soHS || '')}" placeholder="HS" min="0"
             style="width:60px;text-align:center;"
             onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', parseInt(this.value)||0)"></td>`;
     } else {
         const hs = data.soHS || '';
         const hsStyle = hs > 10 ? 'color:var(--primary-color);font-weight:700;' : 'color:var(--text-muted);';
-        soHSCell = `<td data-field="hs" data-label="Số HS" style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${hs || '—'}</span></td>`;
+        soHSCell = `<td data-field="hs" data-label="Số HS" style="text-align:center;font-size:0.875rem;"><span style="${hsStyle}">${scheduleEscapeHTML(hs || '—')}</span></td>`;
     }
 
     // === ACTION CELL ===
@@ -596,11 +675,11 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     }
 
     // === CỘT LỚP (Môn học datalist) ===
-    const lopVal = (data.lop || '').replace(/"/g, '&quot;');
+    const lopVal = scheduleEscapeAttr(data.lop || '');
     // Ca đã có GV nhưng CHƯA có Môn/Lớp → Bảng Công không áp được đơn giá, chip hiện
     // "(CHƯA CHỌN LỚP)". Đánh dấu đỏ ngay trên lịch để người xếp lịch bổ sung.
-    const _hasAnyTeacher = !!(data.gvId || data.gvThayTheId ||
-        (data.gvList || []).length > 0 || (data.gvThayTheList || []).length > 0 ||
+    const _hasAnyTeacher = !!(data.gvId || data.gvThayTeId || data.gvThayTheId ||
+        (data.gvList || []).length > 0 || (data.gvThayTeList || []).length > 0 || (data.gvThayTheList || []).length > 0 ||
         (data.registeredTeachers || []).length > 0);
     const _missingSubject = !String(data.lop || '').trim() && _hasAnyTeacher;
     const _missingBadge = _missingSubject
@@ -612,13 +691,14 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             list="subject-list" style="${_missingSubject ? 'border:1.5px solid #EF4444;background:#FEF2F2;' : ''}"
             onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)">${_missingBadge}</td>`;
     } else {
-        const subjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
+        const rawSubjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
+        const subjectColor = /^#[0-9a-f]{6}$/i.test(rawSubjectColor) ? rawSubjectColor : '';
         const dotHtml = subjectColor ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${subjectColor};margin-right:4px;"></span>` : '';
-        lopCell = `<td data-field="subject" data-label="Môn / Lớp" style="font-size:0.875rem;">${dotHtml}${data.lop || ''}${_missingBadge}</td>`;
+        lopCell = `<td data-field="subject" data-label="Môn / Lớp" style="font-size:0.875rem;">${dotHtml}${scheduleEscapeHTML(data.lop || '')}${_missingBadge}</td>`;
     }
 
     // === CỘT GV THAY THẾ (multi-teacher) ===
-    const gvTTCell = renderGVMultiCell(data, rowIsAdmin, compositeKey, caType, index, 'gvThayTe', presentUserIds, isPastOrToday, dateKey, cancelledShiftsMap);
+    const gvTTCell = renderGVMultiCell(data, isAdmin, compositeKey, caType, index, 'gvThayTe', attendanceEvidence, isPastOrToday, dateKey, cancelledShiftsMap);
 
     const rowBg = isClassClosed ? 'background: #F3F4F6; opacity: 0.75;' : '';
 
@@ -628,11 +708,11 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             ${renderTimeCell('Bắt đầu', data.start, rowIsAdmin, compositeKey, caType, index, 'start')}
             ${renderTimeCell('Kết thúc', data.end, rowIsAdmin, compositeKey, caType, index, 'end')}
             ${lopCell}
-            <td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${data.phong || ''}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
+            <td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.phong || '')}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
             ${gvCell}
             ${gvTTCell}
             ${soHSCell}
-            <td data-field="note" data-label="Ghi chú"><input type="text" class="${inputClass}" value="${data.note || ''}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
+            <td data-field="note" data-label="Ghi chú"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.note || '')}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
             ${actionCell}
         </tr>
     `;
@@ -644,22 +724,29 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
         return;
     }
 
-    const dayData = await DBService.getSchedule(compositeKey) || {};
-    if (!dayData[caType]) dayData[caType] = [];
-
-    dayData[caType].push({
+    const newRow = {
+        shiftId: window.TeacherShiftState ? TeacherShiftState.stableShiftId({}) : `shift_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        staffingSchemaVersion: 2,
         start: defaultStart, end: defaultEnd,
         lop: '', lopId: '', phong: '',
         gv: '', gvId: '', gvList: [],
         gvThayThe: '', gvThayTheId: '', gvThayTheList: [],
+        gvThayTe: '', gvThayTeId: '', gvThayTeList: [],
+        teacherAbsences: [], teacherAbsenceHistory: [],
         soHS: 0, note: ''
-    });
+    };
 
-    await DBService.saveSchedule(compositeKey, dayData);
-    renderTable();
+    try {
+        await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => [...rows, newRow]);
+        await renderTable();
+    } catch (error) {
+        showScheduleMutationError(error);
+    }
 };
 
 window.updateRow = async function (compositeKey, caType, index, field, value) {
+    const editableFields = new Set(['start', 'end', 'phong', 'note', 'soHS']);
+    if (!editableFields.has(field)) return;
     const dayData = await DBService.getSchedule(compositeKey);
     if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
 
@@ -670,8 +757,26 @@ window.updateRow = async function (compositeKey, caType, index, field, value) {
         return;
     }
 
-    dayData[caType][index][field] = value;
-    await DBService.saveSchedule(compositeKey, dayData);
+    try {
+        await DBService.updateScheduleRowAtomic(
+            compositeKey,
+            caType,
+            scheduleRowLocator(row, index),
+            latestRow => {
+                if (isScheduleTimePast(compositeKey, latestRow.start)) {
+                    const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể chỉnh sửa.');
+                    error.code = 'schedule/past';
+                    throw error;
+                }
+                return { ...latestRow, [field]: value };
+            },
+            dayData
+        );
+        await renderTable();
+    } catch (error) {
+        showScheduleMutationError(error);
+        await renderTable();
+    }
 };
 
 window.deleteRow = async function (compositeKey, caType, index) {
@@ -686,10 +791,23 @@ window.deleteRow = async function (compositeKey, caType, index) {
 
     if (!await UIService.confirm('Bạn có chắc muốn xóa lớp học này?')) return;
 
-    dayData[caType].splice(index, 1);
-
-    await DBService.saveSchedule(compositeKey, dayData);
-    renderTable();
+    const locator = scheduleRowLocator(row, index);
+    try {
+        await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => {
+            const latestIndex = resolveScheduleRowIndex(rows, locator);
+            if (latestIndex < 0) throw scheduleRowConflictError();
+            if (isScheduleTimePast(compositeKey, rows[latestIndex].start)) {
+                const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể xóa.');
+                error.code = 'schedule/past';
+                throw error;
+            }
+            return rows.filter((_, rowIndex) => rowIndex !== latestIndex);
+        }, dayData);
+        await renderTable();
+    } catch (error) {
+        showScheduleMutationError(error);
+        await renderTable();
+    }
 };
 
 window.saveScheduleManual = function () {
@@ -756,9 +874,15 @@ window.registerClass = async function (compositeKey, caType, index, endTimeStr) 
     if (!isConfirm) return;
 
     try {
-        await DBService.registerClass(compositeKey, caType, { index }, { id: currentUserId, name: userFullName });
+        const registrationStatus = await DBService.registerClass(
+            compositeKey,
+            caType,
+            { index },
+            { id: currentUserId, name: userFullName }
+        );
         await renderTable();
         localStorage.setItem('schedule_registration_updated', Date.now().toString());
+        UIService.toast(registrationStatus === 'active' ? 'Đã nhận lớp.' : 'Đã hủy nhận lớp.', 'success');
     } catch (e) {
         alert("Lỗi: " + e.message);
     }
@@ -777,8 +901,8 @@ async function loadSubjectListForSchedule() {
             document.body.appendChild(dl);
         }
         dl.innerHTML = subjects.map(s => {
-            const name = s.name.replace(/"/g, '&quot;');
-            return `<option value="${name}" data-id="${s.id}">`;
+            const name = scheduleEscapeAttr(s.name || '');
+            return `<option value="${name}" data-id="${scheduleEscapeAttr(s.id || '')}">`;
         }).join('');
     } catch (e) {
         console.warn('Could not load subject list:', e);
@@ -797,8 +921,8 @@ async function loadTeacherListForSchedule() {
             document.body.appendChild(dl);
         }
         dl.innerHTML = users.map(u => {
-            const name = (u.name || u.username || '').replace(/"/g, '&quot;');
-            return `<option value="${name}" data-id="${u.id}">`;
+            const name = scheduleEscapeAttr(u.name || u.username || '');
+            return `<option value="${name}" data-id="${scheduleEscapeAttr(u.id || '')}">`;
         }).join('');
     } catch (e) {
         console.warn('Could not load teacher list:', e);
@@ -819,189 +943,587 @@ window.updateSubjectRow = async function (compositeKey, caType, index, subjectNa
         return;
     }
 
-    dayData[caType][index].lop = subjectName;
-    dayData[caType][index].lopId = lopId;
-    await DBService.saveSchedule(compositeKey, dayData);
-};
-
-window.openGVPicker = function (compositeKey, caType, index, fieldType) {
-    const existing = document.getElementById('gv-picker-overlay');
-    if (existing) existing.remove();
-
-    DBService.getSchedule(compositeKey).then(dayData => {
-        if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-        const row = dayData[caType][index];
-        if (isScheduleTimePast(compositeKey, row.start)) {
-            alert("Không thể chỉnh sửa nhân sự của lớp học đã qua trong quá khứ!");
-            return;
-        }
-        // Bắt buộc có Môn/Lớp trước khi gán GV: thiếu lớp thì Bảng Công không áp được đơn giá,
-        // ca vắng cũng chỉ hiện "09:15–10:45 CS1 (V)" — admin không biết vắng lớp nào để duyệt.
-        if (!String(row.lop || '').trim()) {
-            alert("Vui lòng chọn Môn / Lớp cho ca này trước khi xếp giáo viên.\n(Thiếu Môn/Lớp thì hệ thống không tính được lương cho ca đó.)");
-            return;
-        }
-        const currentList = getGVList(row, fieldType);
-        const currentIds = new Set(currentList.map(g => g.id || g.name));
-        const teachers = window._teacherList || [];
-        const isGVTT = fieldType === 'gvThayTe';
-        const title = isGVTT ? 'GV Thay Thế' : 'GV Chính';
-        const accent = isGVTT ? '#D97706' : '#059669';
-
-        // Filter: only show users with teaching roles
-        const filteredTeachers = teachers.filter(t => {
-            const roles = Array.isArray(t.roles) ? t.roles : [t.role || ''];
-            return hasTeachingEmploymentRole(roles);
-        });
-
-        const rows = filteredTeachers.map(t => {
-            const name = (t.name || t.username || '').replace(/"/g, '&quot;');
-            const chk = currentIds.has(t.id) ? 'checked' : '';
-            // "Chuẩn bị cố định tuần sau": ghi chú theo yêu cầu khách — GV tuần này chưa
-            // cố định, tuần sau mới cố định. Chỉ là nhãn nhắc, không tự đổi lịch/lương.
-            const curEntry = currentList.find(g => (g.id || g.name) === t.id);
-            const cbcdOn = curEntry && curEntry.pendingFixed ? '1' : '0';
-            return `<label class="gv-picker-item${chk ? ' selected' : ''}">
-                <input type="checkbox" value="${t.id}" data-name="${name}" ${chk}
-                    onchange="this.closest('label').classList.toggle('selected',this.checked)">
-                <span style="flex:1;">${name}</span>
-                <span class="cbcd-toggle" data-active="${cbcdOn}" title="Đánh dấu: GV này CHUẨN BỊ CỐ ĐỊNH từ tuần sau"
-                    onclick="event.preventDefault();event.stopPropagation();toggleCBCDBadge(this)"
-                    style="cursor:pointer;font-size:0.62rem;font-weight:700;padding:3px 8px;border-radius:99px;white-space:nowrap;flex-shrink:0;${cbcdOn === '1' ? 'background:#F97316;color:white;' : 'background:#F3F4F6;color:#9CA3AF;'}">⏳ CĐ tuần sau</span></label>`;
-        }).join('');
-
-        const overlay = document.createElement('div');
-        overlay.id = 'gv-picker-overlay';
-        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
-        overlay.innerHTML = `
-<div style="background:white;border-radius:16px;max-width:400px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
-  <div style="background:linear-gradient(135deg,${accent},#047857);padding:1.1rem 1.4rem;display:flex;justify-content:space-between;align-items:center;">
-    <h3 style="color:white;margin:0;font-size:1rem;font-weight:700;">✏️ Chọn ${title}</h3>
-    <button onclick="document.getElementById('gv-picker-overlay').remove()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:1.1rem;">✕</button>
-  </div>
-  <div style="padding:0.75rem;border-bottom:1px solid #E5E7EB;">
-    <input type="text" placeholder="🔍 Tìm giáo viên..." oninput="filterGVPicker(this.value)"
-      style="width:100%;box-sizing:border-box;padding:0.55rem 0.75rem;border:1.5px solid #E5E7EB;border-radius:8px;font-size:0.9rem;outline:none;">
-  </div>
-  <div id="gv-picker-list" style="padding:0.5rem 0.75rem;overflow-y:auto;flex:1;max-height:300px;display:flex;flex-direction:column;gap:2px;">${rows}</div>
-  <div style="padding:0.9rem;border-top:1px solid #E5E7EB;display:flex;gap:0.6rem;">
-    <button onclick="document.getElementById('gv-picker-overlay').remove()" style="flex:1;padding:0.6rem;background:#F3F4F6;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Hủy</button>
-    <button onclick="saveGVPickerResult('${compositeKey}','${caType}',${index},'${fieldType}')" style="flex:2;padding:0.6rem;background:linear-gradient(135deg,${accent},#047857);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;">✓ Lưu</button>
-  </div>
-</div>`;
-        document.body.appendChild(overlay);
-    });
-};
-
-window.toggleCBCDBadge = function (el) {
-    const on = el.dataset.active === '1';
-    el.dataset.active = on ? '0' : '1';
-    el.style.background = on ? '#F3F4F6' : '#F97316';
-    el.style.color = on ? '#9CA3AF' : 'white';
-};
-
-window.filterGVPicker = function (q) {
-    document.querySelectorAll('#gv-picker-list .gv-picker-item').forEach(el => {
-        el.style.display = el.querySelector('span').textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
-    });
-};
-
-window.saveGVPickerResult = async function (compositeKey, caType, index, fieldType) {
-    const checked = document.querySelectorAll('#gv-picker-list input[type=checkbox]:checked');
-    const newList = Array.from(checked).map(cb => {
-        const item = { id: cb.value, name: cb.dataset.name };
-        // Nhãn "chuẩn bị cố định tuần sau" (chỉ lưu khi bật để Firestore không nhận undefined)
-        const badge = cb.closest('label')?.querySelector('.cbcd-toggle');
-        if (badge && badge.dataset.active === '1') item.pendingFixed = true;
-        return item;
-    });
-    const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-
-    const row = dayData[caType][index];
-    if (isScheduleTimePast(compositeKey, row.start)) {
-        alert("Không thể chỉnh sửa nhân sự của lớp học đã qua trong quá khứ!");
-        const overlay = document.getElementById('gv-picker-overlay');
-        if (overlay) overlay.remove();
-        return;
+    try {
+        await DBService.updateScheduleRowAtomic(
+            compositeKey,
+            caType,
+            scheduleRowLocator(row, index),
+            latestRow => {
+                if (isScheduleTimePast(compositeKey, latestRow.start)) {
+                    const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể đổi môn học.');
+                    error.code = 'schedule/past';
+                    throw error;
+                }
+                return { ...latestRow, lop: subjectName, lopId };
+            },
+            dayData
+        );
+        await renderTable();
+    } catch (error) {
+        showScheduleMutationError(error);
+        await renderTable();
     }
+};
 
-    // Validate selected users' roles
-    const teachers = window._teacherList || [];
-    for (const item of newList) {
-        const u = teachers.find(t => t.id === item.id);
-        if (u) {
-            const roles = Array.isArray(u.roles) ? u.roles : [u.role || ''];
-            const isTeacherOrTA = hasTeachingEmploymentRole(roles);
-            if (!isTeacherOrTA) {
-                alert(`Không thể chọn nhân sự "${item.name}" vì không có chức danh Giáo viên hoặc Trợ giảng.`);
+let teacherShiftManagerState = null;
+let teacherPickerGeneration = 0;
+
+function scheduleRowSignature(row) {
+    return [row?.start, row?.end, row?.lop, row?.phong]
+        .map(value => String(value || '').trim())
+        .join('|');
+}
+
+function scheduleRowLocator(row, index) {
+    return {
+        index,
+        shiftId: String(row?.shiftId || ''),
+        signature: scheduleRowSignature(row)
+    };
+}
+
+function resolveScheduleRowIndex(rows, locator) {
+    const list = Array.isArray(rows) ? rows : [];
+    const shiftId = String(locator?.shiftId || '');
+    if (shiftId) {
+        const byId = list.findIndex(row => String(row?.shiftId || '') === shiftId);
+        if (byId >= 0) return byId;
+    }
+    if (Number.isInteger(locator?.index)) {
+        const candidate = list[locator.index];
+        if (candidate && (!locator.signature || scheduleRowSignature(candidate) === locator.signature)) {
+            return locator.index;
+        }
+    }
+    return -1;
+}
+
+function scheduleRowConflictError() {
+    const error = new Error('Ca đã được người khác thay đổi hoặc di chuyển. Vui lòng tải lại lịch rồi thử lại.');
+    error.code = 'schedule/conflict';
+    return error;
+}
+
+function showScheduleMutationError(error) {
+    console.error('Schedule mutation failed:', error);
+    const message = error?.message || 'Không thể cập nhật lịch.';
+    if (typeof UIService !== 'undefined' && typeof UIService.toast === 'function') {
+        UIService.toast(scheduleEscapeHTML(message), 'error');
+    } else {
+        alert(message);
+    }
+}
+
+function toLocalDateTimeInput(value) {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return '';
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+}
+
+function getTeachingRoleLabel(teacher) {
+    const roles = Array.isArray(teacher?.roles) ? teacher.roles : [teacher?.role || ''];
+    if (roles.includes('teacher')) return 'Giáo viên';
+    if (roles.includes('teaching_assistant')) return 'Trợ giảng';
+    if (roles.includes('assistant')) return 'Trợ lý';
+    return 'Nhân sự giảng dạy';
+}
+
+function closeTeacherShiftManager() {
+    teacherPickerGeneration += 1;
+    const state = teacherShiftManagerState;
+    document.getElementById('gv-picker-overlay')?.remove();
+    document.body.classList.remove('teacher-shift-modal-open');
+    teacherShiftManagerState = null;
+    if (state?.triggerEl && document.contains(state.triggerEl)) state.triggerEl.focus?.();
+}
+
+function teacherManagerMainEntries() {
+    const state = teacherShiftManagerState;
+    return (state?.mainIds || []).map(id => state.teacherById.get(id)).filter(Boolean);
+}
+
+function teacherManagerAbsentMainEntries() {
+    const state = teacherShiftManagerState;
+    return teacherManagerMainEntries().filter(item => (state.statuses[item.id]?.type || 'ACTIVE') !== 'ACTIVE');
+}
+
+function teacherManagerSubEntries() {
+    const state = teacherShiftManagerState;
+    return (state?.substituteIds || []).map(id => state.substituteById.get(id)).filter(Boolean);
+}
+
+function teacherRosterItem(teacher, kind, checked, disabled) {
+    const id = scheduleEscapeAttr(teacher.id);
+    const name = teacher.name || teacher.username || 'Chưa đặt tên';
+    const searchable = scheduleEscapeAttr(`${name} ${teacher.username || ''}`.toLocaleLowerCase('vi'));
+    return `<label class="teacher-roster-item${checked ? ' is-selected' : ''}" data-search="${searchable}">
+        <input type="checkbox" data-action="toggle-${kind}" data-teacher-id="${id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+        <span class="teacher-roster-avatar" aria-hidden="true">${scheduleEscapeHTML(name.charAt(0).toUpperCase())}</span>
+        <span class="teacher-roster-copy"><strong>${scheduleEscapeHTML(name)}</strong><small>${scheduleEscapeHTML(getTeachingRoleLabel(teacher))}</small></span>
+        <span class="teacher-roster-check" aria-hidden="true">✓</span>
+    </label>`;
+}
+
+function teacherStatusCard(teacher) {
+    const state = teacherShiftManagerState;
+    const status = state.statuses[teacher.id] || { type: 'ACTIVE', reason: '', reportedAt: new Date().toISOString() };
+    const type = status.type || 'ACTIVE';
+    const id = scheduleEscapeAttr(teacher.id);
+    const pendingFixed = !!state.mainMeta[teacher.id]?.pendingFixed;
+    const absence = type !== 'ACTIVE';
+    const replacements = teacherManagerSubEntries().filter(sub => (sub.replacesTeacherIds || []).includes(teacher.id));
+    const coverage = absence
+        ? (replacements.length
+            ? `<span class="coverage-pill is-covered">Đã có GV thay · ${scheduleEscapeHTML(replacements.map(item => item.name).join(', '))}</span>`
+            : '<span class="coverage-pill is-pending">Đang tìm GV thay</span>')
+        : '<span class="coverage-pill is-active">Sẵn sàng đứng lớp</span>';
+    return `<article class="teacher-status-card status-${type.toLowerCase()}" data-main-card="${id}">
+        <div class="teacher-status-card-head">
+            <div><strong>${scheduleEscapeHTML(teacher.name)}</strong><span>GV chính</span></div>
+            ${coverage}
+        </div>
+        <div class="teacher-status-segment" role="group" aria-label="Trạng thái của ${scheduleEscapeAttr(teacher.name)}">
+            <button type="button" data-action="set-status" data-teacher-id="${id}" data-status="ACTIVE" class="${type === 'ACTIVE' ? 'is-active' : ''}">Đang dạy</button>
+            <button type="button" data-action="set-status" data-teacher-id="${id}" data-status="VP" class="${type === 'VP' ? 'is-active' : ''}">Vắng có phép</button>
+            <button type="button" data-action="set-status" data-teacher-id="${id}" data-status="VDX" class="${type === 'VDX' ? 'is-active' : ''}">Vắng đột xuất</button>
+        </div>
+        ${absence ? `<div class="teacher-absence-fields">
+            <label><span>Thời điểm báo</span><input type="datetime-local" data-action="reported-at" data-teacher-id="${id}" value="${scheduleEscapeAttr(toLocalDateTimeInput(status.reportedAt))}"></label>
+            <label class="reason-field"><span>Lý do / ghi chú điều phối</span><input type="text" maxlength="300" data-action="absence-reason" data-teacher-id="${id}" value="${scheduleEscapeAttr(status.reason || '')}" placeholder="Ví dụ: báo bệnh, việc gia đình..."></label>
+        </div>` : ''}
+        <button type="button" class="fixed-next-week-btn${pendingFixed ? ' is-active' : ''}" data-action="toggle-fixed" data-teacher-id="${id}">⏳ ${pendingFixed ? 'Đã đánh dấu cố định tuần sau' : 'Đánh dấu cố định từ tuần sau'}</button>
+    </article>`;
+}
+
+function substituteCoverageCard(substitute) {
+    const absent = teacherManagerAbsentMainEntries();
+    const id = scheduleEscapeAttr(substitute.id);
+    return `<article class="substitute-coverage-card">
+        <div><strong>${scheduleEscapeHTML(substitute.name)}</strong><span>Chọn GV chính mà người này sẽ thay</span></div>
+        <div class="replacement-map-options">
+            ${absent.length ? absent.map(main => {
+                const selected = (substitute.replacesTeacherIds || []).includes(main.id);
+                return `<button type="button" data-action="toggle-map" data-substitute-id="${id}" data-main-id="${scheduleEscapeAttr(main.id)}" class="${selected ? 'is-active' : ''}">${selected ? '✓ ' : ''}${scheduleEscapeHTML(main.name)}</button>`;
+            }).join('') : '<span class="no-absence-hint">Hãy chọn trạng thái nghỉ cho GV chính trước.</span>'}
+        </div>
+    </article>`;
+}
+
+function teacherShiftManagerMarkup() {
+    const state = teacherShiftManagerState;
+    const mains = teacherManagerMainEntries();
+    const substitutes = teacherManagerSubEntries();
+    const absent = teacherManagerAbsentMainEntries();
+    const primaryRoster = state.teachers.map(teacher => teacherRosterItem(
+        teacher,
+        'main',
+        state.mainIds.includes(teacher.id),
+        state.isPast
+    )).join('');
+    const substituteRoster = state.teachers
+        .filter(teacher => !state.mainIds.includes(teacher.id))
+        .map(teacher => teacherRosterItem(teacher, 'substitute', state.substituteIds.includes(teacher.id), false))
+        .join('');
+    return `<div class="teacher-shift-workspace">
+        <section class="teacher-command-column">
+            <div class="teacher-command-section-head">
+                <div><span class="step-number">1</span><h4>GV chính & trạng thái</h4></div>
+                <span class="section-count">${mains.length} GV chính</span>
+            </div>
+            <div class="teacher-status-list">
+                ${mains.length ? mains.map(teacherStatusCard).join('') : '<div class="teacher-empty-state">Chưa có GV chính. Chọn một người ở danh sách bên cạnh.</div>'}
+            </div>
+            <div class="teacher-command-section-head replacement-head">
+                <div><span class="step-number">2</span><h4>Điều phối GV dạy thay</h4></div>
+                <span class="section-count ${absent.length ? 'has-alert' : ''}">${absent.length ? `${absent.length} ca nghỉ` : 'Không có ca nghỉ'}</span>
+            </div>
+            <div class="substitute-coverage-list">
+                ${substitutes.length ? substitutes.map(substituteCoverageCard).join('') : `<div class="teacher-empty-state compact">${absent.length ? 'Chưa chọn GV thay — ca sẽ được lưu ở trạng thái “Đang tìm GV thay”.' : 'Khi GV chính báo nghỉ, chọn người dạy thay ở danh sách bên cạnh.'}</div>`}
+            </div>
+        </section>
+        <aside class="teacher-roster-column">
+            <div class="roster-tabs" role="tablist">
+                <button type="button" role="tab" data-action="roster-tab" data-tab="main" class="${state.activeTab === 'main' ? 'is-active' : ''}">GV chính <span>${state.mainIds.length}</span></button>
+                <button type="button" role="tab" data-action="roster-tab" data-tab="substitute" class="${state.activeTab === 'substitute' ? 'is-active' : ''}">GV dạy thay <span>${state.substituteIds.length}</span></button>
+            </div>
+            <div class="roster-pane ${state.activeTab === 'main' ? 'is-active' : ''}" data-roster-pane="main">
+                <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="main" value="${scheduleEscapeAttr(state.search.main)}" placeholder="Tìm GV chính..."></label>
+                ${state.isPast ? '<div class="roster-lock-note">Ca đã bắt đầu: khóa thay đổi danh sách GV chính, nhưng vẫn cho phép cập nhật nghỉ và GV thay.</div>' : ''}
+                <div class="teacher-roster-list" data-roster-list="main">${primaryRoster}</div>
+            </div>
+            <div class="roster-pane ${state.activeTab === 'substitute' ? 'is-active' : ''}" data-roster-pane="substitute">
+                <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="substitute" value="${scheduleEscapeAttr(state.search.substitute)}" placeholder="Tìm GV dạy thay..."></label>
+                <div class="teacher-roster-list" data-roster-list="substitute">${substituteRoster}</div>
+            </div>
+        </aside>
+    </div>`;
+}
+
+function applyTeacherRosterFilter(kind) {
+    const state = teacherShiftManagerState;
+    const query = String(state?.search?.[kind] || '').trim().toLocaleLowerCase('vi');
+    document.querySelectorAll(`[data-roster-list="${kind}"] .teacher-roster-item`).forEach(item => {
+        item.hidden = !!query && !String(item.dataset.search || '').includes(query);
+    });
+}
+
+function renderTeacherShiftManager() {
+    const body = document.getElementById('teacher-shift-manager-body');
+    if (!body || !teacherShiftManagerState) return;
+    body.innerHTML = teacherShiftManagerMarkup();
+    applyTeacherRosterFilter('main');
+    applyTeacherRosterFilter('substitute');
+    const mains = teacherManagerMainEntries().length;
+    const absent = teacherManagerAbsentMainEntries().length;
+    const subs = teacherManagerSubEntries().length;
+    const summary = document.getElementById('teacher-shift-manager-summary');
+    if (summary) summary.textContent = `${mains} GV chính · ${absent ? `${absent} GV nghỉ` : 'đủ nhân sự'} · ${subs} GV thay`;
+}
+
+function handleTeacherShiftManagerClick(event) {
+    const button = event.target.closest('[data-action]');
+    if (!button || !teacherShiftManagerState) return;
+    const state = teacherShiftManagerState;
+    const action = button.dataset.action;
+    if (action === 'close-manager') return closeTeacherShiftManager();
+    if (action === 'save-manager') return saveTeacherShiftCommand();
+    if (action === 'roster-tab') {
+        state.activeTab = button.dataset.tab === 'substitute' ? 'substitute' : 'main';
+        return renderTeacherShiftManager();
+    }
+    const teacherId = button.dataset.teacherId;
+    if (action === 'set-status' && state.statuses[teacherId]) {
+        const nextType = ['ACTIVE', 'VP', 'VDX'].includes(button.dataset.status) ? button.dataset.status : 'ACTIVE';
+        state.statuses[teacherId].type = nextType;
+        if (nextType !== 'ACTIVE' && !state.statuses[teacherId].reportedAt) state.statuses[teacherId].reportedAt = new Date().toISOString();
+        if (nextType === 'ACTIVE') {
+            state.substituteById.forEach(item => {
+                item.replacesTeacherIds = (item.replacesTeacherIds || []).filter(id => id !== teacherId);
+            });
+            state.substituteIds = state.substituteIds.filter(id => {
+                const substitute = state.substituteById.get(id);
+                if ((substitute?.replacesTeacherIds || []).length) return true;
+                state.substituteById.delete(id);
+                return false;
+            });
+        }
+        return renderTeacherShiftManager();
+    }
+    if (action === 'toggle-fixed' && state.mainMeta[teacherId]) {
+        state.mainMeta[teacherId].pendingFixed = !state.mainMeta[teacherId].pendingFixed;
+        return renderTeacherShiftManager();
+    }
+    if (action === 'toggle-map') {
+        const sub = state.substituteById.get(button.dataset.substituteId);
+        const mainId = button.dataset.mainId;
+        if (!sub || !mainId) return;
+        const ids = new Set(sub.replacesTeacherIds || []);
+        if (ids.has(mainId)) ids.delete(mainId); else ids.add(mainId);
+        sub.replacesTeacherIds = Array.from(ids);
+        return renderTeacherShiftManager();
+    }
+}
+
+function handleTeacherShiftManagerChange(event) {
+    const input = event.target;
+    const state = teacherShiftManagerState;
+    if (!state || !input?.dataset?.action) return;
+    const id = input.dataset.teacherId;
+    if (input.dataset.action === 'toggle-main') {
+        if (state.isPast) return;
+        if (input.checked) {
+            if (!state.mainIds.includes(id)) state.mainIds.push(id);
+            state.mainMeta[id] = state.mainMeta[id] || {};
+            state.statuses[id] = state.statuses[id] || { type: 'ACTIVE', reason: '', reportedAt: new Date().toISOString() };
+            if (state.substituteIds.includes(id)) {
+                state.substituteIds = state.substituteIds.filter(value => value !== id);
+                state.substituteById.delete(id);
+            }
+        } else {
+            if (state.mainIds.length === 1) {
+                input.checked = true;
+                UIService.toast('Ca dạy phải còn ít nhất một GV chính.', 'warning');
                 return;
             }
+            state.mainIds = state.mainIds.filter(value => value !== id);
+            delete state.mainMeta[id];
+            delete state.statuses[id];
+            state.substituteById.forEach(item => {
+                item.replacesTeacherIds = (item.replacesTeacherIds || []).filter(value => value !== id);
+            });
         }
+        return renderTeacherShiftManager();
     }
-
-    const listField = fieldType + 'List';
-
-    // Thời điểm trợ lý xếp GV thay thế = thời điểm GV báo nghỉ. Lưu lại để hệ thống tự phân
-    // loại Vắng phép (báo trước >= 24h) / Vắng đột xuất (báo trễ hơn) — xem autoMarkAbsence().
-    let autoAbsenceInfo = null;
-    if (fieldType !== 'gv') {
-        const prevIds = new Set(getGVList(row, fieldType).map(g => g.id).filter(Boolean));
-        const addedIds = newList.map(g => g.id).filter(id => id && !prevIds.has(id));
-        if (addedIds.length > 0) {
-            const markedAt = new Date().toISOString();
-            dayData[caType][index].gvThayTheAt = markedAt;
-            autoAbsenceInfo = { dateKey: compositeKey.split('__')[1] || '', start: row.start, markedAt };
-        } else if (newList.length === 0) {
-            dayData[caType][index].gvThayTheAt = '';
+    if (input.dataset.action === 'toggle-substitute') {
+        if (input.checked) {
+            if (!state.substituteIds.includes(id)) state.substituteIds.push(id);
+            const absentIds = teacherManagerAbsentMainEntries().map(item => item.id);
+            state.substituteById.set(id, {
+                id,
+                name: state.teacherById.get(id)?.name || '',
+                replacesTeacherIds: absentIds.length === 1 ? absentIds : []
+            });
+        } else {
+            state.substituteIds = state.substituteIds.filter(value => value !== id);
+            state.substituteById.delete(id);
         }
+        return renderTeacherShiftManager();
     }
+    if (input.dataset.action === 'absence-reason' && state.statuses[id]) {
+        state.statuses[id].reason = input.value.slice(0, 300);
+    }
+    if (input.dataset.action === 'reported-at' && state.statuses[id]) {
+        const date = new Date(input.value);
+        if (!Number.isNaN(date.getTime())) state.statuses[id].reportedAt = date.toISOString();
+    }
+}
 
-    dayData[caType][index][listField] = newList;
-    // Backward compat: keep first as single field
-    if (fieldType === 'gv') {
-        dayData[caType][index].gv = newList[0]?.name || '';
-        dayData[caType][index].gvId = newList[0]?.id || '';
-        if (Array.isArray(row.teacherAbsences)) {
-            const keptIds = new Set(newList.map(item => String(item.id)));
-            row.teacherAbsences = row.teacherAbsences.filter(item =>
-                keptIds.has(String(item?.teacherId || item?.id || ''))
-            );
-        }
-    } else {
-        dayData[caType][index].gvThayThe = newList[0]?.name || '';
-        dayData[caType][index].gvThayTheId = newList[0]?.id || '';
+function handleTeacherShiftManagerInput(event) {
+    const input = event.target;
+    if (!teacherShiftManagerState) return;
+    if (input.dataset.action === 'absence-reason') {
+        const status = teacherShiftManagerState.statuses[input.dataset.teacherId];
+        if (status) status.reason = input.value.slice(0, 300);
+        return;
     }
-    let marked = [];
-    if (autoAbsenceInfo) {
-        marked = await autoMarkAbsenceForMainTeachers(dayData[caType][index], autoAbsenceInfo, dayData);
-    } else if (fieldType !== 'gv' && newList.length === 0 && Array.isArray(row.teacherAbsences)) {
-        // Gỡ GV thay không đồng nghĩa GV chính đi làm lại: giữ bản ghi báo nghỉ và
-        // chuyển về "chờ người thay". Nút Khôi phục ca là thao tác đảo ngược riêng.
-        row.teacherAbsences = row.teacherAbsences.map(item => ({
-            ...item,
-            status: 'pending',
-            replacementIds: [],
-            replacementNames: [],
-            updatedAt: new Date().toISOString()
+    if (input.dataset.action !== 'roster-search') return;
+    const kind = input.dataset.kind === 'substitute' ? 'substitute' : 'main';
+    teacherShiftManagerState.search[kind] = input.value;
+    applyTeacherRosterFilter(kind);
+}
+
+function trapTeacherManagerFocus(event) {
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeTeacherShiftManager();
+        return;
+    }
+    if (event.key !== 'Tab') return;
+    const dialog = event.currentTarget.querySelector('.teacher-shift-dialog');
+    const focusable = Array.from(dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'))
+        .filter(element => !element.hidden && element.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
+window.openGVPicker = async function (compositeKey, caType, index, fieldType, triggerEl) {
+    closeTeacherShiftManager();
+    const pickerGeneration = teacherPickerGeneration;
+    try {
+        const dayData = await DBService.getSchedule(compositeKey);
+        if (pickerGeneration !== teacherPickerGeneration) return;
+        const row = dayData?.[caType]?.[index];
+        if (!row) throw new Error('Ca dạy không còn tồn tại. Hãy tải lại lịch.');
+        if (!String(row.lop || '').trim()) {
+            throw new Error('Vui lòng chọn Môn / Lớp trước khi điều phối giáo viên để hệ thống tính lương đúng.');
+        }
+        if (!window.TeacherShiftState) throw new Error('Không tải được mô-đun trạng thái ca dạy. Vui lòng tải lại trang.');
+
+        const teachers = (window._teacherList || []).filter(teacher => {
+            const roles = Array.isArray(teacher.roles) ? teacher.roles : [teacher.role || ''];
+            return teacher.id && hasTeachingEmploymentRole(roles);
+        }).map(teacher => ({ ...teacher, name: teacher.name || teacher.username || 'Chưa đặt tên' }));
+        const teacherById = new Map(teachers.map(teacher => [String(teacher.id), teacher]));
+        const mains = TeacherShiftState.getMainTeachers(row).filter(item => item.id);
+        const substitutes = TeacherShiftState.getSubstituteTeachers(row).filter(item => item.id);
+        mains.forEach(item => {
+            if (!teacherById.has(item.id)) {
+                const legacy = { id: item.id, name: item.name || 'GV không còn hoạt động', roles: ['teacher'] };
+                teachers.push(legacy);
+                teacherById.set(item.id, legacy);
+            }
+        });
+        substitutes.forEach(item => {
+            if (!teacherById.has(item.id)) {
+                const legacy = { id: item.id, name: item.name || 'GV không còn hoạt động', roles: ['teacher'] };
+                teachers.push(legacy);
+                teacherById.set(item.id, legacy);
+            }
+        });
+
+        const statuses = {};
+        const mainMeta = {};
+        mains.forEach(main => {
+            const record = TeacherShiftState.getAbsenceRecord(row, main.id);
+            const isUnambiguousLegacyAbsence = !Array.isArray(row.teacherAbsences) && mains.length === 1 && substitutes.length > 0;
+            statuses[main.id] = {
+                type: record
+                    ? TeacherShiftState.normalizeAbsenceType(record.type)
+                    : (isUnambiguousLegacyAbsence
+                        ? (classifyAbsenceByLeadTime(
+                            compositeKey.includes('__') ? compositeKey.split('__').slice(1).join('__') : compositeKey,
+                            row.start,
+                            row.gvThayTheAt
+                        )?.type || 'VDX')
+                        : 'ACTIVE'),
+                reason: record?.reason || '',
+                reportedAt: record?.reportedAt || new Date().toISOString()
+            };
+            mainMeta[main.id] = { pendingFixed: !!main.pendingFixed };
+        });
+        const absentIds = mains.filter(main => statuses[main.id].type !== 'ACTIVE').map(main => main.id);
+        const substituteById = new Map(substitutes.map(sub => {
+            let replacesTeacherIds = Array.isArray(sub.replacesTeacherIds) ? sub.replacesTeacherIds.slice() : [];
+            if (!replacesTeacherIds.length) {
+                replacesTeacherIds = absentIds.filter(mainId => TeacherShiftState.getReplacementIdsForTeacher(row, mainId).includes(sub.id));
+            }
+            if (!replacesTeacherIds.length && absentIds.length === 1) replacesTeacherIds = absentIds.slice();
+            return [sub.id, { ...sub, replacesTeacherIds }];
         }));
+
+        if (pickerGeneration !== teacherPickerGeneration) return;
+        teacherShiftManagerState = {
+            compositeKey,
+            caType,
+            index,
+            dayData: JSON.parse(JSON.stringify(dayData)),
+            originalRow: JSON.parse(JSON.stringify(row)),
+            shiftId: TeacherShiftState.stableShiftId(row),
+            expectedStaffingUpdatedAt: row.staffingUpdatedAt || '',
+            signature: scheduleRowSignature(row),
+            isPast: isScheduleTimePast(compositeKey, row.start),
+            triggerEl: triggerEl || document.activeElement,
+            teachers,
+            teacherById,
+            mainIds: mains.map(item => item.id),
+            mainMeta,
+            statuses,
+            substituteIds: substitutes.map(item => item.id),
+            substituteById,
+            activeTab: fieldType === 'gvThayTe' ? 'substitute' : 'main',
+            search: { main: '', substitute: '' },
+            saving: false
+        };
+
+        const dateKey = compositeKey.includes('__') ? compositeKey.split('__').slice(1).join('__') : compositeKey;
+        const branchLabel = ({ cs1: 'Cơ sở 1', cs2: 'Cơ sở 2', cs3: 'Cơ sở 3' })[compositeKey.split('__')[0]] || 'Cơ sở 1';
+        const overlay = document.createElement('div');
+        overlay.id = 'gv-picker-overlay';
+        overlay.className = 'teacher-shift-overlay';
+        overlay.innerHTML = `<div class="teacher-shift-dialog" role="dialog" aria-modal="true" aria-labelledby="teacher-shift-manager-title">
+            <header class="teacher-shift-header">
+                <div class="teacher-shift-title-wrap">
+                    <span class="teacher-shift-kicker">Bảng điều khiển ca dạy</span>
+                    <h3 id="teacher-shift-manager-title">${scheduleEscapeHTML(row.lop || 'Ca dạy')}</h3>
+                    <div class="teacher-shift-context">
+                        <span>${scheduleEscapeHTML(branchLabel)}</span><span>${scheduleEscapeHTML(dateKey)}</span><span>${scheduleEscapeHTML(`${row.start || '--:--'}–${row.end || '--:--'}`)}</span><span>Phòng ${scheduleEscapeHTML(row.phong || '—')}</span>
+                    </div>
+                </div>
+                <button type="button" class="teacher-shift-close" data-action="close-manager" aria-label="Đóng bảng điều phối">×</button>
+            </header>
+            ${teacherShiftManagerState.isPast ? '<div class="teacher-shift-alert"><strong>Ca đã bắt đầu hoặc đã qua.</strong> Bạn vẫn có thể ghi nhận Vắng đột xuất, khôi phục trạng thái và điều phối GV thay; danh sách GV chính được khóa để bảo toàn lịch sử.</div>' : ''}
+            <div id="teacher-shift-manager-body" class="teacher-shift-body"></div>
+            <footer class="teacher-shift-footer">
+                <div><span class="save-state-dot" aria-hidden="true"></span><strong id="teacher-shift-manager-summary"></strong><small>Mọi thay đổi trạng thái đều được lưu lịch sử.</small></div>
+                <div class="teacher-shift-footer-actions">
+                    <button type="button" class="btn-manager-cancel" data-action="close-manager">Hủy</button>
+                    <button type="button" class="btn-manager-save" data-action="save-manager"><span>✓</span> Lưu điều phối ca</button>
+                </div>
+            </footer>
+        </div>`;
+        overlay.addEventListener('click', event => {
+            if (event.target === overlay) closeTeacherShiftManager();
+            else handleTeacherShiftManagerClick(event);
+        });
+        overlay.addEventListener('change', handleTeacherShiftManagerChange);
+        overlay.addEventListener('input', handleTeacherShiftManagerInput);
+        overlay.addEventListener('keydown', trapTeacherManagerFocus);
+        if (pickerGeneration !== teacherPickerGeneration) return;
+        document.getElementById('gv-picker-overlay')?.remove();
+        document.body.appendChild(overlay);
+        document.body.classList.add('teacher-shift-modal-open');
+        renderTeacherShiftManager();
+        requestAnimationFrame(() => overlay.querySelector('[data-action="close-manager"]')?.focus());
+    } catch (error) {
+        if (pickerGeneration !== teacherPickerGeneration) return;
+        console.error('Không mở được bảng điều phối ca:', error);
+        if (window.UIService?.toast) UIService.toast(error.message || 'Không mở được ca dạy.', 'error');
+        else alert(error.message || error);
     }
-
-    await DBService.saveSchedule(compositeKey, dayData);
-
-    if (autoAbsenceInfo) {
-        if (marked.length > 0) {
-            const label = marked[0].type === 'VP' ? 'Vắng phép' : 'Vắng đột xuất';
-            const msg = `Đã tự đánh dấu "${label}" cho ${marked.map(m => m.name).join(', ')}`;
-            if (window.UIService && typeof UIService.toast === 'function') UIService.toast(msg, 'success');
-            else console.log('[Vắng GV]', msg);
-        }
-    }
-
-    document.getElementById('gv-picker-overlay').remove();
-    renderTable();
 };
+
+window.saveTeacherShiftCommand = async function () {
+    const state = teacherShiftManagerState;
+    if (!state || state.saving) return;
+    const saveButton = document.querySelector('[data-action="save-manager"]');
+    state.saving = true;
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<span class="manager-spinner"></span> Đang lưu...';
+    }
+    try {
+        const mains = state.mainIds.map(id => ({
+            id,
+            name: state.teacherById.get(id)?.name || '',
+            ...(state.mainMeta[id]?.pendingFixed ? { pendingFixed: true } : {})
+        }));
+        const substitutes = state.substituteIds.map(id => {
+            const item = state.substituteById.get(id);
+            return {
+                id,
+                name: item?.name || state.teacherById.get(id)?.name || '',
+                replacesTeacherIds: Array.from(new Set(item?.replacesTeacherIds || []))
+            };
+        });
+        const statuses = Object.fromEntries(state.mainIds.map(id => [id, { ...state.statuses[id] }]));
+        const actor = {
+            id: localStorage.getItem('currentUserId') || '',
+            name: localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || ''
+        };
+        const command = { shiftId: state.shiftId, mains, substitutes, statuses };
+        const nowISO = new Date().toISOString();
+        await DBService.updateScheduleRowAtomic(
+            state.compositeKey,
+            state.caType,
+            {
+                index: state.index,
+                shiftId: state.originalRow.shiftId || '',
+                signature: state.signature,
+                expectedStaffingUpdatedAt: state.expectedStaffingUpdatedAt
+            },
+            latestRow => {
+                const expected = String(state.expectedStaffingUpdatedAt || '');
+                const actual = String(latestRow.staffingUpdatedAt || '');
+                if (expected !== actual) {
+                    const conflict = new Error('Một người xếp lịch khác vừa cập nhật ca này. Hãy tải lại dữ liệu trước khi lưu tiếp.');
+                    conflict.code = 'schedule/staffing-conflict';
+                    throw conflict;
+                }
+                return TeacherShiftState.applyStaffingCommand(latestRow, command, actor, nowISO);
+            },
+            state.dayData
+        );
+        closeTeacherShiftManager();
+        UIService.toast('Đã lưu điều phối ca và đồng bộ trạng thái GV.', 'success');
+        await renderTable();
+    } catch (error) {
+        console.error('Lỗi lưu điều phối ca:', error);
+        state.saving = false;
+        if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.innerHTML = '<span>✓</span> Lưu điều phối ca';
+        }
+        UIService.toast(error.message || 'Không thể lưu điều phối ca.', 'error');
+    }
+};
+
+// Compatibility aliases for old inline calls and cached HTML during a rolling deploy.
+window.saveGVPickerResult = window.saveTeacherShiftCommand;
+window.filterGVPicker = function (query) {
+    if (!teacherShiftManagerState) return;
+    teacherShiftManagerState.search[teacherShiftManagerState.activeTab] = query || '';
+    applyTeacherRosterFilter(teacherShiftManagerState.activeTab);
+};
+window.toggleCBCDBadge = function () {};
 
 window.showGVPopup = function (triggerEl, encodedList) {
     const existing = document.getElementById('gv-popup');
@@ -1012,10 +1534,18 @@ window.showGVPopup = function (triggerEl, encodedList) {
     const popup = document.createElement('div');
     popup.id = 'gv-popup';
     popup.style.cssText = 'position:fixed;background:white;border:1px solid #E5E7EB;border-radius:10px;padding:0.5rem 0.75rem;box-shadow:0 8px 24px rgba(0,0,0,0.15);z-index:9998;min-width:140px;';
-    popup.innerHTML = gvList.map(g => {
-        const cbcd = g.pendingFixed ? ` <span style="background:#FFEDD5;color:#9A3412;border-radius:99px;padding:1px 6px;font-size:0.62rem;font-weight:700;white-space:nowrap;">⏳ CĐ tuần sau</span>` : '';
-        return `<div style="padding:0.3rem 0;font-size:0.85rem;border-bottom:1px solid #F3F4F6;">${g.name}${cbcd}</div>`;
-    }).join('');
+    gvList.forEach(g => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:0.3rem 0;font-size:0.85rem;border-bottom:1px solid #F3F4F6;';
+        item.appendChild(document.createTextNode(String(g?.name || '')));
+        if (g?.pendingFixed) {
+            const badge = document.createElement('span');
+            badge.style.cssText = 'margin-left:4px;background:#FFEDD5;color:#9A3412;border-radius:99px;padding:1px 6px;font-size:0.62rem;font-weight:700;white-space:nowrap;';
+            badge.textContent = '⏳ CĐ tuần sau';
+            item.appendChild(badge);
+        }
+        popup.appendChild(item);
+    });
     const rect = triggerEl.getBoundingClientRect();
     const top = Math.min(rect.bottom + 4, window.innerHeight - 160);
     popup.style.top = top + 'px';
@@ -1050,7 +1580,7 @@ window.openCopyWeekModal = function () {
             <h3 style="font-size:1.125rem;font-weight:700;margin-bottom:1.25rem;">Sao Chép Lịch Tuần Hiện Tại</h3>
             <p style="color:var(--text-muted);font-size:0.875rem;margin-bottom:1rem;">
                 Chọn tuần đích để sao chép toàn bộ lịch cơ sở <strong>${currentBranch.toUpperCase()}</strong>
-                của tuần đang xem sang.
+                của tuần đang xem sang. Các ngày đích đã có lịch sẽ được giữ nguyên.
             </p>
             <select id="copy-target-week" class="form-input" style="width:100%;margin-bottom:1.25rem;">
                 ${options.join('')}
@@ -1067,6 +1597,8 @@ window.openCopyWeekModal = function () {
 window.executeCopyWeek = async function () {
     const targetMondayKey = document.getElementById('copy-target-week').value;
     if (!targetMondayKey) return;
+    const sourceWeekStart = new Date(currentWeekStart);
+    const sourceBranch = currentBranch;
 
     const btn = document.querySelector('#copy-week-modal .btn-primary');
     if (btn) { btn.disabled = true; btn.innerText = 'Đang sao chép...'; }
@@ -1074,18 +1606,19 @@ window.executeCopyWeek = async function () {
     try {
         let copied = 0;
         let skippedPastDays = 0;
+        let skippedExistingDays = 0;
         for (let i = 0; i < 7; i++) {
             // Source day
-            const srcDate = new Date(currentWeekStart);
+            const srcDate = new Date(sourceWeekStart);
             srcDate.setDate(srcDate.getDate() + i);
             const srcKey = getLocalDateKey(srcDate);
-            const srcComposite = `${currentBranch}__${srcKey}`;
+            const srcComposite = `${sourceBranch}__${srcKey}`;
 
             // Target day
             const [ty, tm, td] = targetMondayKey.split('-').map(Number);
             const tgtDate = new Date(ty, tm - 1, td + i);
             const tgtKey = getLocalDateKey(tgtDate);
-            const tgtComposite = `${currentBranch}__${tgtKey}`;
+            const tgtComposite = `${sourceBranch}__${tgtKey}`;
 
             // Set time to end of target day (23:59:59) so if today is the target day, we can still copy it
             const tgtDateEnd = new Date(ty, tm - 1, td + i, 23, 59, 59, 999);
@@ -1108,22 +1641,28 @@ window.executeCopyWeek = async function () {
                             const { registeredTeachers, isClosed,
                                 gvThayThe, gvThayTheId, gvThayTheList,
                                 gvThayTe, gvThayTeId, gvThayTeList,
-                                gvThayTheAt, teacherAbsences, ...rest } = row;
+                                gvThayTheAt, teacherAbsences, teacherAbsenceHistory,
+                                staffingUpdatedAt, staffingUpdatedById, staffingUpdatedByName,
+                                shiftId, ...rest } = row;
                             return {
                                 ...rest,
+                                shiftId: window.TeacherShiftState ? TeacherShiftState.stableShiftId({}) : `shift_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+                                staffingSchemaVersion: 2,
                                 gvThayThe: '', gvThayTheId: '', gvThayTheList: [],
-                                gvThayTe: '', gvThayTeId: '', gvThayTeList: []
+                                gvThayTe: '', gvThayTeId: '', gvThayTeList: [],
+                                teacherAbsences: [], teacherAbsenceHistory: []
                             };
                         });
                     }
                 });
-                await DBService.saveSchedule(tgtComposite, cleanData);
-                copied++;
+                const created = await DBService.createScheduleIfMissing(tgtComposite, cleanData);
+                if (created) copied++;
+                else skippedExistingDays++;
             }
         }
         document.getElementById('copy-week-modal').remove();
-        if (skippedPastDays > 0) {
-            alert(`Đã sao chép lịch ${copied} ngày sang tuần đã chọn (bỏ qua ${skippedPastDays} ngày trong quá khứ để bảo toàn dữ liệu)!`);
+        if (skippedPastDays > 0 || skippedExistingDays > 0) {
+            alert(`Đã sao chép ${copied} ngày. Giữ nguyên ${skippedExistingDays} ngày đã có lịch và bỏ qua ${skippedPastDays} ngày trong quá khứ.`);
         } else {
             alert(`Đã sao chép lịch ${copied}/7 ngày sang tuần đã chọn!`);
         }
@@ -1344,7 +1883,7 @@ async function autoMarkAbsenceForMainTeachers(row, info, dayData) {
 function absenceStatusBadge(status, noteText) {
     if (status === 'VDX') return `<span style="background:#FFEDD5;color:#9A3412;border-radius:99px;padding:3px 10px;font-size:0.72rem;font-weight:700;">Vắng đột xuất</span>`;
     if (status === 'VP') return `<span style="background:#D1FAE5;color:#065F46;border-radius:99px;padding:3px 10px;font-size:0.72rem;font-weight:700;">Vắng phép</span>`;
-    if (noteText) return `<span title="${noteText.replace(/"/g, '&quot;')}" style="background:#F3F4F6;color:#6B7280;border-radius:99px;padding:3px 10px;font-size:0.72rem;font-weight:600;">Có ghi chú khác</span>`;
+    if (noteText) return `<span title="${scheduleEscapeAttr(noteText)}" style="background:#F3F4F6;color:#6B7280;border-radius:99px;padding:3px 10px;font-size:0.72rem;font-weight:600;">Có ghi chú khác</span>`;
     return `<span style="background:#F3F4F6;color:#9CA3AF;border-radius:99px;padding:3px 10px;font-size:0.72rem;font-weight:600;">Chưa đánh dấu</span>`;
 }
 
@@ -1374,8 +1913,7 @@ window.openGVAbsenceModal = async function () {
     <div style="text-align:center;color:#9CA3AF;padding:2rem;">Đang tải danh sách GV của ngày...</div>
   </div>
   <div style="padding:0.75rem 1.1rem;border-top:1px solid #E5E7EB;font-size:0.75rem;color:#6B7280;line-height:1.6;">
-    Bấm <b>Báo nghỉ · chưa có người thay</b> ngay khi GV báo; sau đó có thể chọn GV thay hoặc <b>Khôi phục ca</b> nếu GV đi làm lại.
-    Ghi chú ngày có sẵn được giữ nguyên. Không đánh dấu = Vắng không phép (nếu GV thực sự vắng).
+    Trạng thái nghỉ được quản lý <b>theo từng ca và từng giáo viên</b>. Mở một ca để chọn Vắng có phép, Vắng đột xuất, người dạy thay hoặc khôi phục đi dạy.
   </div>
 </div>`;
     document.body.appendChild(overlay);
@@ -1433,8 +1971,8 @@ window.openGVAbsenceModal = async function () {
         return;
     }
 
-    // Đọc note hiện tại của từng GV, và tự ghi đánh dấu cho GV có ca đã xếp người thay
-    // nhưng ghi chú ngày còn trống (bù các lần thao tác trước khi có tính năng tự động).
+    // Modal danh sách chỉ đọc/điều hướng. Việc mở modal tuyệt đối không được tự ghi
+    // daily_notes hoặc thay đổi lương; nguồn sự thật là teacherAbsences theo từng ca.
     const teachers = Array.from(seen.values());
     const rows = await Promise.all(teachers.map(async t => {
         let noteText = '';
@@ -1454,15 +1992,6 @@ window.openGVAbsenceModal = async function () {
         t.absentShifts = stillAbsent;
 
         const suggestion = pickAbsenceSuggestion(t.absentShifts);
-        if (!noteText.trim() && suggestion) {
-            const canonical = suggestion.type === 'VP' ? 'Vắng phép' : 'Vắng đột xuất';
-            try {
-                const notes = { ...(await DBService.getDailyNotes(t.id) || {}) };
-                notes[dateKey] = canonical;
-                await DBService.saveDailyNotes(t.id, notes);
-                noteText = canonical;
-            } catch (e) { console.warn('Không tự đánh dấu vắng được cho', t.name, e); }
-        }
         return { ...t, noteText, status: classifyAbsenceNote(noteText), suggestion };
     }));
 
@@ -1489,32 +2018,25 @@ function pickAbsenceSuggestion(absentShifts) {
 function renderTeacherShiftAbsenceActions(t, dateKey) {
     const shifts = Array.isArray(t.scheduledShifts) ? t.scheduledShifts : [];
     if (shifts.length === 0) return '';
-    const encodedName = encodeURIComponent(t.name || '');
 
     return '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">' + shifts.map(s => {
         const label = [s.lop || 'Ca dạy', s.start && s.end ? `${s.start}–${s.end}` : ''].filter(Boolean).join(' ');
         const absence = s.absence || null;
-        const covered = !!absence && !!s.subNames;
+        const replacementNames = Array.isArray(absence?.replacementNames)
+            ? absence.replacementNames.filter(Boolean)
+            : [];
+        const covered = !!absence && replacementNames.length > 0;
         const status = absence
             ? (covered
-                ? `<span style="color:#065F46;font-weight:700;">Đã có GV thay: ${s.subNames}</span>`
-                : '<span style="color:#9A3412;font-weight:700;">Chưa tìm được người thay</span>')
+                ? `<span style="color:#065F46;font-weight:700;">${absence.type === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'} · GV thay: ${scheduleEscapeHTML(replacementNames.join(', '))}</span>`
+                : `<span style="color:#9A3412;font-weight:700;">${absence.type === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'} · Đang tìm GV thay</span>`)
             : '<span style="color:#6B7280;">Đang đi dạy</span>';
-        const action = absence ? 'RESTORE' : 'PENDING';
-        const actionLabel = absence ? '↩ Khôi phục ca' : 'Báo nghỉ · chưa có người thay';
-        const actionStyle = absence
-            ? 'background:#ECFDF5;color:#047857;border:1px solid #6EE7B7;'
-            : 'background:#FFF7ED;color:#9A3412;border:1px solid #FDBA74;';
-        const replacementBtn = absence && !covered
-            ? `<button onclick="openReplacementPickerFromAbsence('${s.compositeKey}','${s.section}',${s.index})" style="padding:5px 9px;border-radius:7px;border:1px solid #93C5FD;background:#EFF6FF;color:#1D4ED8;font-size:0.7rem;font-weight:700;cursor:pointer;">Chọn GV thay</button>`
-            : '';
 
         return `<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:9px;padding:7px 8px;">
-            <div style="font-size:0.74rem;color:#374151;font-weight:600;">${label}</div>
+            <div style="font-size:0.74rem;color:#374151;font-weight:600;">${scheduleEscapeHTML(label)}</div>
             <div style="font-size:0.7rem;margin-top:2px;">${status}</div>
             <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;">
-                <button onclick="setTeacherShiftAbsence('${s.compositeKey}','${s.section}',${s.index},'${t.id}','${encodedName}','${dateKey}','${action}')" style="padding:5px 9px;border-radius:7px;${actionStyle}font-size:0.7rem;font-weight:700;cursor:pointer;">${actionLabel}</button>
-                ${replacementBtn}
+                <button onclick="document.getElementById('gv-absence-overlay')?.remove();openGVPicker('${scheduleEscapeAttr(s.compositeKey)}','${scheduleEscapeAttr(s.section)}',${s.index},'gv',this)" style="padding:6px 10px;border-radius:8px;border:1px solid #6EE7B7;background:#ECFDF5;color:#047857;font-size:0.7rem;font-weight:700;cursor:pointer;">Mở bảng điều phối ca</button>
             </div>
         </div>`;
     }).join('') + '</div>';
@@ -1526,29 +2048,19 @@ window.openReplacementPickerFromAbsence = function (compositeKey, section, index
 };
 
 function renderGVAbsenceRow(t, dateKey) {
-    const safeName = (t.name || '').replace(/"/g, '&quot;');
-    const cls = t.classes.length ? `<div style="font-size:0.72rem;color:#9CA3AF;margin-top:2px;">${t.classes.join(', ')}</div>` : '';
+    const cls = t.classes.length ? `<div style="font-size:0.72rem;color:#9CA3AF;margin-top:2px;">${scheduleEscapeHTML(t.classes.join(', '))}</div>` : '';
 
     const shiftsHtml = renderTeacherShiftAbsenceActions(t, dateKey);
-
-    const btn = (label, type, active, bg, fg) =>
-        `<button onclick="setGVAbsence('${t.id}','${safeName}','${dateKey}','${type}')"
-            style="padding:7px 13px;border-radius:9px;border:1.5px solid ${active ? fg : '#E5E7EB'};cursor:pointer;font-size:0.78rem;font-weight:700;background:${active ? bg : 'white'};color:${active ? fg : '#6B7280'};white-space:nowrap;">${label}</button>`;
 
     const shiftsData = encodeURIComponent(JSON.stringify(t.absentShifts || []));
     const scheduledShiftsData = encodeURIComponent(JSON.stringify(t.scheduledShifts || []));
 
-    return `<div id="gv-abs-row-${t.id}" data-note="${(t.noteText || '').replace(/"/g, '&quot;')}" data-classes="${t.classes.join(', ').replace(/"/g, '&quot;')}" data-shifts="${shiftsData}" data-scheduled-shifts="${scheduledShiftsData}"
+    return `<div id="gv-abs-row-${scheduleEscapeAttr(t.id)}" data-note="${scheduleEscapeAttr(t.noteText || '')}" data-classes="${scheduleEscapeAttr(t.classes.join(', '))}" data-shifts="${shiftsData}" data-scheduled-shifts="${scheduledShiftsData}"
         style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.7rem 0.4rem;border-bottom:1px solid #F3F4F6;flex-wrap:wrap;">
         <div style="flex:1;min-width:180px;">
-            <div style="font-size:0.92rem;font-weight:600;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">${t.name} ${absenceStatusBadge(t.status, t.noteText)}</div>
+            <div style="font-size:0.92rem;font-weight:600;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">${scheduleEscapeHTML(t.name)} ${absenceStatusBadge(t.status, t.noteText)}</div>
             ${cls}
             ${shiftsHtml}
-        </div>
-        <div style="display:flex;gap:0.4rem;flex-shrink:0;">
-            ${btn('Vắng phép', 'VP', t.status === 'VP', '#D1FAE5', '#065F46')}
-            ${btn('Vắng ĐX', 'VDX', t.status === 'VDX', '#FFEDD5', '#9A3412')}
-            ${btn('Xoá', 'CLEAR', false, '', '')}
         </div>
     </div>`;
 }
@@ -1701,4 +2213,19 @@ window.setTeacherShiftAbsence = async function (compositeKey, section, index, te
         console.error('Lỗi cập nhật nghỉ theo ca:', error);
         alert('Không thể cập nhật trạng thái nghỉ: ' + (error.message || error));
     }
+};
+
+// Rolling-deploy compatibility: old cached buttons may still call the former
+// quick actions. Route them into the canonical per-shift controller so every
+// VP/VĐX/restoration change uses the same transaction, mapping and audit trail.
+window.setGVAbsence = async function () {
+    if (typeof UIService !== 'undefined') {
+        UIService.toast('Trạng thái nghỉ được quản lý theo từng ca dạy.', 'info');
+    }
+    return openGVAbsenceModal();
+};
+
+window.setTeacherShiftAbsence = async function (compositeKey, section, index) {
+    document.getElementById('gv-absence-overlay')?.remove();
+    return openGVPicker(compositeKey, section, index, 'gv');
 };

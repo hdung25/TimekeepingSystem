@@ -15,6 +15,15 @@ const monHocJs = read('js/mon-hoc.js');
 const serviceWorker = read('service-worker.js');
 const chamCong = read('cham-cong.html');
 const style = read('css/style.css');
+const rootHtmlFiles = fs.readdirSync(root).filter((file) => file.endsWith('.html'));
+
+for (const file of rootHtmlFiles) {
+  const source = read(file);
+  assert.doesNotMatch(source, /firebasejs\/10\.7\.1\//, `${file} must not load the retired Firebase 10.7.1 SDK`);
+  if (source.includes('www.gstatic.com/firebasejs/')) {
+    assert.match(source, /firebasejs\/12\.18\.0\//, `${file} must use the pinned Firebase 12.18.0 SDK`);
+  }
+}
 
 for (const [name, source] of [
   ['nhan-su.html', nhanSu],
@@ -32,9 +41,9 @@ assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /value="office_staff"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
 assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(baoCao, /db-service\.js\?v=20260822-office-role-v1/);
-assert.match(baoCao, /report\.js\?v=20260822-office-role-v1/);
-assert.match(baoCao, /style\.css\?v=20260816-report-chip-mobile-v1/);
+assert.match(baoCao, /db-service\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(baoCao, /report\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(baoCao, /style\.css\?v=20260831-scheduler-hd-v2/);
 assert.match(report, /DBService\.getMonthlyReceptionistShifts/);
 assert.match(dbService, /getMonthlyReceptionistShifts:\s*async/);
 assert.match(report, /DBService\.getOvertimeRequestsForStaff\(staffId, prevMonthStr\)/);
@@ -69,14 +78,14 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v137-location-diagnostics-20260829/);
+assert.match(serviceWorker, /tdt-chamcong-v138-scheduler-hd-20260831/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /report\.js\?v=20260822-office-role-v1/);
+assert.match(serviceWorker, /report\.js\?v=20260831-scheduler-hd-v2/);
 assert.match(serviceWorker, /lich-van-phong\.html/);
-assert.match(chamCong, /db-service\.js\?v=20260829-location-diagnostics-v3/);
-assert.match(chamCong, /main\.js\?v=20260829-location-diagnostics-v3/);
-assert.match(chamCong, /timekeeping\.js\?v=20260829-location-diagnostics-v3/);
-assert.match(serviceWorker, /db-service\.js\?v=20260829-location-diagnostics-v3/);
-assert.match(serviceWorker, /timekeeping\.js\?v=20260829-location-diagnostics-v3/);
+assert.match(chamCong, /db-service\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(chamCong, /main\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(chamCong, /timekeeping\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(serviceWorker, /db-service\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(serviceWorker, /timekeeping\.js\?v=20260831-scheduler-hd-v2/);
 
 console.log('page compatibility checks passed');

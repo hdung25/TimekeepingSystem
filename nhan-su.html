@@ -12,7 +12,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260808-combined-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260831-scheduler-hd-v2">
     <style>
         /* ===================== TRANG NHÂN SỰ ===================== */
         .ns-page { max-width: 1180px; margin: 0 auto; padding-bottom: 2rem; }
@@ -238,11 +238,12 @@
         }
     </style>
     <!-- Firebase SDK (Compat) -->
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
-    <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
+    <script src='js/firebase-config.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/auth-guard.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/db-service.js?v=20260831-scheduler-hd-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -345,7 +346,7 @@
 
                     <div class="ns-field">
                         <label class="ns-label" for="ns-staff-password">Mật khẩu <i>*</i></label>
-                        <input type="text" id="ns-staff-password" class="ns-input" placeholder="123456" required>
+                        <input type="password" id="ns-staff-password" class="ns-input" placeholder="Tối thiểu 6 ký tự" autocomplete="new-password" required>
                     </div>
 
                     <div class="ns-field">
@@ -504,9 +505,9 @@
     <script src="js/early10.js?v=20260816-early10-old-unset-v3"></script>
     <script src="js/payroll-automation.js?v=20260809-payroll-safety-v1"></script>
     <script src="js/subject-rate-policy.js?v=20260809-subject-rate-v1"></script>
-    <script src="js/main.js?v=20260822-office-role-v1"></script>
-    <script src="js/auth-helper.js"></script>
-    <script src="js/personnel.js?v=20260822-office-role-v1"></script>
+    <script src="js/main.js?v=20260831-scheduler-hd-v2"></script>
+    <script src="js/auth-helper.js?v=20260831-scheduler-hd-v2"></script>
+    <script src="js/personnel.js?v=20260831-scheduler-hd-v2"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

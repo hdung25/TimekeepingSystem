@@ -137,6 +137,18 @@
         return copy;
     }
 
+    async function loadUsersWithCredentials() {
+        var results = await Promise.all([
+            DBService.getUsers(),
+            DBService.getUserCredentialsMap()
+        ]);
+        var credentials = results[1] || {};
+        return sortUsers((results[0] || []).map(function (user) {
+            var credential = credentials[user.id] || {};
+            return Object.assign({}, user, { password: credential.password || '' });
+        }));
+    }
+
     // --- Lọc & sắp xếp ----------------------------------------------------
 
     function sortUsers(users) {
@@ -380,7 +392,7 @@
 
     async function load() {
         try {
-            state.users = sortUsers(await DBService.getUsers());
+            state.users = await loadUsersWithCredentials();
             render();
         } catch (e) {
             var loading = document.getElementById('ns-loading');
@@ -391,7 +403,7 @@
     async function reload() {
         localStorage.removeItem('users_data');
         DBService._invalidate('users_all');
-        state.users = sortUsers(await DBService.getUsers());
+        state.users = await loadUsersWithCredentials();
         render();
     }
 
@@ -453,7 +465,10 @@
         document.getElementById('ns-staff-id').value = user ? user.id : '';
         document.getElementById('ns-staff-name').value = user ? (user.name || '') : '';
         document.getElementById('ns-staff-username').value = user ? (user.username || '') : '';
-        document.getElementById('ns-staff-password').value = user ? (user.password || '') : '';
+        var passwordInput = document.getElementById('ns-staff-password');
+        passwordInput.value = '';
+        passwordInput.required = !user;
+        passwordInput.placeholder = user ? 'Để trống nếu không đổi' : 'Tối thiểu 6 ký tự';
         document.getElementById('ns-staff-color').value = (user && user.scheduleColor) || '#4CAF50';
 
         var checkedRoles = user ? rolesOf(user) : ['staff'];
@@ -481,7 +496,8 @@
         var id = document.getElementById('ns-staff-id').value;
         var name = document.getElementById('ns-staff-name').value.trim();
         var username = document.getElementById('ns-staff-username').value.trim();
-        var password = document.getElementById('ns-staff-password').value.trim();
+        // Passwords are opaque values: spaces may be intentional and must not be trimmed.
+        var password = document.getElementById('ns-staff-password').value;
 
         var checkedRoles = Array.prototype.slice
             .call(document.querySelectorAll('#ns-roles input[type="checkbox"]:checked'))
@@ -496,9 +512,17 @@
         var isNew = !state.editing || !id;
         var existing = id ? state.users.find(function (u) { return u.id === id; }) : null;
 
+        if (isNew && password.length < 6) {
+            UIService.toast('Mật khẩu mới phải có ít nhất 6 ký tự.', 'error');
+            return;
+        }
+        if (!isNew && password && password.length < 6) {
+            UIService.toast('Mật khẩu mới phải có ít nhất 6 ký tự.', 'error');
+            return;
+        }
+
         var payload = {
             username: username,
-            password: password,
             name: name,
             role: primaryRole,
             roles: checkedRoles,
@@ -507,6 +531,9 @@
             // Giữ nguyên cấu hình lương đã có — form này không đụng tới nó.
             salary_config: (existing && existing.salary_config) || {}
         };
+
+        if (password) payload.password = password;
+        if (existing && existing.authUid) payload.authUid = existing.authUid;
 
         if (isNew) {
             payload.id = 'nv_' + Date.now();
@@ -517,6 +544,7 @@
 
         var submitBtn = document.getElementById('ns-staff-submit');
         var oldLabel = submitBtn.innerHTML;
+        var completedAuthMutation = null;
         submitBtn.disabled = true;
         submitBtn.innerHTML = 'Đang xử lý...';
 
@@ -524,12 +552,34 @@
             if (typeof AuthHelper === 'undefined') throw new Error('Lỗi hệ thống: AuthHelper chưa được tải.');
 
             if (isNew) {
-                await AuthHelper.createUser(username, password);
+                var authUser = await AuthHelper.createUser(username, password);
+                payload.authUid = authUser.uid;
+                completedAuthMutation = { type: 'create', username: username, password: password };
             } else if (existing) {
-                await AuthHelper.syncUser(username, existing.password, password);
+                var usernameChanged = String(existing.username || '').toLowerCase() !== username.toLowerCase();
+                if (password || usernameChanged) {
+                    if (!existing.password) {
+                        throw new Error('Không có khóa xác thực cũ để đồng bộ. Vui lòng đặt lại tài khoản bằng công cụ quản trị Firebase.');
+                    }
+                    var syncedUser = await AuthHelper.syncUser(
+                        existing.username,
+                        existing.password,
+                        password || existing.password,
+                        username
+                    );
+                    if (syncedUser && syncedUser.uid) payload.authUid = syncedUser.uid;
+                    completedAuthMutation = {
+                        type: 'update',
+                        oldUsername: existing.username,
+                        oldPassword: existing.password,
+                        newUsername: username,
+                        newPassword: password || existing.password
+                    };
+                }
             }
 
             await DBService.saveUser(payload);
+            completedAuthMutation = null;
             localStorage.removeItem('users_data');
             UIService.toast('Đã lưu (tài khoản đã đồng bộ).', 'success');
             closeStaffSheet();
@@ -537,6 +587,27 @@
         } catch (err) {
             console.error(err);
             var message = err.message;
+
+            // Firebase Auth and Firestore cannot share one transaction. If the
+            // profile write fails after Auth succeeded, compensate immediately.
+            if (completedAuthMutation) {
+                try {
+                    if (completedAuthMutation.type === 'create') {
+                        var rollbackDeleted = await AuthHelper.deleteUser(completedAuthMutation.username, completedAuthMutation.password);
+                        if (!rollbackDeleted) throw new Error('Không thể xóa tài khoản vừa tạo.');
+                    } else {
+                        await AuthHelper.syncUser(
+                            completedAuthMutation.newUsername,
+                            completedAuthMutation.newPassword,
+                            completedAuthMutation.oldPassword,
+                            completedAuthMutation.oldUsername
+                        );
+                    }
+                } catch (rollbackError) {
+                    console.error('Auth compensation failed:', rollbackError);
+                    message += ' Tài khoản đăng nhập đã đổi nhưng hồ sơ chưa lưu; cần kiểm tra Firebase Auth.';
+                }
+            }
 
             if (err.code === 'auth/email-already-in-use') {
                 var users = await DBService.getUsers();
@@ -547,19 +618,7 @@
                     message = 'Tên đăng nhập này đã tồn tại trong danh sách nhân viên!';
                 } else {
                     // Tài khoản "mồ côi": còn trong Auth nhưng đã xóa khỏi danh sách.
-                    submitBtn.innerHTML = 'Đang khôi phục tài khoản cũ...';
-                    try {
-                        await AuthHelper.syncUser(username, password, password);
-                        await DBService.saveUser(payload);
-                        localStorage.removeItem('users_data');
-                        UIService.toast('Đã khôi phục tài khoản cũ thành công!', 'success');
-                        closeStaffSheet();
-                        await reload();
-                        return;
-                    } catch (reclaimErr) {
-                        console.error('Reclaim failed:', reclaimErr);
-                        message = 'Tên đăng nhập này đã tồn tại và mật khẩu không khớp. Vui lòng chọn tên khác.';
-                    }
+                    message = 'Tài khoản đăng nhập đã tồn tại nhưng không có hồ sơ. Hãy khôi phục bằng Firebase Console để tránh chiếm nhầm tài khoản.';
                 }
             } else if (String(message).indexOf('Mật khẩu hiện tại') !== -1) {
                 message = 'Chưa cập nhật được mật khẩu vì sai pass cũ. Hãy thử tạo mới lại user này.';
@@ -583,20 +642,54 @@
         if (!await UIService.confirm('Xóa nhân viên "' + (user.name || user.username) +
             '"?\n\nDữ liệu chấm công lịch sử vẫn được giữ, nhưng tài khoản sẽ bị vô hiệu hóa.')) return;
 
+        var deletionRecoverySnapshot = null;
         try {
             UIService.showLoading('Đang xóa...');
-            if (user.username && user.password && typeof AuthHelper !== 'undefined') {
-                try { await AuthHelper.deleteUser(user.username, user.password); }
-                catch (authErr) { console.warn('Không tự xóa được tài khoản Auth (bình thường nếu đã đổi mật khẩu)', authErr); }
+            if (user.authUid && !user.username) {
+                throw new Error('Hồ sơ thiếu tên đăng nhập; đã dừng xóa để tránh để lại tài khoản đăng nhập mồ côi.');
             }
-            await DBService.deleteUser(userId);
+            if (user.username) {
+                if (typeof AuthHelper === 'undefined') {
+                    throw new Error('Lỗi hệ thống: AuthHelper chưa được tải; hồ sơ chưa bị xóa.');
+                }
+                if (!user.password) {
+                    throw new Error('Thiếu khóa xác thực; chưa xóa hồ sơ để tránh để lại tài khoản đăng nhập mồ côi.');
+                }
+            }
+
+            // Firestore is removed transactionally first and kept in an in-memory
+            // recovery snapshot. This makes an Auth refusal reversible instead of
+            // leaving a visible profile whose login identity has already vanished.
+            deletionRecoverySnapshot = await DBService.deleteUser(userId, user.authUid || '');
+
+            if (user.username) {
+                var authDeleted = await AuthHelper.deleteUser(user.username, user.password);
+                if (!authDeleted) {
+                    var authDeleteError = new Error('Không thể vô hiệu hóa tài khoản đăng nhập.');
+                    authDeleteError.code = 'staff/auth-delete-failed';
+                    throw authDeleteError;
+                }
+            }
+            deletionRecoverySnapshot = null;
             localStorage.removeItem('users_data');
             UIService.hideLoading();
             UIService.toast('Đã xóa nhân viên.', 'success');
             await reload();
         } catch (err) {
+            var message = err.message || String(err);
+            if (deletionRecoverySnapshot) {
+                try {
+                    await DBService.restoreDeletedUser(deletionRecoverySnapshot);
+                    deletionRecoverySnapshot = null;
+                    message += ' Hồ sơ, quyền và khóa xác thực đã được khôi phục; nhân viên chưa bị xóa.';
+                } catch (restoreError) {
+                    console.error('Firestore deletion compensation failed:', restoreError);
+                    localStorage.removeItem('users_data');
+                    message += ' Không thể tự khôi phục hồ sơ; cần dừng thao tác và khôi phục từ dữ liệu quản trị ngay.';
+                }
+            }
             UIService.hideLoading();
-            UIService.toast('Lỗi xóa: ' + err.message, 'error');
+            UIService.toast('Lỗi xóa: ' + message, 'error');
         }
     }
 

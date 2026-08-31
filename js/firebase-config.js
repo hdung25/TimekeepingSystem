@@ -51,10 +51,21 @@ if (typeof firebase !== 'undefined') {
     });
 }
 
-// Global helper to wait for Firebase Auth to restore session
+// Global helper to wait for Firebase Auth to restore session. Multiple features
+// call this during startup, so share one observer/promise instead of racing
+// several loading overlays and timeout handlers.
+let firebaseAuthRestorePromise = null;
 window.waitAuth = function() {
-    return new Promise((resolve) => {
+    if (firebaseAuthRestorePromise) return firebaseAuthRestorePromise;
+
+    firebaseAuthRestorePromise = new Promise((resolve) => {
         if (typeof firebase === 'undefined' || !firebase.auth) {
+            resolve(null);
+            return;
+        }
+
+        const authInstance = window.auth || firebase.auth();
+        if (!authInstance) {
             resolve(null);
             return;
         }
@@ -65,33 +76,50 @@ window.waitAuth = function() {
         }
 
         let resolved = false;
-        const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+        let timeoutId = null;
+        let unsubscribe = null;
+        const finish = (user, timedOut = false) => {
             if (resolved) return;
             resolved = true;
-            unsubscribe();
+            if (timeoutId) clearTimeout(timeoutId);
+            if (typeof unsubscribe === 'function') unsubscribe();
             if (window.UIService && typeof window.UIService.hideLoading === 'function') {
                 window.UIService.hideLoading();
             }
-            resolve(user);
-        });
-
-        // Timeout fallback: 3 seconds
-        setTimeout(() => {
-            if (resolved) return;
-            resolved = true;
-            unsubscribe();
-            if (window.UIService && typeof window.UIService.hideLoading === 'function') {
-                window.UIService.hideLoading();
-            }
-            const currentUser = firebase.auth().currentUser;
-            if (!currentUser) {
+            if (timedOut && !user) {
                 console.warn("Auth check timed out without active session.");
                 if (window.UIService && typeof window.UIService.toast === 'function') {
                     window.UIService.toast("Kết nối chậm. Vui lòng tải lại trang hoặc kiểm tra mạng!", "error");
                 }
             }
-            resolve(currentUser);
-        }, 3000);
+            resolve(user || null);
+        };
+
+        try {
+            unsubscribe = authInstance.onAuthStateChanged(
+                user => finish(user),
+                error => {
+                    console.error('Firebase Auth restore failed:', error);
+                    finish(null);
+                }
+            );
+            // Defend against test doubles/non-standard implementations that call
+            // the observer synchronously before returning their unsubscribe.
+            if (resolved && typeof unsubscribe === 'function') unsubscribe();
+        } catch (error) {
+            console.error('Firebase Auth observer could not start:', error);
+            finish(null);
+            return;
+        }
+
+        // Slow mobile networks can legitimately need several seconds to restore
+        // IndexedDB credentials and refresh the token. Keep a finite fail-closed
+        // timeout without treating a normal 3-second delay as a logged-out user.
+        if (!resolved) {
+            timeoutId = setTimeout(() => finish(authInstance.currentUser, true), 15000);
+        }
     });
+
+    return firebaseAuthRestorePromise;
 };
 

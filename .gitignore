@@ -6,8 +6,13 @@ claude_export.txt
 res.txt
 debug_checkout.txt
 debug_shift.txt
+text/accounts.txt
+_BACKUP_PRE_GIT/text/accounts.txt
+js/report_backup.js
 node_modules/
 test-automation/node_modules/
+firestore-debug.log
+**/firestore-debug.log
 .env*
 
 # Local secrets / env — never commit

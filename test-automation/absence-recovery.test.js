@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'db-service.js'), 'utf8');
+const reportSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'report.js'), 'utf8');
 let savedPayload = null;
 const docRef = { id: '2026-08_staff-a' };
 const db = {
@@ -70,6 +71,21 @@ const isMainTeacherAbsentFromClass = vm.runInContext('isMainTeacherAbsentFromCla
     const restored = { ...legacy, teacherAbsences: [] };
     assert.equal(isMainTeacherAbsentFromClass(restored, 'teacher-a'), false,
         'mảng rõ ràng rỗng phải thắng suy đoán dữ liệu cũ sau khi khôi phục');
+
+    const deleteStart = reportSource.indexOf('async function deleteSessionFromModal');
+    const deleteEnd = reportSource.indexOf('// Send notification to staff', deleteStart);
+    const deleteFlow = reportSource.slice(deleteStart, deleteEnd);
+    assert.doesNotMatch(deleteFlow, /replace\('__',\s*'_'\)/,
+        'teaching cancellation keys must preserve the schedule double underscore');
+    assert.doesNotMatch(deleteFlow, /DBService\.registerClass\(/);
+    assert.doesNotMatch(deleteFlow, /DBService\.cancelClassRegistration\(/,
+        'report cancellation must not mutate the independent self-registration record');
+    assert.match(deleteFlow, /Teaching assignments remain in the historical schedule/);
+
+    const restoreStart = reportSource.indexOf('if (chip.isCancelled && canConfirmAbsent');
+    const restoreEnd = reportSource.indexOf('if (window.isStudentCountSelectMode)', restoreStart);
+    assert.doesNotMatch(reportSource.slice(restoreStart, restoreEnd), /replace\('__',\s*'_'\)/,
+        'restore must target exactly the same cancellation key written for teaching shifts');
 
     console.log('absence recovery regression tests passed');
 })().catch(error => {

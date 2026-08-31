@@ -72,4 +72,14 @@ const hhmm = d => (d ? d.toTimeString().slice(0, 5) : null);
     assert.equal(context.resolveWorkChainEnd([], at('07:00')), null);
 }
 
+{
+    // Không được ghép một ca đã kết thúc dù check-in cách giờ bắt đầu dưới 60p.
+    // Lỗi cũ trả 09:45 cho check-in 10:00 rồi retry checkout vô hạn.
+    assert.equal(context.resolveWorkChainEnd([block('09:15', '09:45')], at('10:00')), null);
+}
+
+assert.match(source.slice(source.indexOf('async function globalCheckAutoCheckout'), source.indexOf('// Khoảng nghỉ TỐI ĐA')),
+    /getPersonalAttendance\(todayDateKey[\s\S]*getPersonalAttendance\(previousDateKey/,
+    'global auto-checkout must search both today and previous-day attendance anchors');
+
 console.log('auto-checkout.test.js: all assertions passed');

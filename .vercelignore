@@ -9,10 +9,12 @@ claude
 claude_export.txt
 debug_checkout.txt
 debug_shift.txt
+debug_*.txt
 firebase.json
 firestore.rules
 out.txt
 raw_output.txt
+js/report_backup.js
 res.txt
 scratch
 scripts

@@ -1,97 +1,431 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Check if user is logged in
-    function isAuthenticated() {
-      return request.auth != null;
+    function isAuthenticated() { return request.auth != null; }
+    function rolePath() { return /databases/$(database)/documents/user_roles/$(request.auth.uid); }
+    function userRoleExists() { return isAuthenticated() && exists(rolePath()); }
+    function roleData() { return get(rolePath()).data; }
+    function getUserId() { return userRoleExists() ? roleData().get('userId', '') : ''; }
+    function hasRole(roleName) {
+      return userRoleExists() && (
+        roleData().get('role', '') == roleName
+        || roleData().get('roles', []).hasAny([roleName])
+      );
     }
-
-    // --- RBAC HELPERS ---
-    function userDocExists() {
-      return exists(/databases/$(database)/documents/user_roles/$(request.auth.uid));
+    function isAdmin() { return hasRole('admin') || hasRole('senior_assistant'); }
+    function isCoreAssistant() { return hasRole('assistant'); }
+    function isScheduleManager() { return isAdmin() || isCoreAssistant(); }
+    // Kept as a named policy boundary because office-role regression tests and
+    // future office-only permissions must never collapse into reception scope.
+    function isOfficeScheduleManager() { return isAdmin() || hasRole('assistant'); }
+    function isReceptionScheduleManager() {
+      return isScheduleManager() || hasRole('receptionist_assistant');
     }
-
-    function getUserDoc() {
-      // Get the role doc corresponding to the Auth UID
-      return get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data;
-    }
-
-    function getUsername() {
-      return userDocExists() ? getUserDoc().get('username', '') : '';
-    }
-
-    function getUserId() {
-      return userDocExists() ? getUserDoc().get('userId', '') : '';
-    }
-
-    // Returns the user's single `role` field, or '' if doc missing.
-    function singleRole() {
-      return userDocExists() ? getUserDoc().get('role', '') : '';
-    }
-
-    // Returns the user's `roles` array, or [] if doc missing / field missing.
-    function rolesArr() {
-      return userDocExists() ? getUserDoc().get('roles', []) : [];
-    }
-
-    // Check if user has a given role — look in BOTH the single `role` field
-    // (backward compat) AND the `roles` array (new multi-role support).
-    function hasRole(r) {
-      return singleRole() == r || rolesArr().hasAny([r]);
-    }
-
-    // Check if user has admin access
-    function isAdmin() {
-      return hasRole('admin') || hasRole('senior_assistant');
-    }
-
-    function isAssistant() {
-      return hasRole('assistant') || hasRole('receptionist_assistant');
-    }
-
-    function isOfficeScheduleManager() {
-      return isAdmin() || hasRole('assistant');
-    }
-
     function isReceptionistOperator() {
-      return hasRole('receptionist') ||
-        hasRole('receptionist_assistant') ||
-        hasRole('receptionist_lead') ||
-        hasRole('receptionist_staff') ||
-        hasRole('senior_assistant');
+      return hasRole('receptionist') || hasRole('receptionist_assistant')
+        || hasRole('receptionist_lead') || hasRole('receptionist_staff')
+        || hasRole('senior_assistant');
+    }
+    function canAuditAttendance() { return isScheduleManager() || isReceptionistOperator(); }
+    function ownsStaffId(staffId) {
+      return isAuthenticated() && getUserId() != '' && staffId == getUserId();
+    }
+    function matchesStaffProfileName(staffId, suppliedName) {
+      return suppliedName is string
+        && suppliedName.size() > 0
+        && suppliedName.size() <= 120
+        && exists(/databases/$(database)/documents/users/$(staffId))
+        && (
+          suppliedName == get(/databases/$(database)/documents/users/$(staffId)).data.get('name', '')
+          || suppliedName == get(/databases/$(database)/documents/users/$(staffId)).data.get('username', '')
+        );
+    }
+    function isOwnMonthlyDocument(docId) {
+      return isAuthenticated() && getUserId() != ''
+        && docId.matches('[0-9]{4}-[0-9]{2}_' + getUserId());
+    }
+    function statusMovesToReceived(oldStatus, newStatus) {
+      return newStatus == oldStatus || (oldStatus == 'published' && newStatus == 'received');
+    }
+    function hasPayslipReceiptTransition() {
+      return (
+        resource.data.published.get('status', 'draft') == 'published'
+        && request.resource.data.published.get('status', 'draft') == 'received'
+      ) || (
+        resource.data.published.get('status_gv', 'draft') == 'published'
+        && request.resource.data.published.get('status_gv', 'draft') == 'received'
+      ) || (
+        resource.data.published.get('status_tt', 'draft') == 'published'
+        && request.resource.data.published.get('status_tt', 'draft') == 'received'
+      ) || (
+        resource.data.published.get('status', 'draft') == 'published'
+        && resource.data.published.get('status_gv', 'draft') == 'draft'
+        && request.resource.data.published.get('status_gv', 'draft') == 'received'
+      ) || (
+        resource.data.published.get('status', 'draft') == 'published'
+        && resource.data.published.get('status_tt', 'draft') == 'draft'
+        && request.resource.data.published.get('status_tt', 'draft') == 'received'
+      );
+    }
+    function isSafePayslipReceipt(docId) {
+      return isOwnMonthlyDocument(docId)
+        && resource.data.published is map
+        && request.resource.data.published is map
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published'])
+        && request.resource.data.published.diff(resource.data.published).affectedKeys().hasOnly([
+          'status', 'status_gv', 'status_tt',
+          'receivedAt', 'receivedAt_gv', 'receivedAt_tt',
+          'confirmedBy', 'confirmedBy_gv', 'confirmedBy_tt'
+        ])
+        && (
+          request.resource.data.published == resource.data.published
+          || hasPayslipReceiptTransition()
+        )
+        && statusMovesToReceived(
+          resource.data.published.get('status', 'draft'),
+          request.resource.data.published.get('status', 'draft')
+        )
+        && (statusMovesToReceived(
+          resource.data.published.get('status_gv', 'draft'),
+          request.resource.data.published.get('status_gv', 'draft')
+        ) || (resource.data.published.get('status', 'draft') == 'published'
+          && resource.data.published.get('status_gv', 'draft') == 'draft'
+          && request.resource.data.published.get('status_gv', 'draft') == 'received'))
+        && (statusMovesToReceived(
+          resource.data.published.get('status_tt', 'draft'),
+          request.resource.data.published.get('status_tt', 'draft')
+        ) || (resource.data.published.get('status', 'draft') == 'published'
+          && resource.data.published.get('status_tt', 'draft') == 'draft'
+          && request.resource.data.published.get('status_tt', 'draft') == 'received'));
+    }
+    function isOwnPendingRequest() {
+      return ownsStaffId(request.resource.data.get('staffId', ''))
+        && request.resource.data.get('status', '') == 'pending';
+    }
+    function isOwnScheduleRegistration() {
+      return ownsStaffId(request.resource.data.get('userId', ''))
+        && request.resource.data.get('authUid', '') == request.auth.uid
+        && request.resource.data.get('scheduleKey', '') is string
+        && request.resource.data.get('scheduleKey', '').size() > 0
+        && request.resource.data.get('scheduleKey', '').size() <= 120
+        && request.resource.data.get('scheduleDocId', '') is string
+        && request.resource.data.get('scheduleDocId', '').size() > 0
+        && request.resource.data.get('scheduleDocId', '').size() <= 120
+        && request.resource.data.get('branch', '') is string
+        && request.resource.data.get('branch', '').size() > 0
+        && request.resource.data.get('branch', '').size() <= 20
+        && request.resource.data.get('dateKey', '') is string
+        && request.resource.data.get('dateKey', '').size() == 10
+        && request.resource.data.get('section', '') is string
+        && request.resource.data.get('section', '') in [
+          'morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'
+        ]
+        && request.resource.data.get('rowIndex', -1) is int
+        && request.resource.data.get('rowIndex', -1) >= 0
+        && request.resource.data.get('shiftId', '') is string
+        && request.resource.data.get('shiftId', '').size() <= 120
+        && request.resource.data.get('rowSignature', '') is string
+        && request.resource.data.get('rowSignature', '').size() > 0
+        && request.resource.data.get('rowSignature', '').size() <= 300
+        && matchesStaffProfileName(
+          request.resource.data.get('userId', ''),
+          request.resource.data.get('userName', '')
+        )
+        && request.resource.data.get('schemaVersion', 0) == 1
+        && request.resource.data.get('status', '') in ['active', 'cancelled']
+        && request.resource.data.get('createdAt', null) == request.time
+        && request.resource.data.get('updatedAt', null) == request.time
+        && request.resource.data.keys().hasOnly([
+          'scheduleKey', 'scheduleDocId', 'branch', 'dateKey', 'section',
+          'rowIndex', 'shiftId', 'rowSignature', 'userId', 'authUid',
+          'schemaVersion', 'createdAt', 'userName', 'status', 'updatedAt'
+        ]);
+    }
+    function keepsScheduleRegistrationTarget() {
+      return request.resource.data.get('userId', '') == resource.data.get('userId', '')
+        && request.resource.data.get('scheduleKey', '') == resource.data.get('scheduleKey', '')
+        && request.resource.data.get('scheduleDocId', '') == resource.data.get('scheduleDocId', '')
+        && request.resource.data.get('branch', '') == resource.data.get('branch', '')
+        && request.resource.data.get('dateKey', '') == resource.data.get('dateKey', '')
+        && request.resource.data.get('section', '') == resource.data.get('section', '')
+        && request.resource.data.get('rowIndex', -1) == resource.data.get('rowIndex', -1)
+        && request.resource.data.get('shiftId', '') == resource.data.get('shiftId', '')
+        && request.resource.data.get('rowSignature', '') == resource.data.get('rowSignature', '')
+        && request.resource.data.get('authUid', '') == resource.data.get('authUid', '')
+        && request.resource.data.get('schemaVersion', 0) == resource.data.get('schemaVersion', 0)
+        && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
+    }
+    function isSafeNewAttendanceSession(session, dateKey) {
+      return session is map
+        && session.keys().hasOnly([
+          'id', 'anchorDateKey', 'status', 'source', 'start', 'checkIn', 'checkOut'
+        ])
+        && session.get('id', '') is string
+        && session.get('id', '').size() > 0
+        && session.get('id', '').size() <= 120
+        && session.get('anchorDateKey', '') == dateKey
+        && session.get('status', '') == 'open'
+        && session.get('source', '') == 'self'
+        && session.get('start', '') is string
+        && session.get('start', '').size() >= 20
+        && session.get('start', '').size() <= 40
+        && session.get('checkIn', '') == session.get('start', '')
+        && session.get('checkOut', 'not-null') == null;
+    }
+    function keepsAttendanceSessionFinancialFields(oldSession, newSession, dateKey) {
+      return oldSession is map
+        && newSession is map
+        && newSession.get('id', '') == oldSession.get('id', '')
+        && newSession.get('start', '') == oldSession.get('start', '')
+        && newSession.get('checkIn', '') == oldSession.get('checkIn', '')
+        && newSession.get('source', '') == oldSession.get('source', '')
+        && newSession.get('anchorDateKey', dateKey) == dateKey
+        && newSession.get('checkOut', '') is string
+        && newSession.get('checkOut', '').size() >= 20
+        && newSession.get('checkOut', '').size() <= 40
+        && newSession.get('status', 'open') in ['open', 'closed']
+        && newSession.diff(oldSession).affectedKeys().hasOnly([
+          'checkOut', 'status', 'anchorDateKey', 'autoClosedReason'
+        ]);
+    }
+    function isSafeStudentCountSessionTransition(oldSession, newSession, dateKey) {
+      let oldStatus = oldSession.get('studentCountStatus', '');
+      let hasCount = newSession.keys().hasAll([
+        'studentCount', 'studentCountStatus', 'studentCountUpdatedAt', 'studentCountUpdatedBy'
+      ]);
+      let clearsCount = !newSession.keys().hasAny([
+        'studentCount', 'studentCountStatus', 'studentCountUpdatedAt', 'studentCountUpdatedBy'
+      ]);
+      return oldSession is map
+        && newSession is map
+        && oldStatus in ['', 'pending']
+        && newSession.get('id', '') == oldSession.get('id', '')
+        && newSession.get('start', '') == oldSession.get('start', '')
+        && newSession.get('checkIn', '') == oldSession.get('checkIn', '')
+        && newSession.get('checkOut', null) == oldSession.get('checkOut', null)
+        && newSession.get('source', '') == oldSession.get('source', '')
+        && newSession.get('anchorDateKey', dateKey) == oldSession.get('anchorDateKey', dateKey)
+        && newSession.get('status', '') == oldSession.get('status', '')
+        && newSession.diff(oldSession).affectedKeys().hasOnly([
+          'studentCount', 'studentCountStatus', 'studentCountUpdatedAt', 'studentCountUpdatedBy'
+        ])
+        && (clearsCount || (
+          hasCount
+          && newSession.get('studentCount', 0) is int
+          && newSession.get('studentCount', 0) >= 1
+          && newSession.get('studentCount', 0) <= 500
+          && newSession.get('studentCountStatus', '') == 'pending'
+          && newSession.get('studentCountUpdatedBy', '') == resource.data.get('userId', '')
+          && newSession.get('studentCountUpdatedAt', '') is string
+          && newSession.get('studentCountUpdatedAt', '').size() >= 20
+          && newSession.get('studentCountUpdatedAt', '').size() <= 40
+        ));
+    }
+    function isSafeAttendanceStudentCountTransition() {
+      let oldSessions = resource.data.get('sessions', []);
+      let newSessions = request.resource.data.get('sessions', []);
+      let addedSessions = newSessions is list && oldSessions is list
+        ? newSessions.removeAll(oldSessions) : [];
+      let removedSessions = newSessions is list && oldSessions is list
+        ? oldSessions.removeAll(newSessions) : [];
+      return oldSessions is list
+        && newSessions is list
+        && newSessions.size() == oldSessions.size()
+        && addedSessions.size() == 1
+        && removedSessions.size() == 1
+        && isSafeStudentCountSessionTransition(
+          removedSessions[0], addedSessions[0], resource.data.get('date', '')
+        );
+    }
+    function isSafeAttendanceSessionsTransition() {
+      let oldSessions = resource.data.get('sessions', []);
+      let newSessions = request.resource.data.get('sessions', []);
+      let addedSessions = newSessions is list && oldSessions is list
+        ? newSessions.removeAll(oldSessions) : [];
+      let removedSessions = newSessions is list && oldSessions is list
+        ? oldSessions.removeAll(newSessions) : [];
+      return oldSessions is list
+        && newSessions is list
+        && newSessions.size() <= 24
+        && (
+          newSessions == oldSessions
+          || (
+            newSessions.size() == oldSessions.size() + 1
+            && addedSessions.size() == 1
+            && removedSessions.size() == 0
+            && addedSessions[0] == newSessions[newSessions.size() - 1]
+            && isSafeNewAttendanceSession(
+              addedSessions[0], request.resource.data.get('date', '')
+            )
+            && request.resource.data.get('checkIn', '') == addedSessions[0].get('checkIn', '')
+            && request.resource.data.get('checkOut', 'not-null') == null
+          )
+          || (
+            newSessions.size() == oldSessions.size()
+            && addedSessions.size() == 1
+            && removedSessions.size() == 1
+            && keepsAttendanceSessionFinancialFields(
+              removedSessions[0], addedSessions[0], request.resource.data.get('date', '')
+            )
+          )
+        );
+    }
+    function isSafeLegacyAttendanceMigration() {
+      let newSessions = request.resource.data.get('sessions', []);
+      let legacyCheckIn = resource.data.get('checkIn', '');
+      return !(resource.data.get('sessions', null) is list)
+        && legacyCheckIn is string
+        && legacyCheckIn.size() >= 20
+        && newSessions is list
+        && newSessions.size() >= 1
+        && newSessions.size() <= 2
+        && newSessions[0] is map
+        && newSessions[0].get('start', '') == legacyCheckIn
+        && newSessions[0].get('checkIn', '') == legacyCheckIn
+        && (
+          (
+            newSessions.size() == 2
+            && newSessions[0].keys().hasOnly(['start', 'checkIn', 'checkOut'])
+            && newSessions[0].get('checkOut', null) == resource.data.get('checkOut', null)
+            && isSafeNewAttendanceSession(
+              newSessions[1], request.resource.data.get('date', '')
+            )
+          )
+          || (
+            newSessions.size() == 1
+            && newSessions[0].keys().hasOnly([
+              'id', 'start', 'checkIn', 'checkOut', 'status', 'anchorDateKey'
+            ])
+            && newSessions[0].get('id', '') == 'legacy'
+            && newSessions[0].get('checkOut', '') is string
+            && newSessions[0].get('checkOut', '').size() >= 20
+            && newSessions[0].get('status', '') == 'closed'
+            && newSessions[0].get('anchorDateKey', '') == request.resource.data.get('date', '')
+          )
+        );
     }
 
-    // --- COLLECTIONS ---
-
-    // 0. User Roles (The Security Map)
-    // Users can sync their own role during login, BUT cannot escalate to 'admin'.
-    // This prevents the self-escalation attack while allowing normal login flow.
+    // UID-keyed security map: users may read only their own mapping and cannot
+    // write themselves into a privileged role.
     match /user_roles/{authUid} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
+      allow get: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
+      allow list, create, update, delete: if isAuthenticated() && isAdmin();
     }
-    
-    // 1. Users 
-    // Read: Open (needed for UI). Write: Open (relying on UI logic).
+
+    // Full profiles contain private payroll configuration. Staff can read only
+    // their own profile; shared roster screens use staff_directory below.
     match /users/{userId} {
-      allow read: if isAuthenticated(); 
-      allow write: if isAuthenticated();
+      allow get: if isAuthenticated() && (isAdmin() || ownsStaffId(userId));
+      allow list: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() && isAdmin();
     }
 
-    // 2. Attendance Logs
-    // Staff need to write their own attendance? Logic puts it here?
+    match /staff_directory/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isAdmin()
+        && request.resource.data.get('id', '') == userId
+        && request.resource.data.keys().hasOnly([
+          'id', 'name', 'displayName', 'username', 'role', 'roles',
+          'specialty', 'specialties', 'branch', 'branches', 'department',
+          'position', 'title', 'isActive', 'active', 'status', 'scheduleColor'
+        ]);
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // Managers administer compatibility credentials. An employee can rotate
+    // only their own password and cannot read or list credential documents.
+    match /user_credentials/{staffId} {
+      allow read: if isAuthenticated() && isAdmin();
+      allow create: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(staffId)
+        && request.resource.data.get('staffId', '') == staffId
+        && request.resource.data.get('password', '') is string
+        && request.resource.data.get('password', '').size() >= 6
+        && request.resource.data.get('password', '').size() <= 256
+        && request.resource.data.get('updatedAt', null) == request.time
+        && request.resource.data.keys().hasOnly(['staffId', 'password', 'updatedAt'])
+      ));
+      allow update: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(staffId)
+        && resource.data.get('staffId', '') == staffId
+        && request.resource.data.get('staffId', '') == staffId
+        && request.resource.data.get('password', '') is string
+        && request.resource.data.get('password', '').size() >= 6
+        && request.resource.data.get('password', '').size() <= 256
+        && request.resource.data.get('updatedAt', null) == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['password', 'updatedAt'])
+      ));
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // Employees can mutate only their mapped attendance document. Cross-staff
+    // edits and deletion are management operations.
     match /attendance_logs/{logId} {
-      allow read, write: if isAuthenticated(); // Keep open for Check-In flow
+      allow read: if isAuthenticated()
+        && (ownsStaffId(resource.data.get('userId', '')) || isAdmin() || canAuditAttendance());
+      allow create: if isAuthenticated() && ((
+        ownsStaffId(request.resource.data.get('userId', ''))
+        && request.resource.data.get('date', '') is string
+        && request.resource.data.get('date', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && logId == request.resource.data.get('date', '') + '_'
+          + request.resource.data.get('userId', '')
+        && matchesStaffProfileName(
+          request.resource.data.get('userId', ''),
+          request.resource.data.get('name', '')
+        )
+        && request.resource.data.keys().hasOnly([
+          'userId', 'name', 'date', 'sessions', 'checkIn', 'checkOut', 'lastUpdated'
+        ])
+        && request.resource.data.get('sessions', []) is list
+        && request.resource.data.get('sessions', []).size() == 1
+        && isSafeNewAttendanceSession(
+          request.resource.data.get('sessions', [])[0],
+          request.resource.data.get('date', '')
+        )
+        && request.resource.data.get('checkIn', '')
+          == request.resource.data.get('sessions', [])[0].get('checkIn', '')
+        && request.resource.data.get('checkOut', 'not-null') == null
+        && request.resource.data.get('lastUpdated', null) == request.time
+      ) || isAdmin());
+      allow update: if isAuthenticated() && ((
+        ownsStaffId(resource.data.get('userId', ''))
+        && request.resource.data.get('userId', '') == resource.data.get('userId', '')
+        && request.resource.data.get('date', '') == resource.data.get('date', '')
+        && logId == resource.data.get('date', '') + '_' + resource.data.get('userId', '')
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['name'])
+          || matchesStaffProfileName(
+            request.resource.data.get('userId', ''),
+            request.resource.data.get('name', '')
+          )
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'sessions', 'checkIn', 'checkOut', 'lastUpdated', 'name'
+        ])
+        && (
+          (
+            request.resource.data.get('sessions', []) == resource.data.get('sessions', [])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastUpdated'])
+          )
+          || (
+            request.resource.data.get('lastUpdated', null) == request.time
+            && (
+              isSafeAttendanceSessionsTransition()
+              || isSafeLegacyAttendanceMigration()
+              || isSafeAttendanceStudentCountTransition()
+            )
+          )
+        )
+      ) || isAdmin());
+      allow delete: if isAuthenticated() && isAdmin();
     }
 
-    // Privacy-safe client diagnostics for failed attendance location gates.
-    // Coordinates, accuracy, distance, and full user-agent strings are not accepted.
     match /attendance_location_events/{eventId} {
       allow create: if isAuthenticated()
         && request.resource.data.authUid == request.auth.uid
         && request.resource.data.staffId is string
         && request.resource.data.staffId == getUserId()
+        && ownsStaffId(request.resource.data.staffId)
         && request.resource.data.staffId.size() <= 80
         && request.resource.data.dateKey is string
         && request.resource.data.dateKey.size() == 10
@@ -114,209 +448,203 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // 3. Schedules
-    // Admin & Assistant can create schedules
-    // All authenticated users can update (needed for "Nhận Lớp" → writes registeredTeachers)
+    // Nested schedule arrays cannot safely authorize a field-only self-edit.
+    // Mutations therefore match the actual editor roles in the scheduler UI.
     match /schedules/{dateId} {
       allow read: if isAuthenticated();
-      allow create, delete: if isAuthenticated() && (isAdmin() || isAssistant());
-      allow update: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && isScheduleManager();
     }
 
-    // 4. Settings
-    // Open (relying on UI logic)
+    // Self-service “Nhận lớp / Hủy nhận” is stored separately from the
+    // manager-owned schedule document. Owners can only activate/cancel their
+    // own immutable shift target; cancellation is an auditable tombstone.
+    match /schedule_registrations/{registrationId} {
+      allow read: if isAuthenticated()
+        && (isScheduleManager() || ownsStaffId(resource.data.get('userId', '')));
+      allow create: if isAuthenticated()
+        && (isScheduleManager() || isOwnScheduleRegistration());
+      allow update: if isAuthenticated() && (isScheduleManager() || (
+        ownsStaffId(resource.data.get('userId', ''))
+        && resource.data.get('authUid', '') == request.auth.uid
+        && request.resource.data.get('authUid', '') == request.auth.uid
+        && keepsScheduleRegistrationTarget()
+        && matchesStaffProfileName(
+          request.resource.data.get('userId', ''),
+          request.resource.data.get('userName', '')
+        )
+        && request.resource.data.get('status', '') in ['active', 'cancelled']
+        && request.resource.data.get('updatedAt', null) == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'userName', 'updatedAt'
+        ])
+      ));
+      allow delete: if isAuthenticated() && isScheduleManager();
+    }
+
+    // Core assistants retain the existing settings-page workflow. A reception
+    // assistant may update only reception shift hours in the system document.
     match /settings/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        isAdmin() || (isCoreAssistant() && docId.matches('schedule_manifest.*'))
+      );
+      allow delete: if isAuthenticated() && isAdmin();
+      allow update: if isAuthenticated() && (isScheduleManager() || (
+        hasRole('receptionist_assistant') && docId == 'system'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'receptionistShifts',
+          'receptionistShifts_cs1', 'receptionistShifts_cs2', 'receptionistShifts_cs3'
+        ])
+      ));
     }
 
-    // 5. Unregistered Alerts (Check-in without class registration)
-    // Any authenticated user can create/update (triggered on check-in, set() needs both)
-    // Admin can read all and delete
     match /unregistered_alerts/{alertId} {
       allow read: if isAuthenticated() && isAdmin();
-      allow create, update: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(request.resource.data.get('userId', ''))
+        && alertId == request.resource.data.get('date', '') + '_' + getUserId()
+        && request.resource.data.get('resolved', false) == false
+      ));
       allow delete: if isAuthenticated() && isAdmin();
     }
 
-    // 6. Admin Notifications (Admin → Staff communication)
-    // Admin creates notifications when modifying staff data
-    // Staff reads their own (filtered by staffId in client query)
-    // Note: staffId = Firestore doc ID ≠ Auth UID, so server-side filtering is done in client
-    match /admin_notifications/{notifId} {
-      allow read, write: if isAuthenticated();
-    }
-    
-    // 7. Receptionist Schedules
-    // Open (relying on UI logic)
-    match /receptionist_schedules/{weekId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+    // Recipients may only mark their own notification read.
+    match /admin_notifications/{notificationId} {
+      allow read: if isAuthenticated()
+        && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create, delete: if isAuthenticated() && isAdmin();
+      allow update: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(resource.data.get('staffId', ''))
+        && request.resource.data.get('staffId', '') == resource.data.get('staffId', '')
+        && request.resource.data.get('read', false) == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt'])
+      ));
     }
 
-    // 7.0.1 Office schedules use the same weekly schema but a separate
-    // collection. Office staff can view their roster; only management roles
-    // may change assignments, preventing accidental edits from the staff page.
+    // Reception and office rosters intentionally remain separate.
+    match /receptionist_schedules/{weekId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && isReceptionScheduleManager();
+    }
     match /office_schedules/{weekId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isOfficeScheduleManager();
     }
 
-    // 7.1 Receptionist shift activation. A receptionist can only activate
-    // their own deterministic presence document; admins can audit all shifts.
     match /receptionist_shift_presence/{presenceId} {
-      allow read: if isAuthenticated() && (isAdmin() || isReceptionistOperator());
-      allow create, update: if isAuthenticated() && isReceptionistOperator()
-        && request.resource.data.staffId == getUserId()
-        && request.resource.data.authUid == request.auth.uid
-        && presenceId == request.resource.data.dateKey + '_' +
-          request.resource.data.branch + '_' +
-          request.resource.data.shiftKey + '_' +
-          request.resource.data.staffId;
+      allow read: if isAuthenticated() && (isScheduleManager() || isReceptionistOperator());
+      allow create, update: if isAuthenticated()
+        && isReceptionistOperator()
+        && ownsStaffId(request.resource.data.get('staffId', ''))
+        && request.resource.data.get('authUid', '') == request.auth.uid
+        && request.resource.data.get('status', '') == 'active'
+        && presenceId == request.resource.data.get('dateKey', '') + '_'
+          + request.resource.data.get('branch', '') + '_'
+          + request.resource.data.get('shiftKey', '') + '_'
+          + request.resource.data.get('staffId', '');
       allow delete: if isAuthenticated() && isAdmin();
     }
 
-    // 7.2 Notes and late-minute commands created during receptionist shifts.
-    // Attendance timestamps remain immutable; payroll reads the maximum of
-    // system lateness and active receptionist commands.
     match /shift_observations/{observationId} {
-      allow read: if isAuthenticated() && (
-        isAdmin() ||
-        isReceptionistOperator() ||
-        resource.data.teacherId == getUserId()
-      );
+      allow read: if isAuthenticated() && (isScheduleManager() || isReceptionistOperator()
+        || resource.data.get('teacherId', '') == getUserId());
       allow create: if isAuthenticated()
-        && (isAdmin() || isReceptionistOperator())
-        && request.resource.data.createdByAuthUid == request.auth.uid
-        && request.resource.data.createdByStaffId == getUserId()
-        && request.resource.data.status == 'active'
-        && request.resource.data.lateMinutes is int
-        && request.resource.data.lateMinutes >= 0
-        && request.resource.data.lateMinutes <= 240
-        && (
-          isAdmin() ||
-          exists(/databases/$(database)/documents/receptionist_shift_presence/$(
-            request.resource.data.dateKey + '_' +
-            request.resource.data.branch + '_' +
-            request.resource.data.shiftKey + '_' +
-            request.resource.data.createdByStaffId
-          ))
-        );
+        && (isScheduleManager() || isReceptionistOperator())
+        && request.resource.data.get('createdByAuthUid', '') == request.auth.uid
+        && request.resource.data.get('createdByStaffId', '') == getUserId()
+        && request.resource.data.get('status', '') == 'active'
+        && request.resource.data.get('lateMinutes', -1) is int
+        && request.resource.data.get('lateMinutes', -1) >= 0
+        && request.resource.data.get('lateMinutes', -1) <= 240
+        && (isScheduleManager() || exists(/databases/$(database)/documents/receptionist_shift_presence/$(
+          request.resource.data.get('dateKey', '') + '_'
+          + request.resource.data.get('branch', '') + '_'
+          + request.resource.data.get('shiftKey', '') + '_'
+          + request.resource.data.get('createdByStaffId', '')
+        )));
       allow update: if isAuthenticated() && isAdmin()
-        && request.resource.data.status == 'cancelled'
+        && request.resource.data.get('status', '') == 'cancelled'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status',
-          'cancelledByName',
-          'cancelReason',
-          'cancelledAt',
-          'updatedAt'
-        ])
-        && request.resource.data.createdByAuthUid == resource.data.createdByAuthUid
-        && request.resource.data.createdByStaffId == resource.data.createdByStaffId
-        && request.resource.data.teacherId == resource.data.teacherId
-        && request.resource.data.dateKey == resource.data.dateKey
-        && request.resource.data.branch == resource.data.branch
-        && request.resource.data.shiftKey == resource.data.shiftKey
-        && request.resource.data.classStart == resource.data.classStart
-        && request.resource.data.classEnd == resource.data.classEnd
-        && request.resource.data.lateMinutes == resource.data.lateMinutes;
+          'status', 'cancelledByName', 'cancelReason', 'cancelledAt', 'updatedAt'
+        ]);
       allow delete: if false;
     }
 
-    // 8. Daily Notes (Firestore-synced, replaces localStorage)
-    // All authenticated users can read/write (admin writes notes for specific staff, staff reads own)
     match /daily_notes/{staffId} {
-      allow read, write: if isAuthenticated();
+      allow read, create, update, delete: if isAuthenticated()
+        && (ownsStaffId(staffId) || isScheduleManager());
     }
 
-    // 9. Salary Settings (Firestore-synced, replaces localStorage)
-    // Admin reads/writes salary config per staff. Staff can read their own.
+    // Salary data is private. Employees see only their own records and can
+    // transition published -> received without changing any monetary payload.
     match /salary_settings/{staffId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && (ownsStaffId(staffId) || isAdmin());
+      allow create, update, delete: if isAuthenticated() && isAdmin();
     }
-
-    // 9.1 Monthly Salary Settings (Firestore-synced)
-    // Admin reads/writes monthly salary config. Staff can read their own.
     match /salary_settings_monthly/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
-      allow update: if isAuthenticated() && (docId.matches('.*_' + getUserId()) || isAdmin());
+      allow read: if isAuthenticated() && (isOwnMonthlyDocument(docId) || isAdmin());
+      allow create, delete: if isAuthenticated() && isAdmin();
+      allow update: if isAuthenticated() && (isAdmin() || isSafePayslipReceipt(docId));
     }
-
-    // 10. Overtime Requests (Staff → Admin for approval)
-    // Staff can create/read their own requests (staffId is a stored field, not path param)
-    // Admin can read all, update (approve/reject)
-    // Payroll automation is opt-in and stored separately from live salary
-    // settings. Historical hours and shadow mode can only be changed by admin.
     match /staff_payroll_profiles/{staffId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow read, create, update, delete: if isAuthenticated() && isAdmin();
     }
 
+    // Staff requests must begin pending and belong to the UID-mapped staffId.
     match /overtime_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isAdmin();
-      allow delete: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
+      allow update, delete: if isAuthenticated() && isAdmin();
     }
-
-    // 11. Bonus 10p Requests
     match /bonus10_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isAdmin();
-      allow delete: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
+      allow update, delete: if isAuthenticated() && isAdmin();
     }
 
-    // 12. Fixed Shifts (Receptionist — feature tương lai)
+    // Operational flags remain readable for chip calculations.
     match /fixed_shifts/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
+      allow create, update, delete: if isAuthenticated() && isReceptionScheduleManager();
     }
-
-    // 13. Cancelled Shifts (Admin/Trợ lí tiếp tân hủy ca tiếp tân)
     match /cancelled_shifts/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (isAdmin() || isAssistant());
+      allow create, update, delete: if isAuthenticated() && isReceptionScheduleManager();
     }
 
-    // 14. Subjects (Môn Học) — Admin manages, all staff can read
     match /subjects/{subjectId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() && isAdmin();
     }
 
-    // 15. Meetings Log (Họp Định Kỳ)
     match /meetings_log/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow read, create, update, delete: if isAuthenticated() && isAdmin();
     }
-
-    // 16. Meetings (Lịch họp định kỳ)
     match /meetings/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() && isAdmin();
     }
-
-    // 17. Meeting Attendance (Điểm danh cuộc họp tự động)
     match /meeting_attendance/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-
-    // 18. Makeup Requests (Tường trình — chấm công bù)
-    // Nhân viên tạo yêu cầu chấm bù; admin duyệt/từ chối (update) và có thể xóa.
-    match /makeup_requests/{reqId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('userId', '')));
+      allow create: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(request.resource.data.get('userId', ''))
+        && docId == request.resource.data.get('meetingId', '') + '_' + getUserId()
+      ));
+      allow update: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(resource.data.get('userId', ''))
+        && request.resource.data.get('userId', '') == resource.data.get('userId', '')
+        && request.resource.data.get('meetingId', '') == resource.data.get('meetingId', '')
+        && docId == resource.data.get('meetingId', '') + '_' + getUserId()
+      ));
       allow delete: if isAuthenticated() && isAdmin();
     }
 
-    // Default Block
-    match /{document=**} {
-      allow read, write: if false;
+    match /makeup_requests/{requestId} {
+      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
+      allow update, delete: if isAuthenticated() && isAdmin();
     }
+
+    match /{document=**} { allow read, write: if false; }
   }
 }

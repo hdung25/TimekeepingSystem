@@ -11,7 +11,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260731-mobile-card-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260831-scheduler-hd-v2">
     <style>
         /* ========== Branch Tabs ========== */
         .branch-tabs {
@@ -196,6 +196,12 @@
 
         .day-cell.editable:hover {
             background: #F0F9FF;
+        }
+
+        .day-cell.past-locked {
+            background: #F8FAFC;
+            color: #64748B;
+            cursor: not-allowed;
         }
 
         .empty-cell {
@@ -452,21 +458,581 @@
         #save-area.schedule-actions-hidden {
             display: none !important;
         }
+
+        /* ========== Operational schedule experience ========== */
+        .work-schedule-page {
+            background: #F7FAF8;
+        }
+
+        .work-schedule-page.schedule-modal-open {
+            overflow: hidden;
+        }
+
+        .work-schedule-page .page-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1.25rem;
+        }
+
+        .work-schedule-page #save-area {
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .work-schedule-page #save-area .btn {
+            min-height: 44px;
+            border-radius: 10px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        }
+
+        .work-schedule-page #save-area .btn:disabled {
+            cursor: wait;
+            opacity: 0.62;
+        }
+
+        .work-schedule-page .branch-tab,
+        .work-schedule-page .week-picker button {
+            min-width: 44px;
+            min-height: 44px;
+        }
+
+        .work-schedule-panel {
+            border: 1px solid #DCE7E1;
+            box-shadow: 0 12px 32px rgba(15, 63, 45, 0.07);
+        }
+
+        .schedule-wrapper {
+            position: relative;
+            scrollbar-gutter: stable;
+        }
+
+        .schedule-wrapper::-webkit-scrollbar,
+        .staff-checkbox-list::-webkit-scrollbar,
+        .cell-modal-body::-webkit-scrollbar {
+            width: 9px;
+            height: 9px;
+        }
+
+        .schedule-wrapper::-webkit-scrollbar-thumb,
+        .staff-checkbox-list::-webkit-scrollbar-thumb,
+        .cell-modal-body::-webkit-scrollbar-thumb {
+            border: 2px solid transparent;
+            border-radius: 999px;
+            background: #B8C8C0;
+            background-clip: padding-box;
+        }
+
+        .schedule-table th:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 4;
+        }
+
+        .shift-label-cell {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            box-shadow: 8px 0 14px -14px rgba(15, 23, 42, 0.7);
+        }
+
+        .day-cell.editable:focus-visible,
+        .staff-tag[role="button"]:focus-visible,
+        .branch-tab:focus-visible,
+        .week-picker button:focus-visible,
+        .cell-modal button:focus-visible,
+        .absent-confirm-popup button:focus-visible {
+            outline: 3px solid rgba(14, 165, 233, 0.38);
+            outline-offset: 2px;
+        }
+
+        .day-cell.editable:focus-visible {
+            background: #ECFEFF;
+            box-shadow: inset 0 0 0 2px #0891B2;
+        }
+
+        .staff-tag[role="button"] {
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .staff-tag[role="button"]:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+        }
+
+        .time-text.is-invalid {
+            border-color: #DC2626 !important;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+        }
+
+        /* Modal shell: fixed header/footer, independently scrolling body. */
+        .cell-modal {
+            inset: 0;
+            width: auto;
+            height: auto;
+            padding: clamp(1rem, 4vw, 3rem);
+            background: rgba(15, 23, 42, 0.58);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            z-index: 1500;
+        }
+
+        .cell-modal-content {
+            display: flex;
+            flex-direction: column;
+            width: min(680px, 100%);
+            max-width: 680px;
+            max-height: min(88dvh, 820px);
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.75);
+            border-radius: 20px;
+            box-shadow: 0 28px 90px rgba(15, 23, 42, 0.3);
+        }
+
+        .cell-modal-header,
+        .cell-modal-footer {
+            flex: 0 0 auto;
+            background: rgba(255, 255, 255, 0.98);
+            position: relative;
+            z-index: 2;
+        }
+
+        .cell-modal-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1.25rem 1.4rem 1rem;
+            border-bottom: 1px solid #E7EEE9;
+        }
+
+        .cell-modal-kicker {
+            display: block;
+            margin-bottom: 0.3rem;
+            color: #047857;
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+        }
+
+        .cell-modal-title {
+            margin: 0;
+            color: #12352A;
+            font-size: 1.15rem;
+            font-weight: 750;
+            line-height: 1.35;
+        }
+
+        .cell-modal-close {
+            display: inline-grid;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            flex: 0 0 auto;
+            border: 1px solid #DCE7E1;
+            border-radius: 10px;
+            background: #F7FAF8;
+            color: #476158;
+            cursor: pointer;
+            font-size: 1.45rem;
+            line-height: 1;
+        }
+
+        .cell-modal-close:hover {
+            background: #EEF7F2;
+            color: #065F46;
+        }
+
+        .cell-modal-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 1.15rem 1.4rem 1.3rem;
+            background: #FBFDFC;
+        }
+
+        .cell-modal-description {
+            margin: 0 0 0.9rem;
+            color: #64736D;
+            font-size: 0.86rem;
+            line-height: 1.55;
+        }
+
+        .modal-field-label {
+            display: block;
+            margin: 0.9rem 0 0.4rem;
+            color: #344A42;
+            font-size: 0.76rem;
+            font-weight: 750;
+        }
+
+        .cell-modal .list-search-input,
+        .cell-modal .note-input {
+            min-height: 44px;
+            margin: 0;
+            border: 1px solid #CCDAD3;
+            border-radius: 11px;
+            background: white;
+        }
+
+        .cell-modal .list-search-input:focus,
+        .cell-modal .note-input:focus {
+            border-color: #059669;
+            box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+        }
+
+        .staff-checkbox-list {
+            max-height: min(42vh, 390px);
+            margin-top: 0.65rem;
+            border-color: #DCE7E1;
+            border-radius: 13px;
+            background: white;
+        }
+
+        .staff-checkbox-item {
+            min-height: 48px;
+            border-bottom-color: #EDF2EF;
+        }
+
+        .staff-checkbox-item:focus-within {
+            background: #ECFDF5;
+        }
+
+        .btn-custom-time {
+            width: 44px;
+            height: 44px;
+            margin-left: auto;
+            border: 0;
+            border-radius: 9px;
+            background: transparent;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .btn-custom-time:hover {
+            background: #ECFDF5;
+        }
+
+        .custom-time-row {
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.55rem 0.8rem 0.75rem 3.25rem;
+            border-bottom: 1px solid #EDF2EF;
+            background: #FAFCFB;
+            font-size: 0.8rem;
+        }
+
+        .custom-time-label {
+            color: #64736D;
+            font-weight: 650;
+        }
+
+        .custom-time-row .time-text {
+            width: 64px;
+            padding: 0.36rem 0.3rem;
+            border: 1px solid #CCDAD3;
+            border-radius: 8px;
+            background: white;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .cell-modal-error {
+            margin-top: 0.8rem;
+            padding: 0.7rem 0.8rem;
+            border: 1px solid #FECACA;
+            border-radius: 10px;
+            background: #FEF2F2;
+            color: #B91C1C;
+            font-size: 0.8rem;
+            line-height: 1.45;
+        }
+
+        .cell-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            padding: 1rem 1.4rem calc(1rem + env(safe-area-inset-bottom, 0px));
+            border-top: 1px solid #E7EEE9;
+            box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.035);
+        }
+
+        .cell-modal-footer .btn {
+            min-height: 44px;
+            min-width: 116px;
+            border-radius: 10px;
+        }
+
+        .cell-modal-footer .btn-primary {
+            min-width: 190px;
+        }
+
+        /* Absence action popover */
+        .absent-confirm-popup {
+            position: fixed;
+            z-index: 1700;
+            width: min(310px, calc(100vw - 24px));
+            max-height: calc(100dvh - 24px);
+            overflow-y: auto;
+            padding: 1rem;
+            border: 1px solid #DCE7E1;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.99);
+            box-shadow: 0 20px 55px rgba(15, 23, 42, 0.24);
+            font-family: inherit;
+        }
+
+        .absent-popup-kicker {
+            color: #0F766E;
+            font-size: 0.65rem;
+            font-weight: 850;
+            letter-spacing: 0.12em;
+        }
+
+        .absent-popup-title {
+            margin-top: 0.3rem;
+            color: #17372C;
+            font-size: 0.95rem;
+            font-weight: 750;
+            line-height: 1.35;
+        }
+
+        .absent-popup-description {
+            margin: 0.45rem 0 0.85rem;
+            color: #64736D;
+            font-size: 0.79rem;
+            line-height: 1.45;
+        }
+
+        .absent-popup-actions {
+            display: grid;
+            gap: 0.45rem;
+        }
+
+        .absent-popup-button {
+            width: 100%;
+            min-height: 44px;
+            padding: 0.55rem 0.75rem;
+            border-radius: 10px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.82rem;
+            font-weight: 700;
+            text-align: left;
+        }
+
+        .absent-popup-button.is-absence {
+            border: 1px solid #F59E0B;
+            background: #FFFBEB;
+            color: #92400E;
+        }
+
+        .absent-popup-button.is-restore {
+            border: 1px solid #34D399;
+            background: #ECFDF5;
+            color: #065F46;
+        }
+
+        .absent-popup-button.is-edit {
+            border: 1px solid #93C5FD;
+            background: #EFF6FF;
+            color: #1D4ED8;
+        }
+
+        .absent-popup-button.is-cancel {
+            border: 1px solid #DCE3E0;
+            background: #F8FAF9;
+            color: #52655E;
+            text-align: center;
+        }
+
+        @media (max-width: 1100px) and (min-width: 769px) {
+            .work-schedule-page .page-header {
+                flex-wrap: wrap;
+            }
+
+            .work-schedule-page #save-area {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .schedule-table {
+                min-width: 790px;
+            }
+
+            .schedule-table th:first-child {
+                width: 155px;
+                min-width: 155px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .work-schedule-page .page-header {
+                margin-bottom: 1rem !important;
+            }
+
+            .work-schedule-page #save-area:not(.schedule-actions-hidden) {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                width: 100%;
+            }
+
+            .work-schedule-page #save-area .btn {
+                width: auto;
+                min-width: 0;
+                margin: 0;
+                padding-inline: 0.65rem !important;
+            }
+
+            .work-schedule-page #save-week-button {
+                grid-column: 1 / -1;
+            }
+
+            .branch-tabs {
+                justify-content: flex-start;
+                overflow-x: auto;
+                padding: 0.15rem 0.1rem 0.45rem;
+                scrollbar-width: none;
+            }
+
+            .branch-tabs::-webkit-scrollbar {
+                display: none;
+            }
+
+            .branch-tab {
+                flex: 0 0 auto;
+                min-height: 44px;
+            }
+
+            .week-picker button {
+                min-width: 48px;
+                min-height: 44px;
+            }
+
+            .work-schedule-panel {
+                border-radius: 14px;
+            }
+
+            .schedule-table {
+                min-width: 720px;
+            }
+
+            .schedule-table th:first-child {
+                width: 118px !important;
+                min-width: 118px !important;
+            }
+
+            .cell-modal {
+                align-items: flex-end;
+                padding: 0;
+            }
+
+            .cell-modal-content {
+                width: 100%;
+                max-width: none;
+                max-height: 94dvh;
+                margin: 0;
+                border: 0;
+                border-radius: 22px 22px 0 0;
+                animation-name: modalSheetIn;
+            }
+
+            .cell-modal-header {
+                padding: 1rem 1rem 0.85rem;
+            }
+
+            .cell-modal-title {
+                font-size: 1.02rem;
+            }
+
+            .cell-modal-close,
+            .btn-custom-time,
+            .cell-modal-footer .btn,
+            .cell-modal-footer .btn-primary {
+                min-width: 44px;
+                min-height: 44px;
+            }
+
+            .cell-modal-body {
+                padding: 0.9rem 1rem 1rem;
+            }
+
+            .staff-checkbox-list {
+                max-height: 43dvh;
+            }
+
+            .cell-modal-footer {
+                padding: 0.8rem 1rem calc(0.8rem + env(safe-area-inset-bottom, 0px));
+            }
+
+            .cell-modal-footer .btn,
+            .cell-modal-footer .btn-primary {
+                flex: 1 1 0;
+                min-width: 0;
+            }
+
+            .absent-confirm-popup.is-mobile-sheet {
+                width: auto;
+                max-height: min(72dvh, 520px);
+                border-radius: 18px;
+                padding: 1rem;
+            }
+
+            .absent-popup-button {
+                min-height: 44px;
+            }
+        }
+
+        @media (max-width: 430px) {
+            .custom-time-row {
+                flex-wrap: wrap;
+                padding-left: 1rem;
+            }
+
+            .custom-time-label {
+                width: 100%;
+            }
+        }
+
+        @keyframes modalSheetIn {
+            from {
+                opacity: 0;
+                transform: translateY(24px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .cell-modal-content,
+            .staff-tag,
+            .branch-tab,
+            .week-picker button {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
     </style>
     <!-- Firebase SDK (Compat) -->
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
+    <script src='js/firebase-config.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/db-service.js?v=20260831-scheduler-hd-v2'></script>
     <script src='js/ui-service.js?v=20260803-early10-v1'></script>
-    <script src='js/auth-guard.js?v=20260822-office-role-v1'></script>
+    <script src='js/auth-guard.js?v=20260831-scheduler-hd-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
-<body>
+<body class="work-schedule-page">
     <div class="admin-container">
         <!-- Sidebar -->
         <aside class="sidebar">
@@ -494,7 +1060,7 @@
                         style="font-size:0.95rem; padding:0.6rem 1.25rem; background:#FEE2E2; color:#DC2626; border:1px solid #FECACA; font-weight:600;">
                         <i data-lucide="trash-2"></i> Xóa Lịch
                     </button>
-                    <button class="btn btn-primary" onclick="saveFullWeek()"
+                    <button id="save-week-button" class="btn btn-primary" data-week-save-action onclick="saveFullWeek()"
                         style="font-size:0.95rem; padding:0.6rem 1.5rem;">
                         <i data-lucide="save"></i> Lưu Lịch Tuần
                     </button>
@@ -502,17 +1068,17 @@
             </header>
 
             <!-- Branch Tabs -->
-            <div class="branch-tabs">
-                <button class="branch-tab active" onclick="switchBranch('cs1')" id="tab-cs1">📍 Cơ Sở 1</button>
-                <button class="branch-tab" onclick="switchBranch('cs2')" id="tab-cs2">📍 Cơ Sở 2</button>
-                <button class="branch-tab" onclick="switchBranch('cs3')" id="tab-cs3">📍 Cơ Sở 3</button>
+            <div class="branch-tabs" role="group" aria-label="Chọn cơ sở">
+                <button type="button" aria-pressed="true" class="branch-tab active" onclick="switchBranch('cs1')" id="tab-cs1">📍 Cơ Sở 1</button>
+                <button type="button" aria-pressed="false" class="branch-tab" onclick="switchBranch('cs2')" id="tab-cs2">📍 Cơ Sở 2</button>
+                <button type="button" aria-pressed="false" class="branch-tab" onclick="switchBranch('cs3')" id="tab-cs3">📍 Cơ Sở 3</button>
             </div>
 
             <!-- Week Picker -->
             <div class="week-picker">
-                <button onclick="navigateWeek(-1)" title="Tuần trước">◀</button>
-                <span class="week-label" id="week-label">Đang tải...</span>
-                <button onclick="navigateWeek(1)" title="Tuần sau">▶</button>
+                <button type="button" onclick="navigateWeek(-1)" title="Tuần trước" aria-label="Xem tuần trước">◀</button>
+                <span class="week-label" id="week-label" aria-live="polite">Đang tải...</span>
+                <button type="button" onclick="navigateWeek(1)" title="Tuần sau" aria-label="Xem tuần sau">▶</button>
             </div>
 
             <!-- Inheritance Banner (hidden by default) -->
@@ -525,16 +1091,16 @@
                         <p id="inherit-banner-text" style="font-size: 0.85rem; color: #78350F; margin: 0.25rem 0 0;">
                             Lịch này được copy từ tuần trước. Bấm Xác Nhận để áp dụng cho tuần này.</p>
                     </div>
-                    <button class="btn btn-primary" onclick="confirmInheritedSchedule()" style="white-space: nowrap;">
+                    <button class="btn btn-primary" data-week-save-action onclick="confirmInheritedSchedule()" style="white-space: nowrap;">
                         <i data-lucide="check-circle"></i> Xác Nhận Lịch Tuần Này
                     </button>
                 </div>
             </div>
 
             <!-- Schedule Table -->
-            <div class="glass-panel" style="padding: 0; overflow: hidden;">
+            <div class="glass-panel work-schedule-panel" style="padding: 0; overflow: hidden;">
                 <div class="schedule-wrapper">
-                    <table class="schedule-table" id="schedule-table">
+                    <table class="schedule-table" id="schedule-table" aria-label="Lịch trực nhân viên văn phòng theo tuần">
                         <thead>
                             <tr>
                                 <th>CA</th>
@@ -557,32 +1123,40 @@
     </div>
 
     <!-- Cell Edit Modal -->
-    <div class="cell-modal" id="cell-modal">
-        <div class="cell-modal-content">
-            <h3 id="cell-modal-title"
-                style="margin-bottom: 1.25rem; color: var(--primary-color); font-size: 1.05rem; font-weight: 700;"></h3>
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Chọn nhân viên văn phòng cho
-                ca này:</p>
-            <input type="text" id="modal-staff-search" class="list-search-input" placeholder="Tìm nhân viên văn phòng..."
-                oninput="filterModalStaff(this.value)" style="margin-bottom: 0.5rem;">
-            <div class="staff-checkbox-list" id="staff-checkbox-list">
-                <!-- Populated by JS -->
+    <div class="cell-modal" id="cell-modal" role="dialog" aria-modal="true" aria-hidden="true"
+        aria-labelledby="cell-modal-title" aria-describedby="cell-modal-description">
+        <section class="cell-modal-content" role="document" tabindex="-1">
+            <header class="cell-modal-header">
+                <div>
+                    <span class="cell-modal-kicker">PHÂN CÔNG CA</span>
+                    <h3 class="cell-modal-title" id="cell-modal-title"></h3>
+                </div>
+                <button type="button" class="cell-modal-close" onclick="closeCellModal()"
+                    aria-label="Đóng cửa sổ phân công">×</button>
+            </header>
+            <div class="cell-modal-body">
+                <p class="cell-modal-description" id="cell-modal-description">Chọn nhân viên văn phòng và điều chỉnh giờ riêng nếu ca này có ngoại lệ.</p>
+                <label class="modal-field-label" for="modal-staff-search">Tìm nhân viên</label>
+                <input type="search" id="modal-staff-search" class="list-search-input" placeholder="Nhập tên nhân viên văn phòng..."
+                    autocomplete="off" oninput="filterModalStaff(this.value)">
+                <div class="staff-checkbox-list" id="staff-checkbox-list">
+                    <!-- Populated by JS -->
+                </div>
+                <label class="modal-field-label" for="cell-note-input">Ghi chú ca</label>
+                <input type="text" class="note-input" id="cell-note-input"
+                    placeholder="Ví dụ: phân công công việc hoặc lưu ý bàn giao">
+                <div class="cell-modal-error" id="cell-modal-error" role="alert" hidden></div>
             </div>
-            <input type="text" class="note-input" id="cell-note-input"
-                placeholder="📝 Ghi chú (VD: phân công công việc tuần)...">
-            <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
-                <button class="btn"
-                    style="background: var(--border-color); color: var(--text-main); padding: 0.6rem 1.25rem;"
-                    onclick="closeCellModal()">Hủy</button>
-                <button class="btn btn-primary" style="flex: 1; padding: 0.6rem;" onclick="saveCellData()"><i data-lucide="check-circle"></i> Xác
-                    nhận</button>
-            </div>
-        </div>
+            <footer class="cell-modal-footer">
+                <button type="button" class="btn" onclick="closeCellModal()">Hủy</button>
+                <button type="button" class="btn btn-primary" onclick="saveCellData()"><i data-lucide="check-circle"></i> Xác nhận</button>
+            </footer>
+        </section>
     </div>
 
-    <script src="js/main.js?v=20260822-office-role-v1"></script>
+    <script src="js/main.js?v=20260831-scheduler-hd-v2"></script>
     <script>window.WORK_SCHEDULE_CONTEXT = { type: 'office' };</script>
-    <script src="js/receptionist-schedule.js?v=20260822-office-role-v1"></script>
+    <script src="js/receptionist-schedule.js?v=20260831-scheduler-hd-v2"></script>
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {

@@ -205,9 +205,16 @@
                 const hasReportedAbsence = mainTeacherIds.some(id =>
                     typeof isMainTeacherAbsentFromClass === 'function' && isMainTeacherAbsentFromClass(cls, id)
                 );
-                const teacherIds = substituteIds.length > 0
-                    ? substituteIds
-                    : [...availableMainTeacherIds, ...(cls.registeredTeachers || []).map(item => item.id)].filter(Boolean);
+                const registeredIds = (cls.registeredTeachers || [])
+                    .map(item => item.id)
+                    .filter(id => id && !mainTeacherIds.includes(id));
+                // Đồng giảng: GV thay chỉ thay người đã báo nghỉ; GV chính còn hoạt
+                // động vẫn phải xuất hiện để tiếp tân theo dõi đi trễ/vắng mặt.
+                const teacherIds = [
+                    ...availableMainTeacherIds,
+                    ...substituteIds,
+                    ...registeredIds
+                ].filter(Boolean);
                 const uniqueTeacherIds = [...new Set(teacherIds)];
 
                 if (uniqueTeacherIds.length === 0) {
@@ -218,7 +225,13 @@
                     return;
                 }
                 uniqueTeacherIds.forEach(teacherId => {
-                    const fallbackName = (cls.registeredTeachers || []).find(item => item.id === teacherId)?.name || cls.gv || '';
+                    const staffingEntry = [
+                        ...(Array.isArray(cls.gvList) ? cls.gvList : []),
+                        ...(Array.isArray(cls.gvThayTeList) ? cls.gvThayTeList : []),
+                        ...(Array.isArray(cls.gvThayTheList) ? cls.gvThayTheList : []),
+                        ...(cls.registeredTeachers || [])
+                    ].find(item => item?.id === teacherId);
+                    const fallbackName = staffingEntry?.name || cls.gv || '';
                     const user = state.userMap[teacherId];
                     entries.push(createClassEntry(cls, sectionKey, classIndex, compositeKey, teacherId, user?.name || user?.fullName || fallbackName || teacherId));
                 });

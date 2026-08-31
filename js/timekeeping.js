@@ -31,10 +31,28 @@ async function initTimekeeping() {
 }
 
 function getLocalDateKey(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    // All attendance documents are anchored to Vietnam time, regardless of the
+    // timezone configured on an admin laptop or a staff phone.
+    if (typeof getLocalDateKeyFromDate === 'function') return getLocalDateKeyFromDate(date);
+    const vnTime = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    return `${vnTime.getUTCFullYear()}-${String(vnTime.getUTCMonth() + 1).padStart(2, '0')}-${String(vnTime.getUTCDate()).padStart(2, '0')}`;
+}
+
+function timekeepingEscapeHTML(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getAttendanceSessions(record) {
+    if (!record) return [];
+    if (Array.isArray(record.sessions)) return record.sessions;
+    return record.checkIn
+        ? [{ id: 'legacy', checkIn: record.checkIn, start: record.checkIn, checkOut: record.checkOut || null }]
+        : [];
 }
 
 function isCenterClosed(dateStr, shiftKey, centerClosures) {
@@ -60,17 +78,26 @@ async function renderGlobalCheckIn() {
     // Look up Cloud Data
     const now = new Date();
     const dateKey = getLocalDateKey(now);
+    const previousDateKey = getLocalDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
 
     try {
-        const attendanceRecord = await DBService.getPersonalAttendance(dateKey, currentUserId);
+        const [attendanceRecord, previousAttendanceRecord] = await Promise.all([
+            DBService.getPersonalAttendance(dateKey, currentUserId),
+            previousDateKey === dateKey
+                ? Promise.resolve(null)
+                : DBService.getPersonalAttendance(previousDateKey, currentUserId)
+        ]);
 
         // Logic: If record exists AND has checkIn but NO checkOut -> Active Session
         let isActiveSession = false;
         let lastCheckInTime = null;
-        let sessions = attendanceRecord ? (attendanceRecord.sessions || []) : [];
+        let sessions = getAttendanceSessions(attendanceRecord);
 
         // Support backward compatibility (single field) if needed, but we just overwrote it
-        const openSession = sessions.find(s => !s.checkOut);
+        const previousSessions = getAttendanceSessions(previousAttendanceRecord);
+        const openSession = [...sessions, ...previousSessions]
+            .filter(s => !s.checkOut && !s.isAbsent && (s.checkIn || s.start))
+            .sort((a, b) => new Date(b.checkIn || b.start) - new Date(a.checkIn || a.start))[0];
 
         if (openSession) {
             isActiveSession = true;
@@ -79,10 +106,14 @@ async function renderGlobalCheckIn() {
 
         if (isActiveSession) {
             const timeStr = lastCheckInTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            const overnightText = getLocalDateKey(lastCheckInTime) !== dateKey
+                ? '<div style="font-size:0.82rem;color:#92400E;margin-bottom:0.75rem;font-weight:700;">Ca bắt đầu từ ngày hôm trước</div>'
+                : '';
             container.innerHTML = `
                 <div class="glass-panel" style="background: #ECFDF5; border: 2px solid var(--primary-color); padding: 2rem; text-align: center;">
                     <h2 style="color: var(--primary-color); font-weight: 700; margin-bottom: 0.5rem;">ĐANG TRONG CA</h2>
                     <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">(Ca hiện tại)</div>
+                    ${overnightText}
                     <p style="font-size: 1.5rem; margin-bottom: 1.5rem;">Giờ vào: <strong>${timeStr}</strong></p>
                     <button class="btn" style="background: #EF4444; color: white; padding: 1rem 3rem; font-size: 1.25rem;" onclick="globalCheckOut(this)">
                         RA CA
@@ -125,12 +156,12 @@ async function fetchAndRenderHistory(dateKey, userId) {
 
     try {
         const record = await DBService.getPersonalAttendance(dateKey, userId);
-        const sessions = record ? (record.sessions || []) : [];
+        const sessions = getAttendanceSessions(record);
 
         if (sessions.length === 0) {
             historyContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem; font-style: italic;">Chưa có dữ liệu chấm công hôm nay.</p>';
         } else {
-            let html = '<table class="history-table"><thead><tr><th>Vào</th><th>Ra</th><th>Xóa</th></tr></thead><tbody>';
+            let html = '<table class="history-table"><thead><tr><th>Vào</th><th>Ra</th><th>Trạng thái</th></tr></thead><tbody>';
             // Show latest first
             [...sessions].reverse().forEach(session => {
                 const inTime = new Date(session.checkIn || session.start).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -138,16 +169,12 @@ async function fetchAndRenderHistory(dateKey, userId) {
                     ? new Date(session.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
                     : '<span style="color: var(--primary-color); font-weight: bold;">---</span>';
 
-                // Use session.id (timestamp) for deletion
-                // If session.id is missing (legacy), skip delete button or use index?
-                // Better to provide dummy ID or hide button.
-                const deleteBtn = session.id
-                    ? `<button class="btn-icon" style="color: #EF4444;" onclick="handleDeleteSession('${dateKey}', '${session.id}')">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path></svg>
-                       </button>`
-                    : '';
-
-                html += `<tr><td>${inTime}</td><td>${outTime}</td><td>${deleteBtn}</td></tr>`;
+                const status = session.isAbsent
+                    ? '<span style="color:#BE123C;font-weight:700;">Vắng</span>'
+                    : (session.checkOut
+                        ? '<span style="color:#047857;font-weight:700;">Đã kết thúc</span>'
+                        : '<span style="color:#1D4ED8;font-weight:700;">Đang trong ca</span>');
+                html += `<tr><td>${inTime}</td><td>${outTime}</td><td>${status}</td></tr>`;
             });
             html += '</tbody></table>';
             historyContainer.innerHTML = html;
@@ -252,7 +279,13 @@ function createClassCard(cls, compositeKey) {
 
     const currentUserId = localStorage.getItem('currentUserId');
     const registeredTeachers = cls.registeredTeachers || [];
-    const isRegistered = isAssignedToClass(cls, currentUserId);
+    const isScheduledMain = isScheduledMainTeacher(cls, currentUserId);
+    const isScheduledSubstitute = window.isScheduledSubstitute
+        ? window.isScheduledSubstitute(cls, currentUserId)
+        : getScheduledSubstituteIds(cls).has(currentUserId);
+    const isSelfRegistered = registeredTeachers.some(item => item.id === currentUserId);
+    const absenceRecord = getTeacherAbsenceRecord(cls, currentUserId);
+    const isDeclaredAbsent = isScheduledMain && isMainTeacherAbsentFromClass(cls, currentUserId);
 
     // Branch badge
     const branchLabel = cls._branch ? cls._branch.toUpperCase() : 'CS1';
@@ -271,20 +304,33 @@ function createClassCard(cls, compositeKey) {
             statusBadge = '<span style="color: #9CA3AF; font-weight: bold;">Lịch nghỉ trung tâm</span>';
             actionBtn = '<span style="color: #9CA3AF; font-size: 0.875rem;">Lớp đã bị tắt do trung tâm nghỉ</span>';
         }
-    } else if (isRegistered) {
-        statusBadge = '<span style="color: var(--secondary-color); font-weight: bold;">Đã nhận lớp</span>';
+    } else if (isDeclaredAbsent) {
+        const typeLabel = String(absenceRecord?.type || '').toUpperCase() === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất';
+        const replacementIds = window.TeacherShiftState
+            ? TeacherShiftState.getReplacementIdsForTeacher(cls, currentUserId)
+            : (absenceRecord?.replacementIds || []);
+        statusBadge = `<span style="color:${absenceRecord?.type === 'VP' ? '#1D4ED8' : '#BE123C'};font-weight:800;">${typeLabel}</span>`;
+        actionBtn = `<span style="color:#6B7280;font-size:0.78rem;">${replacementIds.length ? 'Đã điều phối GV thay' : 'Đang chờ GV thay'}</span>`;
+    } else if (isScheduledSubstitute) {
+        statusBadge = '<span style="color:#B45309;font-weight:800;">GV dạy thay</span>';
+        actionBtn = '<span style="color:#6B7280;font-size:0.78rem;">Được người xếp lịch phân công</span>';
+    } else if (isScheduledMain) {
+        statusBadge = '<span style="color:#047857;font-weight:800;">GV chính</span>';
+        actionBtn = '<span style="color:#6B7280;font-size:0.78rem;">Được người xếp lịch phân công</span>';
+    } else if (isSelfRegistered) {
+        statusBadge = '<span style="color: var(--secondary-color); font-weight: bold;">Đã tự nhận lớp</span>';
         actionBtn = `<button class="btn btn-secondary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;
     }
 
     el.innerHTML = `
         <div>
-            <h3 style="font-size: 1.25rem; font-weight: 700;">${cls.lop || 'Lớp chưa nhập tên'}${branchBadge}</h3>
+            <h3 style="font-size: 1.25rem; font-weight: 700;">${timekeepingEscapeHTML(cls.lop || 'Lớp chưa nhập tên')}${branchBadge}</h3>
             <div style="color: var(--text-muted); margin-top: 0.25rem;">
-                <span style="display:inline-block; margin-right: 1rem;">🕒 ${cls.start} - ${cls.end}</span>
-                <span>🚪 ${cls.phong || 'Chưa xếp phòng'}</span>
+                <span style="display:inline-block; margin-right: 1rem;">🕒 ${timekeepingEscapeHTML(cls.start)} - ${timekeepingEscapeHTML(cls.end)}</span>
+                <span>🚪 ${timekeepingEscapeHTML(cls.phong || 'Chưa xếp phòng')}</span>
             </div>
             <div style="margin-top: 0.5rem; font-size: 0.875rem;">
-                 ${registeredTeachers.length > 0 ? `GV: ${registeredTeachers.map(t => t.name).join(', ')}` : 'Chưa có GV'}
+                 ${registeredTeachers.length > 0 ? `GV tự nhận: ${timekeepingEscapeHTML(registeredTeachers.map(t => t.name).join(', '))}` : 'Nhân sự theo lịch đã xếp'}
             </div>
         </div>
         <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
@@ -371,8 +417,9 @@ function renderTodayChips() {
     Promise.all([
         Promise.all(branchPromises),
         DBService.getPersonalAttendance(dateKey, currentUserId),
-        DBService._getDashboardReceptionistShifts(currentUserId, dateKey)
-    ]).then(([results, attendance, operationalShifts]) => {
+        DBService._getDashboardReceptionistShifts(currentUserId, dateKey),
+        DBService.loadDailyEvaluationContext(currentUserId, dateKey)
+    ]).then(([results, attendance, operationalShifts, evaluationContext]) => {
         try {
             // Merge all schedule data
             const mergedSchedule = {};
@@ -397,7 +444,12 @@ function renderTodayChips() {
                 currentUserId,
                 dateKey,
                 currentUserContext,
-                operationalShifts || []
+                operationalShifts || [],
+                evaluationContext.overtimeMap || {},
+                evaluationContext.cancelledShifts || [],
+                evaluationContext.bonus10Map || {},
+                evaluationContext.shiftObservations || [],
+                evaluationContext.monthFlags || {}
             );
 
             if (chips.length === 0) {
@@ -421,7 +473,7 @@ function renderTodayChips() {
                     padding: 0.75rem 1rem;
                     border-radius: 8px;
                 `;
-                chipEl.innerHTML = `<span>${chip.text}</span>`;
+                chipEl.innerHTML = `<span>${timekeepingEscapeHTML(chip.text)}</span>`;
                 
                 // Show tooltip on hover
                 if (chip.tooltip) {

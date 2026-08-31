@@ -56,6 +56,131 @@ function hasScheduledSubstitute(cls) {
     return getScheduledSubstituteIds(cls).size > 0;
 }
 
+function createScheduleShiftId() {
+    const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    return `shift_${random}`;
+}
+
+function createAttendanceSessionId() {
+    const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+    return `session_${random}`;
+}
+
+// SCHEDULE REGISTRATION HELPERS START
+const SCHEDULE_SECTION_KEYS = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+
+function _scheduleRegistrationRowSignature(row) {
+    return [row?.start, row?.end, row?.lop, row?.phong]
+        .map(value => String(value || '').trim())
+        .join('|');
+}
+
+function _scheduleRegistrationHash(value, seed) {
+    let hash = seed >>> 0;
+    const input = String(value || '');
+    for (let index = 0; index < input.length; index += 1) {
+        hash ^= input.charCodeAt(index);
+        hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash.toString(36);
+}
+
+function _scheduleRegistrationId(scheduleKey, section, row, userId, rowIndex = -1) {
+    // Signature is stable even for an inherited (not-yet-materialized) schedule;
+    // inherited rows receive an ephemeral shiftId on each read.
+    const locator = _scheduleRegistrationRowSignature(row);
+    const raw = [scheduleKey, section, rowIndex, locator, userId].join('::');
+    const safeUserId = String(userId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) || 'staff';
+    return `reg_${_scheduleRegistrationHash(raw, 2166136261)}_${_scheduleRegistrationHash(raw, 3335557771)}_${safeUserId}`;
+}
+
+function _scheduleRegistrationUpdatedMillis(registration) {
+    const value = registration?.updatedAt || registration?.createdAt;
+    if (value && typeof value.toMillis === 'function') return value.toMillis();
+    if (Number.isFinite(value?.seconds)) return value.seconds * 1000 + Number(value.nanoseconds || 0) / 1e6;
+    const parsed = Date.parse(value || '');
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function _mergeScheduleRegistrations(schedule, registrations) {
+    const merged = { ...(schedule || {}) };
+    const bySection = new Map();
+    (registrations || []).forEach(registration => {
+        const section = String(registration?.section || '');
+        if (!SCHEDULE_SECTION_KEYS.includes(section) || !registration?.userId) return;
+        if (!bySection.has(section)) bySection.set(section, []);
+        bySection.get(section).push(registration);
+    });
+
+    SCHEDULE_SECTION_KEYS.forEach(section => {
+        if (!Array.isArray(schedule?.[section])) return;
+        const sectionRegistrations = bySection.get(section) || [];
+        merged[section] = schedule[section].map((row, rowIndex) => {
+            const signature = _scheduleRegistrationRowSignature(row);
+            const matching = sectionRegistrations.filter(registration => {
+                const shiftMatches = registration.shiftId && row?.shiftId &&
+                    String(registration.shiftId) === String(row.shiftId);
+                const legacyMatches = String(registration.rowSignature || '') === signature &&
+                    (!Number.isInteger(registration.rowIndex) || registration.rowIndex === rowIndex);
+                return shiftMatches || legacyMatches;
+            });
+            if (!matching.length) return { ...row, registeredTeachers: [...(row.registeredTeachers || [])] };
+
+            // At most one current registration per staff/row is expected. If a
+            // locator changed in older data, the latest status deterministically wins.
+            const latestByUser = new Map();
+            matching.forEach(registration => {
+                const userId = String(registration.userId);
+                const previous = latestByUser.get(userId);
+                if (!previous || _scheduleRegistrationUpdatedMillis(registration) >= _scheduleRegistrationUpdatedMillis(previous)) {
+                    latestByUser.set(userId, registration);
+                }
+            });
+            const teachers = new Map((row.registeredTeachers || [])
+                .filter(item => item?.id)
+                .map(item => [String(item.id), { ...item }]));
+            latestByUser.forEach(registration => {
+                const userId = String(registration.userId);
+                teachers.delete(userId); // cancelled is a tombstone for legacy embedded data
+                if (registration.status === 'active') {
+                    teachers.set(userId, {
+                        id: userId,
+                        name: registration.userName || registration.name || 'Staff',
+                        timestamp: registration.updatedAt || registration.createdAt || '',
+                        branch: registration.branch || '',
+                        registrationId: registration.id || '',
+                        registrationSource: 'schedule_registrations'
+                    });
+                }
+            });
+            return { ...row, registeredTeachers: Array.from(teachers.values()) };
+        });
+    });
+    return merged;
+}
+
+function _withoutSeparateScheduleRegistrations(schedule) {
+    const clean = { ...(schedule || {}) };
+    SCHEDULE_SECTION_KEYS.forEach(section => {
+        if (!Array.isArray(schedule?.[section])) return;
+        clean[section] = schedule[section].map(row => ({
+            ...row,
+            registeredTeachers: (row.registeredTeachers || [])
+                .filter(item => item?.registrationSource !== 'schedule_registrations')
+                .map(item => {
+                    const { registrationId, registrationSource, ...legacy } = item || {};
+                    return legacy;
+                })
+        }));
+    });
+    return clean;
+}
+// SCHEDULE REGISTRATION HELPERS END
+
 // Trạng thái GV báo nghỉ được lưu THEO TỪNG LỚP/CA, thay vì suy đoán từ việc
 // đã có GV thay thế. Nhờ vậy người xếp lịch có thể ghi nhận "đang chờ người
 // thay" từ sớm và vẫn khôi phục đúng một ca khi GV đi làm lại.
@@ -331,6 +456,53 @@ async function assertAttendanceLocationAllowed(settings = {}) {
     throw createAttendanceLocationError('OUTSIDE_ALLOWED_RADIUS');
 }
 
+// ===== Authentication profile resolution =====
+// Firebase Auth emails are generated from usernames, so comparison must be
+// case-insensitive while preserving the original profile value for display.
+function _normalizeAuthUsername(value) {
+    return String(value || '').trim().toLocaleLowerCase('en-US');
+}
+
+function _getUsernameFromAuthUser(authUser) {
+    const email = String(authUser?.email || '').trim();
+    const separatorIndex = email.lastIndexOf('@');
+    if (separatorIndex <= 0) return '';
+    const domain = email.slice(separatorIndex + 1).toLocaleLowerCase('en-US');
+    return domain === 'tuduytre.com' ? email.slice(0, separatorIndex) : '';
+}
+
+function _normalizeRoleList(value) {
+    const rawRoles = Array.isArray(value?.roles) && value.roles.length
+        ? value.roles
+        : (value?.role ? [value.role] : []);
+    return [...new Set(rawRoles
+        .map(role => String(role || '').trim())
+        .filter(Boolean))];
+}
+
+function _clearStoredAuthSession() {
+    if (typeof window === 'undefined') return;
+    if (typeof window.clearAuthSessionStorage === 'function') {
+        window.clearAuthSessionStorage();
+        return;
+    }
+
+    [
+        'currentUser',
+        'currentRole',
+        'currentUserId',
+        'currentAuthUid',
+        'userFullName',
+        'currentUserName'
+    ].forEach(key => window.localStorage?.removeItem(key));
+}
+
+function _createAuthProfileError(message, code = 'auth/profile-mismatch') {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
+
 const DBService = {
     _cache: {},
     _cacheTime: {},
@@ -373,75 +545,203 @@ const DBService = {
         logs: () => window.db.collection('system_logs')
     },
 
-    // Các hàm xử lý dữ liệu sẽ được thêm vào dưới đây (getUsers, checkIn, etc.)
-    // 3. Authenticate User
-    // 3. Authenticate User (SECURE MODE)
-    loginUser: async (username, password) => {
-        try {
-            // 1. Authenticate with Firebase Auth
-            // Auto-append domain for UX (User only types username)
-            const email = `${username}@tuduytre.com`.toLowerCase();
-
-            // This grants the "ID Card" (Token) needed for Rules
-            const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
-            const authUser = userCredential.user;
-
-            // 2. Fetch User Profile from Firestore
-            // Now we have permission to read 'users' collection!
-
-            // Try query by username first (legacy compatibility)
-            // Or try finding by ID if we sync IDs. 
-            // In migration, we kept Firestore IDs same. Auth UID might differ? 
-            // Wait, we didn't sync Auth UID to Firestore ID. 
-            // We need to Find the user document that matches this username.
-
-            const snapshot = await window.db.collection('users')
-                .where('username', '==', username)
-                .limit(1)
-                .get();
-
-            if (snapshot.empty) {
-                // Should not happen if migration was correct
-                throw new Error("Tài khoản xác thực thành công nhưng không tìm thấy dữ liệu hồ sơ!");
-            }
-
-            const doc = snapshot.docs[0];
-            const userData = { id: doc.id, ...doc.data() };
-
-            // --- SECURITY PHASE 1: ROLE SYNC ---
-            // Write the role to a special collection keyed by Auth UID.
-            // This allows Firestore Rules to easily check: get(.../user_roles/$(request.auth.uid)).data.role
+    _getAuthenticatedDirectoryContext: async () => {
+        const primaryAuth = window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
+        const actor = primaryAuth?.currentUser;
+        if (!actor?.uid) return { uid: '', userId: '', roles: [], canReadPrivateProfiles: false };
+        const cacheKey = `directory_authz_${actor.uid}`;
+        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+        const promise = (async () => {
             try {
-                // Normalize roles array — fallback to single role if array missing
-                const rolesArr = Array.isArray(userData.roles) && userData.roles.length > 0
-                    ? userData.roles
-                    : [userData.role || 'staff'];
-                const roleRef = window.db.collection('user_roles').doc(authUser.uid);
-                await roleRef.set({
-                    userId: userData.id,
-                    role: userData.role || 'staff', // Backward compat (single role)
-                    roles: rolesArr,                // NEW: multi-role array for accurate RBAC
-                    username: userData.username,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                console.log("Security: Role Synced to Auth ID.", rolesArr);
-            } catch (err) {
-                console.warn("Security: Could not sync role (might lack permission yet).", err);
+                const roleSnapshot = await db.collection('user_roles').doc(actor.uid).get();
+                const roleData = roleSnapshot.exists ? (roleSnapshot.data() || {}) : {};
+                const roles = _normalizeRoleList(roleData);
+                return {
+                    uid: actor.uid,
+                    userId: String(roleData.userId || '').trim(),
+                    roles,
+                    canReadPrivateProfiles: roles.some(role => role === 'admin' || role === 'senior_assistant')
+                };
+            } catch (error) {
+                console.warn('[Security] Cannot resolve directory scope; using public staff directory.', error?.code || 'unknown');
+                return { uid: actor.uid, userId: '', roles: [], canReadPrivateProfiles: false };
             }
+        })();
+        DBService._cache[cacheKey] = promise;
+        return promise;
+    },
 
-            // Normalize roles field (backward compat)
-            if (!userData.roles || !Array.isArray(userData.roles)) {
-                userData.roles = userData.role ? [userData.role] : ['staff'];
+    _toStaffDirectoryProfile: (user) => {
+        // Exact allow-list: payroll configuration, auth UID, password and
+        // migration/audit metadata must never be copied to the shared roster.
+        const publicKeys = [
+            'id', 'name', 'displayName', 'username', 'role', 'roles',
+            'specialty', 'specialties', 'branch', 'branches', 'department',
+            'position', 'title', 'isActive', 'active', 'status', 'scheduleColor'
+        ];
+        const directoryProfile = {};
+        publicKeys.forEach(key => {
+            if (Object.prototype.hasOwnProperty.call(user || {}, key) && user[key] !== undefined) {
+                directoryProfile[key] = user[key];
             }
+        });
+        return directoryProfile;
+    },
 
-            return userData;
+    // Các hàm xử lý dữ liệu sẽ được thêm vào dưới đây (getUsers, checkIn, etc.)
+    // 3. Resolve the Firestore profile that belongs to an authenticated UID.
+    // The UID-keyed mapping is authoritative. Username lookup is retained only
+    // for legacy mappings which do not yet contain userId.
+    _findUserProfileCaseCompatible: async (username) => {
+        const requestedUsername = String(username || '').trim();
+        const normalizedUsername = _normalizeAuthUsername(requestedUsername);
+        if (!normalizedUsername) return null;
 
+        const usersRef = window.db.collection('users');
+        const exactCandidates = [...new Set([requestedUsername, normalizedUsername].filter(Boolean))];
+        for (const candidate of exactCandidates) {
+            const exactSnapshot = await usersRef
+                .where('username', '==', candidate)
+                .limit(2)
+                .get();
+            if (exactSnapshot.size > 1) {
+                throw _createAuthProfileError(
+                    'Có nhiều hồ sơ trùng tên đăng nhập. Vui lòng liên hệ Admin!',
+                    'auth/duplicate-profile'
+                );
+            }
+            if (!exactSnapshot.empty) return exactSnapshot.docs[0];
+        }
+
+        // Firestore has no native case-insensitive equality. This scan only runs
+        // for legacy mixed-case usernames after the indexed exact lookups fail.
+        const legacySnapshot = await usersRef.get();
+        const compatibleDocs = legacySnapshot.docs.filter(doc =>
+            _normalizeAuthUsername(doc.data()?.username) === normalizedUsername
+        );
+        if (compatibleDocs.length > 1) {
+            throw _createAuthProfileError(
+                'Có nhiều hồ sơ trùng tên đăng nhập (khác chữ hoa/thường). Vui lòng liên hệ Admin!',
+                'auth/duplicate-profile'
+            );
+        }
+        return compatibleDocs[0] || null;
+    },
+
+    getAuthenticatedProfile: async (authUser, hints = {}) => {
+        if (!authUser?.uid) {
+            throw _createAuthProfileError('Phiên đăng nhập Firebase không hợp lệ!', 'auth/session-missing');
+        }
+        if (!window.db) {
+            throw _createAuthProfileError('Không thể kết nối cơ sở dữ liệu!', 'auth/database-unavailable');
+        }
+
+        const authUsername = _getUsernameFromAuthUser(authUser);
+        const normalizedAuthUsername = _normalizeAuthUsername(authUsername);
+        const hintedUsername = String(hints.username || '').trim();
+        if (!normalizedAuthUsername) {
+            throw _createAuthProfileError('Tài khoản Firebase không có email đăng nhập hợp lệ!');
+        }
+        if (hintedUsername && _normalizeAuthUsername(hintedUsername) !== normalizedAuthUsername) {
+            throw _createAuthProfileError('Tên đăng nhập không khớp với phiên Firebase!');
+        }
+
+        const roleSnapshot = await window.db.collection('user_roles').doc(authUser.uid).get();
+        const roleMapping = roleSnapshot.exists ? roleSnapshot.data() : null;
+        const mappedUserId = String(roleMapping?.userId || '').trim();
+        const hintedUserId = String(hints.userId || '').trim();
+        let profileDoc = null;
+
+        if (mappedUserId) {
+            // Never accept a localStorage user id that belongs to another UID.
+            if (hintedUserId && hintedUserId !== mappedUserId) {
+                throw _createAuthProfileError('Phiên đăng nhập không khớp hồ sơ nhân sự!');
+            }
+            const mappedSnapshot = await window.db.collection('users').doc(mappedUserId).get();
+            if (!mappedSnapshot.exists) {
+                throw _createAuthProfileError(
+                    'Tài khoản đã xác thực nhưng hồ sơ được liên kết không tồn tại!',
+                    'auth/profile-not-found'
+                );
+            }
+            profileDoc = mappedSnapshot;
+        } else {
+            // Legacy compatibility: the Auth email is the lookup source, never a
+            // role/user id supplied only by localStorage.
+            profileDoc = await DBService._findUserProfileCaseCompatible(authUsername);
+            if (!profileDoc) {
+                throw _createAuthProfileError(
+                    'Tài khoản xác thực thành công nhưng không tìm thấy dữ liệu hồ sơ!',
+                    'auth/profile-not-found'
+                );
+            }
+            if (hintedUserId && hintedUserId !== profileDoc.id) {
+                throw _createAuthProfileError('Phiên đăng nhập không khớp hồ sơ nhân sự!');
+            }
+        }
+
+        const { password: _legacyPassword, ...profileData } = profileDoc.data() || {};
+        const userData = { id: profileDoc.id, ...profileData };
+        const profileUsername = _normalizeAuthUsername(userData.username);
+        if (!profileUsername || profileUsername !== normalizedAuthUsername) {
+            throw _createAuthProfileError('Hồ sơ nhân sự không khớp tài khoản Firebase!');
+        }
+        if (roleMapping?.username
+            && _normalizeAuthUsername(roleMapping.username) !== profileUsername) {
+            throw _createAuthProfileError('UID Firebase đang được liên kết với tên đăng nhập khác!');
+        }
+
+        // Roles are read from the UID mapping when present. We never let a
+        // browser session write or "repair" its own role mapping.
+        const mappedRoles = _normalizeRoleList(roleMapping);
+        const profileRoles = _normalizeRoleList(userData);
+        const roles = roleMapping
+            ? (mappedRoles.length ? mappedRoles : ['staff'])
+            : (profileRoles.length ? profileRoles : ['staff']);
+        const primaryRole = roles.includes(String(roleMapping?.role || '').trim())
+            ? String(roleMapping.role).trim()
+            : roles[0];
+
+        return {
+            ...userData,
+            role: primaryRole,
+            roles,
+            authUid: authUser.uid,
+            roleMappingVerified: Boolean(mappedUserId)
+        };
+    },
+
+    // 4. Authenticate User (Firebase Auth + UID-bound profile)
+    loginUser: async (username, password) => {
+        const loginUsername = String(username || '').trim();
+        try {
+            if (!loginUsername) throw new Error('Vui lòng nhập tên đăng nhập!');
+
+            // Password is intentionally passed through unchanged. Leading or
+            // trailing spaces can be part of a valid Firebase password.
+            const email = `${loginUsername}@tuduytre.com`.toLowerCase();
+            const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+            return await DBService.getAuthenticatedProfile(userCredential.user, {
+                username: loginUsername
+            });
         } catch (error) {
-            console.error("Secure Login Error:", error);
-            if (error.code === 'auth/wrong-password') throw new Error("Sai mật khẩu!");
-            if (error.code === 'auth/user-not-found') throw new Error("Tài khoản không tồn tại!");
-            if (error.code === 'auth/invalid-credential') throw new Error("Sai tên đăng nhập hoặc mật khẩu!");
-            if (error.code === 'auth/too-many-requests') throw new Error("Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau!");
+            // A Firebase credential without a matching profile must never remain
+            // signed in. Also remove stale client identity values on every error.
+            try {
+                const primaryAuth = window.auth || firebase.auth();
+                if (primaryAuth) await primaryAuth.signOut();
+            } catch (signOutError) {
+                console.warn('Secure Login cleanup could not sign out Firebase:', signOutError);
+            } finally {
+                _clearStoredAuthSession();
+            }
+
+            console.error('Secure Login Error:', error);
+            if (error.code === 'auth/wrong-password') throw new Error('Sai mật khẩu!');
+            if (error.code === 'auth/user-not-found') throw new Error('Tài khoản không tồn tại!');
+            if (error.code === 'auth/invalid-credential') throw new Error('Sai tên đăng nhập hoặc mật khẩu!');
+            if (error.code === 'auth/too-many-requests') throw new Error('Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau!');
+            if (error.code === 'auth/network-request-failed') throw new Error('Không thể kết nối máy chủ đăng nhập. Vui lòng kiểm tra mạng!');
             throw error;
         }
     },
@@ -503,13 +803,29 @@ const DBService = {
     },
 
     getUsers: async () => {
-        const cacheKey = 'users_all';
+        const context = await DBService._getAuthenticatedDirectoryContext();
+        const collectionName = context.canReadPrivateProfiles ? 'users' : 'staff_directory';
+        const cacheKey = `users_all_${context.uid || 'anonymous'}_${collectionName}`;
         if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
             try {
-                const snapshot = await db.collection('users').get();
-                const rawUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                let snapshot;
+                try {
+                    snapshot = await db.collection(collectionName).get();
+                } catch (directoryError) {
+                    // Zero-downtime rollout: the frontend may reach production a
+                    // few seconds before rules start allowing staff_directory.
+                    // Falling back to the legacy collection is useful only while
+                    // the old rules are active; final rules deny this list.
+                    if (collectionName !== 'staff_directory') throw directoryError;
+                    console.warn('[Security] Staff directory is not active yet; using rollout fallback.');
+                    snapshot = await db.collection('users').get();
+                }
+                const rawUsers = snapshot.docs.map(doc => {
+                    const { password: _legacyPassword, ...profile } = doc.data() || {};
+                    return { id: doc.id, ...profile };
+                });
                 return DBService.generateUniqueShortNames(rawUsers);
             } catch (error) {
                 console.error("Error getting users:", error);
@@ -523,13 +839,26 @@ const DBService = {
 
     getUser: async (userId) => {
         if (!userId) return null;
-        const cacheKey = `user_${userId}`;
+        const context = await DBService._getAuthenticatedDirectoryContext();
+        const collectionName = context.canReadPrivateProfiles || context.userId === String(userId)
+            ? 'users'
+            : 'staff_directory';
+        const cacheKey = `user_${userId}_${context.uid || 'anonymous'}_${collectionName}`;
         if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
             try {
-                const doc = await db.collection('users').doc(userId).get();
-                return doc.exists ? { id: doc.id, ...doc.data() } : null;
+                let profileDoc;
+                try {
+                    profileDoc = await db.collection(collectionName).doc(userId).get();
+                } catch (directoryError) {
+                    if (collectionName !== 'staff_directory') throw directoryError;
+                    console.warn('[Security] Staff directory is not active yet; using rollout fallback.');
+                    profileDoc = await db.collection('users').doc(userId).get();
+                }
+                if (!profileDoc.exists) return null;
+                const { password: _legacyPassword, ...profile } = profileDoc.data() || {};
+                return { id: profileDoc.id, ...profile };
             } catch (error) {
                 console.error("Error getting user:", error);
                 return null;
@@ -540,37 +869,97 @@ const DBService = {
         return promise;
     },
 
+    // Credentials are isolated from the staff profile collection. Only verified
+    // managers may read this compatibility store; normal authenticated users can
+    // never download colleagues' passwords through getUsers().
+    getUserCredentialsMap: async () => {
+        const snapshot = await db.collection('user_credentials').get();
+        const result = {};
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+            result[doc.id] = { staffId: doc.id, password: data.password || '' };
+        });
+        return result;
+    },
+
+    updateOwnCredentialPassword: async (staffId, password) => {
+        if (!staffId || !password) throw new Error('Thiếu thông tin cập nhật mật khẩu.');
+        await db.collection('user_credentials').doc(staffId).set({
+            staffId,
+            password,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        return true;
+    },
+
+    _syncUserRoleMappingAsManager: async (user, batch = null) => {
+        const primaryAuth = window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
+        const actor = primaryAuth?.currentUser;
+        if (!actor?.uid) return false;
+
+        // Client storage is never authorization. Confirm the actor's role from
+        // the UID-keyed document; Firestore Rules remain the final enforcement.
+        const actorRoleSnapshot = await db.collection('user_roles').doc(actor.uid).get();
+        if (!actorRoleSnapshot.exists) return false;
+        const actorRoles = _normalizeRoleList(actorRoleSnapshot.data());
+        if (!actorRoles.some(role => role === 'admin' || role === 'senior_assistant')) return false;
+
+        const targetAuthUid = String(user.authUid || '').trim();
+        let targetRef = targetAuthUid ? db.collection('user_roles').doc(targetAuthUid) : null;
+        if (!targetRef) {
+            const targetSnapshot = await db.collection('user_roles')
+                .where('username', '==', user.username)
+                .limit(2)
+                .get();
+            if (targetSnapshot.empty) return false;
+            if (targetSnapshot.size !== 1) {
+                throw _createAuthProfileError(
+                    'Có nhiều UID cùng tên đăng nhập; không thể đồng bộ vai trò an toàn.',
+                    'auth/duplicate-role-mapping'
+                );
+            }
+            targetRef = targetSnapshot.docs[0].ref;
+        }
+        const roles = _normalizeRoleList(user);
+        const requestedPrimaryRole = String(user.role || '').trim();
+        const rolePayload = {
+            userId: user.id,
+            username: user.username,
+            role: roles.includes(requestedPrimaryRole) ? requestedPrimaryRole : (roles[0] || 'staff'),
+            roles: roles.length ? roles : ['staff'],
+            updatedByAdmin: true,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        if (batch) batch.set(targetRef, rolePayload, { merge: true });
+        else await targetRef.set(rolePayload, { merge: true });
+        return true;
+    },
+
     saveUser: async (user) => {
         try {
             // user.id determines update or create
             const ref = db.collection('users').doc(user.id);
-            await ref.set(user, { merge: true });
+            const directoryRef = db.collection('staff_directory').doc(user.id);
+            const { password, ...safeProfile } = user;
+            const batch = db.batch();
+            const roleWasSynced = await DBService._syncUserRoleMappingAsManager(user, batch);
+            if (user.authUid && !roleWasSynced) {
+                throw new Error('Không thể tạo ánh xạ quyền cho tài khoản đăng nhập. Chưa lưu hồ sơ.');
+            }
+            batch.set(ref, safeProfile, { merge: true });
+            batch.set(directoryRef, DBService._toStaffDirectoryProfile(safeProfile));
+            if (password) {
+                batch.set(db.collection('user_credentials').doc(user.id), {
+                    staffId: user.id,
+                    password,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+            await batch.commit();
             DBService._invalidate('users_all');
             DBService._invalidate(`user_${user.id}`);
 
-            // Sync role to user_roles collection if admin is modifying
-            const currentRole = localStorage.getItem('currentRole');
-            if (currentRole === 'admin' || currentRole === 'senior_assistant') {
-                try {
-                    const snap = await db.collection('user_roles').where('username', '==', user.username).get();
-                    if (!snap.empty) {
-                        const roleDoc = snap.docs[0];
-                        const rolesArr = Array.isArray(user.roles) && user.roles.length > 0
-                            ? user.roles
-                            : [user.role || 'staff'];
-                        await roleDoc.ref.update({
-                            userId: user.id,
-                            role: user.role,
-                            roles: rolesArr, // NEW: keep array in sync so RBAC rules can see all roles
-                            updatedByAdmin: true,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        console.log("[Security] Admin synced role to user_roles for", user.username, rolesArr);
-                    }
-                } catch (e) {
-                    console.warn("[Security] Could not sync user_roles doc", e);
-                }
-            }
+            if (roleWasSynced) console.log('[Security] UID-verified manager synced user role mapping for', user.username);
 
             return true;
         } catch (error) {
@@ -579,14 +968,178 @@ const DBService = {
         }
     },
 
-    deleteUser: async (userId) => {
+    // Firestore and Firebase Auth cannot share one atomic transaction. Delete the
+    // Firestore side first, but return an in-memory recovery snapshot so the UI can
+    // restore it immediately when the Auth deletion is refused or fails.
+    deleteUser: async (userId, authUid = '') => {
+        let pendingRecoverySnapshot = null;
         try {
-            await db.collection('users').doc(userId).delete();
+            const normalizedUserId = String(userId || '').trim();
+            const normalizedAuthUid = String(authUid || '').trim();
+            if (!normalizedUserId) throw new Error('Thiếu mã nhân sự cần xóa.');
+
+            const primaryAuth = window.auth || (
+                typeof firebase !== 'undefined' && typeof firebase.auth === 'function'
+                    ? firebase.auth()
+                    : null
+            );
+            const currentActorAuthUid = String(primaryAuth?.currentUser?.uid || '').trim();
+            const currentStaffId = String(window.localStorage?.getItem('currentUserId') || '').trim();
+            if (currentStaffId === normalizedUserId || (
+                normalizedAuthUid && currentActorAuthUid === normalizedAuthUid
+            )) {
+                const selfDeleteError = new Error('Không thể xóa chính tài khoản quản trị đang đăng nhập.');
+                selfDeleteError.code = 'staff/delete-current-actor';
+                throw selfDeleteError;
+            }
+
+            let roleRefs = [];
+            if (normalizedAuthUid) {
+                roleRefs = [db.collection('user_roles').doc(normalizedAuthUid)];
+            } else {
+                const mappings = await db.collection('user_roles')
+                    .where('userId', '==', normalizedUserId)
+                    .get();
+                roleRefs = mappings.docs.map(doc => doc.ref);
+            }
+            if (currentActorAuthUid && roleRefs.some(ref => ref.id === currentActorAuthUid)) {
+                const actorRoleError = new Error('Không thể xóa ánh xạ quyền của tài khoản quản trị đang đăng nhập.');
+                actorRoleError.code = 'staff/delete-current-actor';
+                throw actorRoleError;
+            }
+
+            const targets = [
+                { collection: 'users', ref: db.collection('users').doc(normalizedUserId) },
+                { collection: 'staff_directory', ref: db.collection('staff_directory').doc(normalizedUserId) },
+                { collection: 'user_credentials', ref: db.collection('user_credentials').doc(normalizedUserId) },
+                ...roleRefs.map(ref => ({ collection: 'user_roles', ref }))
+            ];
+
+            const recoverySnapshot = await db.runTransaction(async transaction => {
+                const snapshots = await Promise.all(targets.map(target => transaction.get(target.ref)));
+                const profileSnapshot = snapshots[0];
+                if (!profileSnapshot.exists) {
+                    const missingProfileError = new Error('Hồ sơ nhân sự không còn tồn tại; chưa thay đổi tài khoản đăng nhập.');
+                    missingProfileError.code = 'staff/profile-not-found';
+                    throw missingProfileError;
+                }
+
+                const profileData = profileSnapshot.data() || {};
+                if (currentActorAuthUid &&
+                    String(profileData.authUid || '').trim() === currentActorAuthUid) {
+                    const profileActorError = new Error('Không thể xóa chính tài khoản quản trị đang đăng nhập.');
+                    profileActorError.code = 'staff/delete-current-actor';
+                    throw profileActorError;
+                }
+                if (normalizedAuthUid && profileData.authUid &&
+                    String(profileData.authUid).trim() !== normalizedAuthUid) {
+                    const profileUidError = new Error('UID đăng nhập không khớp hồ sơ; đã dừng xóa để bảo vệ tài khoản khác.');
+                    profileUidError.code = 'staff/auth-uid-mismatch';
+                    throw profileUidError;
+                }
+
+                snapshots.forEach((snapshot, index) => {
+                    if (!snapshot.exists || targets[index].collection !== 'user_roles') return;
+                    if (String(snapshot.data()?.userId || '').trim() !== normalizedUserId) {
+                        const roleMismatchError = new Error('Ánh xạ quyền không khớp nhân sự; đã dừng xóa để bảo vệ tài khoản khác.');
+                        roleMismatchError.code = 'staff/role-mapping-mismatch';
+                        throw roleMismatchError;
+                    }
+                });
+
+                const documents = [];
+                snapshots.forEach((snapshot, index) => {
+                    if (!snapshot.exists) return;
+                    documents.push({
+                        collection: targets[index].collection,
+                        id: snapshot.id,
+                        data: snapshot.data()
+                    });
+                    transaction.delete(targets[index].ref);
+                });
+
+                pendingRecoverySnapshot = {
+                    schemaVersion: 1,
+                    userId: normalizedUserId,
+                    authUid: normalizedAuthUid,
+                    documents
+                };
+                return pendingRecoverySnapshot;
+            });
+
             DBService._invalidate('users_all');
-            DBService._invalidate(`user_${userId}`);
+            DBService._invalidate(`user_${normalizedUserId}`);
+            return recoverySnapshot;
+        } catch (error) {
+            // A transaction can be committed remotely while its acknowledgement is
+            // lost. If the callback already built a snapshot, restore/no-op before
+            // allowing the UI to continue; Auth has not been touched at this point.
+            if (pendingRecoverySnapshot) {
+                try {
+                    await DBService.restoreDeletedUser(pendingRecoverySnapshot);
+                } catch (recoveryError) {
+                    console.error('Firestore delete recovery could not be verified:', recoveryError);
+                    error.message += ' Không thể xác minh việc khôi phục hồ sơ sau lỗi mạng.';
+                }
+            }
+            console.error("Error deleting user:", error);
+            throw error;
+        }
+    },
+
+    restoreDeletedUser: async (recoverySnapshot) => {
+        try {
+            const normalizedUserId = String(recoverySnapshot?.userId || '').trim();
+            const documents = Array.isArray(recoverySnapshot?.documents)
+                ? recoverySnapshot.documents
+                : [];
+            const allowedCollections = new Set([
+                'users', 'staff_directory', 'user_credentials', 'user_roles'
+            ]);
+            if (recoverySnapshot?.schemaVersion !== 1 || !normalizedUserId || !documents.length) {
+                throw new Error('Ảnh khôi phục hồ sơ không hợp lệ.');
+            }
+
+            const seenPaths = new Set();
+            const targets = documents.map(document => {
+                const collection = String(document?.collection || '');
+                const id = String(document?.id || '');
+                if (!allowedCollections.has(collection) || !id || !document?.data) {
+                    throw new Error('Ảnh khôi phục chứa tài liệu không hợp lệ.');
+                }
+                if (collection !== 'user_roles' && id !== normalizedUserId) {
+                    throw new Error('Ảnh khôi phục không khớp mã nhân sự.');
+                }
+                if (collection === 'user_roles' &&
+                    String(document.data.userId || '').trim() !== normalizedUserId) {
+                    throw new Error('Ảnh khôi phục quyền không khớp mã nhân sự.');
+                }
+                const path = `${collection}/${id}`;
+                if (seenPaths.has(path)) throw new Error('Ảnh khôi phục chứa tài liệu trùng lặp.');
+                seenPaths.add(path);
+                return { ref: db.collection(collection).doc(id), data: document.data };
+            });
+
+            await db.runTransaction(async transaction => {
+                const currentSnapshots = await Promise.all(targets.map(target => transaction.get(target.ref)));
+                const existingCount = currentSnapshots.filter(snapshot => snapshot.exists).length;
+                // The delete transaction may have failed before committing. In that
+                // case every original document is already present and compensation
+                // is a successful no-op; never overwrite those current documents.
+                if (existingCount === targets.length) return;
+                if (existingCount > 0) {
+                    const conflictError = new Error('Dữ liệu nhân sự đã được tạo lại; không ghi đè bằng ảnh khôi phục cũ.');
+                    conflictError.code = 'staff/restore-conflict';
+                    throw conflictError;
+                }
+                targets.forEach(target => transaction.set(target.ref, target.data));
+            });
+
+            DBService._invalidate('users_all');
+            DBService._invalidate(`user_${normalizedUserId}`);
             return true;
         } catch (error) {
-            console.error("Error deleting user:", error);
+            console.error('Error restoring deleted user:', error);
             throw error;
         }
     },
@@ -600,6 +1153,44 @@ const DBService = {
             return { branch, dateKey: rest.join('__'), docId: compositeKey };
         }
         return { branch: 'cs1', dateKey: compositeKey, docId: compositeKey };
+    },
+
+    _getScheduleRegistrations: async (compositeKey) => {
+        const userId = String(localStorage.getItem('currentUserId') || '').trim();
+        if (!userId) return [];
+        let roles = [];
+        try {
+            const stored = localStorage.getItem('currentRole') || '';
+            const parsed = JSON.parse(stored);
+            roles = Array.isArray(parsed) ? parsed : [stored];
+        } catch (error) {
+            roles = [localStorage.getItem('currentRole') || ''];
+        }
+        const canReadAll = roles.some(role => ['admin', 'senior_assistant', 'assistant'].includes(role));
+        const collection = db.collection('schedule_registrations');
+        const read = async (all) => {
+            let query = collection.where('scheduleKey', '==', compositeKey);
+            if (!all) query = query.where('userId', '==', userId);
+            const snapshot = await query.get();
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        };
+        try {
+            return await read(canReadAll);
+        } catch (error) {
+            // A stale/tampered local role must not hide the schedule. Retry the
+            // owner-scoped query that Firestore Rules can prove safely.
+            if (canReadAll) {
+                try { return await read(false); } catch (_) { /* report original below */ }
+            }
+            console.warn('[ScheduleRegistration] Could not load registrations:', error);
+            return [];
+        }
+    },
+
+    _attachScheduleRegistrations: async (compositeKey, data) => {
+        if (!data || typeof data !== 'object') return data || {};
+        const registrations = await DBService._getScheduleRegistrations(compositeKey);
+        return _mergeScheduleRegistrations(data, registrations);
     },
 
     // 4. Schedule Management
@@ -618,7 +1209,7 @@ const DBService = {
                 if (doc.exists) {
                     const data = doc.data();
                     const hasStructure = Object.keys(data).length > 0;
-                    if (hasStructure) return data;
+                    if (hasStructure) return DBService._attachScheduleRegistrations(compositeKey, data);
                 }
 
                 // 2. Fallback: Find Nearest Neighbor (Lịch Kế Thừa) — branch-specific manifest
@@ -666,12 +1257,20 @@ const DBService = {
                             newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
                             delete newRow.gvThayTheAt;
                             delete newRow.teacherAbsences;
+                            delete newRow.teacherAbsenceHistory;
+                            delete newRow.staffingUpdatedAt;
+                            delete newRow.staffingUpdatedById;
+                            delete newRow.staffingUpdatedByName;
+                            newRow.shiftId = createScheduleShiftId();
+                            newRow.staffingSchemaVersion = 2;
+                            newRow.teacherAbsences = [];
+                            newRow.teacherAbsenceHistory = [];
                             return newRow;
                         });
                     }
                 });
 
-                return templateData;
+                return DBService._attachScheduleRegistrations(compositeKey, templateData);
 
             } catch (error) {
                 console.error("Error getting schedule:", error);
@@ -687,7 +1286,7 @@ const DBService = {
         try {
             const { docId } = DBService._parseBranchKey(compositeKey);
             // 1. Save the actual schedule data
-            await db.collection('schedules').doc(docId).set(data);
+            await db.collection('schedules').doc(docId).set(_withoutSeparateScheduleRegistrations(data));
 
             // 2. Update Manifest
             await DBService.updateScheduleManifest(compositeKey);
@@ -729,95 +1328,62 @@ const DBService = {
         }
     },
 
-    // 5. Class Registration (Nhận Lớp) — with branch tagging
+    // 5. Class Registration (Nhận Lớp). Registrations live outside schedules so
+    // staff can only mutate their own small document, never a whole schedule day.
+    // A cancelled document acts as a tombstone for legacy registeredTeachers.
     registerClass: async (compositeKey, caType, rowMeta, user) => {
-        // rowMeta: { index, branch, ... }
         try {
             const userId = user ? (user.id || user.uid) : null;
             const userName = user ? (user.name || user.displayName || user.username) : null;
             if (!userId) throw new Error("User ID is required for registration!");
-
             const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
-            const manifestName = `schedule_manifest_${branch}`;
-            const docRef = db.collection('schedules').doc(docId);
+            if (!SCHEDULE_SECTION_KEYS.includes(caType)) throw new Error('Nhóm ca không hợp lệ.');
+            const schedule = await DBService.getSchedule(compositeKey);
+            const rowIndex = Number(rowMeta?.index);
+            const row = schedule?.[caType]?.[rowIndex];
+            if (!row) throw new Error('Ca không còn tồn tại hoặc đã được người xếp lịch thay đổi.');
 
-            await db.runTransaction(async (transaction) => {
-                let doc = await transaction.get(docRef);
-                let data;
+            const registrationId = _scheduleRegistrationId(compositeKey, caType, row, userId, rowIndex);
+            const registrationRef = db.collection('schedule_registrations').doc(registrationId);
+            const currentlyRegistered = (row.registeredTeachers || [])
+                .some(item => String(item?.id || '') === String(userId));
+            const nextStatus = currentlyRegistered ? 'cancelled' : 'active';
+            const authUid = String((window.auth || firebase.auth())?.currentUser?.uid || '').trim();
+            if (!authUid) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
 
-                if (!doc.exists) {
-                    // FALLBACK: Materialize from Template inside Transaction
-                    let manifestDoc = await transaction.get(db.collection('settings').doc(manifestName));
-                    // Legacy fallback for cs1
-                    if (!manifestDoc.exists && branch === 'cs1') {
-                        manifestDoc = await transaction.get(db.collection('settings').doc('schedule_manifest'));
-                    }
-                    let templateData = {};
-
-                    if (manifestDoc.exists) {
-                        const manifest = manifestDoc.data();
-                        const [y, m, d] = dateKey.split('-').map(Number);
-                        const localDate = new Date(y, m - 1, d);
-                        const dayOfWeek = localDate.getDay();
-
-                        const availableDates = manifest[dayOfWeek] || [];
-                        const pastDates = availableDates.filter(d => d < docId);
-
-                        if (pastDates.length > 0) {
-                            pastDates.sort().reverse();
-                            const neighborDocId = pastDates[0];
-                            const neighborDoc = await transaction.get(db.collection('schedules').doc(neighborDocId));
-                            if (neighborDoc.exists) templateData = neighborDoc.data();
-                        }
-                    }
-
-                    // Sanitize Template
-                    Object.keys(templateData).forEach(key => {
-                        if (Array.isArray(templateData[key])) {
-                            templateData[key] = templateData[key].map(row => {
-                                const newRow = { ...row, registeredTeachers: [] };
-                                delete newRow.isClosed;
-                                // GV thay thế không kế thừa sang ngày mới (cả 2 cách viết The/Te)
-                                newRow.gvThayThe = ''; newRow.gvThayTheId = ''; newRow.gvThayTheList = [];
-                                newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
-                                delete newRow.gvThayTheAt;
-                                delete newRow.teacherAbsences;
-                                return newRow;
-                            });
-                        }
-                    });
-
-                    data = templateData;
-                } else {
-                    data = doc.data();
+            await db.runTransaction(async transaction => {
+                const existingSnapshot = await transaction.get(registrationRef);
+                const existing = existingSnapshot.exists ? existingSnapshot.data() : null;
+                const immutable = existing || {
+                    scheduleKey: compositeKey,
+                    scheduleDocId: docId,
+                    branch,
+                    dateKey,
+                    section: caType,
+                    rowIndex,
+                    shiftId: String(row.shiftId || ''),
+                    rowSignature: _scheduleRegistrationRowSignature(row),
+                    userId: String(userId),
+                    authUid,
+                    schemaVersion: 1,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                if (existing && (
+                    String(existing.userId) !== String(userId) ||
+                    String(existing.scheduleKey) !== String(compositeKey) ||
+                    String(existing.section) !== String(caType)
+                )) {
+                    throw new Error('Khóa đăng ký lớp bị xung đột. Vui lòng tải lại trang.');
                 }
-
-                const rows = data[caType] || [];
-                const rowIndex = rowMeta.index;
-
-                if (!rows[rowIndex]) throw "Class no longer exists (or structure changed)!";
-
-                if (!rows[rowIndex].registeredTeachers) {
-                    rows[rowIndex].registeredTeachers = [];
-                }
-
-                const isRegistered = rows[rowIndex].registeredTeachers.some(t => t.id === userId);
-
-                if (isRegistered) {
-                    rows[rowIndex].registeredTeachers = rows[rowIndex].registeredTeachers.filter(t => t.id !== userId);
-                } else {
-                    rows[rowIndex].registeredTeachers.push({
-                        id: userId,
-                        name: userName || "Staff",
-                        timestamp: new Date().toISOString(),
-                        branch: branch   // ← Tag cơ sở
-                    });
-                }
-
-                transaction.set(docRef, data);
+                transaction.set(registrationRef, {
+                    ...immutable,
+                    userName: userName || existing?.userName || 'Staff',
+                    status: nextStatus,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
             });
             DBService._invalidate(`schedule_${compositeKey}`);
-            return true;
+            return nextStatus;
         } catch (error) {
             console.error("Registration error:", error);
             throw error;
@@ -1277,17 +1843,26 @@ const DBService = {
     getDayAttendance: async (dateKey) => {
         try {
             const snap = await db.collection('attendance_logs').where('date', '==', dateKey).get();
-            const present = new Set();
+            const evidenceByUser = new Map();
             snap.forEach(doc => {
                 const d = doc.data();
-                if (d.userId && d.sessions && d.sessions.some(s => s.checkIn || s.start)) {
-                    present.add(d.userId);
+                const sessions = Array.isArray(d.sessions)
+                    ? d.sessions
+                    : (d.checkIn ? [{ checkIn: d.checkIn, checkOut: d.checkOut || null }] : []);
+                if (d.userId) {
+                    const usable = sessions.filter(session =>
+                        !session?.isAbsent && (session?.checkIn || session?.start)
+                    );
+                    if (usable.length) {
+                        const key = String(d.userId);
+                        evidenceByUser.set(key, [...(evidenceByUser.get(key) || []), ...usable]);
+                    }
                 }
             });
-            return present;
+            return evidenceByUser;
         } catch (e) {
             console.warn('getDayAttendance error:', e);
-            return new Set();
+            return new Map();
         }
     },
 
@@ -1339,6 +1914,141 @@ const DBService = {
         return assertAttendanceLocationAllowed(settings);
     },
 
+    // Copy/template workflows may create a whole day, but must never replace a
+    // day that another scheduler already prepared. The existence check and
+    // create happen in the same transaction.
+    createScheduleIfMissing: async (compositeKey, data) => {
+        const { docId } = DBService._parseBranchKey(compositeKey);
+        const ref = db.collection('schedules').doc(docId);
+        let created = false;
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            if (snapshot.exists) return;
+            transaction.set(ref, _withoutSeparateScheduleRegistrations({
+                ...(data || {}),
+                _revision: 1,
+                _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                _updatedBy: localStorage.getItem('currentUserId') || null
+            }));
+            created = true;
+        });
+        if (!created) return false;
+        await DBService.updateScheduleManifest(compositeKey);
+        DBService._invalidate(`schedule_${compositeKey}`);
+        return true;
+    },
+
+    // Update exactly one class row from the latest Firestore document. The old UI
+    // rewrote the whole cached day, so two schedulers editing different classes could
+    // silently overwrite each other. A stable shiftId is preferred; the signature is
+    // a guarded fallback for legacy rows that have not been materialized with an ID yet.
+    updateScheduleRowAtomic: async (compositeKey, section, locator, applyRow, fallbackDayData = null) => {
+        if (!section || typeof applyRow !== 'function') {
+            throw new Error('Thiếu thông tin ca cần cập nhật.');
+        }
+        const { docId } = DBService._parseBranchKey(compositeKey);
+        const ref = db.collection('schedules').doc(docId);
+        let committedRow = null;
+        const signatureOf = row => [row?.start, row?.end, row?.lop, row?.phong]
+            .map(value => String(value || '').trim())
+            .join('|');
+
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            const source = snapshot.exists
+                ? snapshot.data()
+                : JSON.parse(JSON.stringify(fallbackDayData || {}));
+            const rows = Array.isArray(source?.[section]) ? source[section].map(row => ({ ...row })) : [];
+            const wantedShiftId = String(locator?.shiftId || '').trim();
+            const expectedSignature = String(locator?.signature || '').trim();
+            let rowIndex = wantedShiftId
+                ? rows.findIndex(row => String(row?.shiftId || '') === wantedShiftId)
+                : -1;
+
+            if (rowIndex < 0 && Number.isInteger(locator?.index)) {
+                const candidate = rows[locator.index];
+                if (candidate && (!expectedSignature || signatureOf(candidate) === expectedSignature)) {
+                    rowIndex = locator.index;
+                }
+            }
+            if (rowIndex < 0 || !rows[rowIndex]) {
+                const conflict = new Error('Ca đã được người khác thay đổi hoặc di chuyển. Vui lòng tải lại lịch rồi thử lại.');
+                conflict.code = 'schedule/conflict';
+                throw conflict;
+            }
+
+            const latestRow = JSON.parse(JSON.stringify(rows[rowIndex]));
+            const nextRow = applyRow(latestRow);
+            if (!nextRow || typeof nextRow !== 'object') throw new Error('Dữ liệu điều phối ca không hợp lệ.');
+            if (!nextRow.shiftId) nextRow.shiftId = createScheduleShiftId();
+            rows[rowIndex] = nextRow;
+            const currentRevision = Number.isInteger(source?._revision) ? source._revision : 0;
+            transaction.set(ref, _withoutSeparateScheduleRegistrations({
+                ...source,
+                [section]: rows,
+                _revision: currentRevision + 1,
+                _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                _updatedBy: localStorage.getItem('currentUserId') || null
+            }));
+            committedRow = JSON.parse(JSON.stringify(nextRow));
+        });
+
+        await DBService.updateScheduleManifest(compositeKey);
+        DBService._invalidate(`schedule_${compositeKey}`);
+        try {
+            localStorage.setItem('scheduleDataVersion', JSON.stringify({ compositeKey, at: Date.now() }));
+        } catch (error) {
+            // Cross-tab invalidation is best effort; Firestore remains the source of truth.
+        }
+        return committedRow;
+    },
+
+    // Add/delete/reorder rows against the latest section in one transaction.
+    // This is the section-level companion to updateScheduleRowAtomic and keeps
+    // edits in unrelated rows, including staffing/absence state, intact.
+    mutateScheduleSectionAtomic: async (compositeKey, section, applyRows, fallbackDayData = null) => {
+        if (!section || typeof applyRows !== 'function') {
+            throw new Error('Thiếu thông tin danh sách ca cần cập nhật.');
+        }
+        const { docId } = DBService._parseBranchKey(compositeKey);
+        const ref = db.collection('schedules').doc(docId);
+        let committedRows = [];
+
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            const source = snapshot.exists
+                ? snapshot.data()
+                : JSON.parse(JSON.stringify(fallbackDayData || {}));
+            const rows = Array.isArray(source?.[section])
+                ? source[section].map(row => JSON.parse(JSON.stringify(row)))
+                : [];
+            const nextRows = applyRows(rows);
+            if (!Array.isArray(nextRows)) throw new Error('Danh sách ca sau cập nhật không hợp lệ.');
+            nextRows.forEach(row => {
+                if (!row || typeof row !== 'object') throw new Error('Ca làm việc không hợp lệ.');
+                if (!row.shiftId) row.shiftId = createScheduleShiftId();
+            });
+            const currentRevision = Number.isInteger(source?._revision) ? source._revision : 0;
+            transaction.set(ref, _withoutSeparateScheduleRegistrations({
+                ...source,
+                [section]: nextRows,
+                _revision: currentRevision + 1,
+                _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                _updatedBy: localStorage.getItem('currentUserId') || null
+            }));
+            committedRows = JSON.parse(JSON.stringify(nextRows));
+        });
+
+        await DBService.updateScheduleManifest(compositeKey);
+        DBService._invalidate(`schedule_${compositeKey}`);
+        try {
+            localStorage.setItem('scheduleDataVersion', JSON.stringify({ compositeKey, at: Date.now() }));
+        } catch (error) {
+            // Cross-tab invalidation is best effort.
+        }
+        return committedRows;
+    },
+
     checkInPersonal: async (userId, userFullName) => {
         const settingsDoc = await db.collection('settings').doc('system').get();
         if (settingsDoc.exists) {
@@ -1363,11 +2073,13 @@ const DBService = {
 
         const now = new Date();
         const dateKey = getLocalDateKeyFromDate(now);
+        const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
+        const previousRef = db.collection('attendance_logs').doc(`${previousDateKey}_${userId}`);
 
         await db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
+            const [doc, previousDoc] = await Promise.all([t.get(ref), t.get(previousRef)]);
             let data = doc.exists ? doc.data() : {
                 userId,
                 name: userFullName,
@@ -1390,7 +2102,18 @@ const DBService = {
             }
 
             // Check if ANY working session is currently OPEN (no checkOut)
-            const openSession = data.sessions.find(s => !s.checkOut);
+            const openSession = data.sessions.find(s => !s.checkOut && !s.isAbsent);
+            const previousData = previousDoc.exists ? previousDoc.data() : null;
+            const previousSessions = previousData
+                ? (Array.isArray(previousData.sessions)
+                    ? previousData.sessions
+                    : (previousData.checkIn ? [{ checkIn: previousData.checkIn, checkOut: previousData.checkOut || null }] : []))
+                : [];
+            const previousOpenSession = previousSessions.find(s => !s.checkOut && !s.isAbsent);
+            if (previousOpenSession) {
+                const startTime = new Date(previousOpenSession.checkIn || previousOpenSession.start).toLocaleString('vi-VN');
+                throw new Error(`Bạn còn ca làm việc từ ${startTime} chưa kết thúc. Vui lòng Ra ca trước khi Vào ca mới.`);
+            }
             if (openSession) {
                 const startTime = new Date(openSession.checkIn || openSession.start).toLocaleTimeString('vi-VN');
                 throw new Error(`Bạn đang có ca làm việc chưa kết thúc (bắt đầu lúc ${startTime})! Vui lòng Check-out hoặc Xóa ca cũ.`);
@@ -1400,7 +2123,10 @@ const DBService = {
 
             // Add new session
             const newSession = {
-                id: Date.now(), // timestamp ID for deletion
+                id: createAttendanceSessionId(),
+                anchorDateKey: dateKey,
+                status: 'open',
+                source: 'self',
                 start: now.toISOString(),
                 checkIn: now.toISOString(),
                 checkOut: null
@@ -1421,46 +2147,60 @@ const DBService = {
     checkOutPersonal: async (userId, checkOutTime = null) => {
         const now = checkOutTime instanceof Date ? checkOutTime : new Date();
         const dateKey = getLocalDateKeyFromDate(now);
-        const docId = `${dateKey}_${userId}`;
-        const ref = db.collection('attendance_logs').doc(docId);
+        const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+        const candidates = Array.from(new Set([dateKey, previousDateKey])).map(key => ({
+            key,
+            ref: db.collection('attendance_logs').doc(`${key}_${userId}`)
+        }));
+        let anchorDateKey = dateKey;
 
         await db.runTransaction(async (t) => {
-            const doc = await t.get(ref);
-            if (!doc.exists) throw new Error("Bạn chưa check-in hôm nay!");
-
-            const data = doc.data();
-
-            // MIGRATION LOGIC (Important for consistency)
-            if (!data.sessions || !Array.isArray(data.sessions)) {
-                if (data.checkIn) {
-                    data.sessions = [{
-                        id: 'legacy',
-                        start: data.checkIn,
-                        checkIn: data.checkIn,
+            const snapshots = await Promise.all(candidates.map(item => t.get(item.ref)));
+            const openCandidates = [];
+            snapshots.forEach((doc, candidateIndex) => {
+                if (!doc.exists) return;
+                const data = doc.data();
+                if (!Array.isArray(data.sessions)) {
+                    data.sessions = data.checkIn ? [{
+                        id: 'legacy', start: data.checkIn, checkIn: data.checkIn,
                         checkOut: data.checkOut || null
-                    }];
-                } else {
-                    data.sessions = [];
+                    }] : [];
                 }
+                data.sessions.forEach((session, sessionIndex) => {
+                    if (!session?.checkOut && !session?.isAbsent && (session?.checkIn || session?.start)) {
+                        openCandidates.push({
+                            ref: candidates[candidateIndex].ref,
+                            key: candidates[candidateIndex].key,
+                            data,
+                            sessionIndex,
+                            startedAt: new Date(session.checkIn || session.start).getTime()
+                        });
+                    }
+                });
+            });
+            openCandidates.sort((left, right) => right.startedAt - left.startedAt);
+            const selected = openCandidates[0];
+            if (!selected) throw new Error("Bạn chưa vào ca hoặc đã ra ca rồi!");
+            if (!Number.isFinite(selected.startedAt) || now.getTime() < selected.startedAt) {
+                throw new Error('Giờ Ra ca không thể sớm hơn giờ Vào ca.');
             }
 
-            // Find open session
-            const openSessionIndex = data.sessions.findIndex(s => !s.checkOut);
-
-            if (openSessionIndex === -1) {
-                throw new Error("Bạn chưa vào ca hoặc đã ra ca rồi!");
-            }
+            const { data, sessionIndex: openSessionIndex } = selected;
+            anchorDateKey = selected.key;
 
             // Close session
             data.sessions[openSessionIndex].checkOut = now.toISOString();
+            data.sessions[openSessionIndex].status = 'closed';
+            data.sessions[openSessionIndex].anchorDateKey = data.sessions[openSessionIndex].anchorDateKey || selected.key;
 
             // Sync top level
             data.checkOut = now.toISOString();
             data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
 
-            t.set(ref, data);
+            t.set(selected.ref, data);
         });
-        DBService._invalidateAttendance(dateKey, userId);
+        DBService._invalidateAttendance(anchorDateKey, userId);
+        if (anchorDateKey !== dateKey) DBService._invalidateAttendance(dateKey, userId);
     },
 
     // 7.1 Manual Add (Admin) — nhận giờ dạng "HH:mm".
@@ -1468,8 +2208,12 @@ const DBService = {
     // push thẳng nên là một cửa hậu tạo ca trùng (hiện chưa nơi nào gọi, nhưng để nguyên
     // thì lần sau ai nối vào là lại sinh lương đôi).
     addManualSession: async (userId, dateKey, checkInTime, checkOutTime, options = {}) => {
-        const startISO = new Date(`${dateKey}T${checkInTime}`).toISOString();
-        const endISO = checkOutTime ? new Date(`${dateKey}T${checkOutTime}`).toISOString() : null;
+        const startDate = getVietnamDateFromHM(dateKey, checkInTime);
+        let endDate = checkOutTime ? getVietnamDateFromHM(dateKey, checkOutTime) : null;
+        if (!startDate) throw new Error('Giờ vào không hợp lệ.');
+        if (endDate && endDate <= startDate) endDate = new Date(endDate.getTime() + 24 * 60 * 60 * 1000);
+        const startISO = startDate.toISOString();
+        const endISO = endDate ? endDate.toISOString() : null;
         return DBService.addSession(userId, dateKey, {
             start: startISO,
             checkIn: startISO,
@@ -1898,12 +2642,15 @@ const DBService = {
                 }
 
                 const newSession = {
-                    id: Date.now(),
+                    ...sessionData,
+                    id: createAttendanceSessionId(),
+                    anchorDateKey: dateKey,
+                    status: sessionData.checkOut ? 'closed' : 'open',
+                    source: sessionData.type || 'admin',
                     start: newStart,
                     checkIn: sessionData.checkIn,
                     checkOut: sessionData.checkOut || null,
-                    type: 'admin_add',
-                    ...sessionData
+                    type: sessionData.type || 'admin_add'
                 };
 
                 data.sessions.push(newSession);
@@ -2434,12 +3181,16 @@ const DBService = {
                 return doc.exists ? doc.data() : null;
             } catch (e) {
                 console.error('[ReceptionistSchedule] Error getting:', e);
-                return null;
+                throw e;
             }
         })();
 
-        DBService._cache[cacheKey] = promise;
-        return promise;
+        const guardedPromise = promise.catch(error => {
+            DBService._invalidate(cacheKey);
+            throw error;
+        });
+        DBService._cache[cacheKey] = guardedPromise;
+        return guardedPromise;
     },
 
     // Cùng schema tuần với lịch tiếp tân nhưng tách collection để mọi thao tác
@@ -2454,12 +3205,16 @@ const DBService = {
                 return doc.exists ? doc.data() : null;
             } catch (e) {
                 console.error('[OfficeSchedule] Error getting:', e);
-                return null;
+                throw e;
             }
         })();
 
-        DBService._cache[cacheKey] = promise;
-        return promise;
+        const guardedPromise = promise.catch(error => {
+            DBService._invalidate(cacheKey);
+            throw error;
+        });
+        DBService._cache[cacheKey] = guardedPromise;
+        return guardedPromise;
     },
 
     // Read the weekly receptionist roster back into concrete daily shifts for
@@ -2576,22 +3331,60 @@ const DBService = {
         return promise;
     },
 
-    async saveReceptionistSchedule(compositeKey, data) {
+    async saveReceptionistSchedule(compositeKey, data, expectedRevision = null) {
         try {
-            await db.collection('receptionist_schedules').doc(compositeKey).set(data);
+            const ref = db.collection('receptionist_schedules').doc(compositeKey);
+            let revision = 0;
+            await db.runTransaction(async transaction => {
+                const snapshot = await transaction.get(ref);
+                const currentRevision = snapshot.exists && Number.isInteger(snapshot.data()?._revision)
+                    ? snapshot.data()._revision
+                    : 0;
+                if (Number.isInteger(expectedRevision) && currentRevision !== expectedRevision) {
+                    const conflict = new Error('Lịch tiếp tân đã thay đổi kể từ khi bạn mở trang.');
+                    conflict.code = 'SCHEDULE_CONFLICT';
+                    throw conflict;
+                }
+                revision = currentRevision + 1;
+                transaction.set(ref, {
+                    ...data,
+                    _revision: revision,
+                    _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    _updatedBy: localStorage.getItem('currentUserId') || null
+                });
+            });
             DBService._invalidate(`receptionist_schedule_${compositeKey}`);
-            return true;
+            return { revision };
         } catch (e) {
             console.error('[ReceptionistSchedule] Error saving:', e);
             throw e;
         }
     },
 
-    async saveOfficeSchedule(compositeKey, data) {
+    async saveOfficeSchedule(compositeKey, data, expectedRevision = null) {
         try {
-            await db.collection('office_schedules').doc(compositeKey).set(data);
+            const ref = db.collection('office_schedules').doc(compositeKey);
+            let revision = 0;
+            await db.runTransaction(async transaction => {
+                const snapshot = await transaction.get(ref);
+                const currentRevision = snapshot.exists && Number.isInteger(snapshot.data()?._revision)
+                    ? snapshot.data()._revision
+                    : 0;
+                if (Number.isInteger(expectedRevision) && currentRevision !== expectedRevision) {
+                    const conflict = new Error('Lịch văn phòng đã thay đổi kể từ khi bạn mở trang.');
+                    conflict.code = 'SCHEDULE_CONFLICT';
+                    throw conflict;
+                }
+                revision = currentRevision + 1;
+                transaction.set(ref, {
+                    ...data,
+                    _revision: revision,
+                    _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    _updatedBy: localStorage.getItem('currentUserId') || null
+                });
+            });
             DBService._invalidate(`office_schedule_${compositeKey}`);
-            return true;
+            return { revision };
         } catch (e) {
             console.error('[OfficeSchedule] Error saving:', e);
             throw e;
@@ -2621,7 +3414,13 @@ const DBService = {
                 console.log(`[UnassignReceptionist] Filtered from ${originalLength} to ${data[shiftKey][dayKey].length}`);
 
                 if (data[shiftKey][dayKey].length < originalLength) {
-                    t.update(docRef, { [shiftKey]: data[shiftKey] });
+                    const currentRevision = Number.isInteger(data._revision) ? data._revision : 0;
+                    t.update(docRef, {
+                        [shiftKey]: data[shiftKey],
+                        _revision: currentRevision + 1,
+                        _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        _updatedBy: localStorage.getItem('currentUserId') || null
+                    });
                     console.log(`[UnassignReceptionist] Success! Updated doc.`);
                     return true;
                 }
@@ -2651,7 +3450,13 @@ const DBService = {
                     .filter(staff => String(staff?.id || '') !== String(staffId));
                 if (data[shiftKey][dayKey].length === originalLength) return false;
 
-                transaction.update(docRef, { [shiftKey]: data[shiftKey] });
+                const currentRevision = Number.isInteger(data._revision) ? data._revision : 0;
+                transaction.update(docRef, {
+                    [shiftKey]: data[shiftKey],
+                    _revision: currentRevision + 1,
+                    _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    _updatedBy: localStorage.getItem('currentUserId') || null
+                });
                 return true;
             });
             DBService._invalidate(`office_schedule_${compositeKey}`);
@@ -2767,14 +3572,20 @@ const DBService = {
         return id;
     },
 
-    async getShiftObservationsForDate(dateKey) {
+    async getShiftObservationsForDate(dateKey, staffId = '') {
         if (!dateKey) return [];
         try {
-            const snap = await db.collection('shift_observations')
-                .where('dateKey', '==', dateKey)
-                .get();
+            // Firestore authorizes queries from their constraints, not from a
+            // client-side filter after downloading the result. Staff-facing
+            // callers therefore pass staffId so the query proves ownership;
+            // oversight screens omit it and are authorized by their role map.
+            let query = db.collection('shift_observations')
+                .where('dateKey', '==', dateKey);
+            if (staffId) query = query.where('teacherId', '==', staffId);
+            const snap = await query.get();
             return snap.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter(item => !staffId || item.teacherId === staffId)
                 .sort((a, b) => String(b.createdAt?.seconds || 0).localeCompare(String(a.createdAt?.seconds || 0)));
         } catch (e) {
             console.error('[ShiftOversight] Error loading observations for date:', e);
@@ -2902,7 +3713,7 @@ const DBService = {
     // ================= DAILY NOTES (Firestore-synced) =================
 
     // Get all daily notes for a staff member
-    async getDailyNotes(staffId) {
+    async getDailyNotes(staffId, options = {}) {
         if (!staffId || staffId.trim() === '') {
             console.warn('[DailyNotes] staffId is empty, skipping.');
             return {};
@@ -2910,18 +3721,18 @@ const DBService = {
         const cacheKey = `daily_notes_${staffId}`;
         if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
-        const promise = (async () => {
-            try {
-                const doc = await db.collection('daily_notes').doc(staffId).get();
-                return doc.exists ? doc.data() : {};
-            } catch (e) {
-                console.error('[DailyNotes] Error getting:', e);
-                return {};
-            }
-        })();
+        const promise = db.collection('daily_notes').doc(staffId).get()
+            .then(doc => doc.exists ? doc.data() : {});
 
         DBService._cache[cacheKey] = promise;
-        return promise;
+        try {
+            return await promise;
+        } catch (e) {
+            DBService._invalidate(cacheKey);
+            console.error('[DailyNotes] Error getting:', e);
+            if (options.strict === true) throw e;
+            return {};
+        }
     },
 
     // Save daily notes for a staff member (full object: { "2026-03-01": "note text", ... })
@@ -3022,61 +3833,225 @@ const DBService = {
         }
     },
 
-    // Publish salary details to employee
+    // Pure lifecycle adapters are public so report.js and regression tests use
+    // exactly the same legacy-compatible transition contract.
+    getPayslipLifecycleState(published = {}) {
+        return _getPayslipLifecycleState(published);
+    },
+
+    getPayslipPaymentBreakdown(published = {}) {
+        return _getPayslipPaymentBreakdown(published);
+    },
+
+    getPayslipDraftLockState(published = {}, component = 'gv') {
+        return _getPayslipDraftLockState(published, component);
+    },
+
+    preparePayslipDraftUpdate(currentPublished = {}, calculatedPublished = {}, component = 'gv', nowIso) {
+        return _preparePayslipDraftUpdate(currentPublished, calculatedPublished, component, nowIso);
+    },
+
+    preparePayslipComponentPublish(published = {}, targets = {}, nowIso) {
+        return _preparePayslipComponentPublish(published, targets, nowIso);
+    },
+
+    // Save a calculated draft against the latest Firestore state. This closes
+    // the race where a stale report tab recalculated while another tab published
+    // or confirmed the same component.
+    async savePayslipDraft(staffId, monthStr, calculatedPublished, component = 'gv') {
+        if (!staffId || !monthStr) {
+            throw new Error('[SavePayslipDraft] staffId and monthStr are required.');
+        }
+        const docId = `${monthStr}_${staffId}`;
+        const docRef = db.collection('salary_settings_monthly').doc(docId);
+        let transition = null;
+
+        try {
+            await db.runTransaction(async transaction => {
+                const docSnap = await transaction.get(docRef);
+                const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                transition = _preparePayslipDraftUpdate(
+                    currentPublished,
+                    calculatedPublished || {},
+                    component
+                );
+                if (!transition.saved) return;
+
+                if (docSnap.exists) {
+                    transaction.update(docRef, { published: transition.published });
+                } else {
+                    transaction.set(docRef, { published: transition.published }, { merge: true });
+                }
+            });
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            return {
+                ...transition,
+                status: transition.saved ? 'draft_saved' : 'locked'
+            };
+        } catch (e) {
+            console.error('[SavePayslipDraft] Error saving:', e);
+            throw e;
+        }
+    },
+
+    // Update exactly one calendar day. This avoids read-modify-write data loss
+    // when two tabs edit different notes concurrently or a prior read failed.
+    async updateDailyNote(staffId, dateKey, note) {
+        if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) {
+            throw new Error('Thiếu nhân sự hoặc ngày ghi chú hợp lệ.');
+        }
+        const normalizedNote = String(note || '').trim().slice(0, 2000);
+        const ref = db.collection('daily_notes').doc(staffId);
+        try {
+            await db.runTransaction(async transaction => {
+                const snapshot = await transaction.get(ref);
+                if (normalizedNote) {
+                    transaction.set(ref, { [dateKey]: normalizedNote }, { merge: true });
+                } else if (snapshot.exists) {
+                    transaction.update(ref, {
+                        [dateKey]: firebase.firestore.FieldValue.delete()
+                    });
+                }
+            });
+            DBService._invalidate(`daily_notes_${staffId}`);
+            return normalizedNote;
+        } catch (e) {
+            console.error('[DailyNotes] Error updating one day:', e);
+            throw e;
+        }
+    },
+
+    // Publish selected components from the current stored calculation. Used by
+    // bulk publish so a stale modal cannot lower `received` back to `published`.
+    async publishPayslipComponents(staffId, monthStr, targets = {}, message = '') {
+        if (!staffId || !monthStr) {
+            throw new Error('[PublishPayslipComponents] staffId and monthStr are required.');
+        }
+        const docId = `${monthStr}_${staffId}`;
+        const docRef = db.collection('salary_settings_monthly').doc(docId);
+        const nowIso = new Date().toISOString();
+        let transition = null;
+
+        try {
+            await db.runTransaction(async transaction => {
+                const docSnap = await transaction.get(docRef);
+                const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                transition = _preparePayslipComponentPublish(currentPublished, targets, nowIso);
+                if (String(message || '').trim() && transition.publishedComponents.length > 0) {
+                    transition.published.message = String(message).trim();
+                }
+                if (transition.publishedComponents.length === 0) return;
+
+                if (docSnap.exists) {
+                    transaction.update(docRef, { published: transition.published });
+                } else {
+                    transaction.set(docRef, { published: transition.published }, { merge: true });
+                }
+            });
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            return {
+                ok: transition.publishedComponents.length > 0 || transition.lockedComponents.length > 0,
+                status: transition.state.overallStatus,
+                publishedComponents: transition.publishedComponents,
+                lockedComponents: transition.lockedComponents,
+                skippedComponents: transition.skippedComponents,
+                lifecycle: transition.state
+            };
+        } catch (e) {
+            console.error('[PublishPayslipComponents] Error publishing:', e);
+            throw e;
+        }
+    },
+
+    // Publish salary details to employee. The transaction prevents an older
+    // browser tab from overwriting a receipt confirmation made in the meantime.
     async publishSalary(staffId, monthStr, payload) {
         if (!staffId || !monthStr) {
             throw new Error('[PublishSalary] staffId and monthStr are required.');
         }
         try {
             const docId = `${monthStr}_${staffId}`;
-            await db.collection('salary_settings_monthly').doc(docId).set({
-                published: {
-                    ...payload,
-                    status: 'published',
-                    publishedAt: new Date().toISOString()
+            const docRef = db.collection('salary_settings_monthly').doc(docId);
+            const nowIso = new Date().toISOString();
+            let transition = null;
+
+            await db.runTransaction(async transaction => {
+                const docSnap = await transaction.get(docRef);
+                const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                transition = _preparePayslipPublishUpdate(currentPublished, payload || {}, nowIso);
+
+                const requestedComponents = Object.values(transition.targets).filter(Boolean).length;
+                if (requestedComponents === 0) {
+                    const error = new Error('Không có thành phần bảng lương hợp lệ để gửi.');
+                    error.code = 'payslip/no-publishable-component';
+                    throw error;
                 }
-            }, { merge: true });
+                if (transition.publishedComponents.length === 0
+                    && transition.lockedComponents.length === 0) {
+                    const error = new Error('Thành phần được chọn chưa có dữ liệu tính lương để gửi.');
+                    error.code = 'payslip/no-component-details';
+                    throw error;
+                }
+
+                if (docSnap.exists) {
+                    transaction.update(docRef, { published: transition.published });
+                } else {
+                    transaction.set(docRef, { published: transition.published }, { merge: true });
+                }
+            });
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
-            return true;
+            return {
+                ok: true,
+                status: transition.state.overallStatus,
+                publishedComponents: transition.publishedComponents,
+                lockedComponents: transition.lockedComponents,
+                skippedComponents: transition.skippedComponents,
+                lifecycle: transition.state
+            };
         } catch (e) {
             console.error('[PublishSalary] Error publishing:', e);
             throw e;
         }
     },
 
-    // Employee confirms salary received
-    async confirmSalaryReceived(staffId, monthStr, confirmedBy = 'employee') {
+    // Confirm only components that are actually published. A dual-role payslip
+    // reaches aggregate `received` only after both relevant components do.
+    async confirmSalaryReceived(staffId, monthStr, confirmedBy = 'employee', component = 'all') {
         if (!staffId || !monthStr) {
             throw new Error('[ConfirmSalary] staffId and monthStr are required.');
         }
         try {
             const docId = `${monthStr}_${staffId}`;
-            const docSnap = await db.collection('salary_settings_monthly').doc(docId).get();
-            const data = docSnap.exists ? docSnap.data() : {};
-            const pub = data.published || {};
-            
-            const updatedPublished = {
-                ...pub,
-                status: 'received',
-                receivedAt: new Date().toISOString(),
-                confirmedBy: confirmedBy
-            };
-            
-            if (pub.status_gv === 'published') {
-                updatedPublished.status_gv = 'received';
-                updatedPublished.receivedAt_gv = new Date().toISOString();
-            }
-            if (pub.status_tt === 'published') {
-                updatedPublished.status_tt = 'received';
-                updatedPublished.receivedAt_tt = new Date().toISOString();
-            }
-            
-            await db.collection('salary_settings_monthly').doc(docId).set({
-                published: updatedPublished
-            }, { merge: true });
-            
+            const docRef = db.collection('salary_settings_monthly').doc(docId);
+            const nowIso = new Date().toISOString();
+            let transition = null;
+
+            await db.runTransaction(async transaction => {
+                const docSnap = await transaction.get(docRef);
+                const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                transition = _preparePayslipConfirmation(currentPublished, confirmedBy, nowIso, component);
+
+                const receiptRequest = _getPayslipReceiptRequestState(currentPublished, component);
+                if (!transition.changed && !receiptRequest.allReceived) {
+                    const error = new Error('Bảng lương chưa được gửi nên chưa thể xác nhận đã nhận.');
+                    error.code = 'payslip/not-published';
+                    throw error;
+                }
+
+                if (docSnap.exists) {
+                    transaction.update(docRef, { published: transition.published });
+                } else {
+                    transaction.set(docRef, { published: transition.published }, { merge: true });
+                }
+            });
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
-            return true;
+            return {
+                ok: true,
+                status: transition.state.overallStatus,
+                receivedComponents: transition.receivedComponents,
+                changed: transition.changed,
+                lifecycle: transition.state
+            };
         } catch (e) {
             console.error('[ConfirmSalary] Error confirming receipt:', e);
             throw e;
@@ -3430,6 +4405,49 @@ const DBService = {
             console.error("[CancelledShifts] Error saving:", error);
             throw error;
         }
+    },
+
+    // Shared input bundle for calculateDailyChips(). Chấm Công previously passed only
+    // schedule + attendance while Bảng Công also passed cancellations, overtime,
+    // receptionist observations and bonus state, producing different chips for one day.
+    loadDailyEvaluationContext: async (staffId, dateKey) => {
+        if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) {
+            throw new Error('Thiếu nhân sự hoặc ngày cần đánh giá.');
+        }
+        const monthStr = dateKey.slice(0, 7);
+        const [cancelledShifts, observations, overtimeRequests, bonusRequests] = await Promise.all([
+            DBService.getCancelledShifts(monthStr, staffId),
+            DBService.getShiftObservationsForDate(dateKey, staffId),
+            DBService.getOvertimeRequestsForStaff(staffId, monthStr),
+            DBService.getBonus10RequestsForStaff(staffId, monthStr)
+        ]);
+        const overtimeMap = {};
+        (overtimeRequests || []).filter(item => item.dateKey === dateKey).forEach(item => {
+            const key = String(item.sessionId || '');
+            if (!key) return;
+            const existing = overtimeMap[key];
+            if (!existing || item.status === 'approved' || (item.status === 'pending' && existing.status === 'rejected')) {
+                overtimeMap[key] = item;
+            }
+        });
+        const bonus10Map = {};
+        (bonusRequests || []).forEach(item => {
+            const key = String(item.sessionId || '');
+            if (!key) return;
+            const existing = bonus10Map[key];
+            if (!existing || item.status === 'approved' || (item.status === 'pending' && existing.status === 'rejected')) {
+                bonus10Map[key] = item;
+            }
+        });
+        return {
+            cancelledShifts: cancelledShifts || [],
+            shiftObservations: (observations || []).filter(item => !item.teacherId || item.teacherId === staffId),
+            overtimeMap,
+            bonus10Map,
+            monthFlags: {
+                early10PenaltyActive: (bonusRequests || []).some(item => item.status === 'rejected')
+            }
+        };
     },
 
     restoreCancelledShift: async (monthStr, staffId, shiftKey) => {
@@ -4182,3 +5200,367 @@ const DBService = {
         }
     }
 };
+
+// PAYSLIP LIFECYCLE HELPERS START
+const _PAYSLIP_STATUS_RANK = Object.freeze({ draft: 0, published: 1, received: 2 });
+
+function _normalizePayslipStatus(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(_PAYSLIP_STATUS_RANK, normalized)
+        ? normalized
+        : 'draft';
+}
+
+function _hasExplicitPayslipStatus(published, component) {
+    const field = component === 'tt' ? 'status_tt' : 'status_gv';
+    const raw = String(published?.[field] || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(_PAYSLIP_STATUS_RANK, raw);
+}
+
+function _hasPayslipComponentDetails(published, component) {
+    if (!published || typeof published !== 'object') return false;
+    const detailField = component === 'tt' ? 'details_tt' : 'details_gv';
+    if (published[detailField] !== undefined && published[detailField] !== null) return true;
+
+    const role = String(published.role || '').trim().toLowerCase();
+    const isSingleComponentRole = component === 'tt'
+        ? ['tiep-tan', 'tiep_tan', 'receptionist'].includes(role)
+        : ['giao-vien', 'giao_vien', 'teacher'].includes(role);
+    return isSingleComponentRole && published.details !== undefined && published.details !== null;
+}
+
+function _derivePayslipOverallStatus(componentStates, fallbackStatus = 'draft') {
+    const relevant = [];
+    if (componentStates.has_gv) relevant.push(componentStates.status_gv);
+    if (componentStates.has_tt) relevant.push(componentStates.status_tt);
+    if (relevant.length === 0) return _normalizePayslipStatus(fallbackStatus);
+    if (relevant.every(status => status === 'received')) return 'received';
+    if (relevant.some(status => status === 'published' || status === 'received')) return 'published';
+    return 'draft';
+}
+
+function _getPayslipLifecycleState(published = {}) {
+    const globalStatus = _normalizePayslipStatus(published.status);
+    const explicitGV = _hasExplicitPayslipStatus(published, 'gv');
+    const explicitTT = _hasExplicitPayslipStatus(published, 'tt');
+    const hasAnyExplicitComponentStatus = explicitGV || explicitTT;
+    const hasGVDetails = _hasPayslipComponentDetails(published, 'gv');
+    const hasTTDetails = _hasPayslipComponentDetails(published, 'tt');
+    let statusGV = explicitGV ? _normalizePayslipStatus(published.status_gv) : 'draft';
+    let statusTT = explicitTT ? _normalizePayslipStatus(published.status_tt) : 'draft';
+
+    // Legacy individual publications had only the aggregate status. Once either
+    // component status exists, a missing sibling means that sibling is still a
+    // draft (the partial bulk-publish contract).
+    if (!explicitGV && hasGVDetails && globalStatus !== 'draft' && !hasAnyExplicitComponentStatus) {
+        statusGV = globalStatus;
+    }
+    if (!explicitTT && hasTTDetails && globalStatus !== 'draft' && !hasAnyExplicitComponentStatus) {
+        statusTT = globalStatus;
+    }
+
+    const hasGV = hasGVDetails || (explicitGV && statusGV !== 'draft');
+    const hasTT = hasTTDetails || (explicitTT && statusTT !== 'draft');
+    const state = {
+        status_gv: statusGV,
+        status_tt: statusTT,
+        has_gv: hasGV,
+        has_tt: hasTT,
+        explicit_gv: explicitGV,
+        explicit_tt: explicitTT
+    };
+    state.overallStatus = _derivePayslipOverallStatus(state, globalStatus);
+    state.locked_gv = statusGV === 'published' || statusGV === 'received';
+    state.locked_tt = statusTT === 'published' || statusTT === 'received';
+    return state;
+}
+
+function _getPayslipPaymentBreakdown(published = {}) {
+    const lifecycle = _getPayslipLifecycleState(published);
+    const aggregateValue = Number(published?.netPay);
+    const componentSpecs = [];
+
+    if (lifecycle.has_gv) {
+        componentSpecs.push({ key: 'gv', status: lifecycle.status_gv, details: published.details_gv });
+    }
+    if (lifecycle.has_tt) {
+        componentSpecs.push({ key: 'tt', status: lifecycle.status_tt, details: published.details_tt });
+    }
+
+    // Legacy single-role documents stored their amount in `details` only.
+    if (componentSpecs.length === 1 && !componentSpecs[0].details && published.details) {
+        componentSpecs[0].details = published.details;
+    }
+
+    let knownTotal = 0;
+    let paid = 0;
+    let unpaid = 0;
+    componentSpecs.forEach(component => {
+        const value = Number(component.details?.netPay);
+        if (!Number.isFinite(value)) return;
+        knownTotal += value;
+        if (component.status === 'received') paid += value;
+        else unpaid += value;
+    });
+
+    const total = Number.isFinite(aggregateValue) ? aggregateValue : knownTotal;
+    const unallocated = total - knownTotal;
+    if (Math.abs(unallocated) > 0.0001) {
+        // Malformed/legacy partial documents may not have component amounts.
+        // Keep the dashboard conservative: money is unpaid unless every known
+        // component is already received.
+        const everyComponentReceived = componentSpecs.length > 0
+            && componentSpecs.every(component => component.status === 'received');
+        if (everyComponentReceived || lifecycle.overallStatus === 'received') paid += unallocated;
+        else unpaid += unallocated;
+    }
+
+    return { total, paid, unpaid, lifecycle };
+}
+
+function _syncPayslipAggregateStatus(published, nowIso) {
+    const state = _getPayslipLifecycleState(published);
+    published.status = state.overallStatus;
+    if (state.overallStatus === 'published' || state.overallStatus === 'received') {
+        published.publishedAt = published.publishedAt || nowIso;
+    }
+    if (state.overallStatus === 'received') {
+        published.receivedAt = published.receivedAt || nowIso;
+    } else {
+        // Component-level receipt metadata remains intact. Aggregate receipt
+        // metadata is meaningful only after every relevant component is received.
+        delete published.receivedAt;
+        delete published.confirmedBy;
+    }
+    return state;
+}
+
+function _preparePayslipComponentPublish(published = {}, targets = {}, nowIso = new Date().toISOString()) {
+    const next = { ...published };
+    const before = _getPayslipLifecycleState(next);
+    const publishedComponents = [];
+    const lockedComponents = [];
+    const skippedComponents = [];
+
+    if (before.has_gv) next.status_gv = before.status_gv;
+    if (before.has_tt) next.status_tt = before.status_tt;
+
+    [['gv', !!targets.gv], ['tt', !!targets.tt]].forEach(([component, requested]) => {
+        if (!requested) return;
+        if (!_hasPayslipComponentDetails(next, component)) {
+            skippedComponents.push(component);
+            return;
+        }
+
+        const statusField = component === 'tt' ? 'status_tt' : 'status_gv';
+        const publishedAtField = component === 'tt' ? 'publishedAt_tt' : 'publishedAt_gv';
+        const currentStatus = component === 'tt' ? before.status_tt : before.status_gv;
+        if (currentStatus === 'received') {
+            next[statusField] = 'received';
+            lockedComponents.push(component);
+        } else {
+            next[statusField] = 'published';
+            next[publishedAtField] = next[publishedAtField] || next.publishedAt || nowIso;
+            publishedComponents.push(component);
+        }
+    });
+
+    // A draft sibling is allowed to change while another component is locked,
+    // so the aggregate fields deliberately keep the last published snapshot
+    // during draft editing. Once that sibling is actually published, rebuild
+    // the legacy/dashboard totals from the two component snapshots in the same
+    // transaction; otherwise a dual-role payslip can show an old total forever.
+    if (publishedComponents.length > 0) {
+        _recalculatePayslipScalarTotals(next);
+    }
+
+    const state = _syncPayslipAggregateStatus(next, nowIso);
+    return { published: next, state, publishedComponents, lockedComponents, skippedComponents };
+}
+
+function _recalculatePayslipScalarTotals(published) {
+    const details = [published.details_gv, published.details_tt]
+        .filter(item => item && typeof item === 'object');
+    if (details.length < 2) return published;
+
+    ['netPay', 'baseSalary', 'totalBonus', 'advance'].forEach(field => {
+        if (details.every(item => Number.isFinite(Number(item[field])))) {
+            published[field] = details.reduce((sum, item) => sum + Number(item[field]), 0);
+        }
+    });
+    return published;
+}
+
+function _preparePayslipPublishUpdate(currentPublished = {}, payload = {}, nowIso = new Date().toISOString()) {
+    const targets = {
+        gv: payload.details_gv !== undefined && payload.details_gv !== null,
+        tt: payload.details_tt !== undefined && payload.details_tt !== null
+    };
+    const role = String(payload.role || '').trim().toLowerCase();
+    if (!targets.gv && ['giao-vien', 'giao_vien', 'teacher'].includes(role) && payload.details) targets.gv = true;
+    if (!targets.tt && ['tiep-tan', 'tiep_tan', 'receptionist'].includes(role) && payload.details) targets.tt = true;
+
+    const before = _getPayslipLifecycleState(currentPublished);
+    const safePayload = { ...payload };
+    [
+        'status', 'status_gv', 'status_tt',
+        'publishedAt', 'publishedAt_gv', 'publishedAt_tt',
+        'receivedAt', 'receivedAt_gv', 'receivedAt_tt',
+        'confirmedBy', 'confirmedBy_gv', 'confirmedBy_tt'
+    ].forEach(field => delete safePayload[field]);
+
+    const requested = [targets.gv ? 'gv' : null, targets.tt ? 'tt' : null].filter(Boolean);
+    const allRequestedAlreadyReceived = requested.length > 0 && requested.every(component =>
+        component === 'tt' ? before.status_tt === 'received' : before.status_gv === 'received'
+    );
+
+    // A received component is an immutable snapshot. A repeated publish remains
+    // idempotent and cannot alter its monetary/detail payload.
+    const next = allRequestedAlreadyReceived
+        ? { ...currentPublished }
+        : { ...currentPublished, ...safePayload };
+    if (before.status_gv === 'received' && currentPublished.details_gv !== undefined) {
+        next.details_gv = currentPublished.details_gv;
+    }
+    if (before.status_tt === 'received' && currentPublished.details_tt !== undefined) {
+        next.details_tt = currentPublished.details_tt;
+    }
+    if (allRequestedAlreadyReceived && currentPublished.details !== undefined) {
+        next.details = currentPublished.details;
+    }
+
+    const transition = _preparePayslipComponentPublish(next, targets, nowIso);
+    _recalculatePayslipScalarTotals(transition.published);
+    transition.state = _getPayslipLifecycleState(transition.published);
+    return { ...transition, targets };
+}
+
+function _preparePayslipConfirmation(currentPublished = {}, confirmedBy = 'employee', nowIso = new Date().toISOString(), component = 'all') {
+    const next = { ...currentPublished };
+    const before = _getPayslipLifecycleState(next);
+    if (before.has_gv) next.status_gv = before.status_gv;
+    if (before.has_tt) next.status_tt = before.status_tt;
+
+    const requestedGV = component === 'all' || component === 'gv';
+    const requestedTT = component === 'all' || component === 'tt';
+    const receivedComponents = [];
+
+    if (requestedGV && before.has_gv && before.status_gv === 'published') {
+        next.status_gv = 'received';
+        next.receivedAt_gv = next.receivedAt_gv || nowIso;
+        next.confirmedBy_gv = next.confirmedBy_gv || confirmedBy;
+        receivedComponents.push('gv');
+    }
+    if (requestedTT && before.has_tt && before.status_tt === 'published') {
+        next.status_tt = 'received';
+        next.receivedAt_tt = next.receivedAt_tt || nowIso;
+        next.confirmedBy_tt = next.confirmedBy_tt || confirmedBy;
+        receivedComponents.push('tt');
+    }
+
+    const state = _syncPayslipAggregateStatus(next, nowIso);
+    if (state.overallStatus === 'received') {
+        next.confirmedBy = next.confirmedBy || confirmedBy;
+    }
+    return { published: next, state, receivedComponents, changed: receivedComponents.length > 0 };
+}
+
+function _getPayslipReceiptRequestState(published = {}, component = 'all') {
+    const lifecycle = _getPayslipLifecycleState(published);
+    const requestedComponents = [];
+    if ((component === 'all' || component === 'gv') && lifecycle.has_gv) requestedComponents.push('gv');
+    if ((component === 'all' || component === 'tt') && lifecycle.has_tt) requestedComponents.push('tt');
+    const requestedStatuses = requestedComponents.map(item => (
+        item === 'tt' ? lifecycle.status_tt : lifecycle.status_gv
+    ));
+    return {
+        lifecycle,
+        requestedComponents,
+        requestedStatuses,
+        allReceived: requestedStatuses.length > 0
+            && requestedStatuses.every(status => status === 'received')
+    };
+}
+
+function _getPayslipDraftLockState(published = {}, component = 'gv') {
+    const normalizedComponent = component === 'tt' ? 'tt' : 'gv';
+    const lifecycle = _getPayslipLifecycleState(published);
+    const status = normalizedComponent === 'tt' ? lifecycle.status_tt : lifecycle.status_gv;
+    return {
+        component: normalizedComponent,
+        status,
+        locked: status === 'published' || status === 'received',
+        requiresRevision: status === 'published' || status === 'received',
+        lifecycle
+    };
+}
+
+function _preparePayslipDraftUpdate(currentPublished = {}, calculatedPublished = {}, component = 'gv', nowIso = new Date().toISOString()) {
+    const lockState = _getPayslipDraftLockState(currentPublished, component);
+    if (lockState.locked) {
+        return {
+            published: { ...currentPublished },
+            saved: false,
+            locked: true,
+            requiresRevision: true,
+            component: lockState.component,
+            componentStatus: lockState.status,
+            lifecycle: lockState.lifecycle
+        };
+    }
+
+    const before = lockState.lifecycle;
+    const next = { ...calculatedPublished };
+    const copyOrDelete = (field) => {
+        if (currentPublished[field] === undefined) delete next[field];
+        else next[field] = currentPublished[field];
+    };
+
+    ['gv', 'tt'].forEach(item => {
+        const isLocked = item === 'gv' ? before.locked_gv : before.locked_tt;
+        const statusField = item === 'gv' ? 'status_gv' : 'status_tt';
+        const detailField = item === 'gv' ? 'details_gv' : 'details_tt';
+        const publishedAtField = item === 'gv' ? 'publishedAt_gv' : 'publishedAt_tt';
+        const receivedAtField = item === 'gv' ? 'receivedAt_gv' : 'receivedAt_tt';
+        const confirmedByField = item === 'gv' ? 'confirmedBy_gv' : 'confirmedBy_tt';
+
+        if (isLocked) {
+            [statusField, detailField, publishedAtField, receivedAtField, confirmedByField]
+                .forEach(copyOrDelete);
+            return;
+        }
+
+        if (_hasPayslipComponentDetails(next, item)) next[statusField] = 'draft';
+        else delete next[statusField];
+        delete next[publishedAtField];
+        delete next[receivedAtField];
+        delete next[confirmedByField];
+    });
+
+    const hasLockedSnapshot = before.locked_gv || before.locked_tt;
+    if (hasLockedSnapshot) {
+        // Aggregate fields are the snapshot shown in legacy dashboards/PDFs.
+        // Updating an unlocked sibling draft must not mutate a published amount.
+        [
+            'netPay', 'baseSalary', 'totalBonus', 'advance', 'penalties',
+            'stats', 'breakdown', 'details', 'message', 'publishedAt'
+        ].forEach(copyOrDelete);
+    } else {
+        delete next.publishedAt;
+        delete next.receivedAt;
+        delete next.confirmedBy;
+    }
+
+    const lifecycle = _syncPayslipAggregateStatus(next, nowIso);
+    return {
+        published: next,
+        saved: true,
+        locked: false,
+        requiresRevision: false,
+        component: lockState.component,
+        componentStatus: lockState.status,
+        preservedPublishedSnapshot: hasLockedSnapshot,
+        lifecycle
+    };
+}
+// PAYSLIP LIFECYCLE HELPERS END

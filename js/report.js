@@ -18,6 +18,15 @@ function escapeReportHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+// REPORT_COLOR_SANITIZER_START
+// Only persisted six-digit hex colors may reach inline style properties. This
+// keeps profile data from becoming an arbitrary CSS injection surface.
+function sanitizeReportColor(value, fallback = '#E5E7EB') {
+    const candidate = String(value || '').trim();
+    return /^#[0-9a-f]{6}$/i.test(candidate) ? candidate : fallback;
+}
+// REPORT_COLOR_SANITIZER_END
+
 function hasReceptionistEmploymentRole(value) {
     if (window.RolePolicy) return window.RolePolicy.hasReceptionistEmploymentRole(value);
     const roles = Array.isArray(value) ? value : [];
@@ -263,6 +272,7 @@ window.navigateStaff = function(direction) {
     }
 };
 
+// REPORT_STAFF_DROPDOWN_RENDER_START
 function renderStaffDropdownItems(users) {
     const list = document.getElementById('staff-dropdown-list');
     if (!list) return;
@@ -278,34 +288,50 @@ function renderStaffDropdownItems(users) {
         'staff': 'Nhân Viên'
     };
 
+    list.replaceChildren();
+
     if (users.length === 0) {
-        list.innerHTML = '<div style="padding:1rem;text-align:center;color:#9CA3AF;font-size:0.9rem;">Không tìm thấy nhân viên</div>';
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding:1rem;text-align:center;color:#9CA3AF;font-size:0.9rem;';
+        empty.textContent = 'Không tìm thấy nhân viên';
+        list.appendChild(empty);
         return;
     }
 
-    list.innerHTML = users.map(u => {
+    users.forEach(u => {
         const primaryRole = (u.roles && u.roles[0]) || u.role || '';
         const roleLabel = ROLE_LABELS[primaryRole] || primaryRole || '';
-        const color = u.scheduleColor || '#E5E7EB';
-        const initial = (u.name || u.username || '?').charAt(0).toUpperCase();
-        return `
-            <div
-                class="staff-dropdown-item"
-                data-id="${u.id}"
-                onclick="selectStaffFromDropdownById('${u.id}')"
-                style="display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1rem;cursor:pointer;transition:background 0.15s;"
-                onmouseover="this.style.background='#F0FDF4'"
-                onmouseout="this.style.background=''"
-            >
-                <div style="width:36px;height:36px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:white;flex-shrink:0;">${initial}</div>
-                <div>
-                    <div style="font-weight:600;font-size:0.9rem;color:#1F2937;">${u.name || u.username}</div>
-                    <div style="font-size:0.75rem;color:#6B7280;">${roleLabel}${u.username ? ' · ' + u.username : ''}</div>
-                </div>
-            </div>
-        `;
-    }).join('');
+        const displayName = String(u.name || u.username || 'Không tên');
+        const staffId = String(u.id || '');
+
+        const item = document.createElement('div');
+        item.className = 'staff-dropdown-item';
+        item.dataset.id = staffId;
+        item.style.cssText = 'display:flex;align-items:center;gap:0.75rem;padding:0.65rem 1rem;cursor:pointer;transition:background 0.15s;';
+        item.addEventListener('mouseenter', () => { item.style.background = '#F0FDF4'; });
+        item.addEventListener('mouseleave', () => { item.style.background = ''; });
+        item.addEventListener('click', () => selectStaffFromDropdownById(staffId));
+
+        const avatar = document.createElement('div');
+        avatar.style.cssText = 'width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;color:white;flex-shrink:0;';
+        avatar.style.background = sanitizeReportColor(u.scheduleColor);
+        avatar.textContent = displayName.charAt(0).toUpperCase() || '?';
+
+        const copy = document.createElement('div');
+        const name = document.createElement('div');
+        name.style.cssText = 'font-weight:600;font-size:0.9rem;color:#1F2937;';
+        name.textContent = displayName;
+
+        const meta = document.createElement('div');
+        meta.style.cssText = 'font-size:0.75rem;color:#6B7280;';
+        meta.textContent = `${roleLabel}${u.username ? ` · ${u.username}` : ''}`;
+
+        copy.append(name, meta);
+        item.append(avatar, copy);
+        list.appendChild(item);
+    });
 }
+// REPORT_STAFF_DROPDOWN_RENDER_END
 
 function openStaffDropdown() {
     const list = document.getElementById('staff-dropdown-list');
@@ -568,6 +594,16 @@ window.saveFixedShiftsToServer = async function () {
     }
 };
 
+function getCurrentPayslipComponentStatus(component = 'gv') {
+    const published = window.currentMonthlySalarySettingsAll?.published;
+    if (!published) return 'draft';
+    if (typeof DBService !== 'undefined' && typeof DBService.getPayslipLifecycleState === 'function') {
+        const lifecycle = DBService.getPayslipLifecycleState(published);
+        return component === 'tt' ? lifecycle.status_tt : lifecycle.status_gv;
+    }
+    return published.status || 'draft';
+}
+
 window.isStudentCountSelectMode = false;
 window.selectedStudentCountChips = {}; // key: "dateKey_sessionId", value: { dateStr, sessionId, studentCount, status }
 
@@ -586,7 +622,7 @@ window.toggleStudentCountSelectMode = function () {
 
     if (window.isStudentCountSelectMode) {
         // Enforce lock month check for teachers
-        const pubStatus = window.currentMonthlySalarySettingsAll?.published?.status;
+        const pubStatus = getCurrentPayslipComponentStatus('gv');
         const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
         if (!isAdminViewer && isMonthLocked) {
             window.isStudentCountSelectMode = false;
@@ -604,7 +640,7 @@ window.toggleStudentCountSelectMode = function () {
                         dateStr: chip.dateStr,
                         sessionId: chip.sessionId,
                         studentCount: chip.studentCount,
-                        status: chip.studentCountStatus || 'approved'
+                        status: normalizeStudentCountApprovalStatus(chip.studentCountStatus)
                     };
                 }
             });
@@ -649,7 +685,7 @@ window.exitStudentCountSelectMode = function () {
 };
 
 window.saveStudentCountSelections = async function () {
-    const pubStatus = window.currentMonthlySalarySettingsAll?.published?.status;
+    const pubStatus = getCurrentPayslipComponentStatus('gv');
     const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
     if (isMonthLocked) {
         if (typeof UIService !== 'undefined') UIService.toast('Bảng công tháng này đã được khóa, không thể lưu.', 'error');
@@ -886,6 +922,20 @@ let _reportRenderEpoch = 0;
 // này không khớp người đang chọn — xem saveCalendarNote.
 let _cachedNotesOwnerId = null;
 
+// REPORT_RENDER_COMMIT_GUARD_START
+function createReportRenderCommitGuard(renderEpoch, staffId, readEpoch, readStaffId) {
+    const isCurrent = () => readEpoch() === renderEpoch && readStaffId() === staffId;
+    return {
+        isCurrent,
+        commit(callback) {
+            if (!isCurrent()) return false;
+            callback();
+            return true;
+        }
+    };
+}
+// REPORT_RENDER_COMMIT_GUARD_END
+
 function renderPersonalTimesheet() {
     renderMonthReport(currentDate);
 }
@@ -918,7 +968,14 @@ async function renderMonthReport(date, forceServer = false) {
     let staffId = getTargetStaffId();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     const reportScope = `${staffId || 'none'}__${monthStr}`;
-    const isCurrentRender = () => renderEpoch === _reportRenderEpoch && getTargetStaffId() === staffId;
+    const renderGuard = createReportRenderCommitGuard(
+        renderEpoch,
+        staffId,
+        () => _reportRenderEpoch,
+        getTargetStaffId
+    );
+    const isCurrentRender = renderGuard.isCurrent;
+    const commitCurrentRender = renderGuard.commit;
 
     // Clear every derived value before waiting on Firestore.  This prevents a
     // previous employee's subject breakdown from surviving under a new empty
@@ -930,6 +987,10 @@ async function renderMonthReport(date, forceServer = false) {
     window.allMonthChips = [];
     window.unfilteredAllMonthChips = [];
     window.lastTotalMinutes = 0;
+    window.currentUserContext = null;
+    window.currentMonthlySalarySettingsAll = {};
+    window.currentSubjectCatalog = [];
+    window.savedFixedShiftsMonth = [];
     const staleBreakdownSection = document.getElementById('subject-breakdown-section');
     const staleBreakdownBody = document.getElementById('subject-breakdown-body');
     if (staleBreakdownSection) staleBreakdownSection.style.display = 'none';
@@ -956,41 +1017,46 @@ async function renderMonthReport(date, forceServer = false) {
     }
 
     // 0. Fetch User Context for Name Matching
-    window.currentUserContext = null;
+    let currentUserContext = null;
     try {
         const userDoc = await DBService.refs.users().doc(staffId).get();
         if (!isCurrentRender()) return;
-        if (userDoc.exists) window.currentUserContext = userDoc.data();
+        if (userDoc.exists) currentUserContext = userDoc.data();
     } catch (e) { console.error("Error fetching user context", e); }
-    if (!isCurrentRender()) return;
-    const currentUserContext = window.currentUserContext;
+    if (!commitCurrentRender(() => { window.currentUserContext = currentUserContext; })) return;
 
     // Load monthly settings for all users to ensure penalty flag and publish status are present
+    let currentMonthlySalarySettingsAll = {};
     try {
-        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        currentMonthlySalarySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
         if (!isCurrentRender()) return;
-        window.currentMonthlySalarySettingsAll = monthlySettings;
     } catch (e) {
         console.error("Error fetching monthly salary settings in render:", e);
         if (!isCurrentRender()) return;
-        window.currentMonthlySalarySettingsAll = {};
     }
+    if (!commitCurrentRender(() => {
+        window.currentMonthlySalarySettingsAll = currentMonthlySalarySettingsAll;
+    })) return;
 
     // Subject catalog is read once per report render for the additive group-rate
     // resolver.  Failure is non-fatal: all payroll paths then keep chip snapshots.
-    window.currentSubjectCatalog = [];
+    let currentSubjectCatalog = [];
     try {
         // Luôn hỏi server khi mở/tải lại báo cáo để thay đổi "Sớm 10p" từ
         // trang Môn Học có hiệu lực ngay trên PWA đang mở lâu ngày.
         const subjectCatalog = await DBService.getSubjects(true);
         if (!isCurrentRender()) return;
-        window.currentSubjectCatalog = Array.isArray(subjectCatalog) ? subjectCatalog : [];
+        currentSubjectCatalog = Array.isArray(subjectCatalog) ? subjectCatalog : [];
     } catch (e) {
         console.warn('Subject catalog unavailable; keeping legacy payroll rates:', e);
+        if (!isCurrentRender()) return;
     }
+    if (!commitCurrentRender(() => { window.currentSubjectCatalog = currentSubjectCatalog; })) return;
 
     // Re-sync tieptan inputs box visibility now that currentUserContext is resolved
-    if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
+    if (!commitCurrentRender(() => {
+        if (typeof togglePdfTieptanInputs === 'function') togglePdfTieptanInputs();
+    })) return;
 
     // --- NEW: Toggle btn-approve-all-bonus10 ---
     const viewerRole = localStorage.getItem('currentRole') || 'staff';
@@ -1033,17 +1099,26 @@ async function renderMonthReport(date, forceServer = false) {
     // _cachedNotesOwnerId ghi RÕ ghi chú đang giữ là của AI. Thiếu nó thì lúc admin đổi
     // người trên ô chọn (không tải lại trang), ghi chú của người trước vẫn nằm trong bộ
     // nhớ và có thể bị ghi đè sang người sau — đúng vụ "ghi chú lộn qua người khác".
-    if (_cachedStaffId !== staffId) {
+    let staffNotesForRender = (_cachedStaffId === staffId && _cachedNotesOwnerId === staffId)
+        ? { ..._cachedStaffNotes }
+        : null;
+    let staffNotesLoaded = staffNotesForRender !== null;
+    if (!staffNotesLoaded) {
         try {
-            _cachedStaffNotes = await DBService.getDailyNotes(staffId);
-            _cachedNotesOwnerId = staffId;
-            _cachedStaffId = staffId;
+            staffNotesForRender = { ...(await DBService.getDailyNotes(staffId) || {}) };
+            if (!isCurrentRender()) return;
+            staffNotesLoaded = true;
         } catch (e) {
             console.error("Error loading notes from Firestore:", e);
-            _cachedStaffNotes = {};
-            _cachedNotesOwnerId = null; // KHÔNG nhận vơ là ghi chú của người này
+            if (!isCurrentRender()) return;
+            staffNotesForRender = {};
         }
     }
+    if (!commitCurrentRender(() => {
+        _cachedStaffNotes = staffNotesForRender || {};
+        _cachedNotesOwnerId = staffNotesLoaded ? staffId : null;
+        _cachedStaffId = staffNotesLoaded ? staffId : null;
+    })) return;
 
     if (!staffId) {
         grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: red;">Vui lòng đăng nhập hoặc chọn nhân viên.</div>';
@@ -1053,14 +1128,21 @@ async function renderMonthReport(date, forceServer = false) {
     // 1. Fetch DATA (Attendance + Schedule)
 
     // Fetch Fixed Shifts for the month
-    window.savedFixedShiftsMonth = [];
+    let savedFixedShiftsMonth = [];
     try {
-        window.savedFixedShiftsMonth = await DBService.getFixedShifts(monthStr, staffId);
+        savedFixedShiftsMonth = await DBService.getFixedShifts(monthStr, staffId) || [];
+        if (!isCurrentRender()) return;
+    } catch (e) {
+        console.error("Could not fetch fixed shifts:", e);
+        if (!isCurrentRender()) return;
+    }
+    if (!commitCurrentRender(() => {
+        window.savedFixedShiftsMonth = savedFixedShiftsMonth;
         // If we are currently IN selection mode, prepopulate the Set on first load
-        if (window.isFixedShiftMode && window.selectedFixedShifts.size === 0 && window.savedFixedShiftsMonth.length > 0) {
-            window.savedFixedShiftsMonth.forEach(id => window.selectedFixedShifts.add(id));
+        if (window.isFixedShiftMode && window.selectedFixedShifts.size === 0 && savedFixedShiftsMonth.length > 0) {
+            savedFixedShiftsMonth.forEach(id => window.selectedFixedShifts.add(id));
         }
-    } catch (e) { console.error("Could not fetch fixed shifts:", e); }
+    })) return;
 
     // Fetch Cancelled Shifts (Admin specifically excluded)
     let cancelledShifts = [];
@@ -1069,14 +1151,17 @@ async function renderMonthReport(date, forceServer = false) {
     } catch (e) {
         console.error("Could not fetch cancelled shifts:", e);
     }
+    if (!isCurrentRender()) return;
 
     // A. Attendance Logs (Actual Check-in/out)
     // DBService.getMonthlyAttendance returns array of docs with { sessions: [...] }
     const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId, forceServer);
+    if (!isCurrentRender()) return;
 
     // Receptionist notes/late commands are stored separately from attendance.
     // Keeping them separate preserves the original clock timestamps for audit.
     const shiftObservations = await DBService.getShiftObservationsForMonth(monthStr, staffId);
+    if (!isCurrentRender()) return;
     const shiftObservationsMap = {};
     shiftObservations.forEach(item => {
         if (!item.dateKey) return;
@@ -1098,12 +1183,14 @@ async function renderMonthReport(date, forceServer = false) {
     try {
         overtimeRequestsList = await DBService.getOvertimeRequestsForStaff(staffId, monthStr);
     } catch (e) { console.warn('[OT] Could not load OT requests:', e); }
+    if (!isCurrentRender()) return;
 
     // Fetch bonus10 requests cho tháng này
     let bonus10RequestsList = [];
     try {
         bonus10RequestsList = await DBService.getBonus10RequestsForStaff(staffId, monthStr);
     } catch (e) { console.warn('[Bonus10] Could not load requests:', e); }
+    if (!isCurrentRender()) return;
 
     // Build bonus10Map: sessionId (string) → request data
     const bonus10Map = {};
@@ -1120,10 +1207,12 @@ async function renderMonthReport(date, forceServer = false) {
     // (và mất luôn đơn giá lớp đông — xử lý ở phần tính lương).
     const early10PenaltyActive = bonus10RequestsList.some(req => req.status === 'rejected');
     const early10RejectedCount = bonus10RequestsList.filter(req => req.status === 'rejected').length;
-    window.currentMonthEarly10Penalty = early10PenaltyActive;
-    window.currentMonthEarly10RejectedCount = early10RejectedCount;
     const monthFlags = { early10PenaltyActive };
-    renderEarly10PenaltyBanner(staffId, early10PenaltyActive, early10RejectedCount);
+    if (!commitCurrentRender(() => {
+        window.currentMonthEarly10Penalty = early10PenaltyActive;
+        window.currentMonthEarly10RejectedCount = early10RejectedCount;
+        renderEarly10PenaltyBanner(staffId, early10PenaltyActive, early10RejectedCount);
+    })) return;
 
     // Build overtimeDateMap: "YYYY-MM-DD" -> { sessionId -> otData }
     const overtimeDateMap = {};
@@ -1154,6 +1243,7 @@ async function renderMonthReport(date, forceServer = false) {
         });
     }
     const scheduleResults = await Promise.all(schedulePromises);
+    if (!isCurrentRender()) return;
     const scheduleMap = {}; // "YYYY-MM-DD" -> merged ScheduleObject
     scheduleResults.forEach(item => {
         if (!scheduleMap[item.date]) scheduleMap[item.date] = {};
@@ -1182,7 +1272,9 @@ async function renderMonthReport(date, forceServer = false) {
             const officeShiftConfigMap = {}; // branch -> office config
             for (const branch of BRANCHES) {
                 shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
+                if (!isCurrentRender()) return;
                 officeShiftConfigMap[branch] = await DBService.getOfficeShiftConfig(branch);
+                if (!isCurrentRender()) return;
             }
             const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
@@ -1235,6 +1327,7 @@ async function renderMonthReport(date, forceServer = false) {
             });
 
             const recepResults = await Promise.all(recepPromises);
+            if (!isCurrentRender()) return;
 
             // 4. For each day in the month, check if this staff was assigned
             for (let d = 1; d <= daysInMonth; d++) {
@@ -1294,6 +1387,7 @@ async function renderMonthReport(date, forceServer = false) {
         } catch (e) {
             console.error('[Report] Error loading receptionist schedules:', e);
         }
+        if (!isCurrentRender()) return;
     }
 
     // --- NEW: MERGE TOUCHING RECEPTIONIST SHIFTS ---
@@ -1739,29 +1833,8 @@ async function renderMonthReport(date, forceServer = false) {
             let badgeHtml = '';
             if (chip.studentCount && chip.studentCount > 0) {
                 const isPenaltyActive = !!window.currentMonthlySalarySettingsAll?.studentCountBonusPenalty || !!window.hasAnyRejectedStudentCountSessionInMonth;
-                const status = chip.studentCountStatus === 'rejected' ? 'rejected' : 'approved';
-                
-                let badgeText = '';
-                let badgeClass = '';
-                
-                if (isPenaltyActive) {
-                    if (status === 'approved') {
-                        badgeText = `${chip.studentCount}hs (Đã duyệt - Bị phạt)`;
-                        badgeClass = 'student-count-badge penalty-applied';
-                    } else {
-                        badgeText = `${chip.studentCount}hs (Từ chối - Hủy phụ cấp tháng)`;
-                        badgeClass = 'student-count-badge rejected';
-                    }
-                } else {
-                    if (status === 'approved') {
-                        badgeText = `${chip.studentCount}hs (Đã duyệt)`;
-                        badgeClass = 'student-count-badge approved';
-                    } else {
-                        badgeText = `${chip.studentCount}hs (Từ chối)`;
-                        badgeClass = 'student-count-badge rejected';
-                    }
-                }
-                badgeHtml = `<span class="${badgeClass}">${badgeText}</span>`;
+                const badge = getStudentCountBadgePresentation(chip.studentCountStatus, isPenaltyActive);
+                badgeHtml = `<span class="student-count-badge ${badge.className}">${chip.studentCount}hs (${badge.label})</span>`;
             }
 
             let editedHtml = '';
@@ -1780,8 +1853,9 @@ async function renderMonthReport(date, forceServer = false) {
             }
 
             const chipDisplayText = absenceChipDisplayText(chip, _cachedStaffNotes);
+            const safeChipDisplayText = escapeReportHtml(chipDisplayText);
 
-            div.innerHTML = `<span class="report-chip-main" style="min-width:0">${chipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
+            div.innerHTML = `<span class="report-chip-main" style="min-width:0">${safeChipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
 
             if (chip.isWarning) {
                 const warningIcon = document.createElement('span');
@@ -2164,7 +2238,7 @@ async function renderMonthReport(date, forceServer = false) {
             const isFixed = chip.isFixedShift || (window.savedFixedShiftsMonth && window.savedFixedShiftsMonth.includes(chip.sessionId));
             chip.isFixedShift = isFixed;
             if (isFixed && !window.isFixedShiftMode) {
-                div.innerHTML = `<span>${chipDisplayText} <b>(CĐ)</b>${badgeHtml}</span>`;
+                div.innerHTML = `<span>${safeChipDisplayText} <b>(CĐ)</b>${badgeHtml}</span>`;
                 div.style.border = '2px solid #8B5CF6';
             }
 
@@ -2200,7 +2274,11 @@ async function renderMonthReport(date, forceServer = false) {
                         if (!agreed) return;
                         try {
                             if (typeof UIService !== 'undefined') UIService.showLoading('Đang khôi phục ca...');
-                            const cancelComposite = `${chip.isOffice ? 'office_' : ''}${String(chip.classCompositeKey || '').replace('__', '_')}`;
+                            // Teaching schedules deliberately use a double underscore
+                            // (`cs1__YYYY-MM-DD`). Reception/office rosters use the
+                            // single-underscore document key, so never normalize the
+                            // teaching key or the cancellation tombstone will not match.
+                            const cancelComposite = `${chip.isOffice ? 'office_' : ''}${String(chip.classCompositeKey || '')}`;
                             const cancelKey = `${cancelComposite}_${chip.classSectionKey}_${chip.classIndex}`;
                             await DBService.restoreCancelledShift(dateStr.substring(0, 7), staffId, cancelKey);
                             _cachedStaffId = null;
@@ -2234,7 +2312,7 @@ async function renderMonthReport(date, forceServer = false) {
                             }
                             renderMonthReport(currentDate);
                         } else {
-                            const pubStatus = window.currentMonthlySalarySettingsAll?.published?.status;
+                            const pubStatus = getCurrentPayslipComponentStatus('gv');
                             const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
                             if (isMonthLocked) {
                                 if (typeof UIService !== 'undefined') UIService.toast('Bảng công tháng này đã khóa, không thể sửa.', 'error');
@@ -2255,14 +2333,14 @@ async function renderMonthReport(date, forceServer = false) {
                                     delete window.selectedStudentCountChips[key];
                                 } else {
                                     currentItem.studentCount = thresholdValue;
-                                    currentItem.status = 'approved';
+                                    currentItem.status = 'pending';
                                 }
                             } else {
                                 window.selectedStudentCountChips[key] = {
                                     dateStr: chip.dateStr,
                                     sessionId: chip.sessionId,
                                     studentCount: thresholdValue,
-                                    status: 'approved'
+                                    status: 'pending'
                                 };
                             }
                             renderMonthReport(currentDate);
@@ -2692,6 +2770,30 @@ function isStudentCountPenaltyActive(monthlySettings, chips) {
         (chips || []).some(chip => chip?.studentCountStatus === 'rejected' || chip?.bonus10Status === 'rejected');
 }
 
+function normalizeStudentCountApprovalStatus(status) {
+    const normalized = String(status || '').trim().toLowerCase();
+    return normalized === 'approved' || normalized === 'rejected' ? normalized : 'pending';
+}
+
+function getStudentCountBadgePresentation(status, penaltyActive = false) {
+    const normalized = normalizeStudentCountApprovalStatus(status);
+    if (normalized === 'approved') {
+        return penaltyActive
+            ? { status: normalized, label: 'Đã duyệt - Bị phạt', className: 'penalty-applied' }
+            : { status: normalized, label: 'Đã duyệt', className: 'approved' };
+    }
+    if (normalized === 'rejected') {
+        return penaltyActive
+            ? { status: normalized, label: 'Từ chối - Hủy phụ cấp tháng', className: 'rejected' }
+            : { status: normalized, label: 'Từ chối', className: 'rejected' };
+    }
+    return {
+        status: 'pending',
+        label: penaltyActive ? 'Chờ duyệt - Không tính phụ cấp' : 'Chờ duyệt',
+        className: 'pending'
+    };
+}
+
 // Trả về danh sách phân bổ [{ name, minutes, rate, isStudentCount }] cho 1 ca dạy.
 // Luôn trả về đúng 1 phần tử: hoặc dòng môn gốc, hoặc dòng lớp đông — không bao giờ cả hai.
 function getTeachingPayAllocations(chip, subjectName, minutes, normalRate, classRates, penaltyActive) {
@@ -2701,7 +2803,7 @@ function getTeachingPayAllocations(chip, subjectName, minutes, normalRate, class
     const normalizedSubjectName = String(subjectName || '').trim() || 'Chưa phân lớp';
     const studentCount = Number(chip?.studentCount) || 0;
     const usesStudentCountRate = studentCount > 0 &&
-        chip?.studentCountStatus !== 'rejected' &&
+        normalizeStudentCountApprovalStatus(chip?.studentCountStatus) === 'approved' &&
         !penaltyActive;
 
     if (!usesStudentCountRate) {
@@ -3726,10 +3828,10 @@ async function saveSalarySettings() {
             window.currentUserContext.salary_config.evaluation = evaluationData;
         }
 
-        // Auto-save calculated payroll as a draft
-        await saveCalculationDraftToDb(staffId, monthStr);
-
-        UIService.toast('Đã lưu bảng lương thành công!', 'success');
+        // Auto-save calculated payroll as a draft. Published/received snapshots
+        // are immutable and require a separate revision workflow.
+        const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
+        showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương thành công!');
     } catch (e) {
         console.error('Error saving salary settings:', e);
         UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
@@ -3879,21 +3981,27 @@ async function loadSalarySettings() {
     
     if (publishBadge && publishBtn) {
         const publishedObj = window.currentMonthlySalarySettingsAll?.published;
-        if (publishedObj && publishedObj.status) {
+        const lifecycle = publishedObj && typeof DBService.getPayslipLifecycleState === 'function'
+            ? DBService.getPayslipLifecycleState(publishedObj)
+            : null;
+        const componentStatus = lifecycle
+            ? (activeFilter === 'tiep-tan' ? lifecycle.status_tt : lifecycle.status_gv)
+            : (publishedObj?.status || 'draft');
+        if (publishedObj) {
             publishBadge.style.display = 'inline-block';
-            if (publishedObj.status === 'received') {
+            if (componentStatus === 'received') {
                 publishBadge.innerText = 'Đã Nhận Lương';
                 publishBadge.style.backgroundColor = '#D1FAE5';
                 publishBadge.style.color = '#065F46';
                 publishBadge.style.border = '1px solid #10B981';
                 publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Lại Bảng Lương`;
-            } else if (publishedObj.status === 'published') {
+            } else if (componentStatus === 'published') {
                 publishBadge.innerText = 'Đã Gửi Bảng Lương';
                 publishBadge.style.backgroundColor = '#DBEAFE';
                 publishBadge.style.color = '#1E40AF';
                 publishBadge.style.border = '1px solid #3B82F6';
                 publishBtn.innerHTML = `${window.getIconHtml('send', {width: '14', height: '14'})} Gửi Lại Bảng Lương`;
-            } else if (publishedObj.status === 'draft') {
+            } else {
                 publishBadge.innerText = 'Đã tính (Chưa gửi)';
                 publishBadge.style.backgroundColor = '#FEF3C7';
                 publishBadge.style.color = '#D97706';
@@ -3950,7 +4058,7 @@ async function openNoteModal(dateKey) {
         text = _cachedStaffNotes[dateKey] || '';
     } else if (staffId) {
         try {
-            const fresh = await DBService.getDailyNotes(staffId) || {};
+            const fresh = await DBService.getDailyNotes(staffId, { strict: true }) || {};
             _cachedStaffNotes = fresh;
             _cachedNotesOwnerId = staffId;
             text = fresh[dateKey] || '';
@@ -3991,43 +4099,34 @@ function saveNote() {
 async function saveCalendarNote() {
     const staffId = getTargetStaffId();
     const note = document.getElementById('note-content').value.trim();
+    const noteDateKey = currentNoteDateKey;
 
     if (!staffId) {
         alert('Chưa xác định được nhân viên nên chưa lưu được ghi chú. Vui lòng chọn lại nhân viên.');
         return;
     }
 
-    // saveDailyNotes GHI ĐÈ CẢ TÀI LIỆU. Trước đây hàm này đẩy thẳng `_cachedStaffNotes`
-    // — bộ nhớ dùng chung cho mọi nhân viên — nên nếu bộ nhớ còn đang giữ ghi chú của
-    // người trước (admin vừa đổi người, hoặc lần tải ghi chú bị lỗi/chưa xong) thì toàn
-    // bộ ghi chú người A bị ghi sang người B, còn ghi chú thật của B thì mất trắng.
-    // Nay luôn đọc lại ghi chú CỦA ĐÚNG NGƯỜI ĐANG CHỌN rồi chỉ sửa duy nhất một ngày.
-    let notesOfTarget;
     try {
-        notesOfTarget = { ...(await DBService.getDailyNotes(staffId) || {}) };
-    } catch (e) {
-        console.error('Error loading notes before save:', e);
-        alert('Không đọc được ghi chú hiện có của nhân viên này nên CHƯA lưu gì cả ' +
-              '(tránh ghi đè mất ghi chú cũ). Vui lòng kiểm tra mạng rồi thử lại.');
-        return;
-    }
-
-    if (note) notesOfTarget[currentNoteDateKey] = note;
-    else delete notesOfTarget[currentNoteDateKey];
-
-    try {
-        await DBService.saveDailyNotes(staffId, notesOfTarget);
-        _cachedStaffNotes = notesOfTarget;
-        _cachedNotesOwnerId = staffId;
-        _cachedStaffId = staffId;
+        const savedNote = await DBService.updateDailyNote(staffId, noteDateKey, note);
+        if (String(getTargetStaffId() || '') === String(staffId)) {
+            if (String(_cachedNotesOwnerId || '') === String(staffId)) {
+                if (savedNote) _cachedStaffNotes[noteDateKey] = savedNote;
+                else delete _cachedStaffNotes[noteDateKey];
+            } else {
+                // Do not invent an incomplete cache when this modal was opened
+                // during a staff switch; the next render will reload the owner.
+                _cachedStaffId = null;
+                _cachedNotesOwnerId = null;
+            }
+        }
     } catch (e) {
         console.error('Error saving note to Firestore:', e);
         alert('Lỗi lưu ghi chú: ' + (e.message || e));
         return;
     }
 
-    closeNoteModal();
-    renderMonthReport(currentDate);
+    if (currentNoteDateKey === noteDateKey) closeNoteModal();
+    if (String(getTargetStaffId() || '') === String(staffId)) renderMonthReport(currentDate);
 }
 
 function saveEvaluationNote() {
@@ -4290,7 +4389,8 @@ window.toggleSubjectSelection = function(subId, subName, subRate) {
     renderSelectedSubjectBadges();
     
     // Update checkbox visual state
-    const cb = document.getElementById(`subject-cb-${subId}`);
+    const cb = Array.from(document.querySelectorAll('#subject-dropdown-list input[data-subject-id]'))
+        .find(input => input.dataset.subjectId === String(subId));
     if (cb) cb.checked = idx === -1;
 };
 
@@ -4305,10 +4405,13 @@ window.clearSubjectSearch = function() {
 function renderSelectedSubjectBadges() {
     const container = document.getElementById('selected-subjects-badges');
     if (!container) return;
-    container.innerHTML = '';
+    container.replaceChildren();
     
     if (editSelectedSubjectIds.length === 0) {
-        container.innerHTML = '<span style="color: #9CA3AF; font-size: 0.85rem; font-style: italic;">Chưa chọn môn học nào</span>';
+        const empty = document.createElement('span');
+        empty.style.cssText = 'color:#9CA3AF;font-size:0.85rem;font-style:italic;';
+        empty.textContent = 'Chưa chọn môn học nào';
+        container.appendChild(empty);
         return;
     }
     
@@ -4329,13 +4432,62 @@ function renderSelectedSubjectBadges() {
             font-size: 0.85rem;
             font-weight: 600;
         `;
-        badge.innerHTML = `
-            <span>${sub.name}</span>
-            <span onclick="window.toggleSubjectSelection('${sub.id}', '${sub.name}', ${sub.rate}); event.stopPropagation();" style="cursor: pointer; font-weight: bold; color: #9CA3AF; margin-left: 4px;">✕</span>
-        `;
+        const label = document.createElement('span');
+        label.textContent = String(sub.name || 'Môn học');
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.setAttribute('aria-label', `Bỏ môn ${String(sub.name || 'Môn học')}`);
+        remove.style.cssText = 'cursor:pointer;font-weight:bold;color:#9CA3AF;margin-left:4px;border:0;background:transparent;padding:0;';
+        remove.textContent = '✕';
+        remove.addEventListener('click', event => {
+            event.stopPropagation();
+            window.toggleSubjectSelection(sub.id, sub.name, sub.rate);
+        });
+
+        badge.append(label, remove);
         container.appendChild(badge);
     });
 }
+
+// REPORT_SUBJECT_OPTION_RENDER_START
+function createSubjectDropdownItem(sub, isChecked) {
+    const item = document.createElement('div');
+    item.className = 'subject-dropdown-item';
+    item.dataset.name = String(sub.name || '');
+    item.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        border-bottom: 1px solid #F3F4F6;
+        transition: background 0.2s;
+    `;
+    item.addEventListener('mouseenter', () => { item.style.background = '#F3F4F6'; });
+    item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
+    item.addEventListener('click', () => window.toggleSubjectSelection(sub.id, sub.name, sub.rate));
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !!isChecked;
+    checkbox.dataset.subjectId = String(sub.id || '');
+    checkbox.tabIndex = -1;
+    checkbox.setAttribute('aria-hidden', 'true');
+    checkbox.style.cssText = 'width:18px;height:18px;accent-color:#10B981;pointer-events:none;';
+
+    const name = document.createElement('span');
+    name.style.cssText = 'font-size:0.95rem;color:#374151;';
+    name.textContent = String(sub.path || sub.name || 'Môn học');
+
+    const rate = document.createElement('span');
+    rate.style.cssText = 'margin-left:auto;font-size:0.8rem;color:#9CA3AF;font-weight:500;';
+    rate.textContent = `${Number(sub.rate || 0).toLocaleString('vi-VN')}đ/h`;
+
+    item.append(checkbox, name, rate);
+    return item;
+}
+// REPORT_SUBJECT_OPTION_RENDER_END
 
 function ensureSubjectRatePolicyLoaded() {
     if (window.SubjectRatePolicy) return Promise.resolve(window.SubjectRatePolicy);
@@ -4476,31 +4628,10 @@ async function loadAndRenderSubjects(staffId) {
             });
         }
 
-        list.innerHTML = '';
+        list.replaceChildren();
         allAvailableSubjects.forEach(sub => {
             const isChecked = editSelectedSubjectIds.includes(sub.id);
-            const item = document.createElement('div');
-            item.className = 'subject-dropdown-item';
-            item.dataset.name = sub.name;
-            item.style.cssText = `
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 0.75rem 1rem;
-                cursor: pointer;
-                border-bottom: 1px solid #F3F4F6;
-                transition: background 0.2s;
-            `;
-            item.onmouseenter = () => { item.style.background = '#F3F4F6'; };
-            item.onmouseleave = () => { item.style.background = 'transparent'; };
-            item.onclick = () => window.toggleSubjectSelection(sub.id, sub.name, sub.rate);
-            
-            item.innerHTML = `
-                <input type="checkbox" id="subject-cb-${sub.id}" ${isChecked ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: #10B981; pointer-events: none;">
-                <span style="font-size: 0.95rem; color: #374151;">${sub.path || sub.name}</span>
-                <span style="margin-left: auto; font-size: 0.8rem; color: #9CA3AF; font-weight: 500;">${sub.rate.toLocaleString('vi-VN')}đ/h</span>
-            `;
-            list.appendChild(item);
+            list.appendChild(createSubjectDropdownItem(sub, isChecked));
         });
         
         renderSelectedSubjectBadges();
@@ -5519,8 +5650,8 @@ async function deleteSessionFromModal() {
         if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
             console.log("[DeleteSession] Unregistering from class...");
             const monthStr = dateKey.substring(0, 7);
-            const normalizedScheduleKey = String(classCompositeKey).replace('__', '_');
-            const cancelKey = `${isReceptionistStr === 'office' ? 'office_' : ''}${normalizedScheduleKey}_${classSectionKey}_${classIndexRaw}`;
+            const cancelCompositeKey = `${isReceptionistStr === 'office' ? 'office_' : ''}${String(classCompositeKey)}`;
+            const cancelKey = `${cancelCompositeKey}_${classSectionKey}_${classIndexRaw}`;
 
             // 1. Ghi log huỷ ca vào DBService (BƯỚC QUAN TRỌNG NHẤT)
             await DBService.cancelShift(monthStr, staffId, cancelKey);
@@ -5531,21 +5662,10 @@ async function deleteSessionFromModal() {
             } else if (isReceptionistStr === 'office') {
                 await DBService.unassignOfficeStaff(classCompositeKey, classSectionKey, classIndexRaw, staffId);
             } else {
-                // Delete from teaching schedule
-                const classIndex = Number(classIndexRaw);
-                const branch = classCompositeKey.split('_')[0];
-                const mockUser = {
-                    id: staffId,
-                    name: staffName,
-                    uid: staffId,
-                    displayName: staffName
-                };
-                const rowMeta = {
-                    branch: branch,
-                    section: classSectionKey,
-                    index: classIndex
-                };
-                await DBService.registerClass(classCompositeKey, classSectionKey, rowMeta, mockUser);
+                // Teaching assignments remain in the historical schedule. The
+                // cancelled-shift tombstone above hides only this employee's
+                // report chip and can be restored without mutating/toggling the
+                // separate self-registration record.
             }
         }
 
@@ -6137,9 +6257,8 @@ function classifyAbsentChip(chip, notesMap) {
     }
     const dateStr = chip.dateStr;
     const noteText = ((notesMap || {})[dateStr] || '').toLowerCase().trim();
-    // Ghi chú ngày (do trợ lý/admin đánh dấu) là SỰ THẬT — phải thắng cờ chip.isVDX.
-    // chip.isVDX chỉ là suy đoán "có GV thay thế → vắng đột xuất"; trước đây nó được xét
-    // trước nên trợ lý sửa thành Vắng phép mà bên GV vẫn hiện Vắng đột xuất.
+    // daily_notes is a legacy fallback only. Explicit per-shift absenceType above is
+    // canonical so a note for another shift cannot reclassify this class or payroll.
     if (noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) {
         return 'VDX';
     }
@@ -6152,14 +6271,13 @@ function classifyAbsentChip(chip, notesMap) {
     return 'VKP';
 }
 
-// Nhãn hiển thị của chip vắng: chip do hệ thống sinh ra luôn ghi "VĐX:", nhưng nếu ghi chú ngày
-// nói Vắng phép thì phải đổi nhãn cho khớp Bảng Công (không sửa chip.text gốc để lần render sau
-// vẫn phân loại lại được từ đầu).
 function absenceChipDisplayText(chip, notesMap) {
-    if (!chip || !chip.isVDX || !chip.text) return chip ? chip.text : '';
-    return classifyAbsentChip(chip, notesMap) === 'VP'
-        ? chip.text.replace('VĐX:', 'VP:')
-        : chip.text;
+    if (!chip || !chip.text) return chip ? chip.text : '';
+    const type = classifyAbsentChip(chip, notesMap);
+    if (!['VP', 'VDX'].includes(type)) return chip.text;
+    const prefix = type === 'VP' ? 'VP:' : 'VĐX:';
+    if (/^(VP|VĐX):/.test(chip.text)) return chip.text.replace(/^(VP|VĐX):/, prefix);
+    return `${prefix} ${chip.text}`;
 }
 
 function bindMoneyInputFormatters() {
@@ -7139,10 +7257,10 @@ async function saveSalarySettingsFromModal() {
             renderEvaluationTable(settingsObj.evaluation || []);
         }
         
-        UIService.toast('Đã lưu bảng lương và tính thành công!', 'success');
         closeClassRateModal();
         calculateSalary();
-        await saveCalculationDraftToDb(staffId, monthStr);
+        const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
+        showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương và tính thành công!');
     } catch (e) {
         console.error('Error saving salary settings:', e);
         UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
@@ -8193,9 +8311,9 @@ async function saveRecepExtras() {
             if (doanhThuCs3EvalAmt) doanhThuCs3EvalAmt.value = formatNumberWithCommas(doanhThuCs3Val);
         }
         
-        UIService.toast('Đã lưu thông tin bổ sung thành công!', 'success');
         calculateSalary();
-        await saveCalculationDraftToDb(staffId, monthStr);
+        const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
+        showDraftSaveOutcome(draftResult, 'Đã lưu thông tin bổ sung thành công!');
     } catch (e) {
         console.error('Error saving receptionist extras:', e);
         UIService.toast('Lỗi khi lưu thông tin: ' + e.message, 'error');
@@ -8351,8 +8469,14 @@ async function publishSalary() {
     
     try {
         UIService.showLoading();
-        await DBService.publishSalary(staffId, monthStr, payload);
-        UIService.toast('Gửi bảng lương thành công!', 'success');
+        const publishResult = await DBService.publishSalary(staffId, monthStr, payload);
+        if (publishResult?.lockedComponents?.length) {
+            UIService.toast('Phần lương đã xác nhận được giữ nguyên. Muốn đổi số tiền cần tạo bản hiệu chỉnh mới.', 'warning');
+        } else if (publishResult?.skippedComponents?.length) {
+            UIService.toast('Đã gửi phần có dữ liệu; phần chưa tính được giữ ở trạng thái nháp.', 'warning');
+        } else {
+            UIService.toast('Gửi bảng lương thành công!', 'success');
+        }
         
         // Reload settings to update UI
         await loadSalarySettings();
@@ -8412,7 +8536,10 @@ function renderSalaryDashboardTable() {
         const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
         const isTeacher = hasTeachingEmploymentRole(uRoles);
         const isOffice = hasOfficeEmploymentRole(uRoles);
-        const isRecep = hasReceptionistEmploymentRole(uRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
+        // Dashboard rows must be classified from this employee's own profile.
+        // `unfilteredAllMonthChips` belongs to the employee currently open in
+        // the report and previously marked every row as receptionist.
+        const isRecep = hasReceptionistEmploymentRole(uRoles);
         
         let primaryRole = 'Staff';
         if (isTeacher && isRecep) primaryRole = isOffice ? 'Kiêm nhiệm (GV & Văn Phòng)' : 'Dual (GV & TT)';
@@ -8432,20 +8559,39 @@ function renderSalaryDashboardTable() {
         let netPay = 0;
         let infoStr = '—';
         let statusBadge = '';
+        let canConfirmPaid = false;
+        let hasReceivedComponent = false;
+        let hasDraftComponent = false;
         
         if (pub) {
-            status = pub.status || 'published';
+            const lifecycle = typeof DBService.getPayslipLifecycleState === 'function'
+                ? DBService.getPayslipLifecycleState(pub)
+                : null;
+            status = lifecycle?.overallStatus || pub.status || 'draft';
+            const componentStatuses = lifecycle
+                ? [
+                    lifecycle.has_gv ? lifecycle.status_gv : null,
+                    lifecycle.has_tt ? lifecycle.status_tt : null
+                ].filter(Boolean)
+                : [status];
+            canConfirmPaid = componentStatuses.includes('published');
+            hasReceivedComponent = componentStatuses.includes('received');
+            hasDraftComponent = componentStatuses.includes('draft');
             baseSalary = pub.baseSalary || 0;
             totalBonus = pub.totalBonus || 0;
             advance = pub.advance || 0;
             netPay = pub.netPay || 0;
             
-            totalPayroll += netPay;
-            if (status === 'received') {
-                totalPaid += netPay;
-            } else {
-                totalUnpaid += netPay;
-            }
+            const paymentBreakdown = typeof DBService.getPayslipPaymentBreakdown === 'function'
+                ? DBService.getPayslipPaymentBreakdown(pub)
+                : {
+                    total: netPay,
+                    paid: status === 'received' ? netPay : 0,
+                    unpaid: status === 'received' ? 0 : netPay
+                };
+            totalPayroll += paymentBreakdown.total;
+            totalPaid += paymentBreakdown.paid;
+            totalUnpaid += paymentBreakdown.unpaid;
             
             if (status === 'received') {
                 const date = new Date(pub.receivedAt);
@@ -8454,12 +8600,18 @@ function renderSalaryDashboardTable() {
                 infoStr = `<div style="font-size:0.8rem;color:#059669;font-weight:600;">Nhận: ${dateStr}</div><div style="font-size:0.7rem;color:#6B7280;">Bởi: ${by}</div>`;
                 
                 statusBadge = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Đã nhận</span>`;
-            } else {
+            } else if (canConfirmPaid) {
                 const date = new Date(pub.publishedAt);
                 const dateStr = isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN');
-                infoStr = `<div style="font-size:0.8rem;color:#1E40AF;font-weight:600;">Gửi: ${dateStr}</div>`;
+                infoStr = `<div style="font-size:0.8rem;color:#1E40AF;font-weight:600;">Gửi: ${dateStr}</div>${hasReceivedComponent ? '<div style="font-size:0.7rem;color:#92400E;">Đã nhận một phần</div>' : ''}`;
                 
-                statusBadge = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Đã gửi</span>`;
+                statusBadge = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">${hasReceivedComponent ? 'Đã nhận một phần' : 'Đã gửi'}</span>`;
+            } else if (hasReceivedComponent) {
+                infoStr = '<div style="font-size:0.8rem;color:#92400E;font-weight:600;">Đã nhận phần đã gửi</div><div style="font-size:0.7rem;color:#6B7280;">Phần còn lại đang tổng hợp</div>';
+                statusBadge = '<span style="background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Chờ phần còn lại</span>';
+            } else {
+                infoStr = '<div style="font-size:0.8rem;color:#6B7280;">Đang tổng hợp</div>';
+                statusBadge = '<span style="background:#F3F4F6;color:#4B5563;border:1px solid #D1D5DB;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Chưa gửi</span>';
             }
         } else {
             statusBadge = `<span style="background:#F3F4F6;color:#4B5563;border:1px solid #D1D5DB;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Chưa gửi</span>`;
@@ -8478,7 +8630,10 @@ function renderSalaryDashboardTable() {
             netPay: netPay,
             status: status,
             statusBadge: statusBadge,
-            infoStr: infoStr
+            infoStr: infoStr,
+            canConfirmPaid: canConfirmPaid,
+            hasReceivedComponent: hasReceivedComponent,
+            hasDraftComponent: hasDraftComponent
         });
     });
     
@@ -8493,28 +8648,35 @@ function renderSalaryDashboardTable() {
     
     tableBody.innerHTML = rows.map(row => {
         const u = row.user;
-        const color = u.scheduleColor || '#E5E7EB';
-        const initial = (u.name || u.username || '?').charAt(0).toUpperCase();
+        const colorCandidate = String(u.scheduleColor || '');
+        const color = /^#[0-9a-f]{6}$/i.test(colorCandidate) ? colorCandidate : '#64748B';
+        const displayName = String(u.name || u.username || 'Không tên');
+        const initial = escapeReportHtml(displayName.charAt(0).toUpperCase() || '?');
+        const safeName = escapeReportHtml(displayName);
+        const safeUsername = escapeReportHtml(u.username || '—');
+        const safePrimaryRole = escapeReportHtml(row.primaryRole);
+        const safeStaffId = escapeReportHtml(String(u.id || ''));
         
         let actionButtons = '';
-        if (row.status === 'published') {
+        if (row.canConfirmPaid) {
+            const confirmLabel = row.hasDraftComponent || row.hasReceivedComponent ? 'Chi phần đã gửi' : 'Đã chi';
             actionButtons = `
-                <button class="btn btn-sm btn-primary" onclick="adminConfirmPaid('${u.id}')" style="background:#10B981;color:white;border:none;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
-                    Đã chi
+                <button type="button" class="btn btn-sm btn-primary" data-salary-dashboard-action="confirm" data-staff-id="${safeStaffId}" style="background:#10B981;color:white;border:none;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
+                    ${confirmLabel}
                 </button>
-                <button class="btn btn-sm" onclick="viewPersonalReportFromDash('${u.id}')" style="background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;margin-left:4px;">
+                <button type="button" class="btn btn-sm" data-salary-dashboard-action="view" data-staff-id="${safeStaffId}" style="background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;margin-left:4px;">
                     Chi tiết
                 </button>
             `;
-        } else if (row.status === 'received') {
+        } else if (row.status === 'received' || row.hasReceivedComponent) {
             actionButtons = `
-                <button class="btn btn-sm" onclick="viewPersonalReportFromDash('${u.id}')" style="background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
+                <button type="button" class="btn btn-sm" data-salary-dashboard-action="view" data-staff-id="${safeStaffId}" style="background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
                     Chi tiết
                 </button>
             `;
         } else {
             actionButtons = `
-                <button class="btn btn-sm btn-primary" onclick="viewPersonalReportFromDash('${u.id}')" style="background:#3B82F6;color:white;border:none;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
+                <button type="button" class="btn btn-sm btn-primary" data-salary-dashboard-action="view" data-staff-id="${safeStaffId}" style="background:#3B82F6;color:white;border:none;padding:4px 8px;font-size:0.75rem;font-weight:700;border-radius:4px;cursor:pointer;">
                     Tính & Gửi
                 </button>
             `;
@@ -8525,11 +8687,11 @@ function renderSalaryDashboardTable() {
                 <td style="padding:0.75rem 0.75rem;display:flex;align-items:center;gap:0.5rem;">
                     <div style="width:28px;height:28px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.75rem;color:white;">${initial}</div>
                     <div>
-                        <div style="font-weight:600;color:var(--text-color);">${u.name || u.username}</div>
-                        <div style="font-size:0.7rem;color:#9CA3AF;">MSNV: ${u.username || '—'}</div>
+                        <div style="font-weight:600;color:var(--text-color);">${safeName}</div>
+                        <div style="font-size:0.7rem;color:#9CA3AF;">MSNV: ${safeUsername}</div>
                     </div>
                 </td>
-                <td style="padding:0.75rem 0.75rem;color:#4B5563;font-weight:500;">${row.primaryRole}</td>
+                <td style="padding:0.75rem 0.75rem;color:#4B5563;font-weight:500;">${safePrimaryRole}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.baseSalary > 0 ? formatNumberWithCommas(row.baseSalary) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.totalBonus > 0 ? formatNumberWithCommas(row.totalBonus) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#EF4444;">${row.advance > 0 ? '-' + formatNumberWithCommas(row.advance) + 'đ' : '—'}</td>
@@ -8544,6 +8706,14 @@ function renderSalaryDashboardTable() {
             </tr>
         `;
     }).join('');
+
+    tableBody.querySelectorAll('[data-salary-dashboard-action]').forEach(button => {
+        button.addEventListener('click', () => {
+            const staffId = button.dataset.staffId || '';
+            if (button.dataset.salaryDashboardAction === 'confirm') adminConfirmPaid(staffId);
+            else viewPersonalReportFromDash(staffId);
+        });
+    });
 }
 
 async function adminConfirmPaid(staffId) {
@@ -8554,8 +8724,14 @@ async function adminConfirmPaid(staffId) {
     
     try {
         UIService.showLoading();
-        await DBService.confirmSalaryReceived(staffId, monthStr, 'admin');
-        UIService.toast('Xác nhận đã chi thành công!', 'success');
+        const result = await DBService.confirmSalaryReceived(staffId, monthStr, 'admin');
+        if (!result.changed) {
+            UIService.toast('Bảng lương này đã được xác nhận trước đó.', 'info');
+        } else if (result.status === 'received') {
+            UIService.toast('Xác nhận đã chi thành công!', 'success');
+        } else if (result.receivedComponents?.length) {
+            UIService.toast('Đã xác nhận chi phần bảng lương đã gửi. Phần còn lại vẫn đang tổng hợp.', 'warning');
+        }
         await loadSalaryDashboard();
     } catch (e) {
         console.error("Error confirming paid:", e);
@@ -9175,6 +9351,23 @@ function getCurrentCalculationPayload(role) {
     };
 }
 
+function showDraftSaveOutcome(result, successMessage) {
+    if (result?.locked) {
+        const componentLabel = result.component === 'tt' ? 'Tiếp Tân' : 'Giáo Viên';
+        const statusLabel = result.componentStatus === 'received' ? 'đã xác nhận' : 'đã gửi';
+        UIService.toast(
+            `Đã lưu cấu hình, nhưng phần lương ${componentLabel} ${statusLabel} nên số tiền không đổi. Cần tạo bản hiệu chỉnh để thay đổi.`,
+            'warning'
+        );
+        return;
+    }
+    if (result?.preservedPublishedSnapshot) {
+        UIService.toast(`${successMessage} Phần lương đã gửi/đã nhận khác được giữ nguyên.`, 'warning');
+        return;
+    }
+    UIService.toast(successMessage, 'success');
+}
+
 async function saveCalculationDraftToDb(staffId, monthStr) {
     if (!staffId || !monthStr) return;
     
@@ -9186,6 +9379,12 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
         hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
         hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
+    const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
+    const activeFilter = (filterVal === 'tiep-tan')
+        || (filterVal === 'all' && hasReceptionist && !hasTeaching)
+        ? 'tiep-tan'
+        : 'giao-vien';
+    const activeComponent = activeFilter === 'tiep-tan' ? 'tt' : 'gv';
     
     let payloadGV = null;
     let payloadTT = null;
@@ -9219,6 +9418,19 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
                 confirmedBy = existingPublished.confirmedBy || null;
             }
         }
+
+        const lockState = DBService.getPayslipDraftLockState(existingPublished, activeComponent);
+        if (lockState.locked) {
+            return {
+                saved: false,
+                locked: true,
+                status: 'locked',
+                component: activeComponent,
+                componentStatus: lockState.status,
+                requiresRevision: true,
+                lifecycle: lockState.lifecycle
+            };
+        }
         
         // Build updatedPublished payload
         const updatedPublished = {
@@ -9246,8 +9458,6 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
             
             // If both are empty, default to active filter role
             if (!updatedPublished.details_gv && !updatedPublished.details_tt) {
-                const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-                const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
                 if (activeFilter === 'tiep-tan') {
                     updatedPublished.details_tt = payloadTT ? { ...payloadTT.details, netPay: payloadTT.netPay } : null;
                 } else {
@@ -9304,20 +9514,41 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
             if (updatedPublished.details_tt) delete updatedPublished.details_tt;
         }
         
-        const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-        const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
         const activePayload = activeFilter === 'tiep-tan' ? payloadTT : payloadGV;
         if (activePayload && activePayload.message) {
             updatedPublished.message = activePayload.message;
         }
         
-        await firebase.firestore().collection('salary_settings_monthly').doc(docId).set({
-            published: updatedPublished
-        }, { merge: true });
-        
-        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        // The transaction re-checks the latest lifecycle so a concurrent
+        // publish/confirmation cannot be overwritten by this stale calculation.
+        const draftTransition = await DBService.savePayslipDraft(
+            staffId,
+            monthStr,
+            updatedPublished,
+            activeComponent
+        );
+        if (!draftTransition.saved) {
+            return {
+                saved: false,
+                locked: true,
+                status: 'locked',
+                component: activeComponent,
+                componentStatus: draftTransition.componentStatus,
+                requiresRevision: true,
+                lifecycle: draftTransition.lifecycle
+            };
+        }
+        return {
+            saved: true,
+            locked: false,
+            status: 'draft_saved',
+            component: activeComponent,
+            preservedPublishedSnapshot: draftTransition.preservedPublishedSnapshot,
+            lifecycle: draftTransition.lifecycle
+        };
     } catch (e) {
         console.error('Error saving salary draft:', e);
+        throw e;
     }
 }
 
@@ -9361,22 +9592,15 @@ async function openBulkPublishModal(opts) {
             let teacherNetPay = 0;
             let recepNetPay = 0;
             
-            if (pub && pub.status) {
-                if (pub.role === 'dual') {
-                    teacherStatus = pub.status_gv || 'draft';
-                    recepStatus = pub.status_tt || 'draft';
-                    if (!pub.details_gv) teacherStatus = 'uncalculated';
-                    if (!pub.details_tt) recepStatus = 'uncalculated';
-                    
-                    teacherNetPay = pub.details_gv?.netPay || 0;
-                    recepNetPay = pub.details_tt?.netPay || 0;
-                } else if (pub.role === 'tiep-tan') {
-                    recepStatus = pub.status_tt || pub.status;
-                    recepNetPay = pub.netPay || 0;
-                } else {
-                    teacherStatus = pub.status_gv || pub.status;
-                    teacherNetPay = pub.netPay || 0;
-                }
+            if (pub) {
+                const lifecycle = DBService.getPayslipLifecycleState(pub);
+                if (lifecycle.has_gv) teacherStatus = lifecycle.status_gv;
+                if (lifecycle.has_tt) recepStatus = lifecycle.status_tt;
+
+                teacherNetPay = Number(pub.details_gv?.netPay)
+                    || (pub.role !== 'dual' && lifecycle.has_gv ? Number(pub.netPay) || 0 : 0);
+                recepNetPay = Number(pub.details_tt?.netPay)
+                    || (pub.role !== 'dual' && lifecycle.has_tt ? Number(pub.netPay) || 0 : 0);
             }
             
             const isDual = isTeacher && isRecep;
@@ -9559,28 +9783,26 @@ function createBulkStaffRow(item, group, sectionKey) {
         }
     }
 
+    // The bulk workflow has exactly two protocol values. Preserve `receps`:
+    // selectors, counters and publish routing all key off that value.
+    const safeGroup = group === 'receps' ? 'receps' : 'teachers';
     const checkboxHtml = selectable
-        ? `<input type="checkbox" class="bulk-staff-checkbox bulk-group-${group}"
-                   data-id="${item.id}" data-group="${group}" checked
-                   onchange="onBulkCheckboxChange('${item.id}', this.checked)"
+        ? `<input type="checkbox" class="bulk-staff-checkbox bulk-group-${safeGroup}" checked
                    title="Chọn để gửi bảng lương cho người này"
                    style="width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; accent-color: ${accent};" />`
         : `<span style="width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:${badgeColor};">
                <i data-lucide="${item.status === 'uncalculated' ? 'minus' : 'check'}" style="width:14px;height:14px;"></i>
            </span>`;
 
-    const safeName = String(item.name || '').replace(/"/g, '&quot;');
     row.innerHTML = `
         <div style="display: flex; align-items: center; gap: 0.7rem; min-width: 0;">
             ${checkboxHtml}
-            <button type="button" onclick="openStaffPayslipTab('${item.id}', '${group}')"
-                    title="Mở bảng lương của ${safeName} ở tab mới"
+            <button type="button" class="bulk-open-payslip"
                     style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;background:none;border:none;padding:0;margin:0;cursor:pointer;text-align:left;min-width:0;font-family:inherit;">
-                <span style="font-weight: 600; color: #1D4ED8; font-size: 0.9rem; display:inline-flex;align-items:center;gap:4px;text-decoration:underline;text-decoration-color:#BFDBFE;text-underline-offset:2px;">
-                    ${safeName}
+                <span class="bulk-staff-name" style="font-weight: 600; color: #1D4ED8; font-size: 0.9rem; display:inline-flex;align-items:center;gap:4px;text-decoration:underline;text-decoration-color:#BFDBFE;text-underline-offset:2px;">
                     <i data-lucide="external-link" style="width:12px;height:12px;opacity:0.7;"></i>
                 </span>
-                <span style="font-size: 0.72rem; color: #6B7280;">MSNV: ${item.msnv}${sentAtStr ? ' · gửi ' + sentAtStr : ''}</span>
+                <span class="bulk-staff-meta" style="font-size: 0.72rem; color: #6B7280;"></span>
             </button>
         </div>
         <div style="display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0;">
@@ -9592,6 +9814,23 @@ function createBulkStaffRow(item, group, sectionKey) {
             </span>
         </div>
     `;
+    const staffId = String(item.id || '');
+    const staffName = String(item.name || '');
+    const checkbox = row.querySelector('.bulk-staff-checkbox');
+    if (checkbox) {
+        checkbox.dataset.id = staffId;
+        checkbox.dataset.group = safeGroup;
+        checkbox.addEventListener('change', () => onBulkCheckboxChange(staffId, checkbox.checked));
+    }
+    const openButton = row.querySelector('.bulk-open-payslip');
+    if (openButton) {
+        openButton.title = `Mở bảng lương của ${staffName} ở tab mới`;
+        openButton.addEventListener('click', () => openStaffPayslipTab(staffId, safeGroup));
+    }
+    const nameNode = row.querySelector('.bulk-staff-name');
+    if (nameNode) nameNode.insertBefore(document.createTextNode(staffName), nameNode.firstChild);
+    const metaNode = row.querySelector('.bulk-staff-meta');
+    if (metaNode) metaNode.textContent = `MSNV: ${String(item.msnv || '')}${sentAtStr ? ' · gửi ' + sentAtStr : ''}`;
     return row;
 }
 
@@ -9667,11 +9906,6 @@ async function submitBulkPublish(scope) {
     try {
         UIService.showLoading();
         
-        const db = firebase.firestore();
-        const batch = db.batch();
-        
-        const allSettings = window.bulkPublishAllSettings || {};
-        
         // Group checked checkboxes by staffId
         const publishTargets = {}; // { staffId: { teachers: boolean, receps: boolean } }
         checkedBoxes.forEach(cb => {
@@ -9684,53 +9918,42 @@ async function submitBulkPublish(scope) {
             if (group === 'receps') publishTargets[staffId].receps = true;
         });
         
-        Object.keys(publishTargets).forEach(staffId => {
-            const docId = `${monthStr}_${staffId}`;
-            const docRef = db.collection('salary_settings_monthly').doc(docId);
-            
-            const docData = allSettings[staffId] || {};
-            const currentPublished = docData.published || {};
+        const settledResults = await Promise.allSettled(Object.keys(publishTargets).map(staffId => {
             const targets = publishTargets[staffId];
-            
-            // Rebuild published payload
-            const updatedPublished = {
-                ...currentPublished,
-                publishedAt: new Date().toISOString()
-            };
-            
-            // If commonMessage is not empty, override
-            if (commonMessage.trim()) {
-                updatedPublished.message = commonMessage.trim();
-            }
-            
+
             // GỬI ĐÚNG BÊN ĐƯỢC TICK, không suy từ currentPublished.role.
             // Bản cũ nhìn `role`: người có 2 chức danh nhưng doc lưu role='giao-vien' (lúc tính
             // chưa có giờ tiếp tân) thì tick cột Tiếp Tân lại đi ghi cờ bên giáo viên → gửi sai bên.
-            const nowIso = new Date().toISOString();
-            if (targets.teachers) {
-                updatedPublished.status_gv = 'published';
-                updatedPublished.publishedAt_gv = nowIso;
-            }
-            if (targets.receps) {
-                updatedPublished.status_tt = 'published';
-                updatedPublished.publishedAt_tt = nowIso;
-            }
-            const gvPub = updatedPublished.status_gv === 'published' || updatedPublished.status_gv === 'received';
-            const ttPub = updatedPublished.status_tt === 'published' || updatedPublished.status_tt === 'received';
-            if (gvPub || ttPub) updatedPublished.status = 'published';
-
-            batch.set(docRef, {
-                published: updatedPublished
-            }, { merge: true });
-        });
-
-        await batch.commit();
-
-        // Invalidate cache
-        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            // DBService re-reads each document in a transaction, so a stale bulk
+            // modal cannot lower a concurrently confirmed component.
+            return DBService.publishPayslipComponents(staffId, monthStr, {
+                gv: targets.teachers,
+                tt: targets.receps
+            }, commonMessage);
+        }));
+        const publishResults = settledResults
+            .filter(item => item.status === 'fulfilled')
+            .map(item => item.value);
+        const failedResults = settledResults.filter(item => item.status === 'rejected');
+        if (failedResults.length) {
+            console.error('Bulk publish partial failures:', failedResults.map(item => item.reason));
+        }
+        if (publishResults.length === 0 && failedResults.length > 0) {
+            throw failedResults[0].reason;
+        }
 
         const scopeDone = sc === 'teachers' ? 'bên Giáo Viên' : (sc === 'receps' ? 'bên Tiếp Tân' : 'cả hai bên');
-        UIService.toast(`Đã gửi ${checkedBoxes.length} bảng lương ${scopeDone}!`, 'success');
+        const sentCount = publishResults.reduce((sum, item) => sum + item.publishedComponents.length, 0);
+        const lockedCount = publishResults.reduce((sum, item) => sum + item.lockedComponents.length, 0);
+        const skippedCount = publishResults.reduce((sum, item) => sum + item.skippedComponents.length, 0);
+        if (lockedCount || skippedCount || failedResults.length) {
+            UIService.toast(
+                `Đã gửi ${sentCount} phần lương ${scopeDone}; giữ nguyên ${lockedCount} phần đã nhận, bỏ qua ${skippedCount} phần chưa có dữ liệu và ${failedResults.length} hồ sơ lỗi.`,
+                'warning'
+            );
+        } else {
+            UIService.toast(`Đã gửi ${sentCount} bảng lương ${scopeDone}!`, 'success');
+        }
 
         // KHÔNG đóng modal: sếp thường tính dở bên này rồi gửi tiếp bên kia.
         // Vẽ lại danh sách để người vừa gửi rơi xuống khu "Đã xử lý".

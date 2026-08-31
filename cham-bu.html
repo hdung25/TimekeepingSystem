@@ -7,13 +7,13 @@
     <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
-    <script src='js/firebase-config.js'></script>
-    <script src='js/auth-guard.js?v=20260822-office-role-v1'></script>
-    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
-    <script src='js/evaluation-service.js?v=20260822-office-role-v1'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
+    <script src='js/firebase-config.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/auth-guard.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/db-service.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/evaluation-service.js?v=20260831-scheduler-hd-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -339,11 +339,21 @@ async function loadMonth(){
                 // khai "Ca Ngoài Lịch" → quản lý thấy "Ngoài lịch / thiếu môn lớp". Dùng helper
                 // chung isAssignedToClass/isScheduledMainTeacher/... trong db-service.js.
                 if(!isAssignedToClass(row,me))return;
-                // Lớp đã có GV thay thế mà mình là GV chính → Vắng đột xuất, không chấm bù được
-                const hasSub=hasScheduledSubstitute(row);
                 const iAmMain=isScheduledMainTeacher(row,me);
-                let excuse=dayExcuse;
-                if(!excuse&&hasSub&&iAmMain&&!isScheduledSubstitute(row,me))excuse='Vắng đột xuất (đã có GV thay)';
+                const explicitAbsence=typeof getTeacherAbsenceRecord==='function'?getTeacherAbsenceRecord(row,me):null;
+                // teacherAbsences (kể cả []) là nguồn thật theo TỪNG GV/TỪNG CA.
+                // daily_notes và suy đoán "có GV thay" chỉ áp dụng cho dữ liệu legacy chưa có mảng này.
+                let excuse='';
+                if(Array.isArray(row.teacherAbsences)){
+                    if(explicitAbsence){
+                        const type=String(explicitAbsence.type||'VDX').toUpperCase()==='VP'?'Vắng có phép':'Vắng đột xuất';
+                        const covered=Array.isArray(explicitAbsence.replacementIds)&&explicitAbsence.replacementIds.length>0;
+                        excuse=type+(covered?' (đã có GV thay)':' (đang tìm GV thay)');
+                    }
+                }else{
+                    excuse=dayExcuse;
+                    if(!excuse&&hasScheduledSubstitute(row)&&iAmMain&&!isScheduledSubstitute(row,me))excuse='Vắng đột xuất (dữ liệu cũ có GV thay)';
+                }
                 if(!excuse&&cancelledSet.has(r.b+'__'+k+'_'+sec+'_'+idx))excuse='Vắng phép (đã báo trước)';
                 shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,
                              label:row.lop||'CHƯA CHỌN LỚP',noSubject:!String(row.lop||'').trim(),excuse:excuse});

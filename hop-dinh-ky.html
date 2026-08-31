@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260731-mobile-card-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260831-scheduler-hd-v2">
     
     <style>
         .meetings-table {
@@ -264,13 +264,14 @@
         }
     </style>
     <!-- Firebase SDK (Compat) -->
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js'></script>
-    <script src='https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js'></script>
-    <script src='js/db-service.js?v=20260822-office-role-v1'></script>
+    <script src='js/firebase-config.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/auth-guard.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/db-service.js?v=20260831-scheduler-hd-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -685,8 +686,8 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js?v=20260803-early10-v1"></script>
-    <script src="js/main.js?v=20260822-office-role-v1"></script>
-    <script src="js/auth-helper.js"></script>
+    <script src="js/main.js?v=20260831-scheduler-hd-v2"></script>
+    <script src="js/auth-helper.js?v=20260831-scheduler-hd-v2"></script>
     
     <script>
         // Check Auth permissions (must be admin or senior_assistant)

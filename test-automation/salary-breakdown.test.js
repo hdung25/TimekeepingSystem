@@ -19,7 +19,12 @@ const context = { window: {} };
 vm.createContext(context);
 vm.runInContext(reportSource.slice(start, end + endMarker.length), context);
 
-const { getTeachingPayAllocations, isStudentCountPenaltyActive } = context;
+const {
+    getTeachingPayAllocations,
+    isStudentCountPenaltyActive,
+    normalizeStudentCountApprovalStatus,
+    getStudentCountBadgePresentation
+} = context;
 
 function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 100000) {
     const penaltyActive = isStudentCountPenaltyActive(monthlySettings, chips);
@@ -40,7 +45,8 @@ function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 1000
 }
 
 {
-    // Ca tháng 7 thật từ báo cáo lỗi: 598 phút lớp 10 HS + 89 phút lớp thường.
+    // Ca tháng 7 thật từ báo cáo lỗi: khai 598 phút lớp 10 HS nhưng chỉ 66 phút
+    // đã duyệt; 532 phút còn chờ phải giữ đơn giá gốc, cộng 89 phút lớp thường.
     // Tổng phải đúng 687 phút (11h27), KHÔNG phải 1285 phút (21h25).
     const chips = [66, 90, 90, 90, 39, 63, 74, 86].map((paidMinutes, index) => ({
         paidMinutes,
@@ -50,12 +56,12 @@ function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 1000
     chips.push({ paidMinutes: 89 });
 
     const groups = aggregate(chips, {}, { 'Tin Học (+10 HS)': 150000 });
-    assert.equal(groups['Tin Học'].minutes, 89);
-    assert.equal(groups['Tin Học (+10 HS)'].minutes, 598);
+    assert.equal(groups['Tin Học'].minutes, 621);
+    assert.equal(groups['Tin Học (+10 HS)'].minutes, 66);
     assert.equal(Object.values(groups).reduce((sum, group) => sum + group.minutes, 0), 687);
     assert.equal(
         Math.round(Object.values(groups).reduce((sum, group) => sum + group.amount, 0)),
-        Math.round((89 / 60) * 100000 + (598 / 60) * 150000)
+        Math.round((621 / 60) * 100000 + (66 / 60) * 150000)
     );
 }
 
@@ -137,7 +143,30 @@ function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 1000
         false
     ));
     assert.equal(allocations.reduce((sum, allocation) => sum + allocation.minutes, 0), 63);
-    assert.ok(allocations.every(allocation => allocation.name === 'Tin Học (+12 HS)'));
+    assert.ok(allocations.every(allocation => allocation.name === 'Tin Học'));
+}
+
+{
+    // Legacy/thiếu trạng thái phải được xem là chờ duyệt, không được tự nâng
+    // thành approved để hiển thị hoặc trả phụ cấp.
+    assert.equal(normalizeStudentCountApprovalStatus(undefined), 'pending');
+    const [allocation] = getTeachingPayAllocations(
+        { studentCount: 15 },
+        'Toán',
+        60,
+        100000,
+        { 'Toán (+15 HS)': 180000 },
+        false
+    );
+    assert.equal(allocation.name, 'Toán');
+    assert.equal(allocation.rate, 100000);
+
+    const pendingBadge = getStudentCountBadgePresentation(undefined, false);
+    assert.equal(pendingBadge.status, 'pending');
+    assert.equal(pendingBadge.label, 'Chờ duyệt');
+    assert.equal(pendingBadge.className, 'pending');
+    assert.equal(getStudentCountBadgePresentation('approved', false).label, 'Đã duyệt');
+    assert.equal(getStudentCountBadgePresentation('rejected', true).className, 'rejected');
 }
 
 {

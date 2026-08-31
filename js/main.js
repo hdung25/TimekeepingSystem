@@ -84,6 +84,60 @@ function hasAnyRole(roleStr, targetRoles) {
     return parseRoles(roleStr).some(r => targetRoles.includes(r));
 }
 
+const AUTH_SESSION_STORAGE_KEYS = Object.freeze([
+    'currentUser',
+    'currentRole',
+    'currentUserId',
+    'currentAuthUid',
+    'userFullName',
+    'currentUserName'
+]);
+
+function clearAuthSessionStorage() {
+    AUTH_SESSION_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
+}
+window.clearAuthSessionStorage = clearAuthSessionStorage;
+
+function persistAuthenticatedSession(user, authUid) {
+    const username = String(user?.username || '').trim();
+    const userId = String(user?.id || '').trim();
+    const resolvedAuthUid = String(authUid || user?.authUid || '').trim();
+    if (!username || !userId || !resolvedAuthUid) {
+        throw new Error('Không thể lưu phiên đăng nhập vì thiếu định danh tài khoản.');
+    }
+
+    const roles = Array.isArray(user?.roles) && user.roles.length
+        ? user.roles.map(role => String(role || '').trim()).filter(Boolean)
+        : [String(user?.role || 'staff').trim() || 'staff'];
+    const uniqueRoles = [...new Set(roles)];
+    const displayName = String(user?.name || user?.username || '').trim();
+
+    localStorage.setItem('currentUser', username);
+    localStorage.setItem('currentRole', uniqueRoles.length === 1
+        ? uniqueRoles[0]
+        : JSON.stringify(uniqueRoles));
+    localStorage.setItem('currentUserId', userId);
+    localStorage.setItem('currentAuthUid', resolvedAuthUid);
+    localStorage.setItem('userFullName', displayName);
+    // Older reporting/audit code reads this alias.
+    localStorage.setItem('currentUserName', displayName);
+}
+
+async function signOutAndClearSession() {
+    try {
+        const primaryAuth = window.auth
+            || (typeof firebase !== 'undefined' && firebase.auth ? firebase.auth() : null);
+        if (primaryAuth) await primaryAuth.signOut();
+    } catch (error) {
+        console.warn('Không thể xác nhận đăng xuất Firebase:', error);
+    } finally {
+        clearAuthSessionStorage();
+    }
+}
+
+let loginInFlight = false;
+let logoutInFlight = false;
+
 // SELF-XSS WARNING
 console.log("%cDừng lại!", "color: red; font-size: 50px; font-weight: bold; text-shadow: 1px 1px 5px black;");
 console.log("%cĐây là tính năng của trình duyệt dành cho các nhà phát triển. Nếu ai đó bảo bạn sao chép-dán nội dung nào đó vào đây để bật một tính năng hoặc 'hack' tài khoản của người khác, thì đó là hành vi lừa đảo và sẽ khiến họ có thể truy cập vào tài khoản của bạn.", "font-size: 18px; color: #333;");
@@ -382,43 +436,47 @@ document.addEventListener('DOMContentLoaded', async () => {
         loginForm.addEventListener('submit', handleLogin);
     } else {
         // Wait for Firebase Auth to restore session (critical for Firestore permissions)
+        let firebaseUser = null;
         if (window.waitAuth) {
-            await window.waitAuth();
+            firebaseUser = await window.waitAuth();
+        } else if (window.auth) {
+            firebaseUser = window.auth.currentUser;
         }
 
-        const currentUser = localStorage.getItem('currentUser');
+        let currentUser = localStorage.getItem('currentUser');
         const currentUserId = localStorage.getItem('currentUserId');
-        const firebaseUser = firebase.auth().currentUser;
 
-        // AUTH GUARD: Require login for ALL internal pages
+        // AUTH GUARD: a browser role/user id is only a cache. Resolve the
+        // profile again through the authenticated UID before rendering.
         if (!currentUser || !currentUserId || !firebaseUser) {
             console.warn("Auth session missing or mismatched. Redirecting to login.");
-            localStorage.removeItem('currentUser');
-            localStorage.removeItem('currentUserId');
-            localStorage.removeItem('currentRole');
-            window.location.href = 'index.html';
+            await signOutAndClearSession();
+            window.location.replace('index.html');
             return;
         }
 
-        // Backup security role sync: ensures user_roles collection has a valid document mapping Auth UID to their role
         try {
-            const roleRef = window.db.collection('user_roles').doc(firebaseUser.uid);
-            const docSnap = await roleRef.get();
-            const roleRaw = localStorage.getItem('currentRole') || 'staff';
-            const rolesArr = parseRoles(roleRaw);
-            
-            if (!docSnap.exists || !docSnap.data().username || !docSnap.data().userId) {
-                await roleRef.set({
-                    userId: currentUserId,
-                    role: rolesArr[0] || 'staff',
-                    roles: rolesArr,
-                    username: currentUser,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                console.log("[Security] Backup auto-synced user role and userId to user_roles collection.");
+            if (typeof DBService === 'undefined'
+                || typeof DBService.getAuthenticatedProfile !== 'function') {
+                throw new Error('Dịch vụ xác thực hồ sơ chưa sẵn sàng.');
             }
-        } catch (e) {
-            console.warn("[Security] Backup role sync failed (non-critical, user may already have it):", e);
+
+            const verifiedProfile = await DBService.getAuthenticatedProfile(firebaseUser, {
+                userId: currentUserId,
+                username: currentUser
+            });
+            const storedAuthUid = localStorage.getItem('currentAuthUid');
+            if (storedAuthUid && storedAuthUid !== firebaseUser.uid) {
+                throw new Error('UID Firebase không khớp phiên đã lưu.');
+            }
+
+            persistAuthenticatedSession(verifiedProfile, firebaseUser.uid);
+            currentUser = verifiedProfile.username;
+        } catch (error) {
+            console.error('Auth profile verification failed:', error);
+            await signOutAndClearSession();
+            window.location.replace('index.html');
+            return;
         }
 
         console.log('Timekeeping System Loaded');
@@ -500,15 +558,38 @@ async function globalCheckAutoCheckout() {
     if (typeof DBService === 'undefined') return;
 
     const now = new Date();
-    const dateKey = getLocalDateKeyFromDate(now);
+    const todayDateKey = getLocalDateKeyFromDate(now);
+    const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
 
     try {
-        // 1. Check if user has an open session today
-        const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);
-        if (!attendance) return;
-        const sessions = attendance.sessions || [];
-        const openSession = sessions.find(s => !s.checkOut);
-        if (!openSession) return; // No open session → nothing to auto-close
+        // 1. A session opened before midnight remains anchored in yesterday's
+        // attendance document. Search both documents and pick the newest open one.
+        const attendanceEntries = await Promise.all([
+            DBService.getPersonalAttendance(todayDateKey, currentUserId),
+            DBService.getPersonalAttendance(previousDateKey, currentUserId)
+        ]);
+        const openCandidates = [];
+        attendanceEntries.forEach((attendance, index) => {
+            if (!attendance) return;
+            const sessions = Array.isArray(attendance.sessions)
+                ? attendance.sessions
+                : (attendance.checkIn ? [{ checkIn: attendance.checkIn, start: attendance.checkIn, checkOut: attendance.checkOut || null }] : []);
+            sessions.forEach(session => {
+                if (session?.checkOut || session?.isAbsent || !(session?.checkIn || session?.start)) return;
+                const startedAt = new Date(session.checkIn || session.start).getTime();
+                if (!Number.isFinite(startedAt)) return;
+                openCandidates.push({
+                    session,
+                    startedAt,
+                    dateKey: index === 0 ? todayDateKey : previousDateKey
+                });
+            });
+        });
+        openCandidates.sort((left, right) => right.startedAt - left.startedAt);
+        const selectedOpen = openCandidates[0];
+        if (!selectedOpen) return; // No open session → nothing to auto-close
+        const openSession = selectedOpen.session;
+        const dateKey = selectedOpen.dateKey;
 
         // 2. Determine when the user's current shift/class ends
         const checkInTime = new Date(openSession.checkIn || openSession.start);
@@ -518,9 +599,15 @@ async function globalCheckAutoCheckout() {
         // 07:00–11:00 vừa có lớp 07:30–09:00 bị tự động RA CA lúc 09:00 (hết lớp) dù vẫn
         // đang trong ca trực → phải bấm vào ca lần 2. Nay gom CẢ HAI nguồn lịch (ca trực +
         // lớp dạy) rồi nối thành MỘT MẠCH LÀM VIỆC LIỀN từ lúc vào ca.
+        const monthStr = dateKey.slice(0, 7);
+        const [cancelledShifts, settings] = await Promise.all([
+            DBService.getCancelledShifts(monthStr, currentUserId),
+            DBService.getSystemSettings()
+        ]);
+        const closures = settings?.centerClosures || {};
         const [recepBlocks, classBlocks] = await Promise.all([
-            findReceptionistShiftBlocks(currentUserId, dateKey),
-            findTeachingBlocks(currentUserId, dateKey)
+            findReceptionistShiftBlocks(currentUserId, dateKey, cancelledShifts, closures),
+            findTeachingBlocks(currentUserId, dateKey, cancelledShifts, closures)
         ]);
 
         const finalEnd = resolveWorkChainEnd([...recepBlocks, ...classBlocks], checkInTime);
@@ -554,10 +641,14 @@ function resolveWorkChainEnd(blocks, checkInTime) {
     const list = (blocks || []).filter(b => b && b.start && b.end && b.end > b.start);
     if (list.length === 0) return null;
 
-    // Khúc "khớp" giờ vào ca: vào quanh giờ bắt đầu (±60p) hoặc vào giữa khúc.
+    const checkInMs = checkInTime instanceof Date ? checkInTime.getTime() : NaN;
+    if (!Number.isFinite(checkInMs)) return null;
+
+    // Khúc "khớp" giờ vào ca: có thể vào sớm tối đa 60 phút hoặc vào giữa
+    // khúc, nhưng tuyệt đối không ghép một khúc đã kết thúc trước lúc check-in.
     const matched = list.filter(b =>
-        Math.abs(checkInTime - b.start) < 60 * 60 * 1000 ||
-        (checkInTime >= b.start && checkInTime < b.end)
+        checkInMs >= b.start.getTime() - 60 * 60 * 1000 &&
+        checkInMs < b.end.getTime()
     );
     if (matched.length === 0) return null;
 
@@ -572,11 +663,20 @@ function resolveWorkChainEnd(blocks, checkInTime) {
             extended = true;
         });
     }
-    return end;
+    return end.getTime() > checkInMs ? end : null;
 }
 
 // Trả về các khúc ca vận hành (Tiếp tân + Văn phòng) trong ngày.
-async function findReceptionistShiftBlocks(userId, dateKey) {
+function isAutoCheckoutShiftClosed(dateKey, shiftKey, closures) {
+    const dayClosures = Array.isArray(closures?.[dateKey]) ? closures[dateKey] : [];
+    if (dayClosures.includes('all') || dayClosures.includes(shiftKey)) return true;
+    if (shiftKey.startsWith('morning') && dayClosures.includes('morning')) return true;
+    if (shiftKey.startsWith('afternoon') && dayClosures.includes('afternoon')) return true;
+    if (shiftKey.startsWith('evening') && dayClosures.includes('evening')) return true;
+    return false;
+}
+
+async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = [], closures = {}) {
     try {
         const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
         const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -619,17 +719,24 @@ async function findReceptionistShiftBlocks(userId, dateKey) {
                 const weekData = source.weekData;
                 if (!weekData) continue;
                 for (const shiftKey of SHIFT_KEYS) {
+                    if (isAutoCheckoutShiftClosed(dateKey, shiftKey, closures)) continue;
                     const shiftData = weekData[shiftKey];
                     if (!shiftData || !shiftData[dayKey]) continue;
 
                     const staffEntry = shiftData[dayKey].find(s => String(s.id) === String(userId));
                     if (!staffEntry) continue;
+                    const normalizedComposite = String(compositeKey).replace('__', '_');
+                    const cancelKey = `${source.kind === 'van-phong' ? 'office_' : ''}${normalizedComposite}_${shiftKey}_${dayKey}`;
+                    if (cancelledShifts.includes(cancelKey)) continue;
 
                     const weekShiftCfg = weekData._shiftConfig?.[shiftKey];
                     const startStr = staffEntry.customStart || weekShiftCfg?.start || source.config?.[shiftKey]?.start || '07:00';
                     const endStr = staffEntry.customEnd || weekShiftCfg?.end || source.config?.[shiftKey]?.end || '11:30';
                     const shiftStart = getVietnamDateFromHM(dateKey, startStr);
-                    const shiftEnd = getVietnamDateFromHM(dateKey, endStr);
+                    let shiftEnd = getVietnamDateFromHM(dateKey, endStr);
+                    if (shiftStart && shiftEnd && shiftEnd <= shiftStart) {
+                        shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000);
+                    }
 
                     allShifts.push({ shiftStart, shiftEnd, startStr, endStr, kind: source.kind });
                 }
@@ -647,7 +754,7 @@ async function findReceptionistShiftBlocks(userId, dateKey) {
 }
 
 // Trả về danh sách khúc LỚP DẠY nhân viên được xếp trong ngày ([] nếu không có).
-async function findTeachingBlocks(userId, dateKey) {
+async function findTeachingBlocks(userId, dateKey, cancelledShifts = [], closures = {}) {
     try {
         const BRANCHES = ['cs1', 'cs2', 'cs3'];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
@@ -661,9 +768,17 @@ async function findTeachingBlocks(userId, dateKey) {
             if (!schedule) continue;
             sections.forEach(sec => {
                 if (!schedule[sec]) return;
-                schedule[sec].forEach(cls => {
-                    const isAssigned = isAssignedToClass(cls, userId);
+                schedule[sec].forEach((cls, classIndex) => {
+                    if (!cls || cls.isClosed === true || isAutoCheckoutShiftClosed(dateKey, sec, closures)) return;
+                    const isSubstitute = isScheduledSubstitute(cls, userId);
+                    const isMain = isScheduledMainTeacher(cls, userId);
+                    const isReportedAbsent = isMain && isMainTeacherAbsentFromClass(cls, userId);
+                    const isSelfRegistered = (cls.registeredTeachers || []).some(item => item.id === userId);
+                    const isAssigned = isSubstitute || (!isReportedAbsent && (isMain || isSelfRegistered));
                     if (!isAssigned) return;
+                    const legacyCancelKey = `${compositeKey}_${sec}_${classIndex}`;
+                    const stableCancelKey = cls.shiftId ? `shift:${cls.shiftId}` : '';
+                    if (cancelledShifts.includes(legacyCancelKey) || (stableCancelKey && cancelledShifts.includes(stableCancelKey))) return;
                     allClasses.push({ start: cls.start, end: cls.end, branch });
                 });
             });
@@ -671,11 +786,14 @@ async function findTeachingBlocks(userId, dateKey) {
 
         // Nối chuỗi lớp liền nhau do resolveWorkChainEnd lo — ở đây chỉ trả dữ liệu thô.
         return allClasses
-            .map(cls => ({
-                start: getVietnamDateFromHM(dateKey, cls.start),
-                end: getVietnamDateFromHM(dateKey, cls.end),
-                kind: 'day'
-            }))
+            .map(cls => {
+                const start = getVietnamDateFromHM(dateKey, cls.start);
+                let end = getVietnamDateFromHM(dateKey, cls.end);
+                if (start && end && end <= start) {
+                    end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+                }
+                return { start, end, kind: 'day' };
+            })
             .filter(b => b.start && b.end);
     } catch (e) {
         console.warn("[GlobalAutoCheckout] Teacher error:", e);
@@ -883,41 +1001,37 @@ async function loadStaffPersonalCharts() {
 
 async function handleLogin(e) {
     e.preventDefault();
+    if (loginInFlight) return;
+
     const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value.trim();
-    const btn = e.target.querySelector('button');
+    // Do not trim passwords: whitespace can be part of a valid credential.
+    const password = document.getElementById('password').value;
+    const btn = e.submitter || e.currentTarget.querySelector('button[type="submit"]');
     console.log("Login button clicked");
 
-    // Quick Debug: Check DB
-    if (typeof db === 'undefined') {
-        alert("Lỗi: Kết nối Database thất bại (db undefined). Kiểm tra internet!");
-        return;
-    }
-
     // UI Loading State
-    const originalText = btn.innerText;
-    btn.innerText = 'Đang kiểm tra...';
-    btn.disabled = true;
+    const originalText = btn?.innerText || 'Đăng Nhập';
+    loginInFlight = true;
+    if (btn) {
+        btn.innerText = 'Đang kiểm tra...';
+        btn.disabled = true;
+    }
 
     // Hide previous error
     const errorDiv = document.getElementById('login-error');
     if (errorDiv) errorDiv.style.display = 'none';
 
     try {
+        if (!window.db || !window.auth || typeof DBService === 'undefined') {
+            throw new Error('Kết nối hệ thống chưa sẵn sàng. Vui lòng kiểm tra mạng và thử lại!');
+        }
+
         // Call Secure Cloud Login
         // DBService.loginUser now throws Error if fail
         const user = await DBService.loginUser(username, password);
 
         if (user) {
-            // Save Session
-            localStorage.setItem('currentUser', user.username);
-            // Lưu roles: nếu user.roles là array thì stringify, nếu không thì dùng user.role
-            const rolesValue = Array.isArray(user.roles) && user.roles.length > 0
-                ? JSON.stringify(user.roles)
-                : (user.role || 'staff');
-            localStorage.setItem('currentRole', rolesValue);
-            localStorage.setItem('currentUserId', user.id);
-            localStorage.setItem('userFullName', user.name);
+            persistAuthenticatedSession(user, window.auth.currentUser?.uid || user.authUid);
 
             // Redirect
             const loginRoles = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : [user.role];
@@ -929,15 +1043,38 @@ async function handleLogin(e) {
         }
     } catch (error) {
         console.error(error);
+        // DBService already performs this cleanup after authentication errors;
+        // repeat defensively for failures that happen before DBService is called.
+        await signOutAndClearSession();
         // Show red error message inline
         if (errorDiv) {
             errorDiv.innerText = error.message;
             errorDiv.style.display = 'block';
         }
-        btn.innerText = originalText;
-        btn.disabled = false;
+    } finally {
+        loginInFlight = false;
+        if (btn) {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
     }
 }
+
+async function handleLogout(event, trigger) {
+    if (event) event.preventDefault();
+    if (logoutInFlight) return false;
+
+    logoutInFlight = true;
+    if (trigger) {
+        trigger.setAttribute('aria-disabled', 'true');
+        trigger.style.pointerEvents = 'none';
+    }
+
+    await signOutAndClearSession();
+    window.location.replace('index.html');
+    return false;
+}
+window.handleLogout = handleLogout;
 
 
 
@@ -1080,7 +1217,7 @@ function renderSidebar() {
     });
 
     sidebarNav.innerHTML += `
-        <a href="index.html" class="nav-link" style="margin-top: auto; color: #ef4444;" onclick="localStorage.removeItem('currentUser'); localStorage.removeItem('currentRole'); localStorage.removeItem('currentUserId');">
+        <a href="index.html" class="nav-link" style="margin-top: auto; color: #ef4444;" onclick="return handleLogout(event, this);">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
                 <polyline points="16 17 21 12 16 7"></polyline>
@@ -1903,7 +2040,8 @@ window.handleChangePassword = async function(event) {
     const originalText = btnSubmit.innerText;
     btnSubmit.innerText = 'Đang xử lý...';
     btnSubmit.disabled = true;
-    
+
+    let authPasswordChanged = false;
     try {
         const user = firebase.auth().currentUser;
         if (!user) {
@@ -1917,15 +2055,15 @@ window.handleChangePassword = async function(event) {
         
         // Update Auth Password
         await user.updatePassword(newPassword);
+        authPasswordChanged = true;
         
-        // Update Firestore password
+        // Keep the compatibility credential in the restricted collection. Passwords
+        // must never be written back into the broadly used staff profile document.
         const currentUserId = localStorage.getItem('currentUserId');
-        if (currentUserId && typeof db !== 'undefined') {
-            await db.collection('users').doc(currentUserId).update({
-                password: newPassword,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+        if (!currentUserId || typeof DBService === 'undefined') {
+            throw new Error('Không xác định được hồ sơ nhân sự để đồng bộ mật khẩu.');
         }
+        await DBService.updateOwnCredentialPassword(currentUserId, newPassword);
         
         if (typeof UIService !== 'undefined' && UIService.toast) {
             UIService.toast("Đổi mật khẩu thành công!", "success");
@@ -1936,6 +2074,17 @@ window.handleChangePassword = async function(event) {
     } catch (error) {
         console.error("Change Password Error:", error);
         let errorMsg = error.message;
+        if (authPasswordChanged) {
+            try {
+                const user = firebase.auth().currentUser;
+                if (!user) throw new Error('Phiên đăng nhập đã mất.');
+                await user.updatePassword(currentPassword);
+                errorMsg += ' Thay đổi đã được hoàn tác, mật khẩu cũ vẫn còn hiệu lực.';
+            } catch (rollbackError) {
+                console.error('Password rollback failed:', rollbackError);
+                errorMsg += ' Mật khẩu đăng nhập đã đổi nhưng hồ sơ xác thực chưa đồng bộ; hãy báo Admin ngay.';
+            }
+        }
         if (error.code === 'auth/wrong-password') {
             errorMsg = "Mật khẩu hiện tại không chính xác!";
         } else if (error.code === 'auth/weak-password') {
@@ -2209,6 +2358,8 @@ window.checkUpcomingMeetingsAndShifts = async function() {
 // ==========================================
 
 let currentPersonalSalaryDate = new Date();
+let personalSalaryLoadGeneration = 0;
+let renderedPersonalSalaryMonth = '';
 
 function formatNumberWithCommas(value) {
     if (value === undefined || value === null || value === '') return '';
@@ -2629,11 +2780,19 @@ async function loadStaffPersonalSalary() {
 
     if (!statusContainer || !contentContainer || !monthTitle) return;
 
-    // Format month title
-    const year = currentPersonalSalaryDate.getFullYear();
-    const month = currentPersonalSalaryDate.getMonth();
+    const loadGeneration = ++personalSalaryLoadGeneration;
+    const requestedDate = new Date(currentPersonalSalaryDate);
+    // Format month title from an immutable request snapshot.
+    const year = requestedDate.getFullYear();
+    const month = requestedDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    renderedPersonalSalaryMonth = '';
     monthTitle.innerText = `Tháng ${month + 1}, ${year}`;
+    const previousConfirmButton = document.getElementById('btn-confirm-receipt');
+    if (previousConfirmButton) {
+        previousConfirmButton.disabled = true;
+        previousConfirmButton.dataset.salaryMonth = '';
+    }
 
     // Show loading
     statusContainer.style.display = 'block';
@@ -2646,6 +2805,8 @@ async function loadStaffPersonalSalary() {
 
     try {
         const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
+        if (loadGeneration !== personalSalaryLoadGeneration) return;
+        renderedPersonalSalaryMonth = monthStr;
         const published = monthlySettings?.published;
 
         if (!published || published.status === 'uncalculated' || published.status === 'draft') {
@@ -2666,6 +2827,10 @@ async function loadStaffPersonalSalary() {
         const detailedView = document.getElementById('ps-detailed-view');
         const breakdownContainer = document.getElementById('ps-breakdown-container');
         const confirmBtn = document.getElementById('btn-confirm-receipt');
+        if (confirmBtn) {
+            confirmBtn.dataset.salaryMonth = monthStr;
+            confirmBtn.disabled = false;
+        }
 
         const hasDetailed = !!(published.details_gv || published.details_tt || published.details);
         let html = '';
@@ -2772,10 +2937,11 @@ async function loadStaffPersonalSalary() {
         }
 
     } catch (e) {
+        if (loadGeneration !== personalSalaryLoadGeneration) return;
         console.error("Error loading personal salary:", e);
-        statusContainer.innerHTML = `
-            <p style="margin: 0; color: #EF4444; font-weight: 500;">Lỗi khi tải bảng lương: ${e.message}</p>
-        `;
+        statusContainer.innerHTML = '<p style="margin:0;color:#EF4444;font-weight:500;"></p>';
+        const errorText = statusContainer.querySelector('p');
+        if (errorText) errorText.textContent = `Lỗi khi tải bảng lương: ${e.message || e}`;
     }
 }
 
@@ -2785,15 +2951,16 @@ function changePersonalSalaryMonth(dir) {
 }
 
 async function confirmPersonalSalaryReceipt() {
-    if (!confirm("Bạn có chắc chắn xác nhận đã nhận đủ số tiền mặt này từ trung tâm?")) return;
-
     const staffId = localStorage.getItem('currentUserId');
-    const year = currentPersonalSalaryDate.getFullYear();
-    const month = currentPersonalSalaryDate.getMonth();
-    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const btn = document.getElementById('btn-confirm-receipt');
+    const monthStr = btn?.dataset.salaryMonth || renderedPersonalSalaryMonth;
+    if (!staffId || !/^\d{4}-\d{2}$/.test(monthStr)) {
+        alert('Bảng lương đang tải hoặc đã đổi tháng. Vui lòng chờ dữ liệu hiển thị đầy đủ.');
+        return;
+    }
+    if (!confirm(`Bạn có chắc chắn xác nhận đã nhận đủ số tiền mặt của tháng ${monthStr.slice(5)}/${monthStr.slice(0, 4)}?`)) return;
 
     try {
-        const btn = document.getElementById('btn-confirm-receipt');
         if (btn) btn.disabled = true;
         
         await DBService.confirmSalaryReceived(staffId, monthStr, 'employee');
@@ -2802,8 +2969,8 @@ async function confirmPersonalSalaryReceipt() {
     } catch (e) {
         console.error("Error confirming salary receipt:", e);
         alert("Có lỗi xảy ra: " + e.message);
-        const btn = document.getElementById('btn-confirm-receipt');
-        if (btn) btn.disabled = false;
+        const currentButton = document.getElementById('btn-confirm-receipt');
+        if (currentButton?.dataset.salaryMonth === monthStr) currentButton.disabled = false;
     }
 }
 

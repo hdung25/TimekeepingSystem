@@ -1,9 +1,6 @@
 // GHI CHÚ NGÀY KHÔNG ĐƯỢC LỘN SANG NGƯỜI KHÁC.
-// saveDailyNotes GHI ĐÈ cả tài liệu ghi chú của một nhân viên. Trang Bảng Công giữ ghi
-// chú trong một biến dùng chung (_cachedStaffNotes) cho mọi nhân viên; admin đổi người
-// trên ô chọn thì trang KHÔNG tải lại, nên biến đó có thể còn đang giữ ghi chú người
-// trước. Đẩy thẳng biến đó xuống Firestore = chép toàn bộ ghi chú người A sang người B
-// và xoá sạch ghi chú thật của B.
+// Mỗi lần lưu chỉ được cập nhật đúng một ngày. Không dùng read-modify-write cả tài liệu,
+// vì hai tab hoặc một lần đọc lỗi có thể làm mất các ngày ghi chú còn lại.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -17,6 +14,19 @@ assert.notEqual(fnStart, -1, 'không tìm thấy saveCalendarNote trong js/repor
 const fnEnd = source.indexOf('\n}\n', fnStart);
 assert.notEqual(fnEnd, -1, 'không đọc được hết thân hàm saveCalendarNote');
 const fnSrc = source.slice(fnStart, fnEnd + 3);
+assert.doesNotMatch(fnSrc, /getDailyNotes|saveDailyNotes/);
+assert.match(fnSrc, /updateDailyNote\(staffId, noteDateKey, note\)/);
+
+const dbSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'db-service.js'), 'utf8')
+    .replace(/\r\n/g, '\n');
+const updateStart = dbSource.indexOf('async updateDailyNote(');
+const updateEnd = dbSource.indexOf('// ================= SALARY SETTINGS', updateStart);
+const updateSource = dbSource.slice(updateStart, updateEnd);
+assert.match(updateSource, /db\.runTransaction/);
+assert.match(updateSource, /\{ \[dateKey\]: normalizedNote \}/,
+    'the transaction must merge only the selected date field');
+assert.match(updateSource, /FieldValue\.delete\(\)/,
+    'clearing a note must delete only the selected date field');
 
 function makeContext(store, opts) {
     const options = opts || {};
@@ -42,14 +52,14 @@ function makeContext(store, opts) {
             }
         },
         DBService: {
-            getDailyNotes: async function (staffId) {
-                if (options.readFails) throw new Error('mất mạng');
-                return JSON.parse(JSON.stringify(store[staffId] || {}));
-            },
-            saveDailyNotes: async function (staffId, notesObj) {
-                writes.push({ staffId: staffId, notes: JSON.parse(JSON.stringify(notesObj)) });
-                store[staffId] = JSON.parse(JSON.stringify(notesObj));
-                return true;
+            updateDailyNote: async function (staffId, dateKey, note) {
+                if (options.writeFails) throw new Error('mất mạng');
+                const normalized = String(note || '').trim();
+                writes.push({ staffId, dateKey, note: normalized });
+                store[staffId] = store[staffId] || {};
+                if (normalized) store[staffId][dateKey] = normalized;
+                else delete store[staffId][dateKey];
+                return normalized;
             }
         }
     };
@@ -77,11 +87,15 @@ const DIEM = 'nv_diem', NGUYET = 'nv_nguyet';
         assert.equal(ctx.__writes.length, 1, 'phải ghi đúng một lần');
         const w = ctx.__writes[0];
         assert.equal(w.staffId, NGUYET, 'ghi vào đúng người đang chọn');
-        assert.deepEqual(w.notes, {
+        assert.deepEqual(w, {
+            staffId: NGUYET,
+            dateKey: '2026-08-04',
+            note: 'Không đi xuất'
+        }, 'chỉ ghi đúng trường ngày vừa nhập');
+        assert.deepEqual(store[NGUYET], {
             '2026-07-15': 'Nghỉ phép năm',
             '2026-08-04': 'Không đi xuất'
         }, 'giữ nguyên ghi chú cũ của Nguyệt và chỉ thêm ngày vừa nhập');
-        assert.ok(!('2026-07-27' in w.notes), 'KHÔNG được kéo ghi chú của Diễm sang Nguyệt');
         assert.deepEqual(store[DIEM], { '2026-07-27': 'Trưa xin về cho ck đi khám' },
             'ghi chú của Diễm không bị đụng tới');
         return runRest();
@@ -90,11 +104,11 @@ const DIEM = 'nv_diem', NGUYET = 'nv_nguyet';
 
 async function runRest() {
     {
-        // Đọc ghi chú hiện có bị lỗi → KHÔNG ghi gì cả (thà không lưu còn hơn xoá trắng).
+        // Ghi Firestore lỗi → không cập nhật cache và phải báo cho người dùng.
         const store = { [NGUYET]: { '2026-07-15': 'Nghỉ phép năm' } };
         const ctx = makeContext(store, {
             dateKey: '2026-08-04', typedNote: 'Không đi xuất',
-            cachedNotes: {}, cachedOwner: null, targetStaffId: NGUYET, readFails: true
+            cachedNotes: {}, cachedOwner: null, targetStaffId: NGUYET, writeFails: true
         });
         await ctx.__run();
         assert.equal(ctx.__writes.length, 0, 'lỗi mạng thì không được ghi đè');

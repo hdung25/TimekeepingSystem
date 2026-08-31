@@ -27,10 +27,19 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
       
+      - name: Build safe redirect artifact
+        shell: bash
+        run: |
+          mkdir -p _site
+          printf '%s\n' '<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=https://timekeeping-system-tawny.vercel.app/"><link rel="canonical" href="https://timekeeping-system-tawny.vercel.app/"><title>Hệ thống chấm công</title></head><body><p>Đang chuyển đến <a href="https://timekeeping-system-tawny.vercel.app/">hệ thống chấm công</a>…</p></body></html>' > _site/index.html
+          cp _site/index.html _site/404.html
+
+      # Never publish the repository root: it contains rules, migration scripts,
+      # tests and operational documentation that are not web assets.
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
           
       - name: Deploy to GitHub Pages
         id: deployment

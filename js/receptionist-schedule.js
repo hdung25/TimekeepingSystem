@@ -11,16 +11,16 @@ const WORK_SCHEDULE_CONTEXT = Object.freeze((() => {
         labelTitle: isOffice ? 'Văn Phòng' : 'Tiếp Tân',
         roleIds: isOffice
             ? ['office_staff']
-            : ['receptionist', 'receptionist_assistant', 'senior_assistant'],
+            : ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'senior_assistant'],
         settingsPrefix: isOffice ? 'officeShifts' : 'receptionistShifts'
     };
 })());
 const getWorkSchedule = key => WORK_SCHEDULE_CONTEXT.type === 'office'
     ? DBService.getOfficeSchedule(key)
     : DBService.getReceptionistSchedule(key);
-const saveWorkSchedule = (key, data) => WORK_SCHEDULE_CONTEXT.type === 'office'
-    ? DBService.saveOfficeSchedule(key, data)
-    : DBService.saveReceptionistSchedule(key, data);
+const saveWorkSchedule = (key, data, expectedRevision) => WORK_SCHEDULE_CONTEXT.type === 'office'
+    ? DBService.saveOfficeSchedule(key, data, expectedRevision)
+    : DBService.saveReceptionistSchedule(key, data, expectedRevision);
 const getCancelledShiftKey = (branch, monday, shift, day) => {
     const prefix = WORK_SCHEDULE_CONTEXT.type === 'office' ? 'office_' : '';
     return `${prefix}${branch}_${monday}_${shift}_${day}`;
@@ -30,6 +30,8 @@ const getCancelledShiftKey = (branch, monday, shift, day) => {
 let currentBranch = localStorage.getItem('currentBranch') || 'cs1';
 let currentWeekStart = getMonday(new Date());
 let weekData = {};
+let loadedWeekSnapshot = null;
+let loadedScheduleRevision = 0;
 let receptionistStaff = [];
 let allLoadedUsers = []; // Store all users to map shortName retroactively
 let shiftConfig = {
@@ -39,7 +41,15 @@ let shiftConfig = {
 };
 let editingCell = null;
 let isInheritedTemplate = false; // True when showing a template from a previous week
+let lastModalTrigger = null;
+let activeAbsentPopup = null;
+let absentPopupTrigger = null;
+let absentPopupOutsideHandler = null;
+let isSavingWeek = false;
+let scheduleLoadGeneration = 0;
 window.isFixedShiftMode = false;
+
+const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 window.toggleScheduleFixedShiftMode = function() {
     window.isFixedShiftMode = !window.isFixedShiftMode;
@@ -64,7 +74,7 @@ window.toggleScheduleFixedShiftMode = function() {
 
 window.toggleStaffFixedShift = function(event, shift, dayKey, staffId) {
     event.stopPropagation(); // Prevent cell modal from opening
-    if (!window.isFixedShiftMode) return;
+    if (!window.isFixedShiftMode || isPastScheduleDay(dayKey)) return;
     
     if (weekData[shift] && weekData[shift][dayKey]) {
         const staffList = weekData[shift][dayKey];
@@ -83,7 +93,7 @@ const isEditor = (() => {
     catch(e) { roles = [roleRaw]; }
     const editorRoles = WORK_SCHEDULE_CONTEXT.type === 'office'
         ? ['admin', 'assistant', 'senior_assistant']
-        : ['admin', 'assistant', 'receptionist_assistant', 'senior_assistant'];
+        : ['admin', 'assistant', 'receptionist_assistant', 'receptionist_lead', 'senior_assistant'];
     return roles.some(r => editorRoles.includes(r));
 })();
 
@@ -102,8 +112,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         saveArea.style.display = isEditor ? 'flex' : 'none';
     }
 
-    document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
-    document.getElementById(`tab-${currentBranch}`)?.classList.add('active');
+    const cellModal = document.getElementById('cell-modal');
+    if (cellModal) {
+        cellModal.addEventListener('mousedown', event => {
+            if (event.target === cellModal) closeCellModal();
+        });
+    }
+    document.addEventListener('keydown', handleScheduleKeydown);
+    window.addEventListener('resize', () => closeAbsentPopup(false));
+
+    updateBranchTabs();
 
     // Chỉ tải nhân sự thuộc đúng loại lịch; không trộn hai roster.
     try {
@@ -145,20 +163,86 @@ function getWeekCompositeKey() {
 }
 
 function getContrastColor(hex) {
-    if (!hex || hex.length < 7) return '#000';
+    hex = sanitizeScheduleColor(hex);
     const r = parseInt(hex.substr(1, 2), 16);
     const g = parseInt(hex.substr(3, 2), 16);
     const b = parseInt(hex.substr(5, 2), 16);
     return (r * 0.299 + g * 0.587 + b * 0.114) > 150 ? '#000' : '#fff';
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function sanitizeScheduleColor(value) {
+    const color = String(value || '').trim();
+    return /^#[0-9a-f]{6}$/i.test(color) ? color : '#E5E7EB';
+}
+
+function toTimeMinutes(value) {
+    const [hours, minutes] = String(value).split(':').map(Number);
+    return (hours * 60) + minutes;
+}
+
+function validateTimeRange(startValue, endValue, label = 'Khung giờ') {
+    const start = String(startValue || '').trim();
+    const end = String(endValue || '').trim();
+    if (!TIME_PATTERN.test(start)) {
+        throw new Error(`${label}: giờ bắt đầu phải đúng định dạng HH:mm (00:00–23:59).`);
+    }
+    if (!TIME_PATTERN.test(end)) {
+        throw new Error(`${label}: giờ kết thúc phải đúng định dạng HH:mm (00:00–23:59).`);
+    }
+    if (toTimeMinutes(start) >= toTimeMinutes(end)) {
+        throw new Error(`${label}: giờ bắt đầu phải sớm hơn giờ kết thúc.`);
+    }
+    return { start, end };
+}
+
+function notifyError(message) {
+    if (typeof UIService !== 'undefined') UIService.toast(escapeHtml(message), 'error');
+    else alert(message);
+}
+
+function focusInvalidTime(error, startEl, endEl) {
+    const startInvalid = startEl && !TIME_PATTERN.test(startEl.value.trim());
+    const target = startInvalid ? startEl : endEl;
+    if (target) {
+        target.classList.add('is-invalid');
+        target.setAttribute('aria-invalid', 'true');
+        target.focus();
+    }
+    notifyError(error.message || String(error));
+}
+
+function setWeekSaveBusy(isBusy) {
+    document.querySelectorAll('[data-week-save-action]').forEach(button => {
+        button.disabled = isBusy;
+        button.setAttribute('aria-busy', String(isBusy));
+    });
+}
+
+function updateBranchTabs() {
+    document.querySelectorAll('.branch-tab').forEach(tab => {
+        const isActive = tab.id === `tab-${currentBranch}`;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-pressed', String(isActive));
+    });
+}
+
 // ==================== SHIFT CONFIG ====================
 
-async function loadShiftConfig() {
+async function loadShiftConfig(branchId = currentBranch) {
     try {
         const settings = await DBService.getSystemSettings();
+        if (branchId !== currentBranch) return false;
         // Per-branch config key, fallback to global
-        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
+        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${branchId}`;
         const saved = settings?.[branchKey] || settings?.[WORK_SCHEDULE_CONTEXT.settingsPrefix];
         if (saved) {
             SHIFTS.forEach(shift => {
@@ -172,7 +256,9 @@ async function loadShiftConfig() {
     } catch (e) {
         console.warn('Using default shift config');
     }
+    if (branchId !== currentBranch) return false;
     renderShiftConfigToUI();
+    return true;
 }
 
 function isCenterClosed(dateStr, shiftKey, centerClosures) {
@@ -194,62 +280,106 @@ function renderShiftConfigToUI() {
 }
 
 function readShiftConfigFromUI() {
+    const nextConfig = {};
+    document.querySelectorAll('.shift-time-inputs .time-text').forEach(input => {
+        input.classList.remove('is-invalid');
+        input.removeAttribute('aria-invalid');
+    });
+
     SHIFTS.forEach(shift => {
         const startEl = document.getElementById(`shift-${shift}-start`);
         const endEl = document.getElementById(`shift-${shift}-end`);
         if (startEl && endEl) {
-            shiftConfig[shift].start = startEl.value;
-            shiftConfig[shift].end = endEl.value;
+            try {
+                nextConfig[shift] = validateTimeRange(
+                    startEl.value,
+                    endEl.value,
+                    `Ca ${shiftConfig[shift].label.toLowerCase()}`
+                );
+            } catch (error) {
+                error.startElement = startEl;
+                error.endElement = endEl;
+                throw error;
+            }
+        } else {
+            nextConfig[shift] = validateTimeRange(
+                shiftConfig[shift].start,
+                shiftConfig[shift].end,
+                `Ca ${shiftConfig[shift].label.toLowerCase()}`
+            );
         }
     });
+    SHIFTS.forEach(shift => {
+        shiftConfig[shift].start = nextConfig[shift].start;
+        shiftConfig[shift].end = nextConfig[shift].end;
+    });
+    return nextConfig;
 }
 
-async function saveShiftConfigToFirestore() {
-    readShiftConfigFromUI();
-    const data = {};
-    SHIFTS.forEach(s => { data[s] = { start: shiftConfig[s].start, end: shiftConfig[s].end }; });
-    try {
-        // Save per-branch config
-        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
-        await DBService.saveSystemSettings({ [branchKey]: data });
-    } catch (e) {
-        console.warn('Failed to save shift config:', e);
-    }
+async function saveShiftConfigToFirestore(configData) {
+    const data = configData || readShiftConfigFromUI();
+    const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
+    await DBService.saveSystemSettings({ [branchKey]: data });
+    return data;
 }
 
 // ==================== NAVIGATION ====================
 
-function switchBranch(branchId) {
+async function switchBranch(branchId) {
+    if (isSavingWeek) {
+        notifyError('Đang lưu lịch, vui lòng chờ hoàn tất trước khi đổi cơ sở.');
+        return false;
+    }
+    closeCellModal(false);
     currentBranch = branchId;
     localStorage.setItem('currentBranch', branchId);
-    document.querySelectorAll('.branch-tab').forEach(t => t.classList.remove('active'));
-    document.getElementById(`tab-${branchId}`)?.classList.add('active');
+    updateBranchTabs();
     // Reset shift config to defaults before loading branch-specific config
     shiftConfig = {
         morning: { label: 'SÁNG', start: '07:00', end: '11:30' },
         afternoon: { label: 'CHIỀU', start: '14:00', end: '18:00' },
         evening: { label: 'TỐI', start: '17:30', end: '21:30' }
     };
-    loadShiftConfig().then(() => loadAndRender());
+    const configReady = await loadShiftConfig(branchId);
+    if (configReady && branchId === currentBranch) await loadAndRender();
+    return true;
 }
 
 function navigateWeek(offset) {
+    if (isSavingWeek) {
+        notifyError('Đang lưu lịch, vui lòng chờ hoàn tất trước khi đổi tuần.');
+        return false;
+    }
+    closeCellModal(false);
     currentWeekStart.setDate(currentWeekStart.getDate() + offset * 7);
     loadAndRender();  // Fetch new data from Firestore
+    return true;
 }
 
 // ==================== DATA LOADING ====================
 
 // Load data from Firestore and render — used on init, branch switch, week change
 async function loadAndRender() {
+    const loadGeneration = ++scheduleLoadGeneration;
     const key = getWeekCompositeKey();
-    const data = await getWorkSchedule(key);
+    const requestedBranch = currentBranch;
+    const requestedWeekStart = new Date(currentWeekStart);
+    let data;
+    try {
+        data = await getWorkSchedule(key);
+    } catch (error) {
+        if (loadGeneration === scheduleLoadGeneration) {
+            notifyError(`Không thể tải lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()}. Dữ liệu hiện có được giữ nguyên; vui lòng kiểm tra mạng và thử lại.`);
+        }
+        return false;
+    }
+    if (loadGeneration !== scheduleLoadGeneration || key !== getWeekCompositeKey()) return false;
 
     // Load cancelled shifts for the month(s) in this week (supporting month spanning)
-    const mondayDate = new Date(currentWeekStart);
+    const mondayDate = new Date(requestedWeekStart);
     const monthStr1 = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}`;
     
-    const sundayDate = new Date(currentWeekStart);
+    const sundayDate = new Date(requestedWeekStart);
     sundayDate.setDate(sundayDate.getDate() + 6);
     const monthStr2 = `${sundayDate.getFullYear()}-${String(sundayDate.getMonth() + 1).padStart(2, '0')}`;
     
@@ -266,6 +396,7 @@ async function loadAndRender() {
             mergedMap[uid] = [...(map1[uid] || []), ...(map2[uid] || [])];
         });
     }
+    if (loadGeneration !== scheduleLoadGeneration || key !== getWeekCompositeKey()) return false;
     window.allCancelledShiftsMap = mergedMap;
 
     isInheritedTemplate = false;
@@ -273,7 +404,9 @@ async function loadAndRender() {
 
     if (data) {
         // This week has saved data — use it directly
-        weekData = data;
+        loadedScheduleRevision = Number.isInteger(data._revision) ? data._revision : 0;
+        loadedWeekSnapshot = JSON.parse(JSON.stringify(data));
+        weekData = JSON.parse(JSON.stringify(data));
         
         if (weekData._shiftConfig) {
             // Tuần này có snapshot giờ ca → dùng đúng giờ của tuần đó
@@ -308,6 +441,8 @@ async function loadAndRender() {
             renderShiftConfigToUI();
         }
     } else {
+        loadedScheduleRevision = 0;
+        loadedWeekSnapshot = null;
         // No data for this week — try to inherit from previous weeks (up to 4)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -318,13 +453,22 @@ async function loadAndRender() {
         // Only inherit if the week hasn't ended yet
         if (weekEnd >= today) {
             for (let i = 1; i <= 4; i++) {
-                const prevMonday = new Date(currentWeekStart);
+                const prevMonday = new Date(requestedWeekStart);
                 prevMonday.setDate(prevMonday.getDate() - i * 7);
                 const y = prevMonday.getFullYear();
                 const m = String(prevMonday.getMonth() + 1).padStart(2, '0');
                 const d = String(prevMonday.getDate()).padStart(2, '0');
-                const prevKey = `${currentBranch}__${y}-${m}-${d}`;
-                const prevData = await getWorkSchedule(prevKey);
+                const prevKey = `${requestedBranch}__${y}-${m}-${d}`;
+                let prevData;
+                try {
+                    prevData = await getWorkSchedule(prevKey);
+                } catch (error) {
+                    if (loadGeneration === scheduleLoadGeneration) {
+                        notifyError('Không thể kiểm tra lịch kế thừa. Tuần hiện tại chưa được thay đổi.');
+                    }
+                    return false;
+                }
+                if (loadGeneration !== scheduleLoadGeneration || key !== getWeekCompositeKey()) return false;
                 if (prevData) {
                     // Found a template! Deep clone to avoid mutating original
                     weekData = JSON.parse(JSON.stringify(prevData));
@@ -370,6 +514,7 @@ async function loadAndRender() {
     }
 
     renderTable();
+    return true;
 }
 
 // ==================== RENDER (local only, no fetch) ====================
@@ -407,15 +552,15 @@ function renderTable() {
             shiftTd.innerHTML = `
                 <div class="shift-name">${cfg.label}</div>
                 <div class="shift-time-inputs">
-                    <input type="text" class="time-text" id="shift-${shift}-start" value="${cfg.start}" maxlength="5" placeholder="HH:MM" title="Giờ bắt đầu (VD: 07:00)">
+                    <input type="text" class="time-text" id="shift-${shift}-start" value="${escapeHtml(cfg.start)}" maxlength="5" placeholder="HH:mm" inputmode="numeric" autocomplete="off" aria-label="Giờ bắt đầu ca ${cfg.label.toLowerCase()}" title="Giờ bắt đầu (VD: 07:00)">
                     <span class="shift-dash">–</span>
-                    <input type="text" class="time-text" id="shift-${shift}-end" value="${cfg.end}" maxlength="5" placeholder="HH:MM" title="Giờ kết thúc (VD: 11:30)">
+                    <input type="text" class="time-text" id="shift-${shift}-end" value="${escapeHtml(cfg.end)}" maxlength="5" placeholder="HH:mm" inputmode="numeric" autocomplete="off" aria-label="Giờ kết thúc ca ${cfg.label.toLowerCase()}" title="Giờ kết thúc (VD: 11:30)">
                 </div>
             `;
         } else {
             shiftTd.innerHTML = `
                 <div class="shift-name">${cfg.label}</div>
-                <div class="shift-time-display">${cfg.start} – ${cfg.end}</div>
+                <div class="shift-time-display">${escapeHtml(cfg.start)} – ${escapeHtml(cfg.end)}</div>
             `;
         }
         tr.appendChild(shiftTd);
@@ -433,6 +578,7 @@ function renderTable() {
             dayDate.setDate(dayDate.getDate() + dayIdx);
             const dayDateStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
             const monthStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
+            const isPastDay = dayDateStr < getLocalDateStr(new Date());
 
             // Composite key (branch__YYYY-MM-DD of Monday)
             const mondayKey = getWeekCompositeKey(); // e.g. cs1__2026-04-27
@@ -450,7 +596,7 @@ function renderTable() {
                 td.innerHTML = `<span class="empty-cell">—</span>`;
             } else {
                 staffList.forEach(s => {
-                    const bg = s.color || '#E5E7EB';
+                    const bg = sanitizeScheduleColor(s.color);
                     const fg = getContrastColor(bg);
                     const globalUser = allLoadedUsers.find(u => u.id === s.id);
                     const shortName = globalUser?.shortName || s.shortName || (s.name ? s.name.trim().split(/\s+/).pop() : '?');
@@ -491,14 +637,34 @@ function renderTable() {
                     tag.title = tooltipText;
                     tag.textContent = `${shortName}${customLabel}${fixedLabel}`;
 
-                    if (isEditor && window.isFixedShiftMode) {
-                        tag.onclick = (e) => toggleStaffFixedShift(e, shift, day, s.id);
-                    } else if (isEditor && !window.isFixedShiftMode) {
+                    if (isEditor && !isPastDay && window.isFixedShiftMode) {
+                        tag.setAttribute('role', 'button');
+                        tag.tabIndex = 0;
+                        tag.setAttribute('aria-label', `Đổi trạng thái ca cố định của ${shortName}`);
+                        const toggleFixed = e => toggleStaffFixedShift(e, shift, day, s.id);
+                        tag.onclick = toggleFixed;
+                        tag.onkeydown = e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toggleFixed(e);
+                            }
+                        };
+                    } else if (isEditor && !isPastDay && !window.isFixedShiftMode) {
                         // Click chip to show absent confirm popup
                         tag.style.cursor = 'pointer';
-                        tag.onclick = (e) => {
+                        tag.setAttribute('role', 'button');
+                        tag.tabIndex = 0;
+                        tag.setAttribute('aria-label', `Thao tác ca làm của ${shortName}`);
+                        const openStaffActions = e => {
                             e.stopPropagation(); // Don't open cell modal
                             showAbsentConfirmPopup(e, s, shift, day, dayDateStr, monthStr, mondayKey, shortName);
+                        };
+                        tag.onclick = openStaffActions;
+                        tag.onkeydown = e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                openStaffActions(e);
+                            }
                         };
                     }
 
@@ -513,11 +679,27 @@ function renderTable() {
                 }
             }
 
-            if (isEditor) {
+            if (isPastDay) {
+                td.classList.add('past-locked');
+                td.title = 'Lịch đã qua được khóa để bảo toàn chấm công và tính lương';
+            }
+
+            if (isEditor && !isPastDay && !window.isFixedShiftMode) {
                 td.classList.add('editable');
-                td.onclick = () => {
-                    if (!window.isFixedShiftMode) {
-                        openCellModal(shift, day);
+                td.dataset.shift = shift;
+                td.dataset.day = day;
+                td.setAttribute('role', 'button');
+                td.tabIndex = 0;
+                td.setAttribute('aria-label', `Chỉnh lịch ${shiftConfig[shift].label.toLowerCase()}, ${DAY_LABELS[dayIdx]}`);
+                const openEditor = event => {
+                    lastModalTrigger = event.currentTarget;
+                    openCellModal(shift, day, event.currentTarget);
+                };
+                td.onclick = openEditor;
+                td.onkeydown = event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openEditor(event);
                     }
                 };
             }
@@ -531,9 +713,55 @@ function renderTable() {
 
 // ==================== ABSENT CONFIRMATION POPUP ====================
 
+function closeAbsentPopup(restoreFocus = true) {
+    if (absentPopupOutsideHandler) {
+        document.removeEventListener('pointerdown', absentPopupOutsideHandler, true);
+        absentPopupOutsideHandler = null;
+    }
+    const trigger = absentPopupTrigger;
+    activeAbsentPopup?.remove();
+    activeAbsentPopup = null;
+    absentPopupTrigger = null;
+    if (restoreFocus && trigger?.isConnected) trigger.focus();
+}
+
+function positionAbsentPopup(popup, event) {
+    const viewportMargin = 12;
+    if (window.innerWidth <= 640) {
+        popup.classList.add('is-mobile-sheet');
+        popup.style.left = `${viewportMargin}px`;
+        popup.style.right = `${viewportMargin}px`;
+        popup.style.bottom = `calc(${viewportMargin}px + env(safe-area-inset-bottom, 0px))`;
+        popup.style.top = 'auto';
+        return;
+    }
+
+    const anchorRect = event.currentTarget?.getBoundingClientRect?.();
+    const anchorX = Number.isFinite(event.clientX) && event.clientX > 0
+        ? event.clientX
+        : (anchorRect?.left || viewportMargin);
+    const anchorY = Number.isFinite(event.clientY) && event.clientY > 0
+        ? event.clientY
+        : (anchorRect?.bottom || viewportMargin);
+    const popupRect = popup.getBoundingClientRect();
+    let left = anchorX + 8;
+    let top = anchorY + 8;
+
+    if (left + popupRect.width > window.innerWidth - viewportMargin) {
+        left = Math.max(viewportMargin, window.innerWidth - popupRect.width - viewportMargin);
+    }
+    if (top + popupRect.height > window.innerHeight - viewportMargin) {
+        const aboveAnchor = (anchorRect?.top || anchorY) - popupRect.height - 8;
+        top = Math.max(viewportMargin, aboveAnchor);
+    }
+
+    popup.style.left = `${Math.max(viewportMargin, left)}px`;
+    popup.style.top = `${Math.max(viewportMargin, top)}px`;
+}
+
 function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, monthStr, mondayKey, shortName) {
-    // Remove any existing popup
-    document.querySelectorAll('.absent-confirm-popup').forEach(p => p.remove());
+    closeAbsentPopup(false);
+    absentPopupTrigger = event.currentTarget || null;
 
     const shiftLabel = shiftConfig[shift]?.label || shift;
     const [y, m, d] = dayDateStr.split('-');
@@ -545,55 +773,62 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
 
     const popup = document.createElement('div');
     popup.className = 'absent-confirm-popup';
-    popup.style.cssText = `
-        position: fixed;
-        z-index: 9999;
-        background: white;
-        border: 1px solid #E5E7EB;
-        border-radius: 12px;
-        padding: 14px 16px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-        min-width: 220px;
-        font-size: 0.88rem;
-        font-family: inherit;
-    `;
-
-    // Position near click
-    const x = Math.min(event.clientX, window.innerWidth - 250);
-    const y2 = Math.min(event.clientY + 8, window.innerHeight - 150);
-    popup.style.left = `${x}px`;
-    popup.style.top = `${y2}px`;
-
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('aria-modal', 'false');
+    popup.setAttribute('aria-labelledby', 'absent-popup-title');
     popup.innerHTML = `
-        <div style="font-weight:700;color:#1F2937;margin-bottom:8px;">❓ ${shortName} — ${shiftLabel} ${displayDate}</div>
-        <div style="color:#6B7280;margin-bottom:12px;font-size:0.82rem;">${isCancelled ? 'Ca đang được đánh dấu vắng. Có thể khôi phục ngay khi nhân viên đi làm lại.' : 'Chọn hành động:'}</div>
-        <button id="popup-btn-absence-toggle" style="width:100%;padding:7px 12px;background:${isCancelled ? '#D1FAE5' : '#FEF3C7'};color:${isCancelled ? '#065F46' : '#92400E'};border:1px solid ${isCancelled ? '#10B981' : '#D97706'};border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:700;margin-bottom:6px;">${isCancelled ? '↩ Khôi phục ca làm' : '&#10003; Xác nhận Vắng'}</button>
-        <button id="popup-btn-edit" style="width:100%;padding:7px 12px;background:#EFF6FF;color:#1D4ED8;border:1px solid #93C5FD;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;margin-bottom:6px;">✏️ Chỉnh sửa ca</button>
-        <button id="popup-btn-cancel" style="width:100%;padding:5px 12px;background:#F9FAFB;color:#6B7280;border:1px solid #E5E7EB;border-radius:8px;cursor:pointer;font-size:0.82rem;">Hủy</button>
+        <div class="absent-popup-kicker">THAO TÁC CA LÀM</div>
+        <div class="absent-popup-title" id="absent-popup-title">${escapeHtml(shortName)} — ${escapeHtml(shiftLabel)} ${escapeHtml(displayDate)}</div>
+        <div class="absent-popup-description">${isCancelled ? 'Ca đang được đánh dấu vắng. Có thể khôi phục khi nhân viên đi làm lại.' : 'Chọn thao tác phù hợp cho ca này.'}</div>
+        <div class="absent-popup-actions">
+            <button type="button" class="absent-popup-button ${isCancelled ? 'is-restore' : 'is-absence'}" data-popup-action="absence-toggle">${isCancelled ? '↩ Khôi phục ca làm' : '&#10003; Xác nhận vắng'}</button>
+            <button type="button" class="absent-popup-button is-edit" data-popup-action="edit">✏️ Chỉnh sửa phân công</button>
+            <button type="button" class="absent-popup-button is-cancel" data-popup-action="cancel">Đóng</button>
+        </div>
     `;
 
     document.body.appendChild(popup);
+    activeAbsentPopup = popup;
+    positionAbsentPopup(popup, event);
 
-    // Close on outside click
-    const closePopup = () => popup.remove();
-    setTimeout(() => document.addEventListener('click', closePopup, { once: true }), 0);
+    absentPopupOutsideHandler = outsideEvent => {
+        if (!popup.contains(outsideEvent.target) && outsideEvent.target !== absentPopupTrigger) {
+            closeAbsentPopup(true);
+        }
+    };
+    setTimeout(() => {
+        if (activeAbsentPopup === popup) {
+            document.addEventListener('pointerdown', absentPopupOutsideHandler, true);
+        }
+    }, 0);
 
-    popup.querySelector('#popup-btn-cancel').onclick = (e) => { e.stopPropagation(); closePopup(); };
-
-    popup.querySelector('#popup-btn-edit').onclick = (e) => {
+    popup.querySelector('[data-popup-action="cancel"]').onclick = e => {
         e.stopPropagation();
-        closePopup();
-        openCellModal(shift, dayKey);
+        closeAbsentPopup(true);
     };
 
-    popup.querySelector('#popup-btn-absence-toggle').onclick = async (e) => {
+    popup.querySelector('[data-popup-action="edit"]').onclick = e => {
         e.stopPropagation();
-        closePopup();
+        const trigger = absentPopupTrigger;
+        closeAbsentPopup(false);
+        openCellModal(shift, dayKey, trigger);
+    };
 
-        const ok = confirm(isCancelled
+    popup.querySelector('[data-popup-action="absence-toggle"]').onclick = async e => {
+        e.stopPropagation();
+        const trigger = absentPopupTrigger;
+        closeAbsentPopup(false);
+
+        const confirmationMessage = isCancelled
             ? `Khôi phục ca ${shiftLabel} ngày ${displayDate} cho ${shortName}?\n(Ca sẽ xuất hiện lại trong Bảng Công và được tính theo chấm công thực tế.)`
-            : `Xác nhận ${shortName} VẮNG ca ${shiftLabel} ngày ${displayDate}?\n(Ca được giữ trên lịch dưới trạng thái vắng và có thể khôi phục.)`);
-        if (!ok) return;
+            : `Xác nhận ${shortName} VẮNG ca ${shiftLabel} ngày ${displayDate}?\n(Ca được giữ trên lịch dưới trạng thái vắng và có thể khôi phục.)`;
+        const ok = typeof UIService !== 'undefined' && typeof UIService.confirm === 'function'
+            ? await UIService.confirm(escapeHtml(confirmationMessage))
+            : confirm(confirmationMessage);
+        if (!ok) {
+            if (trigger?.isConnected) trigger.focus();
+            return;
+        }
 
         try {
             if (isCancelled) {
@@ -614,20 +849,89 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
             renderTable();
 
             if (typeof UIService !== 'undefined') {
-                UIService.toast(isCancelled
+                UIService.toast(escapeHtml(isCancelled
                     ? `Đã khôi phục ca ${shiftLabel} ngày ${displayDate} cho ${shortName}`
-                    : `Đã xác nhận ${shortName} vắng ca ${shiftLabel} ngày ${displayDate}`, 'success');
+                    : `Đã xác nhận ${shortName} vắng ca ${shiftLabel} ngày ${displayDate}`), 'success');
             }
         } catch (err) {
-            alert('Lỗi: ' + (err.message || err));
+            notifyError('Lỗi: ' + (err.message || err));
+            if (trigger?.isConnected) trigger.focus();
         }
     };
+
+    popup.querySelector('[data-popup-action="absence-toggle"]')?.focus();
 }
 
 // ==================== CELL EDITOR MODAL ====================
 
-function openCellModal(shift, dayKey) {
+function handleScheduleKeydown(event) {
+    if (event.key === 'Escape' && activeAbsentPopup) {
+        event.preventDefault();
+        closeAbsentPopup(true);
+        return;
+    }
+
+    const modal = document.getElementById('cell-modal');
+    if (!modal?.classList.contains('open')) return;
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCellModal();
+        return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const focusable = [...modal.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )].filter(element => element.offsetParent !== null);
+    if (focusable.length === 0) {
+        event.preventDefault();
+        modal.querySelector('.cell-modal-content')?.focus();
+        return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
+function clearCellModalError() {
+    const errorEl = document.getElementById('cell-modal-error');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.hidden = true;
+    }
+    document.querySelectorAll('#cell-modal .time-text.is-invalid').forEach(input => {
+        input.classList.remove('is-invalid');
+        input.removeAttribute('aria-invalid');
+    });
+}
+
+function showCellModalError(message, target) {
+    const errorEl = document.getElementById('cell-modal-error');
+    if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.hidden = false;
+    }
+    if (target) {
+        target.classList.add('is-invalid');
+        target.setAttribute('aria-invalid', 'true');
+        target.focus();
+    }
+}
+
+function openCellModal(shift, dayKey, triggerElement = document.activeElement) {
+    if (isPastScheduleDay(dayKey)) {
+        notifyError('Lịch ngày đã qua được khóa để bảo toàn dữ liệu chấm công và tính lương.');
+        return false;
+    }
+    closeAbsentPopup(false);
     editingCell = { shift, dayKey };
+    lastModalTrigger = triggerElement?.isConnected ? triggerElement : lastModalTrigger;
 
     const dayIdx = DAY_KEYS.indexOf(dayKey);
     const dayDate = new Date(currentWeekStart);
@@ -650,26 +954,29 @@ function openCellModal(shift, dayKey) {
         </div>`;
     } else {
         receptionistStaff.forEach(user => {
+            const userId = String(user.id || '');
+            const userName = String(user.name || 'Chưa đặt tên');
             const checked = currentIds.includes(user.id) ? 'checked' : '';
-            const color = user.scheduleColor || '#E5E7EB';
+            const color = sanitizeScheduleColor(user.scheduleColor);
             const fg = getContrastColor(color);
             // Check if this user has custom times
             const existing = currentStaff.find(s => s.id === user.id);
             const hasCustom = existing?.customStart ? true : false;
             const customStart = existing?.customStart || '';
             const customEnd = existing?.customEnd || '';
+            const initial = Array.from(userName.trim())[0] || '?';
             html += `
                 <label class="staff-checkbox-item">
-                    <input type="checkbox" value="${user.id}" data-name="${user.name}" data-color="${color}" ${checked}>
-                    <span class="staff-color-dot" style="background:${color};color:${fg}">${user.name.charAt(0)}</span>
-                    <span class="staff-pick-name">${user.name}</span>
-                    <button type="button" class="btn-custom-time" onclick="toggleCustomTime(this)" title="Lịch đặc biệt" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:1.1rem;opacity:${hasCustom ? '1' : '0.4'}">⏰</button>
+                    <input type="checkbox" value="${escapeHtml(userId)}" data-name="${escapeHtml(userName)}" data-color="${color}" ${checked}>
+                    <span class="staff-color-dot" style="background:${color};color:${fg}">${escapeHtml(initial)}</span>
+                    <span class="staff-pick-name">${escapeHtml(userName)}</span>
+                    <button type="button" class="btn-custom-time" onclick="toggleCustomTime(this)" title="Giờ làm đặc biệt" aria-label="Đặt giờ làm đặc biệt cho ${escapeHtml(userName)}" aria-expanded="${hasCustom}" style="opacity:${hasCustom ? '1' : '0.45'}">⏰</button>
                 </label>
-                <div class="custom-time-row" style="display:${hasCustom ? 'flex' : 'none'};gap:0.5rem;align-items:center;padding:0.25rem 0 0.5rem 2.5rem;font-size:0.8rem;">
-                    <span style="color:var(--text-muted)">Giờ đặc biệt:</span>
-                    <input type="text" class="time-text custom-start" value="${customStart}" placeholder="HH:MM" maxlength="5" data-uid="${user.id}" style="width:55px;text-align:center;padding:0.2rem;border:1px solid var(--border-color);border-radius:6px;">
+                <div class="custom-time-row" data-open="${hasCustom}" style="display:${hasCustom ? 'flex' : 'none'};">
+                    <span class="custom-time-label">Giờ đặc biệt:</span>
+                    <input type="text" class="time-text custom-start" value="${escapeHtml(customStart)}" placeholder="HH:mm" maxlength="5" inputmode="numeric" autocomplete="off" aria-label="Giờ bắt đầu đặc biệt của ${escapeHtml(userName)}">
                     <span>–</span>
-                    <input type="text" class="time-text custom-end" value="${customEnd}" placeholder="HH:MM" maxlength="5" data-uid="${user.id}" style="width:55px;text-align:center;padding:0.2rem;border:1px solid var(--border-color);border-radius:6px;">
+                    <input type="text" class="time-text custom-end" value="${escapeHtml(customEnd)}" placeholder="HH:mm" maxlength="5" inputmode="numeric" autocomplete="off" aria-label="Giờ kết thúc đặc biệt của ${escapeHtml(userName)}">
                 </div>
             `;
         });
@@ -679,33 +986,49 @@ function openCellModal(shift, dayKey) {
     // Clear search input
     const searchInput = document.getElementById('modal-staff-search');
     if (searchInput) searchInput.value = '';
+    clearCellModalError();
 
     // Note
     const noteKey = `${shift}_${dayKey}`;
     document.getElementById('cell-note-input').value = weekData._notes?.[noteKey] || '';
 
-    document.getElementById('cell-modal').classList.add('open');
+    const modal = document.getElementById('cell-modal');
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('schedule-modal-open');
+    requestAnimationFrame(() => (searchInput || modal.querySelector('.cell-modal-content'))?.focus());
 }
 
-function closeCellModal() {
-    document.getElementById('cell-modal').classList.remove('open');
+function closeCellModal(restoreFocus = true) {
+    const modal = document.getElementById('cell-modal');
+    modal?.classList.remove('open');
+    modal?.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('schedule-modal-open');
     editingCell = null;
+    const trigger = lastModalTrigger;
+    lastModalTrigger = null;
+    if (restoreFocus && trigger?.isConnected) requestAnimationFrame(() => trigger.focus());
 }
 
 function saveCellData() {
-    if (!editingCell) return;
+    if (!editingCell) return false;
     const { shift, dayKey } = editingCell;
+    if (isPastScheduleDay(dayKey)) {
+        showCellModalError('Lịch ngày đã qua được khóa và không thể thay đổi nhân sự.');
+        return false;
+    }
+    clearCellModalError();
 
     const checkboxes = document.querySelectorAll('#staff-checkbox-list input[type="checkbox"]:checked');
     const selectedStaff = [];
     const existingStaff = weekData[shift] && weekData[shift][dayKey] ? weekData[shift][dayKey] : [];
 
-    checkboxes.forEach(cb => {
+    for (const cb of checkboxes) {
         const uid = cb.value;
         const entry = {
             id: uid,
             name: cb.getAttribute('data-name'),
-            color: cb.getAttribute('data-color')
+            color: sanitizeScheduleColor(cb.getAttribute('data-color'))
         };
 
         // Preserve isFixedShift state
@@ -715,14 +1038,24 @@ function saveCellData() {
         }
 
         // Check for custom start/end times
-        const startInput = document.querySelector(`.custom-start[data-uid="${uid}"]`);
-        const endInput = document.querySelector(`.custom-end[data-uid="${uid}"]`);
-        if (startInput?.value?.trim()) {
-            entry.customStart = startInput.value.trim();
-            entry.customEnd = endInput?.value?.trim() || '';
+        const customRow = cb.closest('.staff-checkbox-item')?.nextElementSibling;
+        const startInput = customRow?.querySelector('.custom-start');
+        const endInput = customRow?.querySelector('.custom-end');
+        const customStart = startInput?.value?.trim() || '';
+        const customEnd = endInput?.value?.trim() || '';
+        if (customStart || customEnd) {
+            try {
+                const validated = validateTimeRange(customStart, customEnd, `Giờ đặc biệt của ${entry.name}`);
+                entry.customStart = validated.start;
+                entry.customEnd = validated.end;
+            } catch (error) {
+                const target = !TIME_PATTERN.test(customStart) ? startInput : endInput;
+                showCellModalError(error.message, target);
+                return false;
+            }
         }
         selectedStaff.push(entry);
-    });
+    }
 
     if (!weekData[shift]) weekData[shift] = {};
     weekData[shift][dayKey] = selectedStaff;
@@ -732,8 +1065,12 @@ function saveCellData() {
     if (!weekData._notes) weekData._notes = {};
     weekData._notes[noteKey] = note;
 
-    closeCellModal();
+    closeCellModal(false);
     renderTable();  // LOCAL re-render only — no Firestore fetch!
+    requestAnimationFrame(() => {
+        document.querySelector(`.day-cell[data-shift="${shift}"][data-day="${dayKey}"]`)?.focus();
+    });
+    return true;
 }
 
 // ==================== CLEAR ====================
@@ -764,6 +1101,8 @@ window.toggleCustomTime = function (btn) {
     customRow.style.display = isOpen ? 'none' : 'flex';
     customRow.dataset.open = isOpen ? 'false' : 'true';
     btn.style.opacity = isOpen ? '0.4' : '1';
+    btn.setAttribute('aria-expanded', String(!isOpen));
+    if (!isOpen) customRow.querySelector('.custom-start')?.focus();
 };
 
 async function clearCurrentWeek() {
@@ -774,14 +1113,17 @@ async function clearCurrentWeek() {
 
     if (!confirmed) return;
 
-    // Reset all shifts and notes locally
-    SHIFTS.forEach(shift => {
-        weekData[shift] = {};
-        DAY_KEYS.forEach(day => {
+    // Clear only editable days. Historical rosters remain visible and are also
+    // protected again at the transactional save boundary.
+    if (!weekData._notes) weekData._notes = {};
+    DAY_KEYS.forEach(day => {
+        if (isPastScheduleDay(day)) return;
+        SHIFTS.forEach(shift => {
+            if (!weekData[shift]) weekData[shift] = {};
             weekData[shift][day] = [];
+            delete weekData._notes[`${shift}_${day}`];
         });
     });
-    weekData._notes = {};
 
     // Re-render table (local only, no Firestore save)
     renderTable();
@@ -800,100 +1142,134 @@ function getLocalDateStr(date) {
     return `${y}-${m}-${d}`;
 }
 
+function isPastScheduleDay(dayKey) {
+    const dayIndex = DAY_KEYS.indexOf(dayKey);
+    if (dayIndex < 0) return true;
+    const targetDate = new Date(currentWeekStart);
+    targetDate.setDate(targetDate.getDate() + dayIndex);
+    return getLocalDateStr(targetDate) < getLocalDateStr(new Date());
+}
+
+function validateRosterCustomTimes() {
+    SHIFTS.forEach(shift => {
+        DAY_KEYS.forEach((dayKey, dayIndex) => {
+            (weekData[shift]?.[dayKey] || []).forEach(staff => {
+                if (!staff.customStart && !staff.customEnd) return;
+                validateTimeRange(
+                    staff.customStart,
+                    staff.customEnd,
+                    `${staff.name || 'Nhân viên'} — ${shiftConfig[shift].label}, ${DAY_LABELS[dayIndex]}`
+                );
+            });
+        });
+    });
+}
+
 async function saveFullWeek() {
+    if (isSavingWeek) return false;
     if (isInheritedTemplate) {
-        const confirmSave = await UIService.confirm('Lịch hiện tại đang là lịch kế thừa từ tuần trước. Bạn có chắc chắn muốn LƯU và ÁP DỤNG toàn bộ lịch này cho tuần hiện tại không?');
-        if (!confirmSave) return;
+        const message = 'Lịch hiện tại đang là lịch kế thừa từ tuần trước. Bạn có chắc chắn muốn LƯU và ÁP DỤNG toàn bộ lịch này cho tuần hiện tại không?';
+        const confirmSave = typeof UIService !== 'undefined' && typeof UIService.confirm === 'function'
+            ? await UIService.confirm(message)
+            : confirm(message);
+        if (!confirmSave) return false;
     }
 
-    // 1. Fetch CURRENT global config from DB BEFORE we overwrite it, to use as fallback for past days
-    let oldShiftConfig = {
-        morning: { start: '07:00', end: '11:30' },
-        afternoon: { start: '14:00', end: '18:00' },
-        evening: { start: '17:30', end: '21:30' }
-    };
+    // Read and validate the UI first. Future snapshots must use these exact values.
+    let nextShiftConfig;
     try {
-        const settings = await DBService.getSystemSettings();
-        const branchKey = `${WORK_SCHEDULE_CONTEXT.settingsPrefix}_${currentBranch}`;
-        oldShiftConfig = settings?.[branchKey] || settings?.[WORK_SCHEDULE_CONTEXT.settingsPrefix] || oldShiftConfig;
-    } catch(e) {}
+        nextShiftConfig = readShiftConfigFromUI();
+        validateRosterCustomTimes();
+    } catch (error) {
+        if (error.startElement || error.endElement) {
+            focusInvalidTime(error, error.startElement, error.endElement);
+        } else {
+            notifyError(error.message || String(error));
+        }
+        return false;
+    }
 
-    // 2. Fetch existing week data to preserve past days' exact schedules
-    const key = getWeekCompositeKey();
-    let existingData = null;
+    isSavingWeek = true;
+    setWeekSaveBusy(true);
+    let scheduleSaved = false;
     try {
-        existingData = await getWorkSchedule(key);
-    } catch(e) {}
+        // Preserve the immutable snapshot loaded into this editor. The
+        // transaction below rejects the save if another scheduler changed it.
+        const key = getWeekCompositeKey();
+        const existingData = loadedWeekSnapshot
+            ? JSON.parse(JSON.stringify(loadedWeekSnapshot))
+            : null;
 
-    const todayStr = getLocalDateStr(new Date());
+        const todayStr = getLocalDateStr(new Date());
 
-    // 3. Process weekData to lock in shift times for past days
-    DAY_KEYS.forEach((dayKey, idx) => {
-        const dayDate = new Date(currentWeekStart);
-        dayDate.setDate(dayDate.getDate() + idx);
-        const dayStr = getLocalDateStr(dayDate);
+        const previousWeekShiftConfig = weekData._shiftConfig
+            ? JSON.parse(JSON.stringify(weekData._shiftConfig))
+            : null;
 
-        if (dayStr < todayStr) {
-            SHIFTS.forEach(shift => {
-                let currentStaffList = weekData[shift]?.[dayKey] || [];
-                currentStaffList = currentStaffList.map(s => {
-                    let existingEntry = null;
-                    if (existingData && existingData[shift] && existingData[shift][dayKey]) {
-                        existingEntry = existingData[shift][dayKey].find(pastS => pastS.id === s.id);
-                    }
-                    if (existingEntry && existingEntry.customStart) {
-                        return { ...s, customStart: existingEntry.customStart, customEnd: existingEntry.customEnd };
-                    } else {
+        // 3. Lock past days to their historical values.
+        DAY_KEYS.forEach((dayKey, idx) => {
+            const dayDate = new Date(currentWeekStart);
+            dayDate.setDate(dayDate.getDate() + idx);
+            const dayStr = getLocalDateStr(dayDate);
+
+            if (dayStr < todayStr) {
+                SHIFTS.forEach(shift => {
+                    const historicalRoster = existingData?.[shift]?.[dayKey];
+                    weekData[shift][dayKey] = Array.isArray(historicalRoster)
+                        ? JSON.parse(JSON.stringify(historicalRoster))
+                        : [];
+                    const noteKey = `${shift}_${dayKey}`;
+                    const historicalNote = existingData?._notes?.[noteKey];
+                    if (historicalNote) weekData._notes[noteKey] = historicalNote;
+                    else delete weekData._notes[noteKey];
+                });
+            }
+        });
+
+        // 3b. Lock today/future days to the freshly validated UI values.
+        DAY_KEYS.forEach((dayKey, idx) => {
+            const dayDate = new Date(currentWeekStart);
+            dayDate.setDate(dayDate.getDate() + idx);
+            const dayStr = getLocalDateStr(dayDate);
+
+            if (dayStr >= todayStr) {
+                SHIFTS.forEach(shift => {
+                    const staffList = weekData[shift]?.[dayKey] || [];
+                    const previousDefault = previousWeekShiftConfig?.[shift];
+                    weekData[shift][dayKey] = staffList.map(s => {
+                        const usedPreviousDefault = previousDefault
+                            && s.customStart === previousDefault.start
+                            && s.customEnd === previousDefault.end;
                         return {
                             ...s,
-                            customStart: s.customStart || oldShiftConfig[shift].start,
-                            customEnd: s.customEnd || oldShiftConfig[shift].end
+                            customStart: (!s.customStart || usedPreviousDefault)
+                                ? nextShiftConfig[shift].start
+                                : s.customStart,
+                            customEnd: (!s.customEnd || usedPreviousDefault)
+                                ? nextShiftConfig[shift].end
+                                : s.customEnd
                         };
-                    }
+                    });
                 });
-                weekData[shift][dayKey] = currentStaffList;
-            });
-        }
-    });
+            }
+        });
 
-    // 3b. Lock shift times cho các ngày từ hôm nay trở đi (future days)
-    // Snapshot giờ ca hiện tại vào customStart/customEnd để tránh bị ảnh hưởng khi global config thay đổi sau này
-    DAY_KEYS.forEach((dayKey, idx) => {
-        const dayDate = new Date(currentWeekStart);
-        dayDate.setDate(dayDate.getDate() + idx);
-        const dayStr = getLocalDateStr(dayDate);
+        // 3c. Persist the same validated values inside this week's document.
+        weekData._shiftConfig = {};
+        SHIFTS.forEach(shift => {
+            weekData._shiftConfig[shift] = { ...nextShiftConfig[shift] };
+        });
 
-        if (dayStr >= todayStr) {
-            SHIFTS.forEach(shift => {
-                const staffList = weekData[shift]?.[dayKey] || [];
-                weekData[shift][dayKey] = staffList.map(s => ({
-                    ...s,
-                    // Snapshot giờ ca từ UI — ưu tiên customStart đã set, fallback về shiftConfig hiện tại
-                    customStart: s.customStart || shiftConfig[shift].start,
-                    customEnd: s.customEnd || shiftConfig[shift].end
-                }));
-            });
-        }
-    });
+        // 4. Save the roster first. A roster failure must never change global
+        // defaults. Then save defaults, propagating any error to the caller.
+        const saveResult = await saveWorkSchedule(key, weekData, loadedScheduleRevision);
+        scheduleSaved = true;
+        loadedScheduleRevision = Number.isInteger(saveResult?.revision)
+            ? saveResult.revision
+            : loadedScheduleRevision + 1;
+        weekData._revision = loadedScheduleRevision;
+        loadedWeekSnapshot = JSON.parse(JSON.stringify(weekData));
 
-    // 3c. Snapshot shiftConfig vào weekData doc để tuần này luôn dùng đúng giờ ca
-    readShiftConfigFromUI(); // Đảm bảo shiftConfig đã đọc từ UI
-    weekData._shiftConfig = {};
-    SHIFTS.forEach(shift => {
-        weekData._shiftConfig[shift] = {
-            start: shiftConfig[shift].start,
-            end: shiftConfig[shift].end
-        };
-    });
-
-    // 4. Save the new global config from the UI
-    await saveShiftConfigToFirestore();
-
-    try {
-        // 5. Save the modified weekData to Firestore
-        await saveWorkSchedule(key, weekData);
-
-        // Clear inherited state after successful save
         if (isInheritedTemplate) {
             isInheritedTemplate = false;
             const banner = document.getElementById('inherit-banner');
@@ -902,29 +1278,33 @@ async function saveFullWeek() {
             if (tableEl) tableEl.style.opacity = '1';
         }
 
+        await saveShiftConfigToFirestore(nextShiftConfig);
+
         if (typeof UIService !== 'undefined') {
             UIService.toast(`Đã lưu lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()}!`, 'success');
         } else {
             alert(`Đã lưu lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()}!`);
         }
+        return true;
     } catch (e) {
         console.error('Save error:', e);
-        const msg = 'Lỗi khi lưu: ' + e.message;
-        if (typeof UIService !== 'undefined') {
-            UIService.toast(msg, 'error');
-        } else {
-            alert(msg);
-        }
+        const detail = e.message || String(e);
+        const msg = e?.code === 'SCHEDULE_CONFLICT'
+            ? 'Lịch tuần vừa được người xếp lịch khác cập nhật. Dữ liệu của bạn chưa bị ghi đè; hãy tải lại tuần này rồi áp dụng thay đổi trên bản mới nhất.'
+            : scheduleSaved
+            ? `Lịch tuần đã được lưu, nhưng chưa cập nhật được giờ ca mặc định: ${detail}. Vui lòng thử lưu lại.`
+            : `Không thể lưu lịch: ${detail}`;
+        notifyError(msg);
+        return false;
+    } finally {
+        isSavingWeek = false;
+        setWeekSaveBusy(false);
     }
 }
 
 // ==================== CONFIRM INHERITED ====================
 
 async function confirmInheritedSchedule() {
-    if (!isInheritedTemplate) return;
-    // Save the inherited template as this week's data
-    await saveFullWeek();
-    if (typeof UIService !== 'undefined') {
-        UIService.toast('Đã xác nhận lịch kế thừa cho tuần này!', 'success');
-    }
+    if (!isInheritedTemplate) return false;
+    return saveFullWeek();
 }

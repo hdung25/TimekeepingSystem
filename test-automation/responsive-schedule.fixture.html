@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Responsive schedule QA fixture</title>
+    <link rel="stylesheet" href="../css/style.css">
+    <style>
+        html, body { min-height: 100%; }
+        body { margin: 0; }
+        .qa-underlay { padding: 24px; }
+    </style>
+</head>
+<body>
+<script>
+(async () => {
+    const mode = new URLSearchParams(location.search).get('mode') || 'teacher';
+    const pageName = mode === 'teacher'
+        ? 'lich-lam.html'
+        : (mode === 'office' ? 'lich-van-phong.html' : 'lich-tiep-tan.html');
+    const source = await fetch(`../${pageName}`).then(response => response.text());
+    const parsed = new DOMParser().parseFromString(source, 'text/html');
+    parsed.querySelectorAll('style').forEach(sourceStyle => {
+        const style = document.createElement('style');
+        style.textContent = sourceStyle.textContent;
+        document.head.appendChild(style);
+    });
+
+    const teacherRoster = Array.from({ length: 9 }, (_, index) => `
+        <label class="teacher-roster-item${index < 2 ? ' is-selected' : ''}">
+            <input type="checkbox" ${index < 2 ? 'checked' : ''}>
+            <span class="teacher-roster-avatar">${index + 1}</span>
+            <span class="teacher-roster-copy"><strong>Giáo viên kiểm thử ${index + 1}</strong><small>Giáo viên</small></span>
+            <span class="teacher-roster-check">✓</span>
+        </label>`).join('');
+
+    const teacherMarkup = `
+        <div class="teacher-shift-overlay">
+            <div class="teacher-shift-dialog" role="dialog" aria-modal="true" aria-labelledby="teacher-shift-manager-title">
+                <header class="teacher-shift-header">
+                    <div class="teacher-shift-title-wrap">
+                        <span class="teacher-shift-kicker">Bảng điều khiển ca dạy</span>
+                        <h3 id="teacher-shift-manager-title">Toán tư duy 9 — kiểm thử responsive</h3>
+                        <div class="teacher-shift-context"><span>Cơ sở 1</span><span>31/08/2026</span><span>18:00–19:30</span><span>Phòng P18</span></div>
+                    </div>
+                    <button class="teacher-shift-close" aria-label="Đóng bảng điều phối">×</button>
+                </header>
+                <div class="teacher-shift-alert"><strong>Ca đã bắt đầu hoặc đã qua.</strong> Có thể ghi nhận nghỉ và điều phối giáo viên thay.</div>
+                <div class="teacher-shift-body">
+                    <div class="teacher-shift-workspace">
+                        <section class="teacher-command-column">
+                            <div class="teacher-command-section-head"><div><span class="step-number">1</span><h4>GV chính & trạng thái</h4></div><span class="section-count has-alert">1 ca nghỉ</span></div>
+                            <div class="teacher-status-list">
+                                <article class="teacher-status-card status-vdx">
+                                    <div class="teacher-status-card-head"><div><strong>Lê Võ Thanh Ngân</strong><span>GV chính</span></div><span class="coverage-pill is-covered">Đã có GV thay · Nguyễn Thanh Nhàn</span></div>
+                                    <div class="teacher-status-segment" role="group" aria-label="Trạng thái của Lê Võ Thanh Ngân"><button>Đang dạy</button><button>Vắng có phép</button><button class="is-active" data-status="VDX">Vắng đột xuất</button></div>
+                                    <div class="teacher-absence-fields"><label><span>Thời điểm báo</span><input value="2026-08-31T17:30"></label><label><span>Lý do / ghi chú điều phối</span><input value="Báo bệnh sát giờ"></label></div>
+                                    <button class="fixed-next-week-btn">Đánh dấu cố định từ tuần sau</button>
+                                </article>
+                            </div>
+                            <div class="teacher-command-section-head replacement-head"><div><span class="step-number">2</span><h4>Điều phối GV dạy thay</h4></div><span class="section-count has-alert">1 ca nghỉ</span></div>
+                            <div class="substitute-coverage-list"><article class="substitute-coverage-card"><div><strong>Nguyễn Thanh Nhàn</strong><span>Chọn GV chính mà người này sẽ thay</span></div><div class="replacement-map-options"><button class="is-active">✓ Lê Võ Thanh Ngân</button></div></article></div>
+                        </section>
+                        <aside class="teacher-roster-column">
+                            <div class="roster-tabs" role="tablist"><button class="is-active">GV chính <span>2</span></button><button>GV dạy thay <span>1</span></button></div>
+                            <div class="roster-pane is-active"><label class="teacher-search"><span>⌕</span><input placeholder="Tìm GV chính..."></label><div class="teacher-roster-list">${teacherRoster}</div></div>
+                        </aside>
+                    </div>
+                </div>
+                <footer class="teacher-shift-footer"><div><span class="save-state-dot"></span><strong>2 GV chính · 1 GV nghỉ · 1 GV thay</strong><small>Mọi thay đổi trạng thái đều được lưu lịch sử.</small></div><div class="teacher-shift-footer-actions"><button class="btn-manager-cancel">Hủy</button><button class="btn-manager-save">✓ Lưu điều phối ca</button></div></footer>
+            </div>
+        </div>`;
+
+    const staffRows = Array.from({ length: 10 }, (_, index) => `
+        <label class="staff-checkbox-item">
+            <input type="checkbox" ${index < 2 ? 'checked' : ''}>
+            <span class="staff-color-dot" style="background:#D1FAE5;color:#065F46">${index + 1}</span>
+            <span class="staff-pick-name">${mode === 'office' ? 'Nhân viên văn phòng' : 'Tiếp tân'} kiểm thử ${index + 1}</span>
+            <button class="btn-custom-time" aria-label="Đặt giờ đặc biệt">⏰</button>
+        </label>`).join('');
+
+    const operationalMarkup = `
+        <div class="admin-container qa-underlay">
+            <main class="main-content">
+                <header class="page-header"><div><h1>Lịch ${mode === 'office' ? 'Văn Phòng' : 'Tiếp Tân'}</h1><p>Quản lý lịch trực theo tuần</p></div><div id="save-area"><button class="btn">Đánh dấu Ca Cố Định</button><button class="btn">Xóa Lịch</button><button class="btn btn-primary">Lưu Lịch Tuần</button></div></header>
+                <div class="branch-tabs"><button class="branch-tab active">Cơ Sở 1</button><button class="branch-tab">Cơ Sở 2</button><button class="branch-tab">Cơ Sở 3</button></div>
+                <div class="week-picker"><button aria-label="Tuần trước">◀</button><span class="week-label">31/08 – 06/09/2026</span><button aria-label="Tuần sau">▶</button></div>
+                <div class="glass-panel work-schedule-panel"><div class="schedule-wrapper"><table class="schedule-table"><thead><tr><th>CA</th><th>Thứ 2</th><th>Thứ 3</th><th>Thứ 4</th><th>Thứ 5</th><th>Thứ 6</th><th>Thứ 7</th><th>CN</th></tr></thead><tbody><tr><td class="shift-label-cell">CA SÁNG<br>07:00–11:30</td>${'<td class="day-cell editable"><span class="staff-tag">Nhân viên trực</span></td>'.repeat(7)}</tr></tbody></table></div></div>
+            </main>
+        </div>
+        <div class="cell-modal open" aria-hidden="false" role="dialog" aria-modal="true" aria-labelledby="cell-modal-title" aria-describedby="cell-modal-description">
+            <section class="cell-modal-content" role="document" tabindex="-1">
+                <header class="cell-modal-header"><div><span class="cell-modal-kicker">PHÂN CÔNG CA</span><h3 class="cell-modal-title" id="cell-modal-title">Ca sáng — Thứ 2 (31/08)</h3></div><button class="cell-modal-close" aria-label="Đóng cửa sổ phân công">×</button></header>
+                <div class="cell-modal-body"><p class="cell-modal-description" id="cell-modal-description">Chọn nhân viên và điều chỉnh giờ riêng nếu ca này có ngoại lệ.</p><label class="modal-field-label">Tìm nhân viên</label><input class="list-search-input" placeholder="Nhập tên nhân viên..."><div class="staff-checkbox-list">${staffRows}</div><label class="modal-field-label">Ghi chú ca</label><input class="note-input" placeholder="Lưu ý bàn giao"></div>
+                <footer class="cell-modal-footer"><button class="btn">Hủy</button><button class="btn btn-primary">Xác nhận</button></footer>
+            </section>
+        </div>`;
+
+    document.body.className = mode === 'teacher' ? 'teacher-shift-modal-open' : 'work-schedule-page schedule-modal-open';
+    document.body.innerHTML = mode === 'teacher' ? teacherMarkup : operationalMarkup;
+    document.querySelector(mode === 'teacher' ? '.teacher-shift-close' : '.list-search-input')?.focus();
+    window.__fixtureReady = true;
+    document.dispatchEvent(new Event('fixture-ready'));
+})();
+</script>
+</body>
+</html>

@@ -1237,8 +1237,10 @@ function observation(lateMinutes) {
         pendingSchedule, [], staffId, dateKey, user
     );
     assert.equal(pendingChips.length, 1);
-    assert.equal(pendingChips[0].isVDX, true);
+    assert.equal(pendingChips[0].isVDX, false, 'VP không được mang cờ VĐX');
+    assert.equal(pendingChips[0].isAbsence, true);
     assert.equal(pendingChips[0].absenceType, 'VP');
+    assert.match(pendingChips[0].text, /^VP:/, 'chip VP phải có đúng tiền tố VP');
     assert.equal(pendingChips[0].isPendingReplacement, true);
     assert.equal(pendingChips[0].paidMinutes, 0);
     assert.match(pendingChips[0].tooltip, /chưa tìm được GV thay thế/);

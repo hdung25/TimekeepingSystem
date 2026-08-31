@@ -685,6 +685,19 @@ button {
     /* Gray 500 */
 }
 
+/* Explicit teaching-absence tones shared by Chấm Công and Bảng Công. */
+.chip-absence-vp {
+    background-color: #EFF6FF !important;
+    color: #1D4ED8 !important;
+    border-left: 3px solid #3B82F6 !important;
+}
+
+.chip-absence-vdx {
+    background-color: #FFF1F2 !important;
+    color: #BE123C !important;
+    border-left: 3px solid #E11D48 !important;
+}
+
 .chip-waiting {
     background-color: #F3E8FF !important;
     /* Violet 100 */
