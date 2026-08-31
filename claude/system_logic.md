@@ -127,7 +127,7 @@
 
 ### 5. `settings` — Cấu hình hệ thống
 - **Doc ID:** `system`
-- **Fields:** `companyName`, `allowedIP` (comma-separated whitelist), `receptionistShifts` (global default shifts), `receptionistShifts_cs1/cs2/cs3` (per-branch override), `officeShifts_cs1/cs2/cs3` (ca văn phòng theo cơ sở)
+- **Fields:** `companyName`, `allowedIP` (legacy/lớp hiển thị IP, không tham gia cổng chấm công thật), `receptionistShifts` (global default shifts), `receptionistShifts_cs1/cs2/cs3` (per-branch override), `officeShifts_cs1/cs2/cs3` (ca văn phòng theo cơ sở)
 - **Các doc phụ (trong cùng collection):** `schedule_manifest_cs1`, `schedule_manifest_cs2`, `schedule_manifest_cs3`, legacy `schedule_manifest`
 
 ### 6. `unregistered_alerts` — Cảnh báo check-in không có lớp
@@ -230,8 +230,9 @@ handleLogin() → DBService.loginUser()
 ### Check-in/out Flow
 ```
 VÀO CA: checkInPersonal()
-→ Fetch IP → check whitelist settings/system.allowedIP
-→ Transaction: push session { id: Date.now(), checkIn: now.toISOString(), type: 'auto' }
+→ Chỉ từ thao tác bấm: lấy GPS → đối chiếu tọa độ/radius CS1–CS3
+→ Nếu thất bại: UI chỉ hiện câu IP/Wifi bắt buộc, không lộ GPS
+→ Transaction: push session v2 { id, anchorDateKey, status, source, start, checkIn, checkOut }
 → checkAndAlertUnregistered() → nếu chưa nhận lớp → tạo unregistered_alerts
 
 RA CA: checkOutPersonal()
@@ -664,3 +665,15 @@ là bảng 4 cột với nhãn dọc như cũ.
 - Regression suite 20 nhóm, rules dry-run, syntax check và browser geolocation fixture đều đạt.
 - PWA cache/version: `20260829-location-diagnostics-v3`, cache
   `tdt-chamcong-v137-location-diagnostics-20260829`.
+
+### 31/08/2026 — Xác nhận bất biến GPS-secret + tương thích PWA chấm công cũ
+- Chủ dự án xác nhận lại: chữ **IP/Wifi chỉ là thông điệp che cơ chế**. Cổng `VÀO CA` thật luôn dùng
+  tọa độ/radius GPS của CS1–CS3. `allowedIP`, DDNS, `enableIPCheck` hoặc IP public khớp không bao giờ
+  được bỏ qua GPS. Mọi cảnh báo nhân viên vẫn chỉ dùng đúng câu IP/Wifi bắt buộc và không lộ GPS.
+- Một thử nghiệm IP-first trong ngày đã được gỡ bỏ ngay sau khi chủ dự án làm rõ quy tắc. Thêm
+  regression test đọc riêng khối `checkInPersonal` để cấm `allowedIP`, `enableIPCheck`, ipify hoặc helper
+  IP xuất hiện trong cổng chấm công, đồng thời bắt buộc gọi `assertAttendanceLocationAllowed(settings)`.
+- Giữ nguyên bản vá Firestore Rules cho PWA/tab cũ: chỉ chấp nhận session cũ đúng bốn trường
+  `id,start,checkIn,checkOut`, ID số kiểu `Date.now()`, giờ vào bằng giờ bắt đầu và `checkOut=null`.
+  Mọi trường role/rate/bonus/link lạ vẫn bị từ chối. Đây là sửa lỗi `Missing or insufficient permissions`,
+  không thay đổi policy GPS và không nới quyền dữ liệu lương.

@@ -1,4 +1,4 @@
-const APP_VERSION = '20260831-attendance-network-v1';
+const APP_VERSION = '20260831-attendance-policy-v2';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;

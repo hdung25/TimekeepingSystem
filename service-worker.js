@@ -1,5 +1,5 @@
-// Service Worker v139 - real network attendance with GPS fallback.
-const CACHE_NAME = 'tdt-chamcong-v139-attendance-network-20260831';
+// Service Worker v140 - owner-confirmed attendance policy.
+const CACHE_NAME = 'tdt-chamcong-v140-attendance-policy-20260831';
 
 const STATIC_ASSETS = [
     '/',
@@ -18,32 +18,41 @@ const STATIC_ASSETS = [
     '/nhan-su.html',
     '/he-thong.html',
     '/mon-hoc.html',
-    '/css/style.css?v=20260831-attendance-network-v1',
+    '/css/style.css?v=20260831-scheduler-hd-v2',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260831-attendance-network-v1',
-    '/js/firebase-config.js?v=20260831-attendance-network-v1',
-    '/js/db-service.js?v=20260831-attendance-network-v1',
-    '/js/report.js?v=20260831-attendance-network-v1',
-    '/js/evaluation-service.js?v=20260831-attendance-network-v1',
-    '/js/shift-oversight.js?v=20260831-attendance-network-v1',
+    '/js/main.js?v=20260831-scheduler-hd-v2',
+    '/js/firebase-config.js?v=20260831-scheduler-hd-v2',
+    '/js/db-service.js?v=20260831-scheduler-hd-v2',
+    '/js/report.js?v=20260831-scheduler-hd-v2',
+    '/js/evaluation-service.js?v=20260831-scheduler-hd-v2',
+    '/js/shift-oversight.js?v=20260831-scheduler-hd-v2',
     '/js/ui-service.js?v=20260829-location-diagnostics-v3',
     '/js/early10.js?v=20260816-early10-old-unset-v3',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260809-nested-groups-v1',
-    '/js/personnel.js?v=20260831-attendance-network-v1',
-    '/js/auth-guard.js?v=20260831-attendance-network-v1',
-    '/js/auth-helper.js?v=20260831-attendance-network-v1',
+    '/js/personnel.js?v=20260831-scheduler-hd-v2',
+    '/js/auth-guard.js?v=20260831-scheduler-hd-v2',
+    '/js/auth-helper.js?v=20260831-scheduler-hd-v2',
     '/js/chart-service.js?v=20260807-multi-gv-bulk-v1',
     '/js/analytics.js?v=20260814-senior-receptionist-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260831-attendance-network-v1',
-    '/js/teacher-shift-state.js?v=20260831-attendance-network-v1',
+    '/js/schedule.js?v=20260831-scheduler-hd-v2',
+    '/js/teacher-shift-state.js?v=20260831-scheduler-hd-v2',
     '/js/pdf-export.js?v=20260814-senior-receptionist-v1',
-    '/js/receptionist-schedule.js?v=20260831-attendance-network-v1',
-    '/js/timekeeping.js?v=20260831-attendance-network-v1',
+    '/js/receptionist-schedule.js?v=20260831-scheduler-hd-v2',
+    '/js/timekeeping.js?v=20260831-scheduler-hd-v2',
     '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
+    // cham-cong.html uses a dedicated release token so installed PWAs cannot
+    // retain the short-lived attendance-policy regression.
+    '/css/style.css?v=20260831-attendance-policy-v2',
+    '/js/main.js?v=20260831-attendance-policy-v2',
+    '/js/firebase-config.js?v=20260831-attendance-policy-v2',
+    '/js/db-service.js?v=20260831-attendance-policy-v2',
+    '/js/evaluation-service.js?v=20260831-attendance-policy-v2',
+    '/js/teacher-shift-state.js?v=20260831-attendance-policy-v2',
+    '/js/timekeeping.js?v=20260831-attendance-policy-v2',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'
@@ -79,8 +88,8 @@ self.addEventListener('fetch', event => {
 
     if (event.request.method !== 'GET') return;
 
-    // Never cache third-party responses. In particular, a cached public-IP
-    // response could incorrectly treat a device as still being on campus.
+    // Never cache third-party responses; their freshness and cache policies
+    // are controlled by the upstream provider, not by this PWA.
     if (url.origin !== self.location.origin) return;
 
     if (

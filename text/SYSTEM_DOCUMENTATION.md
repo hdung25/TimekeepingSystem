@@ -30,7 +30,7 @@
 | Database | Cloud Firestore | SDK 10.7.1 (Compat) |
 | Security | Firebase App Check (reCAPTCHA Enterprise) | Hiện tại disabled |
 | Hosting | Vercel / Firebase Hosting | — |
-| External API | `api.ipify.org` | Lấy IP cho check-in |
+| Browser API nội bộ | `navigator.geolocation` | Cổng vị trí thật của check-in; không lộ cho nhân viên |
 
 ---
 
@@ -250,8 +250,8 @@ erDiagram
 │  Tầng 3: Client-Side Auth Guard             │
 │  → Chặn truy cập page nếu chưa đăng nhập   │
 ├─────────────────────────────────────────────┤
-│  Tầng 4: IP Restriction (Check-in only)     │
-│  → Chỉ IP trong whitelist mới chấm công     │
+│  Tầng 4: Attendance location gate           │
+│  → Nội bộ dùng GPS/radius CS1–CS3           │
 ├─────────────────────────────────────────────┤
 │  Tầng 5: App Check (Disabled)               │
 │  → reCAPTCHA Enterprise — cần cấu hình lại  │
@@ -324,23 +324,26 @@ if (!currentUser) {
 | `schedules` | All authenticated | All authenticated |
 | `settings` | All authenticated | Admin only |
 
-### 4.5 IP Restriction — Giới hạn chấm công theo mạng
+### 4.5 Cổng vị trí chấm công — GPS nội bộ, thông điệp IP/Wifi
 
 ```
 Check-in request
         │
         ▼
-1. Fetch IP từ api.ipify.org
+1. Chỉ sau thao tác VÀO CA: xin tọa độ trình duyệt
         │
         ▼
-2. Fetch allowedIP từ settings/main
+2. Đọc tọa độ/radius GPS của CS1–CS3 từ settings/system
         │
         ▼
-3. So sánh: currentIP có trong danh sách?
-   └─ Nếu allowedIP trống → Cho phép tất cả
-   └─ Nếu IP khớp → Cho phép ✅
-   └─ Nếu IP không khớp → Chặn ❌ (hiện toast lỗi)
+3. So sánh điểm thiết bị với vùng cơ sở
+   └─ Trong vùng → Cho phép ✅
+   └─ Ngoài vùng/không lấy được quyền → Chặn ❌
+   └─ UI nhân viên luôn chỉ hiện câu IP/Wifi bắt buộc, không lộ GPS
 ```
+
+`allowedIP`, DDNS và `enableIPCheck` là dữ liệu legacy/lớp hiển thị; chúng không được phép cho qua,
+từ chối hoặc vô hiệu hóa cổng GPS của `checkInPersonal()`.
 
 ---
 
@@ -353,7 +356,7 @@ Check-in request
 2. `renderGlobalCheckIn()` hiển thị nút dựa trên trạng thái hiện tại
 3. Gọi `DBService.globalCheckIn(userId, userName)`
 4. DB Service:
-   - Kiểm tra IP (nếu có whitelist)
+   - Kiểm tra GPS/radius CS1–CS3; UI lỗi chỉ dùng thông điệp IP/Wifi
    - Tạo document ID: `YYYY-MM-DD_userId`
    - Dùng Firestore Transaction để đảm bảo atomic
    - Tạo session mới với `checkIn = now`
@@ -592,10 +595,10 @@ Sidebar được render động bởi `main.js → renderSidebar()`:
 
 2. Bấm "Vào Ca"
    └─ DBService.globalCheckIn(userId, userName)
-       └─ Fetch IP từ api.ipify.org
-       └─ Fetch settings/main → Check IP whitelist
+       └─ Lấy GPS từ đúng thao tác bấm
+       └─ Fetch settings/system → Check radius CS1–CS3
        └─ Transaction: Tạo/Update attendance_logs/{date}_{userId}
-       └─ Session { checkIn: now, type: "auto" }
+       └─ Session v2 { id, anchorDateKey, status, source, start, checkIn, checkOut }
 
 3. Bấm "Nhận Lớp" cho lớp sáng
    └─ schedule.js: registerClass()

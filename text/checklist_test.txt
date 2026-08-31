@@ -109,9 +109,10 @@ PHẦN 4: CHẤM CÔNG
 --- 4A. Vào Ca ---
 4.1  [OK] Bấm "VÀO CA" → hiện "ĐANG TRONG CA" + giờ vào
 4.2  [] Bấm "VÀO CA" khi đang có ca mở → báo lỗi (tôi chưa hiểu trường hợp này)
-4.3  [OK] Vào ca từ IP đúng (WiFi trung tâm) → OK
-4.4  [OK] Vào ca từ IP sai (4G / WiFi khác) → bị chặn
-4.5  [OK] Vào ca khi chưa cấu hình IP (allowedIP trống) → OK (cho phép tất cả)
+4.3  [ ] [NỘI BỘ] GPS trong radius cơ sở → Vào ca OK; UI không nhắc GPS
+4.4  [ ] [NỘI BỘ] GPS ngoài radius cơ sở → bị chặn bằng đúng câu IP/Wifi
+4.5  [ ] [NỘI BỘ] GPS bị từ chối/timeout → không bypass; chỉ hiện câu IP/Wifi
+4.5a [ ] allowedIP/DDNS khớp hoặc enableIPCheck thay đổi → vẫn không bypass GPS
 
 --- 4B. Ra Ca ---
 4.6  [OK] Bấm "RA CA" → hiện "BẮT ĐẦU CA MỚI"
@@ -192,9 +193,9 @@ PHẦN 7: HỆ THỐNG (Admin only)
 
 7.1 [OK] Trang hiện cấu hình hiện tại (tên công ty, IP cho phép)
 7.2 [OK] Sửa tên công ty → Lưu → hiện đúng
-7.3 [OK] Thêm IP vào danh sách → Lưu → chấm công chỉ từ IP đó
+7.3 [OK] Thêm IP vào danh sách → Lưu lớp cấu hình/hiển thị; không đổi cổng GPS thật
 7.4 [OK] Bấm "Xem IP hiện tại" → hiện IP public đúng
-7.5 [OK] Bỏ trống IP → Lưu → chấm công từ mọi nơi
+7.5 [OK] Bỏ trống IP → Lưu; không vô hiệu hóa cổng GPS thật
 
 =====================================================
 PHẦN 8: DASHBOARD ADMIN

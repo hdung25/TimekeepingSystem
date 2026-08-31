@@ -78,15 +78,15 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v139-attendance-network-20260831/);
+assert.match(serviceWorker, /tdt-chamcong-v140-attendance-policy-20260831/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /report\.js\?v=20260831-attendance-network-v1/);
+assert.match(serviceWorker, /report\.js\?v=20260831-scheduler-hd-v2/);
 assert.match(serviceWorker, /lich-van-phong\.html/);
-assert.match(chamCong, /db-service\.js\?v=20260831-attendance-network-v1/);
-assert.match(chamCong, /main\.js\?v=20260831-attendance-network-v1/);
-assert.match(chamCong, /timekeeping\.js\?v=20260831-attendance-network-v1/);
-assert.match(serviceWorker, /db-service\.js\?v=20260831-attendance-network-v1/);
-assert.match(serviceWorker, /timekeeping\.js\?v=20260831-attendance-network-v1/);
+assert.match(chamCong, /db-service\.js\?v=20260831-attendance-policy-v2/);
+assert.match(chamCong, /main\.js\?v=20260831-attendance-policy-v2/);
+assert.match(chamCong, /timekeeping\.js\?v=20260831-attendance-policy-v2/);
+assert.match(serviceWorker, /db-service\.js\?v=20260831-attendance-policy-v2/);
+assert.match(serviceWorker, /timekeeping\.js\?v=20260831-attendance-policy-v2/);
 assert.match(serviceWorker, /url\.origin !== self\.location\.origin/,
   'service worker must not cache public-IP or DNS responses');
 

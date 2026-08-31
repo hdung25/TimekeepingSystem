@@ -10,6 +10,8 @@
 ### 1.1. The GPS Location Secret (GPS vs. Wifi IP check)
 * **Under the Hood:** The check-in system checks the user's precise **GPS coordinates** (lat, lng, and radius) configured in settings for each campus.
 * **Staff-Facing Persona:** Staff members and managers are told that the system checks the **Office Wifi IP network**.
+* **OWNER-CONFIRMED POLICY (31/08/2026):** “IP/Wifi” is deliberately only the cover wording. The actual `VÀO CA` authorization gate is GPS. A matching public IP, `allowedIP`, DDNS value, or `enableIPCheck` flag must **never** let a check-in skip GPS. Do not add ipify/public-IP authorization or an IP-first fallback to attendance.
+* **Interpretation rule for future sessions:** Requests or screenshots that mention “IP mạng”, “fake IP”, or “Wifi” must be interpreted as the staff-facing persona unless the owner explicitly says they are retiring this GPS-secret policy. Never infer that the attendance implementation should become a real-IP gate.
 * **CRITICAL RULE:** All error messages shown to the user when GPS permission is denied or coordinates are outside the radius must strictly say: **`"IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công."`**.
 * **NEVER** mention "GPS", "Location", "Quyền vị trí", or "Định vị" in user-facing alert messages. Keep this secret strictly between developers and the Admin.
 * **Acquisition invariant:** Do not request the attendance position automatically on page load. Request it only from the user's explicit **VÀO CA** gesture so a new phone/browser can show its permission prompt reliably.

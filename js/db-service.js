@@ -211,97 +211,10 @@ function isAssignedToClass(cls, staffId) {
         ((cls && cls.registeredTeachers) || []).some(t => t.id === staffId);
 }
 
-const ATTENDANCE_NETWORK_LOOKUP_TIMEOUT_MS = 6000;
 const LOCATION_CACHE_TTL_MS = 2 * 60 * 1000;
 const ATTENDANCE_LOCATION_PUBLIC_MESSAGE = "IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.";
 const ATTENDANCE_LOCATION_DIAGNOSTIC_COLLECTION = 'attendance_location_events';
 let lastBrowserLocation = null;
-
-function normalizeIPAddress(value) {
-    let ip = String(value || '').trim().toLowerCase();
-    if (ip.startsWith('[') && ip.endsWith(']')) ip = ip.slice(1, -1);
-    if (ip.startsWith('::ffff:')) ip = ip.slice(7);
-    return ip;
-}
-
-function isValidIPAddress(value) {
-    const ip = normalizeIPAddress(value);
-    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) {
-        return ip.split('.').every(part => Number(part) >= 0 && Number(part) <= 255);
-    }
-    return ip.includes(':') && /^[0-9a-f:]+$/.test(ip);
-}
-
-function getConfiguredAttendanceIPs(settings = {}) {
-    return [...new Set(
-        String(settings.allowedIP || '')
-            .split(/[\s,;]+/)
-            .map(normalizeIPAddress)
-            .filter(isValidIPAddress)
-    )];
-}
-
-function normalizeAttendanceDomain(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return '';
-    try {
-        const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
-        return String(url.hostname || '').trim().toLowerCase();
-    } catch (_) {
-        return '';
-    }
-}
-
-function getConfiguredAttendanceDomains(settings = {}) {
-    return [...new Set(
-        ['ddnsCS1', 'ddnsCS2', 'ddnsCS3']
-            .map(key => normalizeAttendanceDomain(settings[key]))
-            .filter(Boolean)
-    )];
-}
-
-async function fetchAttendanceJSON(url) {
-    const controller = typeof AbortController === 'function' ? new AbortController() : null;
-    const timeoutId = typeof setTimeout === 'function'
-        ? setTimeout(() => controller?.abort(), ATTENDANCE_NETWORK_LOOKUP_TIMEOUT_MS)
-        : null;
-    try {
-        const response = await fetch(url, {
-            cache: 'no-store',
-            signal: controller?.signal
-        });
-        if (!response.ok) throw new Error(`HTTP_${response.status}`);
-        return await response.json();
-    } finally {
-        if (timeoutId !== null && typeof clearTimeout === 'function') clearTimeout(timeoutId);
-    }
-}
-
-async function resolveDDNS(domain) {
-    const normalizedDomain = normalizeAttendanceDomain(domain);
-    if (!normalizedDomain) return [];
-    try {
-        const data = await fetchAttendanceJSON(
-            `https://dns.google/resolve?name=${encodeURIComponent(normalizedDomain)}&type=A`
-        );
-        return [...new Set(
-            (Array.isArray(data?.Answer) ? data.Answer : [])
-                .filter(answer => Number(answer?.type) === 1)
-                .map(answer => normalizeIPAddress(answer?.data))
-                .filter(isValidIPAddress)
-        )];
-    } catch (error) {
-        console.warn('[AttendanceNetwork] DDNS lookup unavailable.');
-        return [];
-    }
-}
-
-async function getAttendancePublicIP() {
-    const data = await fetchAttendanceJSON('https://api4.ipify.org?format=json');
-    const ip = normalizeIPAddress(data?.ip);
-    if (!isValidIPAddress(ip)) throw new Error('INVALID_PUBLIC_IP');
-    return ip;
-}
 
 function createAttendanceLocationError(code, cause = null) {
     const error = new Error(ATTENDANCE_LOCATION_PUBLIC_MESSAGE);
@@ -522,49 +435,6 @@ async function assertAttendanceLocationAllowed(settings = {}) {
     }
 
     throw createAttendanceLocationError('OUTSIDE_ALLOWED_RADIUS');
-}
-
-async function assertAttendanceNetworkOrLocationAllowed(settings = {}) {
-    // The switch is the source of truth: when disabled, attendance must not
-    // unexpectedly ask for GPS or block staff. This was the production bug.
-    if (settings.enableIPCheck !== true) return { method: 'disabled' };
-
-    const configuredIPs = getConfiguredAttendanceIPs(settings);
-    const configuredDomains = getConfiguredAttendanceDomains(settings);
-    let networkCode = configuredIPs.length || configuredDomains.length
-        ? 'IP_UNAVAILABLE'
-        : 'IP_NOT_CONFIGURED';
-
-    try {
-        const publicIP = await getAttendancePublicIP();
-        if (configuredIPs.includes(publicIP)) return { method: 'network' };
-
-        const resolvedGroups = await Promise.all(configuredDomains.map(resolveDDNS));
-        const allowedIPs = new Set([
-            ...configuredIPs,
-            ...resolvedGroups.flat().map(normalizeIPAddress).filter(isValidIPAddress)
-        ]);
-        if (allowedIPs.has(publicIP)) return { method: 'network' };
-        networkCode = allowedIPs.size > 0 ? 'IP_MISMATCH' : 'IP_VALIDATOR_UNAVAILABLE';
-    } catch (networkError) {
-        console.warn('[AttendanceNetwork] Public IP lookup unavailable; using GPS fallback.');
-        networkCode = 'IP_UNAVAILABLE';
-    }
-
-    if (getConfiguredGPSCampuses(settings).length === 0) {
-        throw createAttendanceLocationError(networkCode);
-    }
-
-    try {
-        await assertAttendanceLocationAllowed(settings);
-        return { method: 'gps_fallback' };
-    } catch (gpsError) {
-        const gpsCode = String(gpsError?.code || 'GPS_FAILED')
-            .toUpperCase()
-            .replace(/[^A-Z0-9_]/g, '_')
-            .slice(0, 36);
-        throw createAttendanceLocationError(`${networkCode}_${gpsCode}`, gpsError);
-    }
 }
 
 // ===== Authentication profile resolution =====
@@ -2021,7 +1891,8 @@ const DBService = {
 
     prepareAttendanceLocationPermission: async () => {
         const settings = await DBService.getSystemSettings();
-        return assertAttendanceNetworkOrLocationAllowed(settings);
+        if (getConfiguredGPSCampuses(settings).length === 0) return false;
+        return assertAttendanceLocationAllowed(settings);
     },
 
     // Copy/template workflows may create a whole day, but must never replace a
@@ -2163,17 +2034,21 @@ const DBService = {
         const settingsDoc = await db.collection('settings').doc('system').get();
         if (settingsDoc.exists) {
             const settings = settingsDoc.data();
-            // A real campus public IP is the fast path. GPS is requested only
-            // when the IP does not match or cannot be verified.
-            try {
-                await assertAttendanceNetworkOrLocationAllowed(settings);
-            } catch (locationError) {
-                await recordAttendanceLocationFailure(
-                    userId,
-                    locationError?.code || 'UNKNOWN',
-                    'location_gate'
-                );
-                throw locationError;
+            const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
+
+            if (hasGPS) {
+                // GPS is the real attendance gate. The exact Wifi/IP sentence
+                // remains the only staff-facing explanation by policy.
+                try {
+                    await assertAttendanceLocationAllowed(settings);
+                } catch (locationError) {
+                    await recordAttendanceLocationFailure(
+                        userId,
+                        locationError?.code || 'UNKNOWN',
+                        'location_gate'
+                    );
+                    throw locationError;
+                }
             }
         }
 
