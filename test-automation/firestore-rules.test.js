@@ -271,6 +271,72 @@ test('owner can create/update own attendance but cannot mutate another employee'
     await assertFails(deleteDoc(ownRef));
 });
 
+test('legacy cached client can check in safely but cannot inject privileged session fields', async () => {
+    const legacyRef = doc(staffDb, 'attendance_logs', '2026-08-27_staff-1');
+    const firstLegacySession = {
+        id: 1788170400000,
+        start: '2026-08-27T01:00:00.000Z',
+        checkIn: '2026-08-27T01:00:00.000Z',
+        checkOut: null
+    };
+
+    // Pre-v2 tabs/PWAs used Date.now() and exactly these four fields.
+    await assertSucceeds(setDoc(legacyRef, {
+        userId: 'staff-1', name: 'Staff One', date: '2026-08-27',
+        sessions: [firstLegacySession], checkIn: firstLegacySession.checkIn,
+        checkOut: null, lastUpdated: serverTimestamp()
+    }));
+
+    const closedFirstLegacySession = {
+        ...firstLegacySession,
+        checkOut: '2026-08-27T03:00:00.000Z'
+    };
+    await assertSucceeds(updateDoc(legacyRef, {
+        sessions: [closedFirstLegacySession],
+        checkOut: closedFirstLegacySession.checkOut,
+        lastUpdated: serverTimestamp()
+    }));
+
+    const secondLegacySession = {
+        id: 1788184800000,
+        start: '2026-08-27T05:00:00.000Z',
+        checkIn: '2026-08-27T05:00:00.000Z',
+        checkOut: null
+    };
+    await assertSucceeds(updateDoc(legacyRef, {
+        sessions: [closedFirstLegacySession, secondLegacySession],
+        checkIn: secondLegacySession.checkIn,
+        checkOut: null,
+        lastUpdated: serverTimestamp()
+    }));
+
+    const unsafeRef = doc(staffDb, 'attendance_logs', '2026-08-26_staff-1');
+    await assertFails(setDoc(unsafeRef, {
+        userId: 'staff-1', name: 'Staff One', date: '2026-08-26',
+        sessions: [{
+            id: 1788084000000,
+            start: '2026-08-26T01:00:00.000Z',
+            checkIn: '2026-08-26T01:00:00.000Z',
+            checkOut: null,
+            roleRate: 999999,
+            bonus10: true
+        }],
+        checkIn: '2026-08-26T01:00:00.000Z', checkOut: null,
+        lastUpdated: serverTimestamp()
+    }));
+    await assertFails(setDoc(unsafeRef, {
+        userId: 'staff-1', name: 'Staff One', date: '2026-08-26',
+        sessions: [{
+            id: 'numeric-id-required-for-legacy',
+            start: '2026-08-26T01:00:00.000Z',
+            checkIn: '2026-08-26T01:00:00.000Z',
+            checkOut: null
+        }],
+        checkIn: '2026-08-26T01:00:00.000Z', checkOut: null,
+        lastUpdated: serverTimestamp()
+    }));
+});
+
 test('attendance cross-read/write is available only to operational auditors/managers', async () => {
     await assertFails(getDoc(doc(staffDb, 'attendance_logs', '2026-08-31_staff-2')));
     await assertFails(getDocs(collection(staffDb, 'attendance_logs')));

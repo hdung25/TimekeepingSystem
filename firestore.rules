@@ -172,6 +172,23 @@ service cloud.firestore {
         && session.get('checkIn', '') == session.get('start', '')
         && session.get('checkOut', 'not-null') == null;
     }
+    // Grace path for tabs/PWAs still running the pre-v2 attendance payload.
+    // It deliberately accepts only the former four-field open-session shape;
+    // role, rate, bonus, links and every other payroll-affecting field remain
+    // forbidden. New clients must continue to write the explicit v2 schema.
+    function isSafeLegacyNewAttendanceSession(session) {
+      return session is map
+        && session.keys().hasAll(['id', 'start', 'checkIn', 'checkOut'])
+        && session.keys().hasOnly(['id', 'start', 'checkIn', 'checkOut'])
+        && session.get('id', 0) is int
+        && session.get('id', 0) >= 1000000000000
+        && session.get('id', 0) <= 9999999999999
+        && session.get('start', '') is string
+        && session.get('start', '').size() >= 20
+        && session.get('start', '').size() <= 40
+        && session.get('checkIn', '') == session.get('start', '')
+        && session.get('checkOut', 'not-null') == null;
+    }
     function keepsAttendanceSessionFinancialFields(oldSession, newSession, dateKey) {
       return oldSession is map
         && newSession is map
@@ -254,8 +271,11 @@ service cloud.firestore {
             && addedSessions.size() == 1
             && removedSessions.size() == 0
             && addedSessions[0] == newSessions[newSessions.size() - 1]
-            && isSafeNewAttendanceSession(
-              addedSessions[0], request.resource.data.get('date', '')
+            && (
+              isSafeNewAttendanceSession(
+                addedSessions[0], request.resource.data.get('date', '')
+              )
+              || isSafeLegacyNewAttendanceSession(addedSessions[0])
             )
             && request.resource.data.get('checkIn', '') == addedSessions[0].get('checkIn', '')
             && request.resource.data.get('checkOut', 'not-null') == null
@@ -378,9 +398,14 @@ service cloud.firestore {
         ])
         && request.resource.data.get('sessions', []) is list
         && request.resource.data.get('sessions', []).size() == 1
-        && isSafeNewAttendanceSession(
-          request.resource.data.get('sessions', [])[0],
-          request.resource.data.get('date', '')
+        && (
+          isSafeNewAttendanceSession(
+            request.resource.data.get('sessions', [])[0],
+            request.resource.data.get('date', '')
+          )
+          || isSafeLegacyNewAttendanceSession(
+            request.resource.data.get('sessions', [])[0]
+          )
         )
         && request.resource.data.get('checkIn', '')
           == request.resource.data.get('sessions', [])[0].get('checkIn', '')

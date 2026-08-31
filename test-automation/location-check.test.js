@@ -9,7 +9,7 @@ const timekeepingSource = fs.readFileSync(path.join(root, 'js', 'timekeeping.js'
 const mainSource = fs.readFileSync(path.join(root, 'js', 'main.js'), 'utf8');
 const uiSource = fs.readFileSync(path.join(root, 'js', 'ui-service.js'), 'utf8');
 
-const start = dbSource.indexOf('const LOCATION_CACHE_TTL_MS');
+const start = dbSource.indexOf('const ATTENDANCE_NETWORK_LOOKUP_TIMEOUT_MS');
 const end = dbSource.indexOf('\nconst DBService =', start);
 assert.ok(start >= 0 && end > start, 'không tìm thấy khối xử lý vị trí chấm công');
 const locationSource = dbSource.slice(start, end);
@@ -18,7 +18,7 @@ function makePosition(latitude, longitude, accuracy = 20) {
     return { coords: { latitude, longitude, accuracy } };
 }
 
-function loadHooks(responses) {
+function loadHooks(responses, fetchImpl = async () => { throw new Error('Unexpected fetch'); }) {
     const calls = [];
     const navigator = {
         geolocation: {
@@ -37,15 +37,126 @@ function loadHooks(responses) {
             }
         }
     };
-    const context = { console, navigator, window: {}, Number, Math, Date, Promise, queueMicrotask };
+    const context = {
+        console, navigator, window: {}, Number, Math, Date, Promise, queueMicrotask,
+        fetch: fetchImpl, AbortController, URL, setTimeout, clearTimeout
+    };
     vm.createContext(context);
-    vm.runInContext(`${locationSource}\n;globalThis.hooks = { getConfiguredGPSCampuses, assertAttendanceLocationAllowed, ATTENDANCE_LOCATION_PUBLIC_MESSAGE };`, context);
+    vm.runInContext(`${locationSource}\n;globalThis.hooks = {
+        getConfiguredAttendanceIPs, getConfiguredAttendanceDomains,
+        getConfiguredGPSCampuses, assertAttendanceLocationAllowed,
+        assertAttendanceNetworkOrLocationAllowed, ATTENDANCE_LOCATION_PUBLIC_MESSAGE
+    };`, context);
     return { hooks: context.hooks, calls };
 }
 
 const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
 
 (async () => {
+    {
+        let fetchCalls = 0;
+        const { hooks, calls } = loadHooks([], async () => {
+            fetchCalls += 1;
+            throw new Error('network gate must be disabled');
+        });
+        const result = await hooks.assertAttendanceNetworkOrLocationAllowed({
+            enableIPCheck: false,
+            allowedIP: '203.0.113.10',
+            ...settings
+        });
+        assert.equal(result.method, 'disabled');
+        assert.equal(fetchCalls, 0, 'tắt kiểm tra IP thì không gọi dịch vụ IP');
+        assert.equal(calls.length, 0, 'tắt kiểm tra IP thì không tự xin GPS');
+    }
+
+    {
+        let fetchCalls = 0;
+        const { hooks, calls } = loadHooks([], async url => {
+            fetchCalls += 1;
+            assert.match(String(url), /api4\.ipify\.org/);
+            return { ok: true, json: async () => ({ ip: '203.0.113.10' }) };
+        });
+        const result = await hooks.assertAttendanceNetworkOrLocationAllowed({
+            enableIPCheck: true,
+            allowedIP: '198.51.100.7, 203.0.113.10',
+            ...settings
+        });
+        assert.equal(result.method, 'network');
+        assert.equal(fetchCalls, 1);
+        assert.equal(calls.length, 0, 'IP thật khớp phải đi thẳng, không xin GPS');
+    }
+
+    {
+        const { hooks, calls } = loadHooks(
+            [makePosition(10.0001, 106.0001, 15)],
+            async () => ({ ok: true, json: async () => ({ ip: '198.51.100.90' }) })
+        );
+        const result = await hooks.assertAttendanceNetworkOrLocationAllowed({
+            enableIPCheck: true,
+            allowedIP: '203.0.113.10',
+            ...settings
+        });
+        assert.equal(result.method, 'gps_fallback');
+        assert.equal(calls.length, 1, 'IP không khớp mới dùng GPS dự phòng');
+    }
+
+    {
+        const { hooks, calls } = loadHooks(
+            [makePosition(10.0001, 106.0001, 15)],
+            async () => { throw new Error('provider unavailable'); }
+        );
+        const result = await hooks.assertAttendanceNetworkOrLocationAllowed({
+            enableIPCheck: true,
+            allowedIP: '203.0.113.10',
+            ...settings
+        });
+        assert.equal(result.method, 'gps_fallback');
+        assert.equal(calls.length, 1, 'dịch vụ IP lỗi phải chuyển sang GPS thay vì chặn nhầm');
+    }
+
+    {
+        const { hooks, calls } = loadHooks(
+            [{ error: 1 }],
+            async () => ({ ok: true, json: async () => ({ ip: '198.51.100.90' }) })
+        );
+        await assert.rejects(
+            hooks.assertAttendanceNetworkOrLocationAllowed({
+                enableIPCheck: true,
+                allowedIP: '203.0.113.10',
+                ...settings
+            }),
+            error => error.name === 'AttendanceLocationError' &&
+                error.code === 'IP_MISMATCH_PERMISSION_DENIED' &&
+                error.message === hooks.ATTENDANCE_LOCATION_PUBLIC_MESSAGE
+        );
+        assert.equal(calls.length, 1, 'chỉ chặn khi IP và GPS đều không xác minh được');
+    }
+
+    {
+        let fetchCalls = 0;
+        const { hooks, calls } = loadHooks([], async url => {
+            fetchCalls += 1;
+            if (String(url).includes('api4.ipify.org')) {
+                return { ok: true, json: async () => ({ ip: '203.0.113.10' }) };
+            }
+            if (String(url).includes('dns.google')) {
+                return {
+                    ok: true,
+                    json: async () => ({ Answer: [{ type: 1, data: '203.0.113.10' }] })
+                };
+            }
+            throw new Error('unexpected URL');
+        });
+        const result = await hooks.assertAttendanceNetworkOrLocationAllowed({
+            enableIPCheck: true,
+            ddnsCS1: 'campus.example.test',
+            ...settings
+        });
+        assert.equal(result.method, 'network');
+        assert.equal(fetchCalls, 2);
+        assert.equal(calls.length, 0, 'DDNS khớp cũng không xin GPS');
+    }
+
     {
         const { hooks } = loadHooks([]);
         const configured = hooks.getConfiguredGPSCampuses({
