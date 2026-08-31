@@ -677,3 +677,20 @@ là bảng 4 cột với nhãn dọc như cũ.
   `id,start,checkIn,checkOut`, ID số kiểu `Date.now()`, giờ vào bằng giờ bắt đầu và `checkOut=null`.
   Mọi trường role/rate/bonus/link lạ vẫn bị từ chối. Đây là sửa lỗi `Missing or insufficient permissions`,
   không thay đổi policy GPS và không nới quyền dữ liệu lương.
+
+### 31/08/2026 — Sửa dứt điểm lần VÀO CA đầu tiên + chờ tín hiệu vị trí ổn định
+- Production trace xác nhận `checkInPersonal()` đọc document hôm nay và hôm trước trong transaction
+  trước khi document hôm nay được tạo. Rule cũ chỉ chứng minh chủ sở hữu bằng `resource.data.userId`,
+  nên GET một document chưa tồn tại bị `PERMISSION_DENIED` và transaction dừng trước bước create.
+- `attendance_logs` tách `allow get`/`allow list`: nhân viên chỉ được GET một đường dẫn **chưa tồn tại**
+  đúng mẫu `YYYY-MM-DD_<mapped userId>` của mình; list vẫn kiểm tra `resource.data.userId`. ID sai mẫu,
+  đường dẫn người khác và document hiện hữu có dữ liệu chủ sở hữu sai đều bị chặn.
+- Chuỗi lấy vị trí không còn bắn nhiều `getCurrentPosition` fresh liên tiếp. Sau precise/approximate,
+  hệ thống chỉ mở một `watchPosition` fresh hữu hạn 26 giây (`maximumAge: 0`), bỏ qua timeout/unavailable
+  tạm thời, chờ điểm sau vượt qua đúng bán kính hiện hành, dừng ngay khi quyền bị từ chối và luôn dọn
+  timer/watcher. Điểm ngoài vùng đầu tiên có thể được thay bằng điểm chính xác hơn; không nới radius.
+- Sửa ánh xạ lỗi fallback để `PERMISSION_DENIED` không bị đổi nhầm thành `POSITION_UNAVAILABLE`.
+  Thông báo nhân viên tiếp tục chỉ là câu IP/Wifi bắt buộc; diagnostic không lưu tọa độ/accuracy/distance.
+- Regression: 34/34 nhóm ứng dụng, 22/22 tình huống Firestore Rules và browser fixture đều đạt.
+  PWA cache/version: `20260831-attendance-recovery-v3`, cache
+  `tdt-chamcong-v141-attendance-recovery-20260831`.

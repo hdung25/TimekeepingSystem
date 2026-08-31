@@ -212,6 +212,7 @@ function isAssignedToClass(cls, staffId) {
 }
 
 const LOCATION_CACHE_TTL_MS = 2 * 60 * 1000;
+const ATTENDANCE_LOCATION_RECOVERY_TIMEOUT_MS = 26000;
 const ATTENDANCE_LOCATION_PUBLIC_MESSAGE = "IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.";
 const ATTENDANCE_LOCATION_DIAGNOSTIC_COLLECTION = 'attendance_location_events';
 let lastBrowserLocation = null;
@@ -289,6 +290,20 @@ async function recordAttendanceLocationFailure(userId, code, stage = 'location_g
     }
 }
 
+function mapBrowserLocationError(error) {
+    const numericCode = Number(error?.code);
+    if (numericCode === 1) return 'PERMISSION_DENIED';
+    if (numericCode === 3) return 'TIMEOUT';
+    return 'POSITION_UNAVAILABLE';
+}
+
+function cacheBrowserLocation(coords) {
+    lastBrowserLocation = {
+        coords,
+        timestamp: Date.now()
+    };
+}
+
 function getBrowserLocation(options = {}) {
     return new Promise((resolve, reject) => {
         const forceFresh = options.forceFresh === true;
@@ -310,10 +325,7 @@ function getBrowserLocation(options = {}) {
             return;
         }
         const handleSuccess = position => {
-            lastBrowserLocation = {
-                coords: position.coords,
-                timestamp: Date.now()
-            };
+            cacheBrowserLocation(position.coords);
             resolve(position.coords);
         };
 
@@ -322,15 +334,13 @@ function getBrowserLocation(options = {}) {
             error => {
                 if (
                     options.retryApproximate !== false &&
-                    error.code !== error.PERMISSION_DENIED
+                    mapBrowserLocationError(error) !== 'PERMISSION_DENIED'
                 ) {
                     navigator.geolocation.getCurrentPosition(
                         handleSuccess,
                         fallbackError => {
                             const finalError = new Error('Unable to acquire a browser location fix.');
-                            finalError.locationCode = fallbackError?.code === fallbackError?.TIMEOUT
-                                ? 'TIMEOUT'
-                                : 'POSITION_UNAVAILABLE';
+                            finalError.locationCode = mapBrowserLocationError(fallbackError);
                             reject(finalError);
                         },
                         { enableHighAccuracy: false, timeout: 12000, maximumAge }
@@ -339,9 +349,7 @@ function getBrowserLocation(options = {}) {
                 }
 
                 const finalError = new Error('Unable to acquire a browser location fix.');
-                finalError.locationCode = error.code === error.PERMISSION_DENIED
-                    ? 'PERMISSION_DENIED'
-                    : (error.code === error.TIMEOUT ? 'TIMEOUT' : 'POSITION_UNAVAILABLE');
+                finalError.locationCode = mapBrowserLocationError(error);
                 reject(finalError);
             },
             { enableHighAccuracy: true, timeout: options.timeout ?? 15000, maximumAge }
@@ -395,6 +403,113 @@ function isAttendanceLocationAllowed(coords, campuses) {
     });
 }
 
+// A single bounded fresh watch gives mobile/desktop providers time to warm up
+// and improve a coarse first point. It never changes the configured radius and
+// never resolves until a point passes the same campus check used below.
+function getBrowserLocationFromWatch(campuses, options = {}) {
+    return new Promise((resolve, reject) => {
+        const geolocation = typeof window !== 'undefined' ? navigator.geolocation : null;
+        if (!geolocation || typeof geolocation.watchPosition !== 'function') {
+            const error = new Error('Geolocation watch is unavailable.');
+            error.locationCode = 'UNSUPPORTED';
+            reject(error);
+            return;
+        }
+
+        const deadlineMs = Number.isFinite(Number(options.timeout))
+            ? Math.max(1, Number(options.timeout))
+            : ATTENDANCE_LOCATION_RECOVERY_TIMEOUT_MS;
+        let watchId = null;
+        let deadlineId = null;
+        let settled = false;
+        let sawPosition = false;
+        let lastTransientCode = 'TIMEOUT';
+
+        const cleanup = () => {
+            if (deadlineId !== null) {
+                clearTimeout(deadlineId);
+                deadlineId = null;
+            }
+            if (watchId !== null && watchId !== undefined) {
+                try {
+                    geolocation.clearWatch(watchId);
+                } catch (_) {
+                    // Cleanup must never replace the attendance result.
+                }
+                watchId = null;
+            }
+        };
+        const finishWithError = (locationCode, cause = null) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            const error = new Error('Unable to acquire an allowed browser location fix.');
+            error.locationCode = locationCode;
+            if (cause) error.cause = cause;
+            reject(error);
+        };
+        const finishWithPosition = coords => {
+            if (settled) return;
+            settled = true;
+            cacheBrowserLocation(coords);
+            cleanup();
+            resolve(coords);
+        };
+
+        deadlineId = setTimeout(() => {
+            finishWithError(sawPosition ? 'OUTSIDE_ALLOWED_RADIUS' : lastTransientCode);
+        }, deadlineMs);
+
+        try {
+            const assignedWatchId = geolocation.watchPosition(
+                position => {
+                    if (settled) return;
+                    const coords = position?.coords;
+                    if (
+                        !coords ||
+                        !Number.isFinite(Number(coords.latitude)) ||
+                        !Number.isFinite(Number(coords.longitude))
+                    ) {
+                        lastTransientCode = 'POSITION_UNAVAILABLE';
+                        return;
+                    }
+                    sawPosition = true;
+                    if (isAttendanceLocationAllowed(coords, campuses)) {
+                        finishWithPosition(coords);
+                    }
+                },
+                error => {
+                    if (settled) return;
+                    const locationCode = mapBrowserLocationError(error);
+                    if (locationCode === 'PERMISSION_DENIED') {
+                        finishWithError(locationCode, error);
+                        return;
+                    }
+                    lastTransientCode = locationCode;
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: Math.min(20000, deadlineMs)
+                }
+            );
+            watchId = assignedWatchId;
+            // Defensive cleanup for non-standard mocks/providers that invoke a
+            // callback synchronously before returning the watcher ID.
+            if (settled && watchId !== null && watchId !== undefined) {
+                try {
+                    geolocation.clearWatch(watchId);
+                } catch (_) {
+                    // Cleanup must never replace the attendance result.
+                }
+                watchId = null;
+            }
+        } catch (error) {
+            finishWithError(mapBrowserLocationError(error), error);
+        }
+    });
+}
+
 async function assertAttendanceLocationAllowed(settings = {}) {
     const campuses = getConfiguredGPSCampuses(settings);
     if (campuses.length === 0) return false;
@@ -409,29 +524,37 @@ async function assertAttendanceLocationAllowed(settings = {}) {
             throw createAttendanceLocationError(initialCode, e);
         }
 
-        // Some Android/WebView devices need a completely new provider request
-        // after the first precise + approximate cycle reports unavailable/timeout.
+        // Some providers report unavailable while their first fix is warming up.
+        // Wait through one bounded, fresh watcher instead of firing more one-shot
+        // requests back-to-back.
         lastBrowserLocation = null;
         try {
-            firstCoords = await getBrowserLocation({ forceFresh: true, timeout: 20000 });
+            await getBrowserLocationFromWatch(campuses);
+            return true;
         } catch (freshError) {
             console.warn('[AttendanceLocation] Recovery browser fix failed:', freshError?.locationCode || 'UNKNOWN');
-            throw createAttendanceLocationError(`RECOVERY_${freshError?.locationCode || 'ACQUIRE_FAILED'}`, freshError);
+            const freshCode = freshError?.locationCode || 'ACQUIRE_FAILED';
+            throw createAttendanceLocationError(
+                freshCode === 'OUTSIDE_ALLOWED_RADIUS' ? freshCode : `RECOVERY_${freshCode}`,
+                freshError
+            );
         }
     }
 
     if (isAttendanceLocationAllowed(firstCoords, campuses)) return true;
 
-    // A browser may return a cached/coarse position when a device has just
-    // arrived at the campus. Retry once with maximumAge=0 before refusing the
-    // write. This keeps the radius rule strict while avoiding false negatives.
+    // A browser may first return a cached/coarse position. One bounded fresh
+    // watcher can wait for a better point without weakening the campus radius.
     lastBrowserLocation = null;
     try {
-        const freshCoords = await getBrowserLocation({ forceFresh: true, timeout: 20000 });
-        if (isAttendanceLocationAllowed(freshCoords, campuses)) return true;
+        await getBrowserLocationFromWatch(campuses);
+        return true;
     } catch (e) {
         console.warn('[AttendanceLocation] Fresh browser fix failed:', e?.locationCode || 'UNKNOWN');
-        throw createAttendanceLocationError(`FRESH_${e?.locationCode || 'ACQUIRE_FAILED'}`, e);
+        const freshCode = e?.locationCode || 'ACQUIRE_FAILED';
+        if (freshCode !== 'OUTSIDE_ALLOWED_RADIUS') {
+            throw createAttendanceLocationError(`FRESH_${freshCode}`, e);
+        }
     }
 
     throw createAttendanceLocationError('OUTSIDE_ALLOWED_RADIUS');

@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260831-attendance-policy-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260831-attendance-recovery-v3">
     <style>
         .page-header {
             margin-bottom: 2rem;
@@ -62,9 +62,9 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js?v=20260831-attendance-policy-v2'></script>
-    <script src='js/teacher-shift-state.js?v=20260831-attendance-policy-v2'></script>
-    <script src='js/db-service.js?v=20260831-attendance-policy-v2'></script>
+    <script src='js/firebase-config.js?v=20260831-attendance-recovery-v3'></script>
+    <script src='js/teacher-shift-state.js?v=20260831-attendance-recovery-v3'></script>
+    <script src='js/db-service.js?v=20260831-attendance-recovery-v3'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -148,9 +148,9 @@
         document.getElementById('today-date-display').innerText = `Thứ ${d.getDay() === 0 ? 'CN' : 'T' + (d.getDay() + 1)}, ngày ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
     </script>
     <script src="js/ui-service.js?v=20260829-location-diagnostics-v3"></script>
-    <script src="js/main.js?v=20260831-attendance-policy-v2"></script>
-    <script src="js/evaluation-service.js?v=20260831-attendance-policy-v2"></script>
-    <script src="js/timekeeping.js?v=20260831-attendance-policy-v2"></script>
+    <script src="js/main.js?v=20260831-attendance-recovery-v3"></script>
+    <script src="js/evaluation-service.js?v=20260831-attendance-recovery-v3"></script>
+    <script src="js/timekeeping.js?v=20260831-attendance-recovery-v3"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" })}</script>
 
     <script>

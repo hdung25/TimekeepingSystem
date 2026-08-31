@@ -28,8 +28,12 @@ for (const required of [
 
 assert.match(db, /!\['TIMEOUT', 'POSITION_UNAVAILABLE'\]\.includes\(initialCode\)/,
     'chỉ được chạy chu kỳ phục hồi cho timeout hoặc position unavailable');
-assert.match(db, /getBrowserLocation\(\{ forceFresh: true, timeout: 20000 \}\)/,
-    'timeout/unavailable phải có đúng một chu kỳ fresh cuối');
+assert.match(db, /getBrowserLocationFromWatch\(campuses\)/,
+    'timeout/unavailable phải có đúng một watcher fresh cuối');
+assert.match(db, /maximumAge:\s*0/,
+    'watcher phục hồi không được dùng vị trí cache');
+assert.match(db, /geolocation\.clearWatch\(watchId\)/,
+    'watcher phải luôn có đường dọn tài nguyên');
 
 assert.match(rules, /match \/attendance_location_events\/\{eventId\}/);
 assert.match(rules, /request\.resource\.data\.authUid == request\.auth\.uid/);

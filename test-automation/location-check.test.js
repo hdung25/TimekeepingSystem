@@ -18,13 +18,18 @@ function makePosition(latitude, longitude, accuracy = 20) {
     return { coords: { latitude, longitude, accuracy } };
 }
 
-function loadHooks(responses) {
+function loadHooks(responses = [], watchResponses = [], options = {}) {
     const calls = [];
+    const watchCalls = [];
+    const clearedWatchIds = [];
+    let nextWatchId = 1;
+    const currentResponses = [...responses];
+    const watchedResponses = [...watchResponses];
     const navigator = {
         geolocation: {
             getCurrentPosition(success, failure, options) {
                 calls.push(options);
-                const next = responses.shift();
+                const next = currentResponses.shift();
                 queueMicrotask(() => {
                     if (next?.error) failure({
                         code: next.error,
@@ -34,13 +39,48 @@ function loadHooks(responses) {
                     });
                     else success(next);
                 });
+            },
+            watchPosition(success, failure, watchOptions) {
+                watchCalls.push(watchOptions);
+                const watchId = nextWatchId++;
+                const emitNext = () => {
+                    const next = watchedResponses.shift();
+                    if (!next) return;
+                    queueMicrotask(() => {
+                        if (next.error) failure({
+                            code: next.error,
+                            PERMISSION_DENIED: 1,
+                            POSITION_UNAVAILABLE: 2,
+                            TIMEOUT: 3
+                        });
+                        else success(next);
+                        emitNext();
+                    });
+                };
+                emitNext();
+                return watchId;
+            },
+            clearWatch(watchId) {
+                clearedWatchIds.push(watchId);
             }
         }
     };
-    const context = { console, navigator, window: {}, Number, Math, Date, Promise, queueMicrotask };
+    const maxTimerMs = options.maxTimerMs ?? 30;
+    const context = {
+        console,
+        navigator,
+        window: {},
+        Number,
+        Math,
+        Date,
+        Promise,
+        queueMicrotask,
+        setTimeout: (callback, delay) => setTimeout(callback, Math.min(delay, maxTimerMs)),
+        clearTimeout
+    };
     vm.createContext(context);
-    vm.runInContext(`${locationSource}\n;globalThis.hooks = { getConfiguredGPSCampuses, assertAttendanceLocationAllowed, ATTENDANCE_LOCATION_PUBLIC_MESSAGE };`, context);
-    return { hooks: context.hooks, calls };
+    vm.runInContext(`${locationSource}\n;globalThis.hooks = { getConfiguredGPSCampuses, getBrowserLocationFromWatch, assertAttendanceLocationAllowed, ATTENDANCE_LOCATION_PUBLIC_MESSAGE };`, context);
+    return { hooks: context.hooks, calls, watchCalls, clearedWatchIds };
 }
 
 const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
@@ -58,14 +98,18 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     }
 
     {
-        const { hooks, calls } = loadHooks([
-            makePosition(11, 107, 100),
+        const { hooks, calls, watchCalls, clearedWatchIds } = loadHooks([
+            makePosition(11, 107, 100)
+        ], [
+            makePosition(11, 107, 40),
             makePosition(10.0001, 106.0001, 15)
         ]);
         assert.equal(await hooks.assertAttendanceLocationAllowed(settings), true);
-        assert.equal(calls.length, 2, 'vị trí cache nằm ngoài vùng phải lấy lại một điểm mới');
+        assert.equal(calls.length, 1, 'điểm đầu nằm ngoài vùng chỉ được mở một watcher phục hồi');
+        assert.equal(watchCalls.length, 1);
         assert.equal(calls[0].maximumAge, 120000);
-        assert.equal(calls[1].maximumAge, 0, 'lần xác minh lại không được dùng cache của thiết bị');
+        assert.equal(watchCalls[0].maximumAge, 0, 'watcher xác minh lại không được dùng cache của thiết bị');
+        assert.equal(clearedWatchIds.length, 1, 'watcher phải được dọn ngay khi có điểm hợp lệ');
     }
 
     {
@@ -75,19 +119,36 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     }
 
     {
-        const { hooks, calls } = loadHooks([
+        const { hooks, calls, watchCalls, clearedWatchIds } = loadHooks([
             { error: 3 },
+            { error: 2 }
+        ], [
             { error: 2 },
             makePosition(10.0001, 106.0001, 15)
         ]);
         assert.equal(await hooks.assertAttendanceLocationAllowed(settings), true);
-        assert.equal(calls.length, 3,
-            'timeout + approximate unavailable phải chạy đúng một chu kỳ fresh cuối');
-        assert.equal(calls[2].maximumAge, 0, 'chu kỳ phục hồi cuối không được dùng cache');
+        assert.equal(calls.length, 2,
+            'timeout + approximate unavailable không được bắn thêm one-shot liên tiếp');
+        assert.equal(watchCalls.length, 1, 'phải chạy đúng một watcher fresh cuối');
+        assert.equal(watchCalls[0].maximumAge, 0, 'watcher phục hồi cuối không được dùng cache');
+        assert.equal(clearedWatchIds.length, 1);
     }
 
     {
-        const { hooks, calls } = loadHooks([{ error: 1 }]);
+        const { hooks, calls, watchCalls } = loadHooks([
+            { error: 3 },
+            { error: 1 }
+        ]);
+        await assert.rejects(
+            hooks.assertAttendanceLocationAllowed(settings),
+            error => error.name === 'AttendanceLocationError' && error.code === 'PERMISSION_DENIED'
+        );
+        assert.equal(calls.length, 2, 'fallback phải bảo toàn mã từ chối quyền');
+        assert.equal(watchCalls.length, 0, 'từ chối quyền không được mở watcher phục hồi');
+    }
+
+    {
+        const { hooks, calls, watchCalls } = loadHooks([{ error: 1 }]);
         await assert.rejects(
             hooks.assertAttendanceLocationAllowed(settings),
             error => error.name === 'AttendanceLocationError' &&
@@ -95,11 +156,13 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
                 error.message === hooks.ATTENDANCE_LOCATION_PUBLIC_MESSAGE
         );
         assert.equal(calls.length, 1, 'bị từ chối quyền không được lặp popup xin quyền');
+        assert.equal(watchCalls.length, 0);
     }
 
     {
-        const { hooks, calls } = loadHooks([
-            makePosition(11, 107, 10),
+        const { hooks, calls, watchCalls, clearedWatchIds } = loadHooks([
+            makePosition(11, 107, 10)
+        ], [
             makePosition(11, 107, 10)
         ]);
         await assert.rejects(
@@ -113,8 +176,32 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
                 error.code === 'OUTSIDE_ALLOWED_RADIUS' &&
                 error.message === hooks.ATTENDANCE_LOCATION_PUBLIC_MESSAGE
         );
-        assert.equal(calls.length, 2,
+        assert.equal(calls.length, 1,
             'IP/DDNS dù được cấu hình cũng không được bypass GPS nằm ngoài cơ sở');
+        assert.equal(watchCalls.length, 1);
+        assert.equal(clearedWatchIds.length, 1, 'watcher ngoài vùng cũng phải được dọn khi hết hạn');
+    }
+
+    {
+        const { hooks, watchCalls, clearedWatchIds } = loadHooks([], [{ error: 1 }]);
+        const campuses = hooks.getConfiguredGPSCampuses(settings);
+        await assert.rejects(
+            hooks.getBrowserLocationFromWatch(campuses, { timeout: 20 }),
+            error => error.locationCode === 'PERMISSION_DENIED'
+        );
+        assert.equal(watchCalls.length, 1);
+        assert.equal(clearedWatchIds.length, 1, 'watcher phải dọn ngay khi quyền bị từ chối');
+    }
+
+    {
+        const { hooks, watchCalls, clearedWatchIds } = loadHooks([], [], { maxTimerMs: 10 });
+        const campuses = hooks.getConfiguredGPSCampuses(settings);
+        await assert.rejects(
+            hooks.getBrowserLocationFromWatch(campuses, { timeout: 5 }),
+            error => error.locationCode === 'TIMEOUT'
+        );
+        assert.equal(watchCalls.length, 1);
+        assert.equal(clearedWatchIds.length, 1, 'watcher phải dọn khi chạm deadline');
     }
 
     assert.equal(

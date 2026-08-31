@@ -14,6 +14,7 @@ const {
     getDoc,
     getDocs,
     query,
+    runTransaction,
     serverTimestamp,
     setDoc,
     updateDoc,
@@ -62,6 +63,9 @@ async function seed(testEnv) {
         await setDoc(doc(db, 'attendance_logs', '2026-08-29_staff-1'), {
             userId: 'staff-1', name: 'Staff One', date: '2026-08-29',
             checkIn: '2026-08-29T01:00:00.000Z', checkOut: null
+        });
+        await setDoc(doc(db, 'attendance_logs', '2026-08-26_staff-1'), {
+            userId: 'staff-2', name: 'Staff Two', date: '2026-08-26', sessions: []
         });
         const busyDaySessions = Array.from({ length: 6 }, (_, index) => ({
             id: `busy-${index + 1}`, anchorDateKey: '2026-08-28',
@@ -178,6 +182,41 @@ test('credential documents are unreadable to staff but support safe own rotation
         staffId: 'staff-1', password: 'rotated-password', updatedAt: serverTimestamp()
     }, { merge: true }));
     await assertSucceeds(getDoc(doc(adminDb, 'user_credentials', 'staff-1')));
+});
+
+test('owner can read a canonical missing attendance document before first check-in', async () => {
+    const todayRef = doc(staffDb, 'attendance_logs', '2026-09-01_staff-1');
+    const previousRef = doc(staffDb, 'attendance_logs', '2026-08-31_staff-1');
+    const missingOwnSnapshot = await assertSucceeds(getDoc(todayRef));
+    if (missingOwnSnapshot.exists()) {
+        throw new Error('The attendance fixture must remain absent before first check-in');
+    }
+
+    await assertFails(getDoc(doc(staffDb, 'attendance_logs', '2026-09-01_staff-2')));
+    await assertFails(getDoc(doc(staffDb, 'attendance_logs', 'not-a-date_staff-1')));
+    await assertFails(getDoc(doc(staffDb, 'attendance_logs', '2026-08-26_staff-1')));
+
+    const openSession = {
+        id: 'first-session', anchorDateKey: '2026-09-01', status: 'open', source: 'self',
+        start: '2026-09-01T01:00:00.000Z', checkIn: '2026-09-01T01:00:00.000Z', checkOut: null
+    };
+    await assertSucceeds(runTransaction(staffDb, async transaction => {
+        const todaySnapshot = await transaction.get(todayRef);
+        const previousSnapshot = await transaction.get(previousRef);
+        if (todaySnapshot.exists() || previousSnapshot.exists()) {
+            throw new Error('Both deterministic documents must be absent in this regression');
+        }
+        transaction.set(todayRef, {
+            userId: 'staff-1', name: 'Staff One', date: '2026-09-01',
+            sessions: [openSession], checkIn: openSession.checkIn, checkOut: null,
+            lastUpdated: serverTimestamp()
+        });
+    }));
+
+    await assertSucceeds(getDocs(query(
+        collection(staffDb, 'attendance_logs'), where('userId', '==', 'staff-1')
+    )));
+    await assertFails(getDocs(collection(staffDb, 'attendance_logs')));
 });
 
 test('owner can create/update own attendance but cannot mutate another employee', async () => {

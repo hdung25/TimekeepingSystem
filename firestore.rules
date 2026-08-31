@@ -30,6 +30,16 @@ service cloud.firestore {
     function ownsStaffId(staffId) {
       return isAuthenticated() && getUserId() != '' && staffId == getUserId();
     }
+    // A first check-in reads today's and yesterday's deterministic document IDs
+    // inside a transaction before either document necessarily exists. In that
+    // state resource.data is unavailable, so ownership must be proven from the
+    // canonical document ID instead of from stored data.
+    function isOwnAttendanceLogId(logId) {
+      return isAuthenticated() && getUserId() != ''
+        && getUserId() is string
+        && getUserId().matches('[A-Za-z0-9_-]{1,80}')
+        && logId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + getUserId());
+    }
     function matchesStaffProfileName(staffId, suppliedName) {
       return suppliedName is string
         && suppliedName.size() > 0
@@ -381,8 +391,14 @@ service cloud.firestore {
     // Employees can mutate only their mapped attendance document. Cross-staff
     // edits and deletion are management operations.
     match /attendance_logs/{logId} {
-      allow read: if isAuthenticated()
-        && (ownsStaffId(resource.data.get('userId', '')) || isAdmin() || canAuditAttendance());
+      allow get: if isAuthenticated()
+        && ((isOwnAttendanceLogId(logId)
+            && !exists(/databases/$(database)/documents/attendance_logs/$(logId)))
+          || isAdmin() || canAuditAttendance()
+          || ownsStaffId(resource.data.get('userId', '')));
+      allow list: if isAuthenticated()
+        && (isAdmin() || canAuditAttendance()
+          || ownsStaffId(resource.data.get('userId', '')));
       allow create: if isAuthenticated() && ((
         ownsStaffId(request.resource.data.get('userId', ''))
         && request.resource.data.get('date', '') is string

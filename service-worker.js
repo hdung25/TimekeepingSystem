@@ -1,5 +1,5 @@
-// Service Worker v140 - owner-confirmed attendance policy.
-const CACHE_NAME = 'tdt-chamcong-v140-attendance-policy-20260831';
+// Service Worker v141 - resilient attendance acquisition and first-check-in fix.
+const CACHE_NAME = 'tdt-chamcong-v141-attendance-recovery-20260831';
 
 const STATIC_ASSETS = [
     '/',
@@ -46,13 +46,13 @@ const STATIC_ASSETS = [
     '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
     // cham-cong.html uses a dedicated release token so installed PWAs cannot
     // retain the short-lived attendance-policy regression.
-    '/css/style.css?v=20260831-attendance-policy-v2',
-    '/js/main.js?v=20260831-attendance-policy-v2',
-    '/js/firebase-config.js?v=20260831-attendance-policy-v2',
-    '/js/db-service.js?v=20260831-attendance-policy-v2',
-    '/js/evaluation-service.js?v=20260831-attendance-policy-v2',
-    '/js/teacher-shift-state.js?v=20260831-attendance-policy-v2',
-    '/js/timekeeping.js?v=20260831-attendance-policy-v2',
+    '/css/style.css?v=20260831-attendance-recovery-v3',
+    '/js/main.js?v=20260831-attendance-recovery-v3',
+    '/js/firebase-config.js?v=20260831-attendance-recovery-v3',
+    '/js/db-service.js?v=20260831-attendance-recovery-v3',
+    '/js/evaluation-service.js?v=20260831-attendance-recovery-v3',
+    '/js/teacher-shift-state.js?v=20260831-attendance-recovery-v3',
+    '/js/timekeeping.js?v=20260831-attendance-recovery-v3',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'
