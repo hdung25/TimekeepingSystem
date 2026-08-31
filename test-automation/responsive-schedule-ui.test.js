@@ -21,6 +21,10 @@ assert.match(teacherPage, /\.main-content > header\s*\{\s*flex-direction:\s*colu
     'Mobile page-header stacking must remain scoped to the page content');
 assert.match(teacherPage, /\.teacher-shift-body\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*hidden/,
     'Teacher manager must not force the dialog beyond the viewport');
+assert.match(teacherPage, /\.teacher-shift-header\s*\{[\s\S]*?flex:\s*0 0 auto/,
+    'Teacher manager header must never shrink and clip its title/context at the viewport cap');
+assert.match(teacherPage, /\.teacher-shift-footer\s*\{[\s\S]*?flex:\s*0 0 auto/,
+    'Teacher manager footer must remain stable while the body absorbs constrained height');
 assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.teacher-shift-body\s*\{\s*overflow-y:\s*auto/,
     'Teacher manager content must scroll independently on mobile');
 

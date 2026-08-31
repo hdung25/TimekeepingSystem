@@ -378,6 +378,8 @@
 
         .teacher-shift-header {
             position: relative;
+            /* Keep the full ca title/context visible when the dialog reaches its viewport cap. */
+            flex: 0 0 auto;
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
@@ -968,6 +970,7 @@
         }
 
         .teacher-shift-footer {
+            flex: 0 0 auto;
             display: flex;
             align-items: center;
             justify-content: space-between;
