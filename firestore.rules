@@ -13,6 +13,8 @@ service cloud.firestore {
       );
     }
     function isAdmin() { return hasRole('admin') || hasRole('senior_assistant'); }
+    function isPrimaryAdmin() { return hasRole('admin'); }
+    function isSeniorAssistant() { return hasRole('senior_assistant'); }
     function isCoreAssistant() { return hasRole('assistant'); }
     function isScheduleManager() { return isAdmin() || isCoreAssistant(); }
     // Kept as a named policy boundary because office-role regression tests and
@@ -39,6 +41,20 @@ service cloud.firestore {
         && getUserId() is string
         && getUserId().matches('[A-Za-z0-9_-]{1,80}')
         && logId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + getUserId());
+    }
+    function isSafeSeniorProfileUpdate() {
+      return isSeniorAssistant()
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'id', 'username', 'role', 'roles', 'authUid', 'password'
+        ]) == false;
+    }
+    function isSafeStaffDirectoryProfile(userId) {
+      return request.resource.data.get('id', '') == userId
+        && request.resource.data.keys().hasOnly([
+          'id', 'name', 'displayName', 'username', 'role', 'roles',
+          'specialty', 'specialties', 'branch', 'branches', 'department',
+          'position', 'title', 'isActive', 'active', 'status', 'scheduleColor'
+        ]);
     }
     function matchesStaffProfileName(staffId, suppliedName) {
       return suppliedName is string
@@ -111,6 +127,18 @@ service cloud.firestore {
     function isOwnPendingRequest() {
       return ownsStaffId(request.resource.data.get('staffId', ''))
         && request.resource.data.get('status', '') == 'pending';
+    }
+    function isCanonicalBonus10RequestId(requestId) {
+      return request.resource.data.get('staffId', '') is string
+        && request.resource.data.get('staffId', '').matches('[A-Za-z0-9_-]{1,80}')
+        && request.resource.data.get('dateKey', '') is string
+        && request.resource.data.get('dateKey', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && request.resource.data.get('sessionId', '') is string
+        && request.resource.data.get('sessionId', '').matches('[A-Za-z0-9_-]{1,160}')
+        && requestId == 'b10~'
+          + request.resource.data.get('dateKey', '') + '~'
+          + request.resource.data.get('staffId', '') + '~'
+          + request.resource.data.get('sessionId', '');
     }
     function isOwnScheduleRegistration() {
       return ownsStaffId(request.resource.data.get('userId', ''))
@@ -336,10 +364,13 @@ service cloud.firestore {
     }
 
     // UID-keyed security map: users may read only their own mapping and cannot
-    // write themselves into a privileged role.
+    // write themselves into a privileged role. `senior_assistant` is a broad
+    // operational manager elsewhere, but it must never be able to mint the
+    // literal `admin` role (including by rewriting its own UID mapping).
     match /user_roles/{authUid} {
       allow get: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
-      allow list, create, update, delete: if isAuthenticated() && isAdmin();
+      allow list: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     // Full profiles contain private payroll configuration. Staff can read only
@@ -347,26 +378,27 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isAuthenticated() && (isAdmin() || ownsStaffId(userId));
       allow list: if isAuthenticated() && isAdmin();
-      allow create, update, delete: if isAuthenticated() && isAdmin();
+      allow create, delete: if isAuthenticated() && isPrimaryAdmin();
+      allow update: if isAuthenticated() && (
+        isPrimaryAdmin() || isSafeSeniorProfileUpdate()
+      );
     }
 
     match /staff_directory/{userId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isAdmin()
-        && request.resource.data.get('id', '') == userId
-        && request.resource.data.keys().hasOnly([
-          'id', 'name', 'displayName', 'username', 'role', 'roles',
-          'specialty', 'specialties', 'branch', 'branches', 'department',
-          'position', 'title', 'isActive', 'active', 'status', 'scheduleColor'
-        ]);
-      allow delete: if isAuthenticated() && isAdmin();
+      allow create: if isAuthenticated() && isPrimaryAdmin()
+        && isSafeStaffDirectoryProfile(userId);
+      allow update: if isAuthenticated()
+        && (isPrimaryAdmin() || isSafeSeniorProfileUpdate())
+        && isSafeStaffDirectoryProfile(userId);
+      allow delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     // Managers administer compatibility credentials. An employee can rotate
     // only their own password and cannot read or list credential documents.
     match /user_credentials/{staffId} {
-      allow read: if isAuthenticated() && isAdmin();
-      allow create: if isAuthenticated() && (isAdmin() || (
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated() && (isPrimaryAdmin() || (
         ownsStaffId(staffId)
         && request.resource.data.get('staffId', '') == staffId
         && request.resource.data.get('password', '') is string
@@ -375,7 +407,7 @@ service cloud.firestore {
         && request.resource.data.get('updatedAt', null) == request.time
         && request.resource.data.keys().hasOnly(['staffId', 'password', 'updatedAt'])
       ));
-      allow update: if isAuthenticated() && (isAdmin() || (
+      allow update: if isAuthenticated() && (isPrimaryAdmin() || (
         ownsStaffId(staffId)
         && resource.data.get('staffId', '') == staffId
         && request.resource.data.get('staffId', '') == staffId
@@ -385,7 +417,7 @@ service cloud.firestore {
         && request.resource.data.get('updatedAt', null) == request.time
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['password', 'updatedAt'])
       ));
-      allow delete: if isAuthenticated() && isAdmin();
+      allow delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     // Employees can mutate only their mapped attendance document. Cross-staff
@@ -487,6 +519,40 @@ service cloud.firestore {
         ]);
       allow read, delete: if isAuthenticated() && isAdmin();
       allow update: if false;
+    }
+
+    // Immutable audit marker for the scheduler's attendance-correction panel.
+    // Detailed before/after data remains on the corrected session; this compact
+    // record proves which authenticated primary admin committed the operation.
+    match /schedule_attendance_admin_audits/{auditId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated()
+        && isPrimaryAdmin()
+        && request.resource.data.keys().hasAll([
+          'authUid', 'actorUserId', 'staffId', 'dateKey',
+          'sessionId', 'action', 'source', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'authUid', 'actorUserId', 'staffId', 'dateKey',
+          'sessionId', 'action', 'source', 'createdAt'
+        ])
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.actorUserId == getUserId()
+        && request.resource.data.actorUserId is string
+        && request.resource.data.actorUserId.size() > 0
+        && request.resource.data.actorUserId.size() <= 80
+        && request.resource.data.staffId is string
+        && request.resource.data.staffId.size() > 0
+        && request.resource.data.staffId.size() <= 80
+        && request.resource.data.dateKey is string
+        && request.resource.data.dateKey.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && request.resource.data.sessionId is string
+        && request.resource.data.sessionId.size() > 0
+        && request.resource.data.sessionId.size() <= 160
+        && request.resource.data.action == 'save_correction'
+        && request.resource.data.source == 'schedule_attendance_popup'
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
     }
 
     // Nested schedule arrays cannot safely authorize a field-only self-edit.
@@ -639,7 +705,12 @@ service cloud.firestore {
     }
     match /bonus10_requests/{requestId} {
       allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
-      allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
+      // New documents are singleton/canonical. Existing random-ID legacy docs
+      // remain readable and Admin-updatable, but stale clients cannot create a
+      // second active request beside the canonical transaction document.
+      allow create: if isAuthenticated()
+        && isCanonicalBonus10RequestId(requestId)
+        && (isAdmin() || isOwnPendingRequest());
       allow update, delete: if isAuthenticated() && isAdmin();
     }
 

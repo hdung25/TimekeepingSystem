@@ -70,6 +70,218 @@ function createAttendanceSessionId() {
     return `session_${random}`;
 }
 
+// A bonus request is a singleton for one staff/date/attendance-session tuple.
+// `~` is intentionally outside every validated component alphabet, so two
+// different tuples cannot collapse onto the same document ID (the old
+// underscore + replacement scheme was ambiguous).
+function _normalizeBonus10Identity(identity = {}) {
+    const staffId = String(identity.staffId || '').trim();
+    const dateKey = String(identity.dateKey || '').trim();
+    const sessionId = String(identity.sessionId || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(staffId) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(dateKey) ||
+        !/^[A-Za-z0-9_-]{1,160}$/.test(sessionId)) {
+        const error = new Error('Định danh yêu cầu +10 phút không hợp lệ. Hãy tải lại dữ liệu công trước khi thao tác.');
+        error.code = 'bonus10/invalid-identity';
+        throw error;
+    }
+    return { staffId, dateKey, sessionId };
+}
+
+function _canonicalBonus10RequestId(dateKey, staffId, sessionId) {
+    const identity = _normalizeBonus10Identity({ staffId, dateKey, sessionId });
+    return `b10~${identity.dateKey}~${identity.staffId}~${identity.sessionId}`;
+}
+
+function _assertBonus10RequestIdentity(requestData, expected = {}) {
+    const identity = _normalizeBonus10Identity(requestData || {});
+    const normalizedExpected = _normalizeBonus10Identity(expected);
+    if (identity.staffId !== normalizedExpected.staffId ||
+        identity.dateKey !== normalizedExpected.dateKey ||
+        identity.sessionId !== normalizedExpected.sessionId) {
+        const error = new Error('Yêu cầu +10 phút đang trỏ sang ca hoặc nhân sự khác. Đã dừng để tránh sửa nhầm công/lương.');
+        error.code = 'bonus10/request-conflict';
+        throw error;
+    }
+    return identity;
+}
+
+function _nextBonus10PenaltyState(monthlySettings, active, actorUserId, details = {}) {
+    const current = monthlySettings?.bonus10PenaltyState &&
+        typeof monthlySettings.bonus10PenaltyState === 'object'
+        ? monthlySettings.bonus10PenaltyState
+        : {};
+    const currentVersion = Number.isInteger(current.version) && current.version >= 0
+        ? current.version
+        : 0;
+    const state = {
+        schemaVersion: 1,
+        active: active === true,
+        version: currentVersion + 1,
+        reason: active === true ? 'request_rejected' : 'admin_cleared',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: String(actorUserId || '').trim() || 'admin'
+    };
+    const requestId = String(details.requestId || '').trim();
+    const sessionId = String(details.sessionId || '').trim();
+    const dateKey = String(details.dateKey || '').trim();
+    if (requestId) state.lastRequestId = requestId.slice(0, 500);
+    if (sessionId) state.lastSessionId = sessionId.slice(0, 160);
+    if (dateKey) state.lastDateKey = dateKey.slice(0, 10);
+    if (active !== true) {
+        state.clearedAt = firebase.firestore.FieldValue.serverTimestamp();
+        state.clearedBy = state.updatedBy;
+    }
+    return state;
+}
+
+function _writeBonus10PenaltyState(transaction, monthlyRef, monthlySnapshot, active, actorUserId, details = {}) {
+    const monthlySettings = monthlySnapshot?.exists ? (monthlySnapshot.data() || {}) : {};
+    const bonus10PenaltyState = _nextBonus10PenaltyState(
+        monthlySettings,
+        active,
+        actorUserId,
+        details
+    );
+    if (monthlySnapshot?.exists) {
+        // `update` replaces the whole top-level map, so stale cleared/rejected
+        // metadata cannot leak into the next explicit state transition.
+        transaction.update(monthlyRef, { bonus10PenaltyState });
+    } else {
+        transaction.set(monthlyRef, {
+            userId: String(details.staffId || '').trim(),
+            month: String(details.monthStr || '').trim(),
+            bonus10PenaltyState
+        });
+    }
+    return bonus10PenaltyState;
+}
+
+function _isBonus10PenaltyActive(monthlySettings, requests) {
+    const chips = (Array.isArray(requests) ? requests : []).map(request => ({
+        bonus10Status: request?.status,
+        studentCountStatus: request?.studentCountStatus
+    }));
+    if (typeof window !== 'undefined' && window.Early10 &&
+        typeof window.Early10.isMonthlyBonusPenaltyActive === 'function') {
+        return window.Early10.isMonthlyBonusPenaltyActive(monthlySettings || {}, chips);
+    }
+    if (monthlySettings?.studentCountBonusPenalty) return true;
+    if (chips.some(chip => chip.studentCountStatus === 'rejected')) return true;
+    const marker = monthlySettings?.bonus10PenaltyState;
+    if (marker && typeof marker.active === 'boolean') return marker.active;
+    return chips.some(chip => chip.bonus10Status === 'rejected');
+}
+
+function _requireBonus10ManagerAuthorization(authorization) {
+    const roles = Array.isArray(authorization?.roles) ? authorization.roles : [];
+    const actorUserId = String(authorization?.userId || '').trim();
+    if (!actorUserId || !roles.some(role => role === 'admin' || role === 'senior_assistant')) {
+        const error = new Error('Chỉ Admin/quản lý được duyệt, từ chối hoặc gỡ khóa +10 phút.');
+        error.code = 'auth/admin-required';
+        throw error;
+    }
+    return actorUserId;
+}
+
+// A single physical teaching session can represent several classes that are
+// intentionally scheduled for the same teacher in the exact same window. The
+// schedule evaluator already pays that concurrent window once; the schedule
+// attendance editor must therefore preserve the joined subject-role set rather
+// than forcing the session back to whichever row happened to open the popup.
+function _normalizeScheduleSubjectIds(value) {
+    return Array.from(new Set(String(value || '')
+        .split('+')
+        .map(item => item.trim())
+        .filter(Boolean)))
+        .sort();
+}
+
+function _sameScheduleSubjectIdSet(left, right) {
+    const a = _normalizeScheduleSubjectIds(Array.isArray(left) ? left.join('+') : left);
+    const b = _normalizeScheduleSubjectIds(Array.isArray(right) ? right.join('+') : right);
+    return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function _isTeachingScheduleSectionClosed(dateKey, section, centerClosures) {
+    const closures = centerClosures && Array.isArray(centerClosures[dateKey])
+        ? centerClosures[dateKey]
+        : [];
+    const sectionKey = String(section || '').trim();
+    if (closures.includes('all') || (sectionKey && closures.includes(sectionKey))) return true;
+    const parentPeriod = /^(morning|afternoon|evening)[12]$/.exec(sectionKey)?.[1] || '';
+    return !!parentPeriod && closures.includes(parentPeriod);
+}
+
+// ADMIN_STUDENT_COUNT_MUTATION_START
+function _applyAdminStudentCountMutation(session, dirty, studentCount, nowISO, actorUserId) {
+    if (!session || dirty !== true) return session;
+    if (studentCount == null) {
+        delete session.studentCount;
+        delete session.studentCountStatus;
+        delete session.studentCountUpdatedAt;
+        delete session.studentCountUpdatedBy;
+        delete session.studentCountReviewedAt;
+        delete session.studentCountReviewedBy;
+        return session;
+    }
+    session.studentCount = studentCount;
+    session.studentCountStatus = 'approved';
+    session.studentCountUpdatedAt = nowISO;
+    session.studentCountUpdatedBy = actorUserId;
+    session.studentCountReviewedAt = nowISO;
+    session.studentCountReviewedBy = actorUserId;
+    return session;
+}
+// ADMIN_STUDENT_COUNT_MUTATION_END
+
+function _resolveConcurrentTeachingSubjectSet(rows, staffId, scheduledStart, scheduledEnd, subjects, teacherShiftState) {
+    const employeeId = String(staffId || '').trim();
+    const start = String(scheduledStart || '').trim();
+    const end = String(scheduledEnd || '').trim();
+    const catalog = Array.isArray(subjects) ? subjects : [];
+    const state = teacherShiftState || {};
+    const activeRows = (Array.isArray(rows) ? rows : []).filter(row => {
+        if (!row || row.isClosed === true || String(row.start || '').trim() !== start ||
+            String(row.end || '').trim() !== end) return false;
+        const isActiveMain = typeof state.getMainTeachers === 'function' &&
+            state.getMainTeachers(row).some(item => String(item?.id || '').trim() === employeeId) &&
+            !(typeof state.isMainTeacherAbsent === 'function' && state.isMainTeacherAbsent(row, employeeId));
+        const isSubstitute = typeof state.getSubstituteTeachers === 'function' &&
+            state.getSubstituteTeachers(row).some(item => String(item?.id || '').trim() === employeeId);
+        return isActiveMain || isSubstitute;
+    });
+
+    const ids = new Set();
+    const resolvedByName = [];
+    activeRows.forEach(row => {
+        const explicitIds = _normalizeScheduleSubjectIds(row.lopId || '');
+        if (explicitIds.length) {
+            explicitIds.forEach(id => ids.add(id));
+            return;
+        }
+
+        const subjectName = String(row.lop || '').trim();
+        const exactMatches = catalog.filter(subject => String(subject?.name || '').trim() === subjectName);
+        if (!subjectName || exactMatches.length !== 1 || !String(exactMatches[0]?.id || '').trim()) {
+            const error = new Error(exactMatches.length > 1
+                ? `Môn/Lớp “${subjectName || '?'}” của ca trùng giờ đang bị trùng tên dữ liệu.`
+                : `Môn/Lớp “${subjectName || '?'}” của ca trùng giờ chưa có mã dữ liệu duy nhất.`);
+            error.code = 'schedule/subject-conflict';
+            throw error;
+        }
+        const resolvedId = String(exactMatches[0].id).trim();
+        ids.add(resolvedId);
+        resolvedByName.push({ id: resolvedId, name: subjectName });
+    });
+
+    return {
+        ids: Array.from(ids).sort(),
+        rows: activeRows,
+        resolvedByName
+    };
+}
+
 // SCHEDULE REGISTRATION HELPERS START
 const SCHEDULE_SECTION_KEYS = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
 
@@ -202,6 +414,12 @@ function isMainTeacherAbsentFromClass(cls, staffId) {
     return Array.isArray(cls?.teacherAbsences)
         ? isTeacherExplicitlyAbsent(cls, staffId)
         : hasScheduledSubstitute(cls);
+}
+
+function getMainTeacherAbsenceTypeForGuard(cls, staffId) {
+    if (!isMainTeacherAbsentFromClass(cls, staffId)) return 'ACTIVE';
+    const explicitType = String(getTeacherAbsenceRecord(cls, staffId)?.type || '').trim().toUpperCase();
+    return explicitType === 'VP' ? 'VP' : 'VDX';
 }
 
 // GV được xếp cho lớp (GV chính, GV thay thế, hoặc tự nhận lớp)
@@ -675,6 +893,42 @@ const DBService = {
         return promise;
     },
 
+    // Authoritative authorization context for sensitive UI/actions. Unlike the
+    // directory helper above, forceServer=true never falls back to a cached or
+    // empty role silently: an Admin-only operation must fail closed when its
+    // Firebase role mapping cannot be verified.
+    getAuthenticatedAuthorizationContext: async (forceServer = false) => {
+        const primaryAuth = window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
+        const actor = primaryAuth?.currentUser;
+        if (!actor?.uid) {
+            const error = new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+            error.code = 'auth/session-missing';
+            throw error;
+        }
+        const roleRef = db.collection('user_roles').doc(actor.uid);
+        const roleSnapshot = forceServer
+            ? await roleRef.get({ source: 'server' })
+            : await roleRef.get();
+        if (!roleSnapshot.exists) {
+            const error = new Error('Tài khoản chưa có hồ sơ phân quyền hợp lệ.');
+            error.code = 'auth/role-missing';
+            throw error;
+        }
+        const roleData = roleSnapshot.data() || {};
+        const mappedUserId = String(roleData.userId || '').trim();
+        if (forceServer && !mappedUserId) {
+            const error = new Error('Hồ sơ phân quyền chưa liên kết mã nhân sự. Vui lòng hoàn tất ánh xạ tài khoản trước khi dùng chức năng Admin.');
+            error.code = 'auth/role-user-missing';
+            throw error;
+        }
+        return {
+            uid: actor.uid,
+            userId: mappedUserId,
+            roles: _normalizeRoleList(roleData),
+            roleData
+        };
+    },
+
     _toStaffDirectoryProfile: (user) => {
         // Exact allow-list: payroll configuration, auth UID, password and
         // migration/audit metadata must never be copied to the shared roster.
@@ -977,6 +1231,11 @@ const DBService = {
     // managers may read this compatibility store; normal authenticated users can
     // never download colleagues' passwords through getUsers().
     getUserCredentialsMap: async () => {
+        // The compatibility credential store is a primary-Admin boundary, not
+        // an operational-manager directory.  A senior assistant can maintain
+        // non-security profile fields, but must never download staff passwords.
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        if (!authorization.roles.includes('admin')) return {};
         const snapshot = await db.collection('user_credentials').get();
         const result = {};
         snapshot.forEach(doc => {
@@ -996,17 +1255,68 @@ const DBService = {
         return true;
     },
 
-    _syncUserRoleMappingAsManager: async (user, batch = null) => {
-        const primaryAuth = window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
-        const actor = primaryAuth?.currentUser;
-        if (!actor?.uid) return false;
+    _authorizeUserProfileSave: async (user) => {
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        const isPrimaryAdmin = authorization.roles.includes('admin');
+        if (isPrimaryAdmin) {
+            return { authorization, isPrimaryAdmin: true, existingProfile: null };
+        }
+        if (!authorization.roles.includes('senior_assistant')) {
+            throw _createAuthProfileError(
+                'Bạn không có quyền cập nhật hồ sơ nhân sự.',
+                'auth/profile-save-forbidden'
+            );
+        }
 
-        // Client storage is never authorization. Confirm the actor's role from
-        // the UID-keyed document; Firestore Rules remain the final enforcement.
-        const actorRoleSnapshot = await db.collection('user_roles').doc(actor.uid).get();
-        if (!actorRoleSnapshot.exists) return false;
-        const actorRoles = _normalizeRoleList(actorRoleSnapshot.data());
-        if (!actorRoles.some(role => role === 'admin' || role === 'senior_assistant')) return false;
+        const userId = String(user?.id || '').trim();
+        if (!userId) {
+            throw _createAuthProfileError(
+                'Thiếu mã nhân sự cần cập nhật.',
+                'auth/profile-id-missing'
+            );
+        }
+        if (Object.prototype.hasOwnProperty.call(user || {}, 'password')) {
+            throw _createAuthProfileError(
+                'Trợ lý cấp cao không được thay đổi mật khẩu nhân sự.',
+                'auth/security-field-change'
+            );
+        }
+
+        // Read the current private profile from the server before building the
+        // batch.  This makes a senior save fail closed for new/deleted profiles
+        // and prevents stale local data from changing identity or role fields.
+        const existingSnapshot = await db.collection('users').doc(userId).get({ source: 'server' });
+        if (!existingSnapshot.exists) {
+            throw _createAuthProfileError(
+                'Trợ lý cấp cao chỉ được cập nhật hồ sơ nhân sự đã tồn tại.',
+                'auth/profile-create-forbidden'
+            );
+        }
+        const existingProfile = existingSnapshot.data() || {};
+        const protectedScalarFields = ['username', 'role', 'authUid'];
+        const changedScalar = protectedScalarFields.find(field =>
+            Object.prototype.hasOwnProperty.call(user || {}, field) &&
+            String(user[field] ?? '') !== String(existingProfile[field] ?? '')
+        );
+        const rolesChanged = Object.prototype.hasOwnProperty.call(user || {}, 'roles') &&
+            JSON.stringify(user.roles) !== JSON.stringify(existingProfile.roles);
+        if (changedScalar || rolesChanged) {
+            throw _createAuthProfileError(
+                'Trợ lý cấp cao không được thay đổi tên đăng nhập, UID hoặc vai trò nhân sự.',
+                'auth/security-field-change'
+            );
+        }
+
+        return { authorization, isPrimaryAdmin: false, existingProfile };
+    },
+
+    _syncUserRoleMappingAsManager: async (user, batch = null, verifiedAuthorization = null) => {
+        // Client storage is never authorization. Only a server-verified primary
+        // Admin may write the UID-keyed security mapping; senior assistants are
+        // deliberately limited to non-security profile maintenance.
+        const authorization = verifiedAuthorization ||
+            await DBService.getAuthenticatedAuthorizationContext(true);
+        if (!authorization.roles.includes('admin')) return false;
 
         const targetAuthUid = String(user.authUid || '').trim();
         let targetRef = targetAuthUid ? db.collection('user_roles').doc(targetAuthUid) : null;
@@ -1045,14 +1355,29 @@ const DBService = {
             const ref = db.collection('users').doc(user.id);
             const directoryRef = db.collection('staff_directory').doc(user.id);
             const { password, ...safeProfile } = user;
+            const saveAuthorization = await DBService._authorizeUserProfileSave(user);
             const batch = db.batch();
-            const roleWasSynced = await DBService._syncUserRoleMappingAsManager(user, batch);
-            if (user.authUid && !roleWasSynced) {
+            const roleWasSynced = saveAuthorization.isPrimaryAdmin
+                ? await DBService._syncUserRoleMappingAsManager(
+                    user,
+                    batch,
+                    saveAuthorization.authorization
+                )
+                : false;
+            if (saveAuthorization.isPrimaryAdmin && user.authUid && !roleWasSynced) {
                 throw new Error('Không thể tạo ánh xạ quyền cho tài khoản đăng nhập. Chưa lưu hồ sơ.');
             }
-            batch.set(ref, safeProfile, { merge: true });
-            batch.set(directoryRef, DBService._toStaffDirectoryProfile(safeProfile));
-            if (password) {
+            const profilePatch = saveAuthorization.isPrimaryAdmin
+                ? safeProfile
+                : Object.fromEntries(Object.entries(safeProfile).filter(([key]) =>
+                    !['id', 'username', 'role', 'roles', 'authUid'].includes(key)
+                ));
+            batch.set(ref, profilePatch, { merge: true });
+            const directorySource = saveAuthorization.isPrimaryAdmin
+                ? safeProfile
+                : { ...saveAuthorization.existingProfile, ...safeProfile };
+            batch.set(directoryRef, DBService._toStaffDirectoryProfile(directorySource));
+            if (password && saveAuthorization.isPrimaryAdmin) {
                 batch.set(db.collection('user_credentials').doc(user.id), {
                     staffId: user.id,
                     password,
@@ -1966,8 +2291,74 @@ const DBService = {
             return evidenceByUser;
         } catch (e) {
             console.warn('getDayAttendance error:', e);
-            return new Map();
+            // An empty Map means "the read succeeded and nobody has usable
+            // attendance". Returning it on a permission/network failure makes
+            // every scheduled teacher look unverified, so callers must handle
+            // the failed/unknown state explicitly instead.
+            throw e;
         }
+    },
+
+    // Fail-closed source loader for the Admin correction panel in the schedule.
+    // It deliberately distinguishes a missing attendance document from a failed
+    // read so the UI can never turn a permission/network error into a duplicate
+    // manual session.
+    getAdminTeachingAttendanceEditorContext: async ({ staffIds, dateKey } = {}) => {
+        const normalizedDateKey = String(dateKey || '').trim();
+        const ids = Array.from(new Set((Array.isArray(staffIds) ? staffIds : [])
+            .map(value => String(value || '').trim())
+            .filter(Boolean)));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDateKey) || ids.length === 0) {
+            throw new Error('Thiếu ngày hoặc nhân sự để tải dữ liệu chấm công.');
+        }
+
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        if (!authorization.roles.includes('admin')) {
+            const error = new Error('Chỉ Admin mới được xem và chỉnh công ngay trên lịch.');
+            error.code = 'auth/admin-required';
+            throw error;
+        }
+
+        const monthStr = normalizedDateKey.slice(0, 7);
+        const subjectsQuery = db.collection('subjects').orderBy('name');
+        const subjectsSnapshot = await subjectsQuery.get({ source: 'server' });
+        const subjects = subjectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const entries = await Promise.all(ids.map(async staffId => {
+            const attendanceRef = db.collection('attendance_logs').doc(`${normalizedDateKey}_${staffId}`);
+            const salaryRef = db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`);
+            const profileRef = db.collection('users').doc(staffId);
+            const cancelledRef = db.collection('cancelled_shifts').doc(`${monthStr}_${staffId}`);
+            const bonusQuery = db.collection('bonus10_requests').where('staffId', '==', staffId);
+            const [attendanceSnapshot, salarySnapshot, profileSnapshot, bonusSnapshot, cancelledSnapshot] = await Promise.all([
+                attendanceRef.get({ source: 'server' }),
+                salaryRef.get({ source: 'server' }),
+                profileRef.get({ source: 'server' }),
+                bonusQuery.get({ source: 'server' }),
+                cancelledRef.get({ source: 'server' })
+            ]);
+            const monthlyBonusRequests = bonusSnapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter(item => String(item.dateKey || '').startsWith(`${monthStr}-`));
+            return {
+                staffId,
+                attendanceExists: attendanceSnapshot.exists,
+                attendance: attendanceSnapshot.exists ? attendanceSnapshot.data() : null,
+                monthlySettings: salarySnapshot.exists ? salarySnapshot.data() : {},
+                profile: profileSnapshot.exists ? { id: profileSnapshot.id, ...profileSnapshot.data() } : { id: staffId },
+                monthlyBonusRequests,
+                cancelledShiftKeys: cancelledSnapshot.exists && Array.isArray(cancelledSnapshot.data()?.shifts)
+                    ? cancelledSnapshot.data().shifts.map(value => String(value || '').trim())
+                    : []
+            };
+        }));
+
+        return {
+            actor: authorization,
+            dateKey: normalizedDateKey,
+            subjects,
+            entries
+        };
     },
 
     getAttendanceRecordsForDate: async (dateKey) => {
@@ -2050,12 +2441,30 @@ const DBService = {
         if (!section || typeof applyRow !== 'function') {
             throw new Error('Thiếu thông tin ca cần cập nhật.');
         }
-        const { docId } = DBService._parseBranchKey(compositeKey);
+        const { dateKey, docId } = DBService._parseBranchKey(compositeKey);
         const ref = db.collection('schedules').doc(docId);
         let committedRow = null;
         const signatureOf = row => [row?.start, row?.end, row?.lop, row?.phong]
             .map(value => String(value || '').trim())
             .join('|');
+        const absenceGuard = locator?.attendanceAbsenceGuard &&
+            typeof locator.attendanceAbsenceGuard === 'object'
+            ? locator.attendanceAbsenceGuard
+            : null;
+        const guardedStaffIds = Array.from(new Set((Array.isArray(absenceGuard?.staffIds)
+            ? absenceGuard.staffIds
+            : [])
+            .map(value => String(value || '').trim())
+            .filter(Boolean)));
+        if (absenceGuard && (
+            !/^\d{4}-\d{2}-\d{2}$/.test(String(absenceGuard.dateKey || '')) ||
+            guardedStaffIds.length > 20 ||
+            guardedStaffIds.some(staffId => !/^[A-Za-z0-9_-]{1,80}$/.test(staffId))
+        )) {
+            const invalidGuard = new Error('Dữ liệu đối chiếu công cho trạng thái nghỉ không hợp lệ. Hãy tải lại ca.');
+            invalidGuard.code = 'schedule/attendance-guard-invalid';
+            throw invalidGuard;
+        }
 
         await db.runTransaction(async transaction => {
             const snapshot = await transaction.get(ref);
@@ -2082,8 +2491,77 @@ const DBService = {
             }
 
             const latestRow = JSON.parse(JSON.stringify(rows[rowIndex]));
+            const rowBeforeMutation = JSON.parse(JSON.stringify(latestRow));
             const nextRow = applyRow(latestRow);
             if (!nextRow || typeof nextRow !== 'object') throw new Error('Dữ liệu điều phối ca không hợp lệ.');
+
+            const nextMainIds = Array.from(getScheduledMainTeacherIds(nextRow));
+            const changedAbsenceIds = nextMainIds.filter(staffId => {
+                const nextType = getMainTeacherAbsenceTypeForGuard(nextRow, staffId);
+                if (nextType === 'ACTIVE') return false;
+                return getMainTeacherAbsenceTypeForGuard(rowBeforeMutation, staffId) !== nextType;
+            });
+            if (changedAbsenceIds.some(staffId => !guardedStaffIds.includes(staffId))) {
+                const missingGuard = new Error('Trạng thái nghỉ vừa thay đổi nhưng chưa được đối chiếu công trong cùng giao dịch. Hãy tải lại ca.');
+                missingGuard.code = 'schedule/attendance-guard-required';
+                throw missingGuard;
+            }
+
+            if (absenceGuard) {
+                const guardIdentityMatches = String(absenceGuard.dateKey || '') === String(dateKey || '') &&
+                    String(absenceGuard.compositeKey || '') === String(compositeKey || '') &&
+                    String(absenceGuard.section || '') === String(section || '') &&
+                    String(absenceGuard.start || '') === String(rowBeforeMutation.start || '') &&
+                    String(absenceGuard.end || '') === String(rowBeforeMutation.end || '') &&
+                    (!String(absenceGuard.persistedShiftId || '') ||
+                        String(absenceGuard.persistedShiftId || '') === String(rowBeforeMutation.shiftId || '')) &&
+                    (!String(absenceGuard.signature || '') ||
+                        String(absenceGuard.signature || '') === signatureOf(rowBeforeMutation));
+                const guardedIdsAreCurrentAbsences = guardedStaffIds.every(staffId =>
+                    nextMainIds.includes(staffId) &&
+                    getMainTeacherAbsenceTypeForGuard(nextRow, staffId) !== 'ACTIVE'
+                );
+                if (!guardIdentityMatches || !guardedIdsAreCurrentAbsences) {
+                    const staleGuard = new Error('Ca hoặc danh sách GV nghỉ đã thay đổi. Hãy tải lại trước khi lưu.');
+                    staleGuard.code = 'schedule/attendance-guard-stale';
+                    throw staleGuard;
+                }
+
+                const evidenceResolver = window.ScheduleAttendanceAdmin?.workedAttendanceConflictForShift;
+                if (guardedStaffIds.length && typeof evidenceResolver !== 'function') {
+                    const unavailableGuard = new Error('Không tải được bộ đối chiếu công. Đã dừng lưu trạng thái nghỉ để tránh sai chip.');
+                    unavailableGuard.code = 'schedule/attendance-guard-unavailable';
+                    throw unavailableGuard;
+                }
+                const attendanceRefs = guardedStaffIds.map(staffId =>
+                    db.collection('attendance_logs').doc(`${dateKey}_${staffId}`)
+                );
+                const attendanceSnapshots = await Promise.all(
+                    attendanceRefs.map(attendanceRef => transaction.get(attendanceRef))
+                );
+                const shiftIdentity = {
+                    dateKey,
+                    start: rowBeforeMutation.start,
+                    end: rowBeforeMutation.end,
+                    shiftId: String(absenceGuard.resolverShiftId || rowBeforeMutation.shiftId || ''),
+                    compositeKey,
+                    section
+                };
+                attendanceSnapshots.forEach((attendanceSnapshot, attendanceIndex) => {
+                    if (!attendanceSnapshot.exists) return;
+                    const staffId = guardedStaffIds[attendanceIndex];
+                    const conflict = evidenceResolver(attendanceSnapshot.data() || {}, shiftIdentity);
+                    if (!conflict?.conflict) return;
+                    const attendanceConflict = new Error(conflict.kind === 'ambiguous'
+                        ? `Nhân sự ${staffId} có nhiều phiên công cùng khớp ca. Hãy đối chiếu Bảng Công trước khi ghi VP/VĐX.`
+                        : `Nhân sự ${staffId} đã có giờ vào/ra khớp ca. Không thể đồng thời ghi VP/VĐX.`);
+                    attendanceConflict.code = conflict.kind === 'ambiguous'
+                        ? 'schedule/attendance-ambiguous'
+                        : 'schedule/attendance-work-conflict';
+                    throw attendanceConflict;
+                });
+            }
+
             if (!nextRow.shiftId) nextRow.shiftId = createScheduleShiftId();
             rows[rowIndex] = nextRow;
             const currentRevision = Number.isInteger(source?._revision) ? source._revision : 0;
@@ -2499,6 +2977,875 @@ const DBService = {
         }
     },
 
+    // Admin-only, auditable command used by the teaching schedule popup. Time,
+    // approved student count and +10 policy state are committed in one Firestore
+    // transaction so the chip and payroll source cannot be left half-updated.
+    saveAdminTeachingAttendanceCorrection: async (command = {}) => {
+        const helper = window.ScheduleAttendanceAdmin;
+        if (!helper || typeof helper.validateDraft !== 'function') {
+            throw new Error('Mô-đun kiểm tra công trên lịch chưa được tải. Vui lòng tải lại trang.');
+        }
+        if (!window.Early10 || typeof window.Early10.evaluateEarly10Request !== 'function' ||
+            typeof window.Early10.splitSubjectIds !== 'function') {
+            throw new Error('Mô-đun quy định +10 phút chưa được tải. Vui lòng tải lại trang.');
+        }
+
+        const staffId = String(command.staffId || '').trim();
+        const dateKey = String(command.dateKey || '').trim();
+        const scheduledStart = String(command.scheduledStart || '').trim();
+        const scheduledEnd = String(command.scheduledEnd || '').trim();
+        const scheduleIdentity = command.scheduleIdentity && typeof command.scheduleIdentity === 'object'
+            ? command.scheduleIdentity
+            : {};
+        const compositeKey = String(command.compositeKey || scheduleIdentity.compositeKey || '').trim();
+        const scheduleSection = String(command.section || scheduleIdentity.section || '').trim();
+        const expectedScheduleSignature = String(
+            command.expectedScheduleSignature || command.scheduleSignature || command.signature ||
+            scheduleIdentity.signature || ''
+        ).trim();
+        const hasExpectedStaffingUpdatedAt = Object.prototype.hasOwnProperty.call(
+            command,
+            'expectedStaffingUpdatedAt'
+        ) || Object.prototype.hasOwnProperty.call(scheduleIdentity, 'expectedStaffingUpdatedAt');
+        const expectedStaffingUpdatedAt = String(
+            command.expectedStaffingUpdatedAt ?? scheduleIdentity.expectedStaffingUpdatedAt ?? ''
+        );
+        const scheduleIndex = Number.isInteger(command.scheduleIndex)
+            ? command.scheduleIndex
+            : (Number.isInteger(command.index)
+                ? command.index
+                : (Number.isInteger(scheduleIdentity.index) ? scheduleIdentity.index : null));
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(staffId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+            throw new Error('Nhân sự hoặc ngày chấm công không hợp lệ.');
+        }
+        if (!/^[A-Za-z0-9_-]{1,160}$/.test(compositeKey) ||
+            !/^[A-Za-z0-9_-]{1,80}$/.test(scheduleSection) ||
+            !expectedScheduleSignature || !hasExpectedStaffingUpdatedAt) {
+            const error = new Error('Popup lịch thiếu dấu vết phiên bản của ca. Hãy tải lại lịch trước khi chỉnh công.');
+            error.code = 'schedule/context-required';
+            throw error;
+        }
+
+        const parsedScheduleKey = DBService._parseBranchKey(compositeKey);
+        if (parsedScheduleKey.dateKey !== dateKey) {
+            const error = new Error('Ngày của ô lịch không khớp ngày chấm công. Đã dừng để tránh sửa nhầm dữ liệu.');
+            error.code = 'schedule/conflict';
+            throw error;
+        }
+        const scheduleRef = db.collection('schedules').doc(parsedScheduleKey.docId);
+        const teacherShiftState = window.TeacherShiftState;
+        if (!teacherShiftState || typeof teacherShiftState.getMainTeachers !== 'function' ||
+            typeof teacherShiftState.getSubstituteTeachers !== 'function' ||
+            typeof teacherShiftState.isMainTeacherAbsent !== 'function') {
+            throw new Error('Mô-đun điều phối giáo viên chưa được tải. Vui lòng tải lại trang.');
+        }
+
+        const shiftWindow = helper.buildShiftWindow(dateKey, scheduledStart, scheduledEnd);
+        if (!shiftWindow) throw new Error('Khung giờ ca dạy không hợp lệ.');
+        const validation = helper.validateDraft(command.draft || {}, shiftWindow, { now: new Date() });
+        if (!validation?.ok) {
+            const error = new Error(validation?.error || validation?.errors?.[0] || 'Dữ liệu chấm công chưa hợp lệ.');
+            error.code = 'attendance/invalid-correction';
+            throw error;
+        }
+        if (String(command.draft?.mode || '') === 'none') {
+            throw new Error('Hãy chọn Đã vào ca hoặc Đủ vào/ra trước khi lưu.');
+        }
+
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        if (!authorization.roles.includes('admin')) {
+            const error = new Error('Chỉ Admin mới được chỉnh công ngay trên lịch.');
+            error.code = 'auth/admin-required';
+            throw error;
+        }
+
+        const monthStr = dateKey.slice(0, 7);
+        const profileRef = db.collection('users').doc(staffId);
+        const monthlyRef = db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`);
+        const subjectQuery = db.collection('subjects').orderBy('name');
+        const requestQuery = db.collection('bonus10_requests').where('staffId', '==', staffId);
+        const [profileSnapshot, subjectSnapshot, requestSnapshot] = await Promise.all([
+            profileRef.get({ source: 'server' }),
+            subjectQuery.get({ source: 'server' }),
+            requestQuery.get({ source: 'server' })
+        ]);
+        if (!profileSnapshot.exists) throw new Error('Không tìm thấy hồ sơ nhân sự cần chỉnh công.');
+
+        const profile = { id: profileSnapshot.id, ...profileSnapshot.data() };
+        const subjects = subjectSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const requestedSubjectName = String(command.subjectName || '').trim();
+        const suppliedSubjectId = String(command.subjectId || '').trim();
+        let subjectId = suppliedSubjectId;
+        let subjectIds = [];
+        if (suppliedSubjectId) {
+            subjectIds = Array.from(new Set(window.Early10.splitSubjectIds(suppliedSubjectId)
+                .map(value => String(value || '').trim())
+                .filter(Boolean)));
+            const knownSubjectIds = new Set(subjects.map(subject => String(subject.id || '')));
+            const missingSubjectIds = subjectIds.filter(id => !knownSubjectIds.has(id));
+            if (!subjectIds.length || missingSubjectIds.length) {
+                const error = new Error('Mã Môn/Lớp của ca không còn tồn tại. Hãy cập nhật lại lịch trước khi ghi công để tránh Role?.');
+                error.code = 'schedule/subject-conflict';
+                throw error;
+            }
+        } else {
+            const exactMatches = subjects.filter(subject =>
+                String(subject.name || '').trim() === requestedSubjectName
+            );
+            if (exactMatches.length !== 1) {
+                const error = new Error(exactMatches.length > 1
+                    ? 'Tên Môn/Lớp đang trùng dữ liệu nên không thể tự chọn mã tính lương an toàn.'
+                    : 'Môn/Lớp này chưa có mã dữ liệu. Hãy chọn lại Môn/Lớp trước khi ghi công để bảng lương không hiện “Role?”.');
+                error.code = 'schedule/subject-conflict';
+                throw error;
+            }
+            subjectId = String(exactMatches[0].id || '').trim();
+            subjectIds = [subjectId];
+        }
+        const subjectRefs = subjectIds.map(id => db.collection('subjects').doc(id));
+
+        const monthlyRequestDocs = requestSnapshot.docs
+            .filter(doc => String(doc.data()?.dateKey || '').startsWith(`${monthStr}-`));
+        const monthlyRequests = monthlyRequestDocs
+            .map(doc => ({ id: doc.id, ...doc.data() }));
+        // A time/count correction must not implicitly approve or cancel +10.
+        // Only an explicit toggle from the Admin UI may mutate either the
+        // session flag or its companion request.
+        const bonus10Mutation = command.bonus10Mutation && typeof command.bonus10Mutation === 'object'
+            ? command.bonus10Mutation
+            : {};
+        const bonus10Dirty = command.bonus10Dirty === true ||
+            bonus10Mutation.dirty === true || command.draft?.bonus10Dirty === true;
+        const desiredBonus10 = Object.prototype.hasOwnProperty.call(bonus10Mutation, 'desired')
+            ? bonus10Mutation.desired === true
+            : command.draft?.bonus10 === true;
+        const wantsBonus10 = bonus10Dirty && desiredBonus10;
+        // Student-count review state is financially significant (large-class
+        // allowance and monthly penalties). A time-only edit must preserve the
+        // existing count, pending/rejected status and reviewer metadata exactly.
+        const studentCountMutation = command.studentCountMutation && typeof command.studentCountMutation === 'object'
+            ? command.studentCountMutation
+            : {};
+        const studentCountDirty = command.studentCountDirty === true ||
+            studentCountMutation.dirty === true || command.draft?.studentCountDirty === true;
+        // The complete concurrent class set and monthly penalty sentinel are
+        // re-read below in the transaction. Do not reject against the clicked
+        // popup row here: for joined A+B teaching, B may legitimately carry the
+        // +10 policy even when A (the row that opened the popup) does not.
+        let policyVerdict = null;
+
+        const expectedSessionId = String(command.sessionId || '').trim();
+        const targetSessionId = expectedSessionId || createAttendanceSessionId();
+        const sameSessionRequests = monthlyRequests.filter(item =>
+            String(item.dateKey || '') === dateKey && String(item.sessionId || '') === targetSessionId
+        );
+        const activeRequests = sameSessionRequests.filter(item => ['pending', 'approved'].includes(String(item.status || '')));
+        if (bonus10Dirty && activeRequests.length > 1) {
+            throw new Error('Ca này có nhiều yêu cầu +10 phút đang hoạt động. Hãy xử lý trùng dữ liệu trong Bảng Công trước.');
+        }
+        const canonicalRequestId = _canonicalBonus10RequestId(dateKey, staffId, targetSessionId);
+        const bonusRequestId = activeRequests[0]?.id || canonicalRequestId;
+
+        const attendanceRef = db.collection('attendance_logs').doc(`${dateKey}_${staffId}`);
+        const actorRoleRef = db.collection('user_roles').doc(authorization.uid);
+        const settingsRef = db.collection('settings').doc('system');
+        const cancelledRef = db.collection('cancelled_shifts').doc(`${monthStr}_${staffId}`);
+        const canonicalBonusRequestRef = db.collection('bonus10_requests').doc(canonicalRequestId);
+        const transactionRequestRefs = new Map();
+        // Re-read every known request in the month even when the toggle was not
+        // touched. Changing the time of a session that already carries +10 (or
+        // has a pending/approved request) must re-validate the entitlement.
+        monthlyRequestDocs.forEach(doc => transactionRequestRefs.set(doc.id, doc.ref));
+        // Always read the singleton canonical document, even when this popup did
+        // not touch +10. A competing create then conflicts/retries instead of
+        // escaping the monthly-policy snapshot.
+        transactionRequestRefs.set(canonicalRequestId, canonicalBonusRequestRef);
+        if (bonus10Dirty) {
+            transactionRequestRefs.set(
+                bonusRequestId,
+                db.collection('bonus10_requests').doc(bonusRequestId)
+            );
+        }
+        const requestRefs = Array.from(transactionRequestRefs.values());
+        const auditId = `schedule_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+        const auditRef = db.collection('schedule_attendance_admin_audits').doc(auditId);
+        const nowISO = new Date().toISOString();
+        let savedSession = null;
+
+        await db.runTransaction(async transaction => {
+            const reads = [
+                transaction.get(actorRoleRef),
+                transaction.get(attendanceRef),
+                transaction.get(monthlyRef),
+                transaction.get(scheduleRef),
+                transaction.get(profileRef),
+                transaction.get(settingsRef),
+                transaction.get(cancelledRef)
+            ];
+            subjectRefs.forEach(ref => reads.push(transaction.get(ref)));
+            requestRefs.forEach(ref => reads.push(transaction.get(ref)));
+            const snapshots = await Promise.all(reads);
+            const actorRoleSnapshot = snapshots[0];
+            const attendanceSnapshot = snapshots[1];
+            const monthlySnapshot = snapshots[2];
+            const scheduleSnapshot = snapshots[3];
+            const liveProfileSnapshot = snapshots[4];
+            const settingsSnapshot = snapshots[5];
+            const cancelledSnapshot = snapshots[6];
+            const subjectSnapshotStart = 7;
+            const liveSubjectSnapshots = snapshots.slice(
+                subjectSnapshotStart,
+                subjectSnapshotStart + subjectRefs.length
+            );
+            const requestSnapshots = snapshots.slice(subjectSnapshotStart + subjectRefs.length);
+            const requestSnapshotsById = new Map(requestSnapshots.map(snapshot => [snapshot.id, snapshot]));
+            const liveMonthlyRequests = requestSnapshots
+                .filter(snapshot => snapshot.exists)
+                .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }))
+                .filter(item => String(item.dateKey || '').startsWith(`${monthStr}-`));
+            const liveSameSessionRequests = liveMonthlyRequests.filter(item =>
+                String(item.dateKey || '') === dateKey && String(item.sessionId || '') === targetSessionId
+            );
+            const liveActiveRequests = liveSameSessionRequests.filter(item =>
+                ['pending', 'approved'].includes(String(item.status || ''))
+            );
+            if (liveActiveRequests.length > 1) {
+                throw new Error('Ca này có nhiều yêu cầu +10 phút đang hoạt động. Hãy xử lý trùng dữ liệu trong Bảng Công trước.');
+            }
+            const resolvedBonusRequestId = liveActiveRequests[0]?.id || canonicalRequestId;
+            const bonusRequestRef = db.collection('bonus10_requests').doc(resolvedBonusRequestId);
+            const bonusRequestSnapshot = requestSnapshotsById.get(resolvedBonusRequestId) || null;
+            const canonicalRequestSnapshot = requestSnapshotsById.get(canonicalRequestId) || null;
+            if (canonicalRequestSnapshot?.exists) {
+                _assertBonus10RequestIdentity(canonicalRequestSnapshot.data(), {
+                    staffId,
+                    dateKey,
+                    sessionId: targetSessionId
+                });
+            }
+            if (bonusRequestSnapshot?.exists) {
+                _assertBonus10RequestIdentity(bonusRequestSnapshot.data(), {
+                    staffId,
+                    dateKey,
+                    sessionId: targetSessionId
+                });
+            }
+
+            const actorRoleData = actorRoleSnapshot.exists ? (actorRoleSnapshot.data() || {}) : {};
+            const actorRoles = _normalizeRoleList(actorRoleData);
+            const actorUserId = String(actorRoleData.userId || '').trim();
+            if (!actorRoles.includes('admin') || !actorUserId || actorRoleSnapshot.id !== authorization.uid) {
+                const error = new Error('Quyền Admin đã thay đổi. Vui lòng đăng nhập lại trước khi chỉnh công.');
+                error.code = 'auth/admin-required';
+                throw error;
+            }
+
+            if (!liveProfileSnapshot.exists) {
+                const error = new Error('Hồ sơ nhân sự vừa bị xóa hoặc thay đổi. Hãy tải lại popup.');
+                error.code = 'attendance/conflict';
+                throw error;
+            }
+            const liveProfile = { id: liveProfileSnapshot.id, ...(liveProfileSnapshot.data() || {}) };
+            if (liveSubjectSnapshots.some(snapshot => !snapshot.exists)) {
+                const error = new Error('Môn/Lớp vừa bị xóa hoặc thay đổi. Hãy tải lại lịch trước khi ghi công.');
+                error.code = 'schedule/subject-conflict';
+                throw error;
+            }
+            const liveSubjects = liveSubjectSnapshots.map(snapshot => ({
+                id: snapshot.id,
+                ...(snapshot.data() || {})
+            }));
+
+            const scheduleConflict = (message, code = 'schedule/conflict') => {
+                const error = new Error(message);
+                error.code = code;
+                return error;
+            };
+            if (!scheduleSnapshot.exists) {
+                throw scheduleConflict(
+                    'Ngày này đang dùng lịch kế thừa và chưa có bản lịch riêng để khóa phiên bản. Hãy lưu/materialize lịch ngày trước khi chỉnh công.',
+                    'schedule/not-materialized'
+                );
+            }
+            const scheduleData = scheduleSnapshot.data() || {};
+            const scheduleRows = Array.isArray(scheduleData[scheduleSection])
+                ? scheduleData[scheduleSection]
+                : [];
+            const signatureOf = row => [row?.start, row?.end, row?.lop, row?.phong]
+                .map(value => String(value || '').trim())
+                .join('|');
+            const hasPersistedShiftIdentity = Object.prototype.hasOwnProperty.call(
+                scheduleIdentity,
+                'persistedShiftId'
+            );
+            const requestedShiftId = String(
+                hasPersistedShiftIdentity ? scheduleIdentity.persistedShiftId : command.shiftId || ''
+            ).trim();
+            let scheduleRowIndex = requestedShiftId
+                ? scheduleRows.findIndex(row => String(row?.shiftId || '').trim() === requestedShiftId)
+                : -1;
+            if (scheduleRowIndex < 0 && Number.isInteger(scheduleIndex)) {
+                const legacyCandidate = scheduleRows[scheduleIndex];
+                if (legacyCandidate && !String(legacyCandidate.shiftId || '').trim() &&
+                    signatureOf(legacyCandidate) === expectedScheduleSignature) {
+                    scheduleRowIndex = scheduleIndex;
+                }
+            }
+            if (scheduleRowIndex < 0 || !scheduleRows[scheduleRowIndex]) {
+                throw scheduleConflict('Ca đã bị xóa, di chuyển hoặc đổi mã. Hãy tải lại lịch trước khi chỉnh công.');
+            }
+            const liveScheduleRow = scheduleRows[scheduleRowIndex];
+            if (signatureOf(liveScheduleRow) !== expectedScheduleSignature ||
+                String(liveScheduleRow.staffingUpdatedAt || '') !== expectedStaffingUpdatedAt) {
+                throw scheduleConflict(
+                    'Ca hoặc phân công giáo viên vừa được người khác cập nhật. Hãy tải lại lịch trước khi chỉnh công.',
+                    'schedule/staffing-conflict'
+                );
+            }
+            if (String(liveScheduleRow.start || '').trim() !== scheduledStart ||
+                String(liveScheduleRow.end || '').trim() !== scheduledEnd ||
+                String(liveScheduleRow.lop || '').trim() !== requestedSubjectName) {
+                throw scheduleConflict('Giờ hoặc Môn/Lớp của ca vừa thay đổi. Hãy tải lại lịch trước khi chỉnh công.');
+            }
+            const liveCenterClosures = settingsSnapshot.exists
+                ? (settingsSnapshot.data()?.centerClosures || {})
+                : {};
+            if (liveScheduleRow.isClosed === true ||
+                _isTeachingScheduleSectionClosed(dateKey, scheduleSection, liveCenterClosures)) {
+                throw scheduleConflict(
+                    'Ca hoặc Môn/Lớp này đang được đánh dấu tắt/đóng. Hãy mở lại lịch trước khi ghi nhận có mặt.',
+                    'schedule/shift-closed'
+                );
+            }
+            const cancelledShiftKeys = cancelledSnapshot.exists &&
+                Array.isArray(cancelledSnapshot.data()?.shifts)
+                ? cancelledSnapshot.data().shifts.map(value => String(value || '').trim())
+                : [];
+            const isScheduleRowCancelled = (row, rowIndex) => {
+                const legacyKey = `${compositeKey}_${scheduleSection}_${rowIndex}`;
+                const persistedId = String(row?.shiftId || '').trim();
+                return cancelledShiftKeys.includes(legacyKey) ||
+                    (!!persistedId && cancelledShiftKeys.includes(`shift:${persistedId}`));
+            };
+            if (isScheduleRowCancelled(liveScheduleRow, scheduleRowIndex)) {
+                throw scheduleConflict(
+                    'Ca này đã bị hủy trong Bảng Công nên một phiên có mặt sẽ vẫn bị ẩn và không tính lương. Hãy khôi phục ca bị hủy trước rồi mở lại popup.',
+                    'schedule/shift-cancelled'
+                );
+            }
+            const liveRowSubjectId = String(liveScheduleRow.lopId || '').trim();
+            if (liveRowSubjectId) {
+                const rowSubjectIds = Array.from(new Set(window.Early10.splitSubjectIds(liveRowSubjectId)
+                    .map(value => String(value || '').trim())
+                    .filter(Boolean))).sort();
+                const expectedSubjectIds = subjectIds.slice().sort();
+                if (rowSubjectIds.length !== expectedSubjectIds.length ||
+                    rowSubjectIds.some((id, index) => id !== expectedSubjectIds[index])) {
+                    throw scheduleConflict(
+                        'Mã Môn/Lớp của ca vừa thay đổi. Hãy tải lại lịch trước khi chỉnh công.',
+                        'schedule/subject-conflict'
+                    );
+                }
+            } else if (!liveSubjects.some(subject =>
+                String(subject.name || '').trim() === requestedSubjectName
+            )) {
+                throw scheduleConflict(
+                    'Tên Môn/Lớp của ca không còn ánh xạ duy nhất tới dữ liệu tính lương.',
+                    'schedule/subject-conflict'
+                );
+            }
+
+            const isCurrentMain = teacherShiftState.getMainTeachers(liveScheduleRow)
+                .some(item => String(item?.id || '').trim() === staffId);
+            const isCurrentSubstitute = teacherShiftState.getSubstituteTeachers(liveScheduleRow)
+                .some(item => String(item?.id || '').trim() === staffId);
+            if (isCurrentMain && teacherShiftState.isMainTeacherAbsent(liveScheduleRow, staffId)) {
+                throw scheduleConflict(
+                    'Giáo viên chính hiện đang ở trạng thái nghỉ trong ca này. Hãy khôi phục “Đang dạy” trước khi ghi công.',
+                    'schedule/staff-absent'
+                );
+            }
+            if (!isCurrentMain && !isCurrentSubstitute) {
+                throw scheduleConflict(
+                    'Nhân sự không còn được phân công trong ca này. Đã dừng để tránh ghi công/lương nhầm người.',
+                    'schedule/staff-unassigned'
+                );
+            }
+
+            // One physical teaching window may contain several schedule rows
+            // assigned to the same person. Resolve that complete live set for
+            // every save path (new, legacy and already-linked), excluding rows
+            // that were explicitly cancelled for this employee.
+            const activeScheduleRows = scheduleRows.filter((row, rowIndex) =>
+                !isScheduleRowCancelled(row, rowIndex)
+            );
+            const concurrentTeaching = _resolveConcurrentTeachingSubjectSet(
+                activeScheduleRows,
+                staffId,
+                scheduledStart,
+                scheduledEnd,
+                subjects,
+                teacherShiftState
+            );
+            if (!concurrentTeaching.rows.includes(liveScheduleRow) || !concurrentTeaching.ids.length) {
+                throw scheduleConflict(
+                    'Không thể xác định đầy đủ các Môn/Lớp trùng giờ của nhân sự này. Hãy tải lại lịch.',
+                    'schedule/subject-conflict'
+                );
+            }
+            const concurrentSubjectIds = concurrentTeaching.ids.slice().sort();
+            const concurrentSubjectRefs = concurrentSubjectIds.map(id => db.collection('subjects').doc(id));
+            const concurrentSubjectSnapshots = await Promise.all(
+                concurrentSubjectRefs.map(ref => transaction.get(ref))
+            );
+            if (concurrentSubjectSnapshots.some(snapshot => !snapshot.exists)) {
+                throw scheduleConflict(
+                    'Một Môn/Lớp trong ca trùng giờ vừa bị xóa. Hãy tải lại lịch trước khi sửa công.',
+                    'schedule/subject-conflict'
+                );
+            }
+            const concurrentSnapshotsById = new Map(
+                concurrentSubjectSnapshots.map(snapshot => [String(snapshot.id), snapshot])
+            );
+            const renamedFallback = concurrentTeaching.resolvedByName.find(item =>
+                String(concurrentSnapshotsById.get(item.id)?.data()?.name || '').trim() !== item.name
+            );
+            if (renamedFallback) {
+                throw scheduleConflict(
+                    `Môn/Lớp “${renamedFallback.name}” của ca trùng giờ vừa đổi tên hoặc đổi mã. Hãy tải lại lịch.`,
+                    'schedule/subject-conflict'
+                );
+            }
+            const effectiveSubjects = concurrentSubjectSnapshots.map(snapshot => ({
+                id: snapshot.id,
+                ...(snapshot.data() || {})
+            }));
+            const effectiveSubjectId = concurrentSubjectIds.join('+');
+            const effectiveSubjectName = concurrentSubjectIds.map(id =>
+                String(concurrentSnapshotsById.get(id)?.data()?.name || id).trim()
+            ).join(' + ');
+            const isConcurrentTeachingSession = concurrentTeaching.rows.length > 1;
+            const concurrentShiftIds = concurrentTeaching.rows
+                .map(row => String(row?.shiftId || '').trim())
+                .filter(Boolean);
+            const sharedConcurrentShiftId = concurrentShiftIds.length === concurrentTeaching.rows.length &&
+                new Set(concurrentShiftIds).size === 1
+                ? concurrentShiftIds[0]
+                : '';
+
+            const monthlySettings = monthlySnapshot.exists ? (monthlySnapshot.data() || {}) : {};
+            const payrollLock = DBService.getPayslipDraftLockState(monthlySettings.published || {}, 'gv');
+            if (payrollLock.locked) {
+                const error = new Error('Phiếu lương giảng dạy tháng này đã phát hành/đã nhận nên nguồn chấm công đang khóa. Hãy mở lại kỳ lương theo quy trình trước khi sửa.');
+                error.code = 'payslip/locked';
+                throw error;
+            }
+            const attendance = attendanceSnapshot.exists ? (attendanceSnapshot.data() || {}) : {
+                userId: staffId,
+                name: liveProfile.name || liveProfile.username || command.staffName || 'N/A',
+                date: dateKey,
+                sessions: []
+            };
+            if (String(attendance.userId || staffId) !== staffId || String(attendance.date || dateKey) !== dateKey) {
+                throw new Error('Tài liệu chấm công không khớp nhân sự/ngày; đã dừng để tránh sửa nhầm dữ liệu.');
+            }
+            const sessions = Array.isArray(attendance.sessions)
+                ? attendance.sessions.map(session => ({ ...session }))
+                : [];
+            let sessionIndex = expectedSessionId
+                ? sessions.findIndex(session => String(session?.id || '') === expectedSessionId)
+                : -1;
+            if (expectedSessionId && sessionIndex < 0) {
+                const error = new Error('Phiên chấm công vừa bị thay đổi hoặc xóa ở nơi khác. Hãy tải lại popup.');
+                error.code = 'attendance/conflict';
+                throw error;
+            }
+
+            let session = sessionIndex >= 0 ? sessions[sessionIndex] : null;
+            if (session) {
+                const actualFingerprint = helper.fingerprintSession(session);
+                if (!command.expectedFingerprint || actualFingerprint !== command.expectedFingerprint) {
+                    const error = new Error('Giờ công vừa được người khác cập nhật. Hãy tải lại trước khi lưu để không ghi đè.');
+                    error.code = 'attendance/conflict';
+                    throw error;
+                }
+            }
+            const sessionBeforeCorrection = session ? { ...session } : null;
+            let shouldCanonicalizeTeachingRole = false;
+            let preservesConcurrentTeachingRoleSet = false;
+            let shouldDropRowOnlyScheduleLink = false;
+            if (session) {
+                const normalizedText = value => String(value || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .trim()
+                    .toLowerCase()
+                    .replace(/[_-]+/g, ' ')
+                    .replace(/\s+/g, ' ');
+                const operationalRoleIds = new Set([
+                    'tiep tan', 'receptionist', 'receptionist assistant',
+                    'receptionist lead', 'receptionist staff', 'office staff',
+                    'van phong', 'office'
+                ]);
+                const normalizedRole = normalizedText(session.role);
+                const normalizedRoleName = normalizedText(session.roleName);
+                const hasOperationalRole = operationalRoleIds.has(normalizedRole) ||
+                    normalizedRoleName.includes('tiep tan') ||
+                    normalizedRoleName.includes('reception') ||
+                    normalizedRoleName.includes('van phong') ||
+                    normalizedRoleName === 'office';
+                if (session.linkedReceptionistShift || session.linkedOfficeShift || hasOperationalRole) {
+                    const error = new Error('Phiên này thuộc nguồn Tiếp tân/Văn phòng, không thể sửa từ popup ca dạy. Hãy xử lý tại đúng Bảng Công tương ứng.');
+                    error.code = 'attendance/session-operational-conflict';
+                    throw error;
+                }
+
+                const normalizeClock = value => {
+                    const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+                    if (!match) return '';
+                    const hour = Number(match[1]);
+                    const minute = Number(match[2]);
+                    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return '';
+                    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                };
+                const sameScheduleComposite = (left, right) => {
+                    const a = String(left || '').trim();
+                    const b = String(right || '').trim();
+                    if (!a || !b) return true;
+                    if (a === b) return true;
+                    const parsedA = DBService._parseBranchKey(a);
+                    const parsedB = DBService._parseBranchKey(b);
+                    return parsedA.branch === parsedB.branch && parsedA.dateKey === parsedB.dateKey;
+                };
+                const liveShiftId = String(liveScheduleRow.shiftId || '').trim();
+                const linkedShiftId = String(session.linkedScheduleShiftId || '').trim();
+                const linkedComposite = String(session.linkedScheduleCompositeKey || '').trim();
+                const linkedSection = String(session.linkedScheduleSection || '').trim();
+                const linkedClassStart = String(session.linkedClassStart || '').trim();
+                const sameExplicitShiftId = !!liveShiftId && !!linkedShiftId && liveShiftId === linkedShiftId;
+
+                const linksOneConcurrentRow = isConcurrentTeachingSession &&
+                    concurrentTeaching.rows.some(row => String(row?.shiftId || '').trim() === linkedShiftId);
+                if (linkedShiftId && liveShiftId && linkedShiftId !== liveShiftId && !linksOneConcurrentRow) {
+                    const error = new Error('Phiên chấm công đang liên kết một mã ca dạy khác. Hãy xử lý liên kết trong Bảng Công trước.');
+                    error.code = 'attendance/session-link-conflict';
+                    throw error;
+                }
+                if (linkedComposite && !sameScheduleComposite(linkedComposite, compositeKey)) {
+                    const error = new Error('Phiên chấm công đang liên kết lịch của ngày/cơ sở khác. Đã dừng để tránh chuyển nhầm nguồn lương.');
+                    error.code = 'attendance/session-link-conflict';
+                    throw error;
+                }
+                if (linkedSection && linkedSection !== scheduleSection) {
+                    const error = new Error('Phiên chấm công đang liên kết một khu vực ca khác trong lịch. Hãy xử lý trong Bảng Công trước.');
+                    error.code = 'attendance/session-link-conflict';
+                    throw error;
+                }
+                if (linkedClassStart && normalizeClock(linkedClassStart) !== normalizeClock(scheduledStart) &&
+                    !sameExplicitShiftId) {
+                    const error = new Error('Phiên chấm công đang neo vào giờ bắt đầu của lớp khác. Đã dừng để tránh tính lương nhầm ca.');
+                    error.code = 'attendance/session-link-conflict';
+                    throw error;
+                }
+                if (linkedShiftId && !liveShiftId) {
+                    const provesSameLegacyRow = !!linkedComposite && !!linkedSection && !!linkedClassStart &&
+                        sameScheduleComposite(linkedComposite, compositeKey) &&
+                        linkedSection === scheduleSection &&
+                        normalizeClock(linkedClassStart) === normalizeClock(scheduledStart);
+                    if (!provesSameLegacyRow) {
+                        const error = new Error('Không thể xác minh mã liên kết cũ của phiên với ca dạy đời cũ. Hãy liên kết lại trong Bảng Công.');
+                        error.code = 'attendance/session-link-conflict';
+                        throw error;
+                    }
+                }
+
+                const genericTeachingRoles = new Set([
+                    'giao vien', 'teacher', 'teaching assistant', 'assistant', 'staff'
+                ]);
+                const manualRoleSources = new Set(['manual', 'admin manual', 'manual override']);
+                const roleIds = Array.from(new Set(window.Early10.splitSubjectIds(session.role)
+                    .map(value => String(value || '').trim())
+                    .filter(Boolean))).sort();
+                const expectedRoleIds = subjectIds.slice().sort();
+                const roleMatchesCurrentSubject = roleIds.length === expectedRoleIds.length &&
+                    roleIds.every((id, index) => id === expectedRoleIds[index]);
+                const roleMatchesCompleteConcurrentSet = _sameScheduleSubjectIdSet(
+                    roleIds,
+                    concurrentSubjectIds
+                );
+                const roleSource = normalizedText(session.roleAssignmentSource);
+                const numericRoleRate = Number(session.roleRate);
+                const hasFrozenRoleRate = Number.isFinite(numericRoleRate) && numericRoleRate > 0;
+                const hasProtectedManualRole = hasFrozenRoleRate ||
+                    manualRoleSources.has(roleSource) || session.subjectOverride === true;
+                const canUpgradeGenericLegacyRole = !hasProtectedManualRole &&
+                    (genericTeachingRoles.has(normalizedRole) || !roleIds.length || roleMatchesCurrentSubject);
+
+                if (roleMatchesCompleteConcurrentSet) {
+                    preservesConcurrentTeachingRoleSet = isConcurrentTeachingSession;
+                } else if (canUpgradeGenericLegacyRole) {
+                    // Missing/generic roles and a safe legacy one-row role may be
+                    // promoted to the complete concurrent set. Arbitrary subsets,
+                    // supersets and manual/frozen overrides are never guessed.
+                    shouldCanonicalizeTeachingRole = true;
+                } else {
+                    const error = new Error(hasProtectedManualRole
+                        ? 'Phiên đang có đơn giá hoặc Môn/Lớp ghi đè thủ công. Hãy xác nhận lại trong Bảng Công trước.'
+                        : 'Phiên chấm công đang mang bộ Môn/Lớp khác với toàn bộ ca trùng giờ. Hãy sửa liên kết/môn trong Bảng Công để tránh sai Role? hoặc đơn giá.');
+                    error.code = 'attendance/session-role-conflict';
+                    throw error;
+                }
+
+                if (isConcurrentTeachingSession && linkedShiftId &&
+                    linkedShiftId !== sharedConcurrentShiftId) {
+                    if (hasProtectedManualRole || !linksOneConcurrentRow) {
+                        const error = new Error('Phiên trùng giờ đang liên kết riêng một dòng lịch không thể chuẩn hóa an toàn. Hãy xử lý liên kết trong Bảng Công.');
+                        error.code = 'attendance/session-link-conflict';
+                        throw error;
+                    }
+                    shouldDropRowOnlyScheduleLink = true;
+                }
+            }
+
+            const keepsExistingBonus10 = !bonus10Dirty && (
+                !!session?.bonus10 || liveActiveRequests.length > 0
+            );
+            const requiresBonus10Policy = wantsBonus10 || keepsExistingBonus10;
+            if (requiresBonus10Policy && window.Early10.isMonthlyBonusPenaltyActive(
+                monthlySettings,
+                [
+                    ...liveMonthlyRequests.map(request => ({ bonus10Status: request.status })),
+                    ...sessions.map(candidate => ({ studentCountStatus: candidate?.studentCountStatus }))
+                ]
+            )) {
+                throw new Error('Phụ cấp +10 phút của tháng này đang bị khóa. Hãy chủ động tắt/hủy +10 trước khi sửa phiên công.');
+            }
+            if (requiresBonus10Policy) {
+                const livePolicyVerdict = window.Early10.evaluateEarly10Request({
+                    sessionRole: effectiveSubjectId,
+                    subjectIds: concurrentSubjectIds,
+                    subjects: effectiveSubjects,
+                    user: liveProfile,
+                    checkIn: validation.checkInISO,
+                    classStart: scheduledStart
+                });
+                if (!livePolicyVerdict?.ok) {
+                    const error = new Error(
+                        (livePolicyVerdict?.message || 'Ca này không còn đủ điều kiện +10 phút.') +
+                        (!bonus10Dirty ? ' Hãy chủ động tắt/hủy +10 rồi lưu lại.' : '')
+                    );
+                    error.code = 'attendance/bonus10-policy-conflict';
+                    throw error;
+                }
+                policyVerdict = livePolicyVerdict;
+            }
+
+            const proposedStart = new Date(validation.checkInISO).getTime();
+            const proposedEnd = new Date(validation.checkOutISO || shiftWindow.end.toISOString()).getTime();
+            const clash = sessions.find((candidate, index) => {
+                if (index === sessionIndex || !candidate || candidate.isAbsent) return false;
+                const candidateStart = new Date(candidate.checkIn || candidate.start || '').getTime();
+                const candidateEndValue = candidate.checkOut || candidate.end || null;
+                // An open session is not a zero-length point. Treat it as live
+                // for at most 24h so an Admin cannot create a second overlapping
+                // open session that checkout/auto-close would resolve ambiguously.
+                const candidateEnd = candidateEndValue
+                    ? new Date(candidateEndValue).getTime()
+                    : candidateStart + 24 * 60 * 60 * 1000;
+                if (!Number.isFinite(candidateStart) || !Number.isFinite(candidateEnd)) return false;
+                return Math.min(proposedEnd, candidateEnd) - Math.max(proposedStart, candidateStart) >= 10 * 60 * 1000;
+            });
+            if (clash) {
+                const error = new Error('Khung giờ này trùng từ 10 phút với một phiên công khác. Đã dừng để bảng lương không tính đôi.');
+                error.code = 'SESSION_OVERLAP';
+                throw error;
+            }
+
+            const before = sessionBeforeCorrection ? {
+                checkIn: sessionBeforeCorrection.checkIn || sessionBeforeCorrection.start || null,
+                checkOut: sessionBeforeCorrection.checkOut || null,
+                role: sessionBeforeCorrection.role || null,
+                roleAssignmentSource: sessionBeforeCorrection.roleAssignmentSource || null,
+                linkedClassStart: sessionBeforeCorrection.linkedClassStart || null,
+                linkedScheduleShiftId: sessionBeforeCorrection.linkedScheduleShiftId || null,
+                linkedScheduleCompositeKey: sessionBeforeCorrection.linkedScheduleCompositeKey || null,
+                linkedScheduleSection: sessionBeforeCorrection.linkedScheduleSection || null,
+                linkedReceptionistShift: sessionBeforeCorrection.linkedReceptionistShift || null,
+                linkedOfficeShift: sessionBeforeCorrection.linkedOfficeShift || null,
+                isAbsent: !!sessionBeforeCorrection.isAbsent,
+                bonus10: !!sessionBeforeCorrection.bonus10,
+                studentCount: sessionBeforeCorrection.studentCount ?? null,
+                studentCountStatus: sessionBeforeCorrection.studentCountStatus || null
+            } : null;
+
+            if (!session) {
+                session = {
+                    id: targetSessionId,
+                    anchorDateKey: dateKey,
+                    source: 'admin',
+                    type: 'admin_schedule_correction',
+                    role: effectiveSubjectId,
+                    roleName: effectiveSubjectName,
+                    roleAssignmentSource: 'schedule_admin_panel',
+                    linkedClassStart: scheduledStart,
+                    linkedScheduleCompositeKey: compositeKey,
+                    linkedScheduleSection: scheduleSection
+                };
+                if (sharedConcurrentShiftId) {
+                    session.linkedScheduleShiftId = sharedConcurrentShiftId;
+                }
+                sessions.push(session);
+                sessionIndex = sessions.length - 1;
+            } else {
+                if (shouldCanonicalizeTeachingRole) {
+                    session.role = effectiveSubjectId;
+                    session.roleName = effectiveSubjectName;
+                    session.roleAssignmentSource = 'schedule_admin_panel';
+                    session.subjectOverride = false;
+                }
+                // An explicit, transaction-validated schedule correction is a
+                // safe point to materialize missing teaching links. Existing
+                // operational/other-schedule links were rejected above.
+                session.linkedClassStart = scheduledStart;
+                if (shouldDropRowOnlyScheduleLink) {
+                    delete session.linkedScheduleShiftId;
+                }
+                if (sharedConcurrentShiftId) {
+                    session.linkedScheduleShiftId = sharedConcurrentShiftId;
+                } else if (!isConcurrentTeachingSession && liveScheduleRow.shiftId &&
+                    !preservesConcurrentTeachingRoleSet) {
+                    session.linkedScheduleShiftId = String(liveScheduleRow.shiftId);
+                }
+                session.linkedScheduleCompositeKey = compositeKey;
+                session.linkedScheduleSection = scheduleSection;
+            }
+
+            session.start = validation.checkInISO;
+            session.checkIn = validation.checkInISO;
+            session.checkOut = validation.checkOutISO || null;
+            session.status = validation.checkOutISO ? 'closed' : 'open';
+            delete session.isAbsent;
+            if (bonus10Dirty) session.bonus10 = desiredBonus10;
+            session.isAdminEdited = true;
+            session.adminCorrectionAt = nowISO;
+            session.adminCorrectionBy = actorUserId;
+            delete session.autoClosedReason;
+
+            _applyAdminStudentCountMutation(
+                session,
+                studentCountDirty,
+                validation.studentCount,
+                nowISO,
+                actorUserId
+            );
+
+            const after = {
+                checkIn: session.checkIn,
+                checkOut: session.checkOut,
+                role: session.role || null,
+                roleAssignmentSource: session.roleAssignmentSource || null,
+                linkedClassStart: session.linkedClassStart || null,
+                linkedScheduleShiftId: session.linkedScheduleShiftId || null,
+                linkedScheduleCompositeKey: session.linkedScheduleCompositeKey || null,
+                linkedScheduleSection: session.linkedScheduleSection || null,
+                linkedReceptionistShift: session.linkedReceptionistShift || null,
+                linkedOfficeShift: session.linkedOfficeShift || null,
+                isAbsent: false,
+                bonus10: !!session.bonus10,
+                studentCount: session.studentCount ?? null,
+                studentCountStatus: session.studentCountStatus || null
+            };
+            const history = Array.isArray(session.editHistory) ? session.editHistory.slice(-19) : [];
+            history.push({
+                at: nowISO,
+                action: 'admin_schedule_correction',
+                source: 'schedule_attendance_popup',
+                editor: { uid: authorization.uid, userId: actorUserId },
+                before,
+                after
+            });
+            session.editHistory = history;
+            sessions[sessionIndex] = session;
+
+            attendance.userId = staffId;
+            attendance.name = attendance.name || liveProfile.name || liveProfile.username || command.staffName || 'N/A';
+            attendance.date = dateKey;
+            attendance.sessions = sessions;
+            // Keep the legacy top-level mirror aligned with the chronologically
+            // latest valid session. The Admin can move an older session later in
+            // the day, so array position alone is not a safe definition of latest.
+            const latestTimedSession = sessions.reduce((latest, candidate, index) => {
+                const timestamp = new Date(candidate?.checkIn || candidate?.start || '').getTime();
+                if (!Number.isFinite(timestamp)) return latest;
+                if (!latest || timestamp > latest.timestamp ||
+                    (timestamp === latest.timestamp && index > latest.index)) {
+                    return { candidate, timestamp, index };
+                }
+                return latest;
+            }, null);
+            if (latestTimedSession) {
+                attendance.checkIn = latestTimedSession.candidate.checkIn || latestTimedSession.candidate.start;
+                attendance.checkOut = latestTimedSession.candidate.checkOut || null;
+            }
+            attendance.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+            attendance.lastScheduleAdminEdit = {
+                authUid: authorization.uid,
+                actorUserId,
+                sessionId: targetSessionId,
+                at: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            transaction.set(attendanceRef, attendance);
+
+            if (wantsBonus10) {
+                const existingRequest = bonusRequestSnapshot?.exists ? (bonusRequestSnapshot.data() || {}) : {};
+                transaction.set(bonusRequestRef, {
+                    ...existingRequest,
+                    staffId,
+                    staffName: liveProfile.name || liveProfile.username || command.staffName || 'N/A',
+                    dateKey,
+                    sessionId: targetSessionId,
+                    status: 'approved',
+                    autoApproved: true,
+                    approvalSource: 'schedule_attendance_popup',
+                    earlyMinutes: policyVerdict?.earlyMinutes ?? null,
+                    checkInAt: policyVerdict?.checkInLabel ?? null,
+                    scheduledStart: policyVerdict?.startLabel ?? scheduledStart,
+                    createdAt: existingRequest.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
+                    approvedBy: actorUserId,
+                    approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else if (bonus10Dirty && bonusRequestSnapshot?.exists && liveActiveRequests.length) {
+                transaction.set(bonusRequestRef, {
+                    status: 'cancelled',
+                    cancelledBy: actorUserId,
+                    cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    cancelSource: 'schedule_attendance_popup'
+                }, { merge: true });
+            }
+
+            // This immutable companion write is the server-enforced boundary:
+            // Firestore Rules allow it only for the literal `admin` role (not
+            // senior_assistant/assistant), so the whole transaction fails for
+            // every non-Admin even if they invoke this method from DevTools.
+            transaction.set(auditRef, {
+                authUid: authorization.uid,
+                actorUserId,
+                staffId,
+                dateKey,
+                sessionId: targetSessionId,
+                action: 'save_correction',
+                source: 'schedule_attendance_popup',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            savedSession = { ...session };
+        });
+
+        DBService._invalidateAttendance(dateKey, staffId);
+        DBService._invalidate('bonus10_requests_');
+        DBService._invalidate(`monthly_attendance_${monthStr}_${staffId}`);
+        return { session: savedSession, policyVerdict, auditId };
+    },
+
     updateSessionRole: async (userId, dateKey, sessionId, roleData) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
@@ -2542,6 +3889,15 @@ const DBService = {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
 
+        const clearing = studentCount === null || studentCount === undefined || studentCount === '' || Number(studentCount) <= 0;
+        const normalizedCount = clearing ? null : Number(studentCount);
+        if (!clearing && (!Number.isInteger(normalizedCount) || normalizedCount < 1 || normalizedCount > 500)) {
+            throw new Error('Sĩ số phải là số nguyên từ 1 đến 500.');
+        }
+        if (status != null && !['pending', 'approved', 'rejected'].includes(status)) {
+            throw new Error('Trạng thái sĩ số không hợp lệ.');
+        }
+
         try {
             await db.runTransaction(async (t) => {
                 const doc = await t.get(ref);
@@ -2563,20 +3919,20 @@ const DBService = {
                     if (currentStatus && currentStatus !== 'pending') {
                         throw new Error("Không thể chỉnh sửa ca đã được duyệt hoặc từ chối.");
                     }
-                    if (studentCount === null || studentCount === undefined || studentCount <= 0) {
+                    if (clearing) {
                         delete session.studentCount;
                         delete session.studentCountStatus;
                         delete session.studentCountUpdatedAt;
                         delete session.studentCountUpdatedBy;
                     } else {
-                        session.studentCount = Number(studentCount);
+                        session.studentCount = normalizedCount;
                         session.studentCountStatus = 'pending';
                         session.studentCountUpdatedAt = new Date().toISOString();
                         session.studentCountUpdatedBy = updaterId || userId;
                     }
                 } else {
                     // Admin permissions: can set to approved or rejected or clear
-                    if (studentCount === null || studentCount === undefined || studentCount <= 0) {
+                    if (clearing) {
                         delete session.studentCount;
                         delete session.studentCountStatus;
                         delete session.studentCountUpdatedAt;
@@ -2584,7 +3940,7 @@ const DBService = {
                         delete session.studentCountReviewedAt;
                         delete session.studentCountReviewedBy;
                     } else {
-                        session.studentCount = Number(studentCount);
+                        session.studentCount = normalizedCount;
                         session.studentCountStatus = status || 'pending';
                         if (status === 'approved' || status === 'rejected') {
                             session.studentCountReviewedAt = new Date().toISOString();
@@ -4519,11 +5875,12 @@ const DBService = {
             throw new Error('Thiếu nhân sự hoặc ngày cần đánh giá.');
         }
         const monthStr = dateKey.slice(0, 7);
-        const [cancelledShifts, observations, overtimeRequests, bonusRequests] = await Promise.all([
+        const [cancelledShifts, observations, overtimeRequests, bonusRequests, monthlySettings] = await Promise.all([
             DBService.getCancelledShifts(monthStr, staffId),
             DBService.getShiftObservationsForDate(dateKey, staffId),
             DBService.getOvertimeRequestsForStaff(staffId, monthStr),
-            DBService.getBonus10RequestsForStaff(staffId, monthStr)
+            DBService.getBonus10RequestsForStaff(staffId, monthStr),
+            DBService.getMonthlySalarySettings(staffId, monthStr)
         ]);
         const overtimeMap = {};
         (overtimeRequests || []).filter(item => item.dateKey === dateKey).forEach(item => {
@@ -4549,7 +5906,7 @@ const DBService = {
             overtimeMap,
             bonus10Map,
             monthFlags: {
-                early10PenaltyActive: (bonusRequests || []).some(item => item.status === 'rejected')
+                early10PenaltyActive: _isBonus10PenaltyActive(monthlySettings || {}, bonusRequests || [])
             }
         };
     },
@@ -4584,109 +5941,87 @@ const DBService = {
 
     // ================= BONUS 10P REQUESTS =================
 
-    createBonus10Request: async (staffId, staffName, dateKey, sessionId) => {
+    createBonus10Request: async (staffId, staffName, dateKey, sessionId, eligibilityMeta = null) => {
         try {
-            // Check duplicate: chỉ dùng 2 WHERE để tránh lỗi composite index Firestore,
-            // filter sessionId + status ở client-side
-            const dupSnap10 = await db.collection('bonus10_requests')
-                .where('staffId', '==', staffId)
-                .where('dateKey', '==', dateKey)
+            const identity = _normalizeBonus10Identity({ staffId, dateKey, sessionId });
+            const monthStr = identity.dateKey.slice(0, 7);
+            const requestId = _canonicalBonus10RequestId(
+                identity.dateKey,
+                identity.staffId,
+                identity.sessionId
+            );
+            const requestRef = db.collection('bonus10_requests').doc(requestId);
+            const monthlyRef = db.collection('salary_settings_monthly')
+                .doc(`${monthStr}_${identity.staffId}`);
+            // Preserve legacy random-ID documents for read/update, but re-read
+            // every known monthly record in the transaction so an old active
+            // request cannot coexist with the canonical singleton.
+            const knownSnapshot = await db.collection('bonus10_requests')
+                .where('staffId', '==', identity.staffId)
+                .limit(400)
                 .get();
-            const alreadyExists10 = dupSnap10.docs.some(doc => {
-                const d = doc.data();
-                return String(d.sessionId) === String(sessionId) && d.status === 'pending';
-            });
-            if (alreadyExists10) {
-                throw new Error('Bạn đã gửi yêu cầu sớm 10p cho ca này rồi!');
-            }
+            const requestRefsById = new Map([[requestId, requestRef]]);
+            knownSnapshot.docs
+                .filter(doc => String(doc.data()?.dateKey || '').startsWith(`${monthStr}-`))
+                .forEach(doc => requestRefsById.set(doc.id, doc.ref));
+            const requestRefs = Array.from(requestRefsById.values());
 
-            const docRef = await db.collection('bonus10_requests').add({
-                staffId,
-                staffName: staffName || 'N/A',
-                dateKey,
-                sessionId: String(sessionId),
-                status: 'pending',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                approvedBy: null,
-                approvedAt: null
+            await db.runTransaction(async transaction => {
+                const snapshots = await Promise.all([
+                    transaction.get(monthlyRef),
+                    ...requestRefs.map(ref => transaction.get(ref))
+                ]);
+                const monthlySnapshot = snapshots[0];
+                const requestSnapshots = snapshots.slice(1);
+                const monthlyRequests = requestSnapshots
+                    .filter(snapshot => snapshot.exists)
+                    .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }))
+                    .filter(request => String(request.dateKey || '').startsWith(`${monthStr}-`));
+                if (_isBonus10PenaltyActive(
+                    monthlySnapshot.exists ? monthlySnapshot.data() : {},
+                    monthlyRequests
+                )) {
+                    throw new Error('Phụ cấp +10 phút của tháng này đang bị khóa; không thể gửi thêm yêu cầu.');
+                }
+                const duplicate = monthlyRequests.find(request =>
+                    String(request.dateKey || '') === identity.dateKey &&
+                    String(request.sessionId || '') === identity.sessionId &&
+                    ['pending', 'approved'].includes(String(request.status || ''))
+                );
+                if (duplicate || requestSnapshots.find(snapshot => snapshot.id === requestId)?.exists) {
+                    throw new Error('Bạn đã gửi yêu cầu sớm 10p cho ca này rồi!');
+                }
+                transaction.set(requestRef, {
+                    staffId: identity.staffId,
+                    staffName: staffName || 'N/A',
+                    dateKey: identity.dateKey,
+                    sessionId: identity.sessionId,
+                    status: 'pending',
+                    requestSource: 'staff_early10_claim',
+                    earlyMinutes: Number.isFinite(Number(eligibilityMeta?.earlyMinutes))
+                        ? Number(eligibilityMeta.earlyMinutes)
+                        : null,
+                    checkInAt: eligibilityMeta?.checkInLabel || null,
+                    scheduledStart: eligibilityMeta?.startLabel || null,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    approvedBy: null,
+                    approvedAt: null
+                });
             });
             DBService._invalidate('bonus10_requests_');
-            console.log('[Bonus10] Request created:', docRef.id);
-            return docRef.id;
+            console.log('[Bonus10] Canonical pending request created:', requestId);
+            return requestId;
         } catch (e) {
             console.error('[Bonus10] Error creating:', e);
             throw e;
         }
     },
 
-    // Hệ thống đã tự xác minh đủ điều kiện (môn cho phép + chế độ cũ/chưa phân loại
-    // + chấm công sớm ≥10 phút) nên ghi thẳng trạng thái 'approved'.
-    // KHÔNG dùng create rồi update: firestore.rules chỉ cho admin update
-    // bonus10_requests, trong khi người bấm nút ở đây là giáo viên.
+    // Compatibility entry point used by the report UI. Client-side policy is a
+    // preview, never authority to award payroll: staff creates one canonical
+    // pending request; an Admin later approves request + attendance atomically.
     createApprovedBonus10Request: async (staffId, staffName, dateKey, sessionId, meta) => {
-        try {
-            const dupSnap = await db.collection('bonus10_requests')
-                .where('staffId', '==', staffId)
-                .where('dateKey', '==', dateKey)
-                .get();
-            const already = dupSnap.docs.some(doc => {
-                const d = doc.data();
-                return String(d.sessionId) === String(sessionId) &&
-                    (d.status === 'pending' || d.status === 'approved');
-            });
-            if (already) throw new Error('Ca này đã được ghi nhận sớm 10p rồi!');
-
-            // ID ổn định + transaction: hai lần chạm nhanh không thể tạo hai yêu cầu;
-            // request và cờ trên attendance luôn cùng thành công hoặc cùng thất bại.
-            const normalizedSessionId = String(sessionId);
-            const requestId = `auto_${dateKey}_${staffId}_${normalizedSessionId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-            const requestRef = db.collection('bonus10_requests').doc(requestId);
-            const attendanceRef = db.collection('attendance_logs').doc(`${dateKey}_${staffId}`);
-
-            await db.runTransaction(async transaction => {
-                const [requestDoc, attendanceDoc] = await Promise.all([
-                    transaction.get(requestRef),
-                    transaction.get(attendanceRef)
-                ]);
-                if (requestDoc.exists) throw new Error('Ca này đã được ghi nhận sớm 10p rồi!');
-                if (!attendanceDoc.exists) throw new Error('Không tìm thấy dữ liệu chấm công của ca này.');
-
-                const attendance = attendanceDoc.data() || {};
-                const sessions = Array.isArray(attendance.sessions)
-                    ? attendance.sessions.map(session => ({ ...session }))
-                    : [];
-                const index = sessions.findIndex(session => String(session.id) === normalizedSessionId);
-                if (index < 0) throw new Error('Không tìm thấy phiên vào/ra tương ứng để cộng 10 phút.');
-                sessions[index].bonus10 = true;
-
-                transaction.set(requestRef, {
-                    staffId,
-                    staffName: staffName || 'N/A',
-                    dateKey,
-                    sessionId: normalizedSessionId,
-                    status: 'approved',
-                    autoApproved: true,
-                    earlyMinutes: meta?.earlyMinutes ?? null,
-                    checkInAt: meta?.checkInLabel ?? null,
-                    scheduledStart: meta?.startLabel ?? null,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    approvedBy: 'Hệ thống tự duyệt',
-                    approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                transaction.set(attendanceRef, {
-                    sessions,
-                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            });
-
-            DBService._invalidate('bonus10_requests_');
-            DBService._invalidate(`monthly_attendance_${dateKey.slice(0, 7)}_${staffId}`);
-            console.log('[Bonus10] Auto-approved atomically:', requestId);
-            return requestId;
-        } catch (e) {
-            console.error('[Bonus10] Error auto-approving:', e);
-            throw e;
-        }
+        return DBService.createBonus10Request(staffId, staffName, dateKey, sessionId, meta);
     },
 
     getBonus10RequestsForStaff: async (staffId, monthStr) => {
@@ -4734,17 +6069,135 @@ const DBService = {
 
     approveBonus10Request: async (requestId, adminName, staffId, dateKey, sessionId) => {
         try {
-            // 1. Update request status
-            await db.collection('bonus10_requests').doc(requestId).update({
-                status: 'approved',
-                approvedBy: adminName || 'Admin',
-                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            // 2. Set bonus10 = true on the actual session
-            if (staffId && dateKey && sessionId) {
-                await DBService.setSessionBonus10(staffId, dateKey, sessionId, true);
+            const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+            const actorUserId = _requireBonus10ManagerAuthorization(authorization);
+            const actorDisplayName = String(
+                authorization.roleData?.name || authorization.roleData?.username || adminName || actorUserId
+            ).trim().slice(0, 120);
+            const identity = _normalizeBonus10Identity({ staffId, dateKey, sessionId });
+            const normalizedRequestId = String(requestId || '').trim();
+            if (!normalizedRequestId || normalizedRequestId.includes('/')) {
+                throw new Error('Mã yêu cầu +10 phút không hợp lệ.');
             }
+            const monthStr = identity.dateKey.slice(0, 7);
+            const requestRef = db.collection('bonus10_requests').doc(normalizedRequestId);
+            const attendanceRef = db.collection('attendance_logs')
+                .doc(`${identity.dateKey}_${identity.staffId}`);
+            const monthlyRef = db.collection('salary_settings_monthly')
+                .doc(`${monthStr}_${identity.staffId}`);
+            const profileRef = db.collection('users').doc(identity.staffId);
+
+            // Resolve only the current session's role IDs outside the transaction;
+            // all source documents are re-read below and any changed role set is
+            // rejected rather than approved against stale policy inputs.
+            const [preAttendanceSnapshot, knownSnapshot] = await Promise.all([
+                attendanceRef.get({ source: 'server' }),
+                db.collection('bonus10_requests')
+                    .where('staffId', '==', identity.staffId)
+                    .limit(400)
+                    .get({ source: 'server' })
+            ]);
+            const preSession = (preAttendanceSnapshot.data()?.sessions || [])
+                .find(session => String(session?.id || '') === identity.sessionId);
+            if (!preSession) throw new Error('Không tìm thấy phiên vào/ra tương ứng để cộng 10 phút.');
+            const roleIds = window.Early10.splitSubjectIds(preSession.role)
+                .map(value => String(value || '').trim())
+                .filter(Boolean);
+            if (!roleIds.length) throw new Error('Phiên công chưa có mã Môn/Lớp hợp lệ để duyệt +10 phút.');
+            const subjectRefs = Array.from(new Set(roleIds))
+                .map(id => db.collection('subjects').doc(id));
+            const requestRefsById = new Map([[normalizedRequestId, requestRef]]);
+            knownSnapshot.docs
+                .filter(doc => String(doc.data()?.dateKey || '').startsWith(`${monthStr}-`))
+                .forEach(doc => requestRefsById.set(doc.id, doc.ref));
+            const requestRefs = Array.from(requestRefsById.values());
+
+            await db.runTransaction(async transaction => {
+                const snapshots = await Promise.all([
+                    transaction.get(attendanceRef),
+                    transaction.get(monthlyRef),
+                    transaction.get(profileRef),
+                    ...subjectRefs.map(ref => transaction.get(ref)),
+                    ...requestRefs.map(ref => transaction.get(ref))
+                ]);
+                const attendanceSnapshot = snapshots[0];
+                const monthlySnapshot = snapshots[1];
+                const profileSnapshot = snapshots[2];
+                const subjectSnapshots = snapshots.slice(3, 3 + subjectRefs.length);
+                const requestSnapshots = snapshots.slice(3 + subjectRefs.length);
+                const requestSnapshot = requestSnapshots.find(snapshot => snapshot.id === normalizedRequestId);
+                if (!requestSnapshot?.exists) throw new Error('Yêu cầu +10 phút không còn tồn tại.');
+                if (!attendanceSnapshot.exists) throw new Error('Không tìm thấy dữ liệu chấm công của ca này.');
+                if (!profileSnapshot.exists || subjectSnapshots.some(snapshot => !snapshot.exists)) {
+                    throw new Error('Hồ sơ nhân sự hoặc Môn/Lớp đã thay đổi; chưa thể duyệt +10 phút.');
+                }
+
+                const request = requestSnapshot.data() || {};
+                _assertBonus10RequestIdentity(request, identity);
+                if (String(request.status || '') !== 'pending') {
+                    throw new Error('Chỉ yêu cầu đang chờ duyệt mới được duyệt +10 phút.');
+                }
+                const monthlyRequests = requestSnapshots
+                    .filter(snapshot => snapshot.exists)
+                    .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }))
+                    .filter(item => String(item.dateKey || '').startsWith(`${monthStr}-`));
+                const monthlySettings = monthlySnapshot.exists ? monthlySnapshot.data() : {};
+                const attendance = attendanceSnapshot.data() || {};
+                const sessions = Array.isArray(attendance.sessions)
+                    ? attendance.sessions.map(session => ({ ...session }))
+                    : [];
+                if (_isBonus10PenaltyActive(monthlySettings, [
+                    ...monthlyRequests,
+                    ...sessions.map(candidate => ({
+                        studentCountStatus: candidate?.studentCountStatus
+                    }))
+                ])) {
+                    throw new Error('Phụ cấp +10 phút của tháng này đang bị khóa; không thể duyệt yêu cầu.');
+                }
+                const index = sessions.findIndex(session => String(session?.id || '') === identity.sessionId);
+                if (index < 0) throw new Error('Không tìm thấy phiên vào/ra tương ứng để cộng 10 phút.');
+                const liveRoleIds = window.Early10.splitSubjectIds(sessions[index].role)
+                    .map(value => String(value || '').trim())
+                    .filter(Boolean);
+                if (!_sameScheduleSubjectIdSet(liveRoleIds, roleIds)) {
+                    const error = new Error('Môn/Lớp của phiên công vừa thay đổi. Hãy mở lại yêu cầu trước khi duyệt.');
+                    error.code = 'bonus10/policy-conflict';
+                    throw error;
+                }
+                const scheduledStart = String(
+                    sessions[index].linkedClassStart || request.scheduledStart || ''
+                ).trim();
+                const policyVerdict = window.Early10.evaluateEarly10Request({
+                    sessionRole: sessions[index].role,
+                    subjectIds: liveRoleIds,
+                    subjects: subjectSnapshots.map(snapshot => ({ id: snapshot.id, ...snapshot.data() })),
+                    user: { id: profileSnapshot.id, ...profileSnapshot.data() },
+                    checkIn: sessions[index].checkIn || sessions[index].start,
+                    classStart: scheduledStart
+                });
+                if (!policyVerdict?.ok) {
+                    const error = new Error(policyVerdict?.message || 'Ca này không còn đủ điều kiện +10 phút.');
+                    error.code = 'bonus10/policy-conflict';
+                    throw error;
+                }
+                sessions[index].bonus10 = true;
+
+                transaction.update(requestRef, {
+                    status: 'approved',
+                    approvedBy: actorUserId,
+                    approvedByName: actorDisplayName,
+                    approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    earlyMinutes: policyVerdict.earlyMinutes ?? null,
+                    checkInAt: policyVerdict.checkInLabel ?? null,
+                    scheduledStart: policyVerdict.startLabel ?? scheduledStart
+                });
+                transaction.set(attendanceRef, {
+                    sessions,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            });
             DBService._invalidate('bonus10_requests_');
+            DBService._invalidateAttendance(identity.dateKey, identity.staffId);
             console.log('[Bonus10] Approved:', requestId);
         } catch (e) {
             console.error('[Bonus10] Error approving:', e);
@@ -4752,61 +6205,136 @@ const DBService = {
         }
     },
 
-    // Admin hủy 1 ca sớm 10p = ĐÁNH DẤU TỪ CHỐI, không xóa bản ghi.
-    // Bản ghi 'rejected' còn lại chính là dấu vết khóa phụ cấp cả tháng
-    // (mất toàn bộ 10p và mất đơn giá lớp đông). Muốn gỡ phạt thì dùng
-    // restoreBonus10Request để xóa hẳn bản ghi này.
-    cancelApprovedBonus10: async (requestId, staffId, dateKey, sessionId) => {
+    // Rejecting/cancelling one approved +10 request atomically clears the
+    // attendance flag and activates the explicit monthly penalty marker. Audit
+    // request documents are retained even after the monthly penalty is cleared.
+    cancelApprovedBonus10: async (requestId, staffId, dateKey, sessionId, actorName = '') => {
         try {
-            // 1. Đánh dấu từ chối — dấu vết này chính là hình phạt của cả tháng.
-            const adminName = localStorage.getItem('currentUserName') || 'Admin';
-            let marked = false;
-            if (requestId) {
-                try {
-                    await db.collection('bonus10_requests').doc(requestId).update({
-                        status: 'rejected',
-                        approvedBy: adminName,
-                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    marked = true;
-                } catch (updateErr) {
-                    console.warn('[Bonus10] Không cập nhật được bản ghi cũ, sẽ tạo bản ghi phạt mới.', updateErr);
+            const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+            const actorUserId = _requireBonus10ManagerAuthorization(authorization);
+            const actorDisplayName = String(
+                authorization.roleData?.name || authorization.roleData?.username || actorName || actorUserId
+            ).trim().slice(0, 120);
+            const identity = _normalizeBonus10Identity({ staffId, dateKey, sessionId });
+            const monthStr = identity.dateKey.slice(0, 7);
+            const canonicalRequestId = _canonicalBonus10RequestId(
+                identity.dateKey,
+                identity.staffId,
+                identity.sessionId
+            );
+            const normalizedRequestId = String(requestId || '').trim();
+            if (normalizedRequestId.includes('/')) throw new Error('Mã yêu cầu +10 phút không hợp lệ.');
+            const canonicalRef = db.collection('bonus10_requests').doc(canonicalRequestId);
+            const attendanceRef = db.collection('attendance_logs')
+                .doc(`${identity.dateKey}_${identity.staffId}`);
+            const monthlyRef = db.collection('salary_settings_monthly')
+                .doc(`${monthStr}_${identity.staffId}`);
+            const knownSnapshot = await db.collection('bonus10_requests')
+                .where('staffId', '==', identity.staffId)
+                .limit(400)
+                .get({ source: 'server' });
+            const requestRefsById = new Map([[canonicalRequestId, canonicalRef]]);
+            knownSnapshot.docs
+                .filter(doc => String(doc.data()?.dateKey || '').startsWith(`${monthStr}-`))
+                .forEach(doc => requestRefsById.set(doc.id, doc.ref));
+            if (normalizedRequestId) {
+                requestRefsById.set(
+                    normalizedRequestId,
+                    db.collection('bonus10_requests').doc(normalizedRequestId)
+                );
+            }
+            const requestRefs = Array.from(requestRefsById.values());
+
+            await db.runTransaction(async transaction => {
+                const snapshots = await Promise.all([
+                    transaction.get(attendanceRef),
+                    transaction.get(monthlyRef),
+                    ...requestRefs.map(ref => transaction.get(ref))
+                ]);
+                const attendanceSnapshot = snapshots[0];
+                const monthlySnapshot = snapshots[1];
+                const requestSnapshots = snapshots.slice(2);
+                const selectedSnapshot = normalizedRequestId
+                    ? requestSnapshots.find(snapshot => snapshot.id === normalizedRequestId)
+                    : null;
+                if (selectedSnapshot?.exists) {
+                    _assertBonus10RequestIdentity(selectedSnapshot.data(), identity);
                 }
-            }
-            // Ca cũ do admin tặng tay không có bản ghi request → vẫn phải tạo dấu vết,
-            // nếu không hình phạt tháng sẽ im lặng biến mất.
-            if (!marked) {
-                await db.collection('bonus10_requests').add({
-                    staffId: staffId,
-                    staffName: 'N/A',
-                    dateKey: dateKey,
-                    sessionId: String(sessionId),
-                    status: 'rejected',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    approvedBy: adminName,
-                    approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                const tupleSnapshots = requestSnapshots.filter(snapshot => {
+                    if (!snapshot.exists) return false;
+                    const data = snapshot.data() || {};
+                    return String(data.staffId || '') === identity.staffId &&
+                        String(data.dateKey || '') === identity.dateKey &&
+                        String(data.sessionId || '') === identity.sessionId;
                 });
-            }
-            // 2. Clear bonus10 on the actual session (set it to false)
-            const docId = `${dateKey}_${staffId}`;
-            const ref = db.collection('attendance_logs').doc(docId);
-            await db.runTransaction(async (t) => {
-                const doc = await t.get(ref);
-                if (doc.exists) {
-                    const data = doc.data();
-                    if (data.sessions) {
-                        const index = data.sessions.findIndex(s => String(s.id) === String(sessionId));
-                        if (index !== -1 && data.sessions[index].bonus10) {
-                            data.sessions[index].bonus10 = false;
-                            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
-                            t.set(ref, data);
-                        }
+                tupleSnapshots.forEach(snapshot => {
+                    _assertBonus10RequestIdentity(snapshot.data(), identity);
+                });
+                const targetSnapshots = tupleSnapshots.filter(snapshot =>
+                    String(snapshot.data()?.status || '') !== 'rejected'
+                );
+                const markerRequestId = (selectedSnapshot?.exists
+                    ? selectedSnapshot.id
+                    : (tupleSnapshots[0]?.id || canonicalRequestId));
+                const rejectedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (targetSnapshots.length) {
+                    targetSnapshots.forEach(snapshot => transaction.update(snapshot.ref, {
+                        status: 'rejected',
+                        rejectedBy: actorUserId,
+                        rejectedByName: actorDisplayName,
+                        rejectedAt,
+                        rejectionSource: 'admin_cancel_bonus10'
+                    }));
+                } else if (!tupleSnapshots.length) {
+                    transaction.set(canonicalRef, {
+                        staffId: identity.staffId,
+                        staffName: 'N/A',
+                        dateKey: identity.dateKey,
+                        sessionId: identity.sessionId,
+                        status: 'rejected',
+                        createdAt: rejectedAt,
+                        rejectedBy: actorUserId,
+                        rejectedByName: actorDisplayName,
+                        rejectedAt,
+                        rejectionSource: 'admin_cancel_bonus10'
+                    });
+                }
+
+                if (attendanceSnapshot.exists) {
+                    const attendance = attendanceSnapshot.data() || {};
+                    const sessions = Array.isArray(attendance.sessions)
+                        ? attendance.sessions.map(session => ({ ...session }))
+                        : [];
+                    const index = sessions.findIndex(session =>
+                        String(session?.id || '') === identity.sessionId
+                    );
+                    if (index >= 0 && sessions[index].bonus10) {
+                        sessions[index].bonus10 = false;
+                        transaction.set(attendanceRef, {
+                            sessions,
+                            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
                     }
                 }
+                _writeBonus10PenaltyState(
+                    transaction,
+                    monthlyRef,
+                    monthlySnapshot,
+                    true,
+                    actorUserId,
+                    {
+                        staffId: identity.staffId,
+                        monthStr,
+                        dateKey: identity.dateKey,
+                        sessionId: identity.sessionId,
+                        requestId: markerRequestId
+                    }
+                );
             });
-            DBService._invalidateAttendance(dateKey, staffId);
+            DBService._invalidateAttendance(identity.dateKey, identity.staffId);
             DBService._invalidate('bonus10_requests_');
-            console.log('[Bonus10] Cancelled approved request:', requestId, sessionId);
+            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            console.log('[Bonus10] Rejected atomically with monthly marker:', requestId, identity.sessionId);
         } catch (e) {
             console.error('[Bonus10] Error cancelling approved bonus:', e);
             throw e;
@@ -4815,12 +6343,22 @@ const DBService = {
 
     rejectBonus10Request: async (requestId, adminName) => {
         try {
-            await db.collection('bonus10_requests').doc(requestId).update({
-                status: 'rejected',
-                approvedBy: adminName || 'Admin',
-                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            DBService._invalidate('bonus10_requests_');
+            const normalizedRequestId = String(requestId || '').trim();
+            if (!normalizedRequestId || normalizedRequestId.includes('/')) {
+                throw new Error('Mã yêu cầu +10 phút không hợp lệ.');
+            }
+            const requestSnapshot = await db.collection('bonus10_requests')
+                .doc(normalizedRequestId)
+                .get({ source: 'server' });
+            if (!requestSnapshot.exists) throw new Error('Yêu cầu +10 phút không còn tồn tại.');
+            const identity = _normalizeBonus10Identity(requestSnapshot.data() || {});
+            await DBService.cancelApprovedBonus10(
+                normalizedRequestId,
+                identity.staffId,
+                identity.dateKey,
+                identity.sessionId,
+                adminName || 'Admin'
+            );
             console.log('[Bonus10] Rejected:', requestId);
         } catch (e) {
             console.error('[Bonus10] Error rejecting:', e);
@@ -4828,25 +6366,50 @@ const DBService = {
         }
     },
 
-    // Gỡ hình phạt tháng: xóa hẳn các bản ghi 'rejected' của nhân viên trong tháng.
-    // Dùng khi admin bấm nhầm — sau khi gỡ, 10p và phụ cấp lớp đông tính lại bình thường.
+    // Gỡ hình phạt tháng bằng một trạng thái explicit `active:false`. Các request
+    // rejected vẫn được giữ làm audit; legacy fallback chỉ áp dụng khi tháng chưa
+    // có marker explicit.
     clearBonus10PenaltyForMonth: async (staffId, monthStr) => {
-        if (!staffId || !monthStr) return 0;
         try {
+            const normalizedStaffId = String(staffId || '').trim();
+            const normalizedMonth = String(monthStr || '').trim();
+            if (!/^[A-Za-z0-9_-]{1,80}$/.test(normalizedStaffId) ||
+                !/^\d{4}-\d{2}$/.test(normalizedMonth)) {
+                throw new Error('Nhân sự hoặc tháng gỡ khóa +10 phút không hợp lệ.');
+            }
+            const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+            const actorUserId = _requireBonus10ManagerAuthorization(authorization);
             const snap = await db.collection('bonus10_requests')
-                .where('staffId', '==', staffId)
-                .get();
+                .where('staffId', '==', normalizedStaffId)
+                .limit(400)
+                .get({ source: 'server' });
             const targets = snap.docs.filter(doc => {
                 const data = doc.data();
-                return data.status === 'rejected' && String(data.dateKey || '').startsWith(monthStr);
+                return data.status === 'rejected' &&
+                    String(data.dateKey || '').startsWith(`${normalizedMonth}-`);
             });
-            if (targets.length === 0) return 0;
-            const batch = db.batch();
-            targets.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
+            const monthlyRef = db.collection('salary_settings_monthly')
+                .doc(`${normalizedMonth}_${normalizedStaffId}`);
+            let changedCount = targets.length;
+            await db.runTransaction(async transaction => {
+                const monthlySnapshot = await transaction.get(monthlyRef);
+                const monthlySettings = monthlySnapshot.exists ? monthlySnapshot.data() : {};
+                if (monthlySettings?.bonus10PenaltyState?.active === true) {
+                    changedCount = Math.max(1, changedCount);
+                }
+                _writeBonus10PenaltyState(
+                    transaction,
+                    monthlyRef,
+                    monthlySnapshot,
+                    false,
+                    actorUserId,
+                    { staffId: normalizedStaffId, monthStr: normalizedMonth }
+                );
+            });
             DBService._invalidate('bonus10_requests_');
-            console.log('[Bonus10] Cleared monthly penalty:', staffId, monthStr, targets.length);
-            return targets.length;
+            DBService._invalidate(`all_monthly_salary_settings_${normalizedMonth}`);
+            console.log('[Bonus10] Cleared monthly penalty marker; audit retained:', normalizedStaffId, normalizedMonth, targets.length);
+            return changedCount;
         } catch (e) {
             console.error('[Bonus10] Error clearing penalty:', e);
             throw e;

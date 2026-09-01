@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260831-scheduler-hd-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260901-schedule-admin-attendance-v2">
     <style>
         /* Specific Styles for Schedule Page */
         .branch-tabs {
@@ -282,6 +282,41 @@
             font-weight: 600;
         }
 
+        .gv-chip.is-attendance-open {
+            background: #EFF6FF;
+            border-color: #93C5FD;
+            color: #1D4ED8;
+            font-weight: 700;
+        }
+
+        .gv-chip.is-attendance-closed {
+            background: #ECFDF5;
+            border-color: #6EE7B7;
+            color: #047857;
+            font-weight: 700;
+        }
+
+        .gv-chip.is-attendance-conflict {
+            background: #FFF1F2;
+            border-color: #FB7185;
+            color: #9F1239;
+            font-weight: 800;
+        }
+
+        .gv-chip.is-attendance-ambiguous {
+            background: #FFF7ED;
+            border-color: #FDBA74;
+            color: #9A3412;
+            font-weight: 800;
+        }
+
+        .gv-chip.is-attendance-unavailable {
+            background: #F3F4F6;
+            border-color: #D1D5DB;
+            color: #59645F;
+            font-weight: 700;
+        }
+
         .gv-chip.is-declared-absent {
             background: #FFF7ED;
             border-color: #FB923C;
@@ -481,6 +516,9 @@
 
         .teacher-shift-body {
             min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr);
             flex: 1;
             overflow: hidden;
         }
@@ -490,10 +528,12 @@
             min-height: 0;
             display: grid;
             grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.78fr);
+            overflow: hidden;
         }
 
         .teacher-command-column {
             min-width: 0;
+            min-height: 0;
             padding: 22px 24px 26px;
             overflow-y: auto;
             overscroll-behavior: contain;
@@ -501,6 +541,7 @@
 
         .teacher-roster-column {
             min-width: 0;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             border-left: 1px solid #DDE8E3;
@@ -789,6 +830,500 @@
 
         .teacher-empty-state.compact {
             padding: 15px;
+        }
+
+        /* Admin attendance editor stays inside the command column's single scroll flow. */
+        .attendance-admin-panel {
+            min-width: 0;
+            margin-top: 24px;
+            padding: 16px;
+            border: 1px solid #B9E3D3;
+            border-radius: 16px;
+            background: linear-gradient(145deg, #F4FBF8 0%, #ECF8F3 100%);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+        }
+
+        .attendance-admin-panel.attendance-auth-warning {
+            border-color: #F5C66B;
+            background: linear-gradient(145deg, #FFFCF4 0%, #FFF7E6 100%);
+        }
+
+        .attendance-admin-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 12px;
+        }
+
+        .attendance-admin-head > div {
+            min-width: 0;
+        }
+
+        .attendance-admin-head h4,
+        .attendance-admin-head p {
+            margin: 0;
+        }
+
+        .attendance-admin-head h4 {
+            color: #123E31;
+            font-size: 0.9rem;
+            font-weight: 850;
+            line-height: 1.35;
+        }
+
+        .attendance-admin-head p {
+            max-width: 62ch;
+            margin-top: 3px;
+            color: #61766E;
+            font-size: 0.69rem;
+            line-height: 1.45;
+        }
+
+        .attendance-person-tabs {
+            display: flex;
+            gap: 7px;
+            margin-bottom: 12px;
+            padding: 4px;
+            overflow-x: auto;
+            border: 1px solid #D7E9E2;
+            border-radius: 13px;
+            background: rgba(255, 255, 255, 0.72);
+            overscroll-behavior-inline: contain;
+            scrollbar-width: thin;
+            scrollbar-color: #A8D5C4 transparent;
+        }
+
+        .attendance-person-tab {
+            min-width: 150px;
+            min-height: 42px;
+            flex: 1 0 150px;
+            padding: 7px 10px;
+            overflow: hidden;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            color: #526A61;
+            background: transparent;
+            font: inherit;
+            font-size: 0.72rem;
+            font-weight: 780;
+            line-height: 1.3;
+            text-align: left;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+            scroll-snap-align: start;
+            transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+        }
+
+        .attendance-person-tab:not(:disabled):hover,
+        .attendance-person-tab:focus-visible {
+            outline: none;
+            border-color: #A7D8C6;
+            color: #174C3B;
+            background: #F7FCFA;
+        }
+
+        .attendance-person-tab.is-active,
+        .attendance-person-tab[aria-selected="true"] {
+            border-color: #6EE7B7;
+            color: #046C50;
+            background: #DFF8ED;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.1);
+        }
+
+        .attendance-editor-card {
+            min-width: 0;
+            display: grid;
+            gap: 12px;
+            padding: 14px;
+            border: 1px solid #D5E5DF;
+            border-radius: 15px;
+            background: #FCFEFD;
+            box-shadow: 0 6px 20px rgba(12, 71, 53, 0.055);
+        }
+
+        .attendance-state-segment {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+            gap: 5px;
+            padding: 4px;
+            border: 1px solid #DCE8E3;
+            border-radius: 12px;
+            background: #F1F6F4;
+        }
+
+        .attendance-state-segment button {
+            min-width: 0;
+            min-height: 42px;
+            padding: 7px 9px;
+            border: 1px solid transparent;
+            border-radius: 9px;
+            color: #5B7068;
+            background: transparent;
+            font: inherit;
+            font-size: 0.71rem;
+            font-weight: 800;
+            line-height: 1.25;
+            cursor: pointer;
+            transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+        }
+
+        .attendance-state-segment button:not(:disabled):hover,
+        .attendance-state-segment button:focus-visible {
+            outline: none;
+            border-color: #B8D8CC;
+            color: #153F32;
+            background: #FCFEFD;
+        }
+
+        .attendance-state-segment button.is-active,
+        .attendance-state-segment button[aria-pressed="true"] {
+            border-color: #6EE7B7;
+            color: #047857;
+            background: #D1FAE5;
+            box-shadow: 0 2px 7px rgba(5, 150, 105, 0.1);
+        }
+
+        .attendance-state-segment button.is-absent.is-active,
+        .attendance-state-segment button[data-state="absent"][aria-pressed="true"] {
+            border-color: #FDA4AF;
+            color: #BE123C;
+            background: #FFF1F2;
+            box-shadow: none;
+        }
+
+        .attendance-time-grid,
+        .attendance-extra-grid {
+            min-width: 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        .attendance-time-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .attendance-extra-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .attendance-time-grid label,
+        .attendance-extra-card label {
+            min-width: 0;
+            display: grid;
+            gap: 5px;
+            color: #556C63;
+            font-size: 0.67rem;
+            font-weight: 760;
+        }
+
+        .attendance-time-grid input,
+        .attendance-time-grid select,
+        .attendance-extra-card input:not([type="checkbox"]):not([type="radio"]),
+        .attendance-extra-card select,
+        .attendance-extra-card textarea {
+            width: 100%;
+            min-width: 0;
+            min-height: 42px;
+            box-sizing: border-box;
+            padding: 8px 10px;
+            border: 1px solid #CFE0D9;
+            border-radius: 10px;
+            color: #193D31;
+            background: #FCFEFD;
+            font: inherit;
+            font-size: 0.76rem;
+        }
+
+        .attendance-extra-card textarea {
+            min-height: 72px;
+            resize: vertical;
+            line-height: 1.45;
+        }
+
+        .attendance-extra-card input[type="checkbox"],
+        .attendance-extra-card input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            min-height: 18px;
+            margin: 0;
+            justify-self: start;
+            accent-color: #059669;
+            cursor: pointer;
+        }
+
+        .attendance-extra-card .attendance-bonus-toggle {
+            min-height: 42px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 10px;
+            border: 1px solid #CFE0D9;
+            border-radius: 10px;
+            color: #31574A;
+            background: #FCFEFD;
+            cursor: pointer;
+        }
+
+        .attendance-extra-card .attendance-bonus-toggle span {
+            min-width: 0;
+            line-height: 1.35;
+        }
+
+        .attendance-bonus-status {
+            padding: 8px 10px;
+            border: 1px solid #F5D48C;
+            border-radius: 10px;
+            color: #7C4A0A;
+            background: #FFFBEB;
+            font-size: 0.68rem;
+            font-weight: 800;
+            line-height: 1.4;
+        }
+
+        .attendance-bonus-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px;
+        }
+
+        .attendance-bonus-actions button.is-active {
+            border-color: #10B981;
+            color: #046C50;
+            background: #D1FAE5;
+            box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.12);
+        }
+
+        .attendance-bonus-actions button.is-active.is-negative {
+            border-color: #FB7185;
+            color: #9F1239;
+            background: #FFF1F2;
+            box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.12);
+        }
+
+        .attendance-extra-card button {
+            min-height: 42px;
+            padding: 7px 10px;
+            border: 1px solid #BBD6CC;
+            border-radius: 10px;
+            color: #31574A;
+            background: #FCFEFD;
+            font: inherit;
+            font-size: 0.7rem;
+            font-weight: 780;
+            cursor: pointer;
+        }
+
+        .attendance-extra-card button:not(:disabled):hover,
+        .attendance-extra-card button:focus-visible {
+            outline: 3px solid rgba(16, 185, 129, 0.14);
+            border-color: #10B981;
+            color: #046C50;
+        }
+
+        .attendance-time-grid input:focus,
+        .attendance-time-grid select:focus,
+        .attendance-extra-card input:not([type="checkbox"]):not([type="radio"]):focus,
+        .attendance-extra-card select:focus,
+        .attendance-extra-card textarea:focus {
+            outline: 3px solid rgba(16, 185, 129, 0.14);
+            border-color: #10B981;
+        }
+
+        .attendance-time-grid input:disabled,
+        .attendance-time-grid select:disabled,
+        .attendance-extra-card input:not([type="checkbox"]):not([type="radio"]):disabled,
+        .attendance-extra-card select:disabled,
+        .attendance-extra-card textarea:disabled {
+            color: #7C8E87;
+            background: #EEF3F1;
+            cursor: not-allowed;
+        }
+
+        .attendance-person-tab:disabled,
+        .attendance-state-segment button:disabled,
+        .attendance-extra-card button:disabled,
+        .attendance-extra-card input[type="checkbox"]:disabled,
+        .attendance-extra-card input[type="radio"]:disabled {
+            opacity: 0.56;
+            filter: saturate(0.55);
+            cursor: not-allowed;
+        }
+
+        .attendance-extra-card .attendance-bonus-toggle:has(input:disabled) {
+            color: #7C8E87;
+            background: #EEF3F1;
+            cursor: not-allowed;
+        }
+
+        .attendance-extra-card {
+            min-width: 0;
+            display: grid;
+            align-content: start;
+            gap: 7px;
+            padding: 11px;
+            border: 1px solid #DCE8E3;
+            border-radius: 12px;
+            background: #F7FAF9;
+        }
+
+        .attendance-extra-card.is-wide {
+            grid-column: span 2;
+        }
+
+        .attendance-extra-card strong {
+            color: #27483D;
+            font-size: 0.72rem;
+            line-height: 1.35;
+        }
+
+        .attendance-extra-card small {
+            color: #71827C;
+            font-size: 0.63rem;
+            line-height: 1.45;
+        }
+
+        .attendance-chip-preview {
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            justify-self: start;
+            max-width: 100%;
+            padding: 5px 10px;
+            overflow: hidden;
+            border: 1px solid #A7F3D0;
+            border-radius: 999px;
+            color: #047857;
+            background: #ECFDF5;
+            font-size: 0.69rem;
+            font-weight: 820;
+            line-height: 1.25;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .attendance-chip-preview.is-warning,
+        .attendance-chip-preview.chip-orange {
+            border-color: #FCD34D;
+            color: #92400E;
+            background: #FFFBEB;
+        }
+
+        .attendance-chip-preview.chip-blue {
+            border-color: #93C5FD;
+            color: #1D4ED8;
+            background: #EFF6FF;
+        }
+
+        .attendance-chip-preview.chip-waiting {
+            border-color: #FCD34D;
+            color: #92400E;
+            background: #FFFBEB;
+        }
+
+        .attendance-chip-preview.is-absent,
+        .attendance-chip-preview.is-error,
+        .attendance-chip-preview.chip-red {
+            border-color: #FDA4AF;
+            color: #BE123C;
+            background: #FFF1F2;
+        }
+
+        .attendance-chip-preview.is-pending,
+        .attendance-chip-preview.chip-gray {
+            border-color: #D1D5DB;
+            color: #59645F;
+            background: #F3F4F6;
+        }
+
+        .attendance-policy-note {
+            padding: 9px 11px;
+            border: 1px solid #F5D48C;
+            border-radius: 11px;
+            color: #7C4A0A;
+            background: #FFFBEB;
+            font-size: 0.67rem;
+            line-height: 1.5;
+        }
+
+        .attendance-policy-note[data-state="eligible"],
+        .attendance-policy-note.is-eligible {
+            border-color: #A7F3D0;
+            color: #046C50;
+            background: #ECFDF5;
+        }
+
+        .btn-attendance-save {
+            min-height: 42px;
+            justify-self: end;
+            padding: 8px 15px;
+            border: 1px solid #047857;
+            border-radius: 11px;
+            color: #F7FFFC;
+            background: #047857;
+            box-shadow: 0 5px 14px rgba(4, 120, 87, 0.18);
+            font: inherit;
+            font-size: 0.74rem;
+            font-weight: 820;
+            line-height: 1.25;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background-color 140ms ease, transform 100ms ease;
+        }
+
+        .btn-attendance-save:not(:disabled):hover,
+        .btn-attendance-save:focus-visible {
+            outline: 3px solid rgba(16, 185, 129, 0.2);
+            outline-offset: 2px;
+            background: #06684E;
+        }
+
+        .btn-attendance-save:active {
+            transform: translateY(1px);
+        }
+
+        .btn-attendance-save:disabled {
+            border-color: #87AA9D;
+            color: #F0F7F4;
+            background: #87AA9D;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .teacher-shift-dialog.is-saving-attendance {
+            cursor: progress;
+        }
+
+        .teacher-shift-dialog.is-saving-attendance .btn-attendance-save:disabled {
+            cursor: wait;
+        }
+
+        .attendance-admin-loading,
+        .attendance-admin-error {
+            min-height: 54px;
+            display: flex;
+            align-items: center;
+            padding: 11px 12px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            line-height: 1.45;
+        }
+
+        .attendance-admin-loading {
+            border: 1px solid #CFE2DA;
+            color: #587068;
+            background: #F7FAF9;
+        }
+
+        .attendance-admin-error {
+            border: 1px solid #FECDD3;
+            color: #9F1239;
+            background: #FFF1F2;
         }
 
         .roster-tabs {
@@ -1081,6 +1616,33 @@
             .teacher-absence-fields {
                 grid-template-columns: 1fr;
             }
+
+            .attendance-admin-panel {
+                padding: 14px;
+            }
+
+            .attendance-extra-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            /* datetime-local controls need the full command-pane width on
+               tablets; two 220px tracks truncate the exact minute/second. */
+            .attendance-time-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .attendance-person-tab {
+                flex-basis: 170px;
+            }
+
+            .attendance-person-tab,
+            .attendance-state-segment button,
+            .attendance-time-grid input,
+            .attendance-extra-card input:not([type="checkbox"]):not([type="radio"]),
+            .attendance-extra-card button,
+            .btn-attendance-save {
+                min-height: 44px;
+            }
         }
 
         @media (max-width: 720px) {
@@ -1129,6 +1691,7 @@
             }
 
             .teacher-shift-body {
+                display: block;
                 overflow-y: auto;
             }
 
@@ -1165,6 +1728,70 @@
             .replacement-map-options button,
             .roster-tabs button {
                 min-height: 44px;
+            }
+
+            .attendance-admin-panel {
+                margin-top: 18px;
+                padding: 12px;
+                border-radius: 14px;
+            }
+
+            .attendance-admin-head {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 7px;
+            }
+
+            .attendance-person-tabs {
+                margin-inline: -2px;
+                scroll-snap-type: x proximity;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .attendance-person-tab {
+                flex: 0 0 min(78vw, 260px);
+            }
+
+            .attendance-time-grid,
+            .attendance-extra-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .attendance-bonus-actions {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .attendance-extra-card.is-wide {
+                grid-column: auto;
+            }
+
+            .attendance-person-tab,
+            .attendance-state-segment button,
+            .attendance-time-grid input,
+            .attendance-time-grid select,
+            .attendance-extra-card input:not([type="checkbox"]):not([type="radio"]),
+            .attendance-extra-card select,
+            .attendance-extra-card textarea,
+            .attendance-extra-card button,
+            .attendance-extra-card .attendance-bonus-toggle,
+            .attendance-bonus-actions button,
+            .btn-attendance-save {
+                min-height: 44px;
+            }
+
+            .attendance-editor-card {
+                gap: 10px;
+                padding: 11px;
+                border-radius: 13px;
+            }
+
+            .attendance-chip-preview {
+                justify-self: stretch;
+            }
+
+            .btn-attendance-save {
+                width: 100%;
+                justify-self: stretch;
             }
 
             .teacher-shift-footer {
@@ -1204,6 +1831,10 @@
 
             .teacher-status-segment {
                 grid-template-columns: 1fr;
+            }
+
+            .attendance-state-segment {
+                grid-template-columns: minmax(0, 1fr);
             }
 
             .teacher-status-segment button {
@@ -1408,9 +2039,11 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js?v=20260831-scheduler-hd-v2'></script>
-    <script src='js/teacher-shift-state.js?v=20260831-scheduler-hd-v2'></script>
-    <script src='js/db-service.js?v=20260831-scheduler-hd-v2'></script>
+    <script src='js/firebase-config.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/teacher-shift-state.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/early10.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/schedule-attendance-admin.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/db-service.js?v=20260901-schedule-admin-attendance-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -1551,8 +2184,8 @@
         </main>
     </div>
     <script src="js/ui-service.js?v=20260803-early10-v1"></script>
-    <script src="js/main.js?v=20260831-scheduler-hd-v2"></script>
-    <script src="js/schedule.js?v=20260831-scheduler-hd-v2"></script>
+    <script src="js/main.js?v=20260901-schedule-admin-attendance-v2"></script>
+    <script src="js/schedule.js?v=20260901-schedule-admin-attendance-v2"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

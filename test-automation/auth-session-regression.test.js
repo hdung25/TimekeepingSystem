@@ -65,15 +65,27 @@ const managerRoleSync = db.slice(
     db.indexOf('_syncUserRoleMappingAsManager: async'),
     db.indexOf('deleteUser: async')
 );
-assert.match(managerRoleSync, /collection\('user_roles'\)\.doc\(actor\.uid\)\.get\(\)/,
-    'administrative role sync must verify the acting Firebase UID');
+const profileSaveBoundary = db.slice(
+    db.indexOf('_authorizeUserProfileSave: async'),
+    db.indexOf('_syncUserRoleMappingAsManager: async')
+);
 assert.doesNotMatch(managerRoleSync, /localStorage\.getItem\('currentRole'\)/,
     'localStorage must never authorize role mapping updates');
 const saveUserFlow = db.slice(db.indexOf('saveUser: async'), db.indexOf('deleteUser: async'));
-assert.match(saveUserFlow, /_syncUserRoleMappingAsManager\(user, batch\)/,
+assert.match(profileSaveBoundary, /getAuthenticatedAuthorizationContext\(true\)/,
+    'profile saves must authorize against a server-verified Firebase role mapping');
+assert.match(managerRoleSync, /if \(!authorization\.roles\.includes\('admin'\)\) return false;/,
+    'only the primary Admin may sync user_roles');
+assert.match(saveUserFlow, /_syncUserRoleMappingAsManager\([\s\S]*saveAuthorization\.authorization/,
     'profile, credential and UID role mapping must share one Firestore batch');
+assert.match(saveUserFlow, /password && saveAuthorization\.isPrimaryAdmin/,
+    'senior profile maintenance must never write compatibility credentials');
+assert.match(saveUserFlow, /Object\.entries\(safeProfile\)\.filter[\s\S]*'id', 'username', 'role', 'roles', 'authUid'/,
+    'senior profile batches must omit every protected identity/role field even when unchanged');
 assert.doesNotMatch(saveUserFlow, /Could not sync user_roles/,
     'a failed role sync must never be hidden behind a successful profile toast');
+assert.match(personnel, /key !== 'password'/,
+    'non-security personnel actions must strip cached passwords before saveUser');
 
 const normalizeFunction = db.match(/function _normalizeAuthUsername\(value\) \{[\s\S]*?\n\}/)?.[0];
 assert.ok(normalizeFunction, 'normalization helper should remain independently testable');
@@ -206,6 +218,189 @@ function authProfileDb({ roleMapping = null, profiles = [] }) {
     };
 }
 
+function staffProfileSaveDb() {
+    const store = new Map();
+    const writeLog = [];
+    let credentialListReads = 0;
+    const keyOf = (collectionName, id) => `${collectionName}/${id}`;
+    const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
+    const seed = (collectionName, id, data) => store.set(keyOf(collectionName, id), clone(data));
+    seed('user_roles', 'uid-admin', {
+        userId: 'staff-admin', username: 'admin', role: 'admin', roles: ['admin']
+    });
+    seed('user_roles', 'uid-senior', {
+        userId: 'staff-senior', username: 'senior', role: 'senior_assistant', roles: ['senior_assistant']
+    });
+    seed('user_roles', 'uid-target', {
+        userId: 'staff-target', username: 'target', role: 'staff', roles: ['staff']
+    });
+    seed('users', 'staff-target', {
+        id: 'staff-target', name: 'Target Staff', username: 'target',
+        role: 'staff', roles: ['staff'], authUid: 'uid-target', scheduleColor: '#059669'
+    });
+    seed('staff_directory', 'staff-target', {
+        id: 'staff-target', name: 'Target Staff', username: 'target',
+        role: 'staff', roles: ['staff'], scheduleColor: '#059669'
+    });
+    seed('user_credentials', 'staff-target', {
+        staffId: 'staff-target', password: 'original-password'
+    });
+
+    function makeRef(collectionName, id) {
+        const key = keyOf(collectionName, id);
+        const ref = {
+            id,
+            path: key,
+            async get() {
+                const value = store.get(key);
+                return {
+                    id,
+                    ref,
+                    exists: value !== undefined,
+                    data: () => clone(value)
+                };
+            },
+            async set(data, options) {
+                applyWrite({ type: 'set', ref, data, options });
+            }
+        };
+        return ref;
+    }
+
+    function applyWrite(write) {
+        const key = write.ref.path;
+        const previous = store.get(key);
+        const next = write.options?.merge
+            ? { ...(previous || {}), ...clone(write.data) }
+            : clone(write.data);
+        store.set(key, next);
+        writeLog.push({ path: key, data: clone(write.data), merge: !!write.options?.merge });
+    }
+
+    const database = {
+        collection(collectionName) {
+            return {
+                doc: id => makeRef(collectionName, id),
+                where(field, operator, value) {
+                    return {
+                        limit() {
+                            return {
+                                async get() {
+                                    assert.equal(operator, '==');
+                                    const docs = [];
+                                    for (const [key, data] of store.entries()) {
+                                        if (!key.startsWith(`${collectionName}/`) || data?.[field] !== value) continue;
+                                        const id = key.slice(collectionName.length + 1);
+                                        const ref = makeRef(collectionName, id);
+                                        docs.push({ id, ref, exists: true, data: () => clone(data) });
+                                    }
+                                    return { docs, size: docs.length, empty: docs.length === 0 };
+                                }
+                            };
+                        }
+                    };
+                },
+                async get() {
+                    if (collectionName === 'user_credentials') credentialListReads += 1;
+                    const docs = [];
+                    for (const [key, data] of store.entries()) {
+                        if (!key.startsWith(`${collectionName}/`)) continue;
+                        const id = key.slice(collectionName.length + 1);
+                        docs.push({ id, data: () => clone(data) });
+                    }
+                    return { forEach: callback => docs.forEach(callback), docs };
+                }
+            };
+        },
+        batch() {
+            const pending = [];
+            return {
+                set(ref, data, options) { pending.push({ type: 'set', ref, data, options }); },
+                async commit() { pending.forEach(applyWrite); }
+            };
+        }
+    };
+
+    return {
+        database,
+        store,
+        writeLog,
+        keyOf,
+        credentialListReads: () => credentialListReads
+    };
+}
+
+async function verifySeniorProfileSaveBoundary() {
+    const auth = { currentUser: { uid: 'uid-senior' } };
+    const fake = staffProfileSaveDb();
+    const context = {
+        console: quietConsole,
+        setTimeout,
+        clearTimeout,
+        window: {
+            auth,
+            db: fake.database,
+            localStorage: { removeItem() {}, getItem() { return ''; } }
+        },
+        localStorage: { removeItem() {}, getItem() { return ''; } },
+        navigator: {},
+        firebase: {
+            auth: () => auth,
+            firestore: { FieldValue: { serverTimestamp: () => '__server_timestamp__' } }
+        },
+        db: fake.database
+    };
+    vm.runInNewContext(`${db}\nglobalThis.__DBService = DBService;`, context);
+    const service = context.__DBService;
+    const unchangedSecurity = {
+        id: 'staff-target', username: 'target', role: 'staff', roles: ['staff'], authUid: 'uid-target'
+    };
+
+    const credentialsBefore = await service.getUserCredentialsMap();
+    assert.deepEqual(Object.keys(credentialsBefore), [], 'senior must not list the credential store');
+    assert.equal(fake.credentialListReads(), 0, 'senior credential denial must happen before the collection read');
+
+    await service.saveUser({ ...unchangedSecurity, name: 'Senior Updated Name', scheduleColor: '#3B82F6' });
+    assert.equal(fake.store.get(fake.keyOf('users', 'staff-target')).name, 'Senior Updated Name');
+    assert.equal(fake.store.get(fake.keyOf('staff_directory', 'staff-target')).name, 'Senior Updated Name');
+    assert.equal(fake.store.get(fake.keyOf('user_roles', 'uid-target')).role, 'staff');
+    assert.equal(fake.store.get(fake.keyOf('user_credentials', 'staff-target')).password, 'original-password');
+    assert.equal(fake.writeLog.some(item => item.path === 'user_roles/uid-target'), false,
+        'senior profile save must not enqueue a role mapping write');
+    assert.equal(fake.writeLog.some(item => item.path === 'user_credentials/staff-target'), false,
+        'senior profile save must not enqueue a credential write');
+
+    const forbiddenPayloads = [
+        { ...unchangedSecurity, username: 'renamed-target' },
+        { ...unchangedSecurity, role: 'admin' },
+        { ...unchangedSecurity, roles: ['admin'] },
+        { ...unchangedSecurity, authUid: 'uid-senior' },
+        { ...unchangedSecurity, password: 'forbidden-password' }
+    ];
+    for (const payload of forbiddenPayloads) {
+        await assert.rejects(service.saveUser(payload), error => error?.code === 'auth/security-field-change');
+    }
+    await assert.rejects(
+        service.saveUser({ id: 'staff-new', name: 'Not Allowed', username: 'new', role: 'staff' }),
+        error => error?.code === 'auth/profile-create-forbidden'
+    );
+
+    auth.currentUser = { uid: 'uid-admin' };
+    const adminCredentials = await service.getUserCredentialsMap();
+    assert.equal(adminCredentials['staff-target'].password, 'original-password');
+    assert.equal(fake.credentialListReads(), 1, 'primary Admin may list compatibility credentials');
+    await service.saveUser({
+        ...unchangedSecurity,
+        name: 'Admin Updated Name',
+        role: 'assistant',
+        roles: ['assistant'],
+        password: 'admin-rotated-password'
+    });
+    assert.equal(fake.store.get(fake.keyOf('user_roles', 'uid-target')).role, 'assistant');
+    assert.deepEqual(fake.store.get(fake.keyOf('user_roles', 'uid-target')).roles, ['assistant']);
+    assert.equal(fake.store.get(fake.keyOf('user_credentials', 'staff-target')).password, 'admin-rotated-password');
+}
+
 async function verifyUidBoundProfileResolution() {
     const context = {
         console: quietConsole,
@@ -298,7 +493,8 @@ assert.match(authGuard, /path\.includes\('mon-hoc\.html'\)[\s\S]*?currentRoles\.
 
 Promise.all([
     verifyMemoizedAuthRestore(),
-    verifyUidBoundProfileResolution()
+    verifyUidBoundProfileResolution(),
+    verifySeniorProfileSaveBoundary()
 ])
     .then(() => console.log('auth-session-regression.test.js: all assertions passed'))
     .catch(error => {

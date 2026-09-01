@@ -132,7 +132,10 @@
     function cleanUser(user) {
         var copy = {};
         Object.keys(user || {}).forEach(function (key) {
-            if (key.charAt(0) !== '_') copy[key] = user[key];
+            // Operational profile actions must never carry the compatibility
+            // password back into DBService. The account sheet passes its
+            // explicit password payload directly when a primary Admin edits it.
+            if (key.charAt(0) !== '_' && key !== 'password') copy[key] = user[key];
         });
         return copy;
     }

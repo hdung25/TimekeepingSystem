@@ -1390,15 +1390,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     // BONUS 10P (từ request được duyệt)
                     if (b10StatusT === 'approved' || matchedSession.bonus10) {
                         if (early10PenaltyActive) {
-                            label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
+                            label += ' ★+10p (hủy)';
                             tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
                         } else {
                             minutes += 10;
-                            label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
+                            label += ' ★+10p';
                             tooltip += ` | Thưởng 10p (đã duyệt)`;
                         }
                     } else if (b10StatusT === 'pending') {
-                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
+                        label += ' ★?';
                         tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                     }
 
@@ -1443,10 +1443,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     otId = otData.id;
                     if (otData.status === 'approved') {
                         otMinutes = otData.minutes || 0;
-                        label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+' + otData.duration;
+                        label += ' ⏱+' + otData.duration;
                     } else if (otData.status === 'pending') {
                         otPending = true;
-                        label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
+                        label += ' ⏱?';
                     }
                 }
 
@@ -2270,15 +2270,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // BONUS 10P (từ request được duyệt)
                 if (b10StatusR === 'approved' || matchedSession.bonus10) {
                     if (early10PenaltyActive) {
-                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
+                        label += ' ★+10p (hủy)';
                         tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
                     } else {
                         minutes += 10;
-                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
+                        label += ' ★+10p';
                         tooltip += ` | Thưởng 10p (đã duyệt)`;
                     }
                 } else if (b10StatusR === 'pending') {
-                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
+                    label += ' ★?';
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                 }
 
@@ -2374,10 +2374,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 otIdR = otDataR.id;
                 if (otDataR.status === 'approved') {
                     otMinutesR = otDataR.minutes || 0;
-                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+' + otDataR.duration;
+                    label += ' ⏱+' + otDataR.duration;
                 } else if (otDataR.status === 'pending') {
                     otPendingR = true;
-                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
+                    label += ' ⏱?';
                 }
             }
 
@@ -2914,15 +2914,15 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     }
                 } else if (b10StatusU === 'approved' || s.bonus10) {
                     if (early10PenaltyActive) {
-                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p (hủy)';
+                        label += ' ★+10p (hủy)';
                         tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
                     } else {
                         duration += 10;
-                        label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
+                        label += ' ★+10p';
                         tooltip += ` | Thưởng 10p (đã duyệt)`;
                     }
                 } else if (b10StatusU === 'pending') {
-                    label += ' ' + window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
+                    label += ' ★?';
                     tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
                 }
 
@@ -2957,10 +2957,10 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 otIdU = otDataU.id;
                 if (otDataU.status === 'approved') {
                     otMinutesU = otDataU.minutes || 0;
-                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+' + otDataU.duration;
+                    label += ' ⏱+' + otDataU.duration;
                 } else if (otDataU.status === 'pending') {
                     otPendingU = true;
-                    label += ' ' + window.getIconHtml('clock', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '?';
+                    label += ' ⏱?';
                 }
             }
 

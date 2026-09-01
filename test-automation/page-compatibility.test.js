@@ -41,9 +41,9 @@ assert.match(nhanSu, /value="teaching_assistant"/);
 assert.match(nhanSu, /value="office_staff"/);
 assert.match(nhanSu, /app-build" content="20260808-combined-v1"/);
 assert.match(baoCao, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(baoCao, /db-service\.js\?v=20260831-scheduler-hd-v2/);
-assert.match(baoCao, /report\.js\?v=20260831-scheduler-hd-v2/);
-assert.match(baoCao, /style\.css\?v=20260831-scheduler-hd-v2/);
+assert.match(baoCao, /db-service\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(baoCao, /report\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(baoCao, /style\.css\?v=20260901-schedule-admin-attendance-v2/);
 assert.match(report, /DBService\.getMonthlyReceptionistShifts/);
 assert.match(dbService, /getMonthlyReceptionistShifts:\s*async/);
 assert.match(report, /DBService\.getOvertimeRequestsForStaff\(staffId, prevMonthStr\)/);
@@ -78,16 +78,29 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v141-attendance-recovery-20260831/);
+assert.match(serviceWorker, /tdt-chamcong-v143-schedule-attendance-admin-20260901/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
-assert.match(serviceWorker, /report\.js\?v=20260831-scheduler-hd-v2/);
+assert.match(serviceWorker, /report\.js\?v=20260901-schedule-admin-attendance-v2/);
 assert.match(serviceWorker, /lich-van-phong\.html/);
-assert.match(chamCong, /db-service\.js\?v=20260831-attendance-recovery-v3/);
-assert.match(chamCong, /main\.js\?v=20260831-attendance-recovery-v3/);
-assert.match(chamCong, /timekeeping\.js\?v=20260831-attendance-recovery-v3/);
-assert.match(serviceWorker, /db-service\.js\?v=20260831-attendance-recovery-v3/);
-assert.match(serviceWorker, /timekeeping\.js\?v=20260831-attendance-recovery-v3/);
+assert.match(chamCong, /db-service\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(chamCong, /main\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(chamCong, /timekeeping\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(serviceWorker, /db-service\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(serviceWorker, /timekeeping\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260901-schedule-admin-attendance-v2/);
 assert.match(serviceWorker, /url\.origin !== self\.location\.origin/,
   'service worker must not cache public-IP or DNS responses');
+assert.match(serviceWorker, /const STATIC_ASSETS = Array\.from\(new Set\(\[/,
+  'the install manifest must keep a de-duplication boundary');
+const staticAssetsBlock = serviceWorker.match(
+  /const STATIC_ASSETS = Array\.from\(new Set\(\[([\s\S]*?)\]\)\);/
+);
+assert.ok(staticAssetsBlock, 'service worker static asset manifest must be parseable');
+const staticAssetUrls = Array.from(
+  staticAssetsBlock[1].matchAll(/['"]([^'"]+)['"]/g),
+  match => match[1]
+);
+assert.equal(staticAssetUrls.length, new Set(staticAssetUrls).size,
+  'cache.addAll manifest must not contain duplicate request URLs');
 
 console.log('page compatibility checks passed');

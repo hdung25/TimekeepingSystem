@@ -279,9 +279,25 @@
     // mất luôn đơn giá lớp đông (+N HS). Quy định của trung tâm, không phải lỗi.
     function isMonthlyBonusPenaltyActive(monthlySettings, chips) {
         if (monthlySettings && monthlySettings.studentCountBonusPenalty) return true;
-        return (chips || []).some(function (chip) {
+        var normalizedChips = chips || [];
+        if (normalizedChips.some(function (chip) {
             if (!chip) return false;
-            return chip.studentCountStatus === 'rejected' || chip.bonus10Status === 'rejected';
+            return chip.studentCountStatus === 'rejected';
+        })) return true;
+
+        // New data has an explicit, transactionally-versioned monthly marker.
+        // `active:false` is authoritative: rejected request documents remain as
+        // immutable audit evidence and must not silently re-lock the month.
+        var bonusPenaltyState = monthlySettings && monthlySettings.bonus10PenaltyState;
+        if (bonusPenaltyState && typeof bonusPenaltyState.active === 'boolean') {
+            return bonusPenaltyState.active;
+        }
+
+        // Legacy months predate the marker. Keep their historical rejected
+        // request behavior until an Admin explicitly clears/rejects the month,
+        // which materializes the authoritative state above.
+        return normalizedChips.some(function (chip) {
+            return !!chip && chip.bonus10Status === 'rejected';
         });
     }
 

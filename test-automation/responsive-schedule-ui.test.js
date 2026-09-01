@@ -21,12 +21,30 @@ assert.match(teacherPage, /\.main-content > header\s*\{\s*flex-direction:\s*colu
     'Mobile page-header stacking must remain scoped to the page content');
 assert.match(teacherPage, /\.teacher-shift-body\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*hidden/,
     'Teacher manager must not force the dialog beyond the viewport');
+assert.match(teacherPage, /\.teacher-shift-body\s*\{[\s\S]*?display:\s*grid[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\)/,
+    'Desktop body must constrain the workspace so the Admin attendance section scrolls instead of being clipped');
+assert.match(teacherPage, /\.teacher-shift-workspace\s*\{[\s\S]*?overflow:\s*hidden/,
+    'Desktop workspace must hand vertical overflow to its two columns');
 assert.match(teacherPage, /\.teacher-shift-header\s*\{[\s\S]*?flex:\s*0 0 auto/,
     'Teacher manager header must never shrink and clip its title/context at the viewport cap');
 assert.match(teacherPage, /\.teacher-shift-footer\s*\{[\s\S]*?flex:\s*0 0 auto/,
     'Teacher manager footer must remain stable while the body absorbs constrained height');
-assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.teacher-shift-body\s*\{\s*overflow-y:\s*auto/,
+assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.teacher-shift-body\s*\{[\s\S]*?overflow-y:\s*auto/,
     'Teacher manager content must scroll independently on mobile');
+assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.teacher-shift-body\s*\{[\s\S]*?display:\s*block[\s\S]*?overflow-y:\s*auto/,
+    'Mobile must return to one natural scrolling column');
+assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.attendance-time-grid,\s*\.attendance-extra-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    'Admin attendance time and policy grids must stack without nested fixed-height panes on mobile');
+assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.attendance-person-tab,[\s\S]*?\.attendance-state-segment button,[\s\S]*?\.attendance-extra-card button,[\s\S]*?\.btn-attendance-save\s*\{[\s\S]*?min-height:\s*44px/,
+    'Admin attendance tabs, state actions, fields and save action must keep a 44px mobile touch target');
+assert.match(teacherPage, /\.attendance-extra-card \.attendance-bonus-toggle\s*\{[\s\S]*?display:\s*flex[\s\S]*?align-items:\s*center/,
+    'The +10 checkbox must use an explicit horizontal flex layout');
+assert.match(teacherPage, /\.attendance-person-tab:disabled,[\s\S]*?\.attendance-state-segment button:disabled,[\s\S]*?cursor:\s*not-allowed/,
+    'Locked attendance controls need a clear disabled state');
+assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.attendance-bonus-actions\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    'Pending +10 decision actions must stack naturally on phones');
+assert.match(teacherPage, /@media \(max-width:\s*720px\)[\s\S]*?\.attendance-bonus-actions button,[\s\S]*?\.btn-attendance-save\s*\{[\s\S]*?min-height:\s*44px/,
+    'Pending +10 decisions must keep phone-safe touch targets');
 
 for (const [name, page] of [
     ['lich-tiep-tan.html', receptionistPage],

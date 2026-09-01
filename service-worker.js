@@ -1,7 +1,12 @@
-// Service Worker v141 - resilient attendance acquisition and first-check-in fix.
-const CACHE_NAME = 'tdt-chamcong-v141-attendance-recovery-20260831';
+// Service Worker v143 - admin schedule attendance correction, plain-text
+// report chips and a de-duplicated install manifest. The v141 attendance/GPS
+// acquisition invariants remain unchanged.
+const CACHE_NAME = 'tdt-chamcong-v143-schedule-attendance-admin-20260901';
 
-const STATIC_ASSETS = [
+// Cache.addAll() rejects a batch containing the same request more than once in
+// some browsers. Keep this Set boundary so a future page-specific release list
+// cannot silently make the whole PWA installation fail.
+const STATIC_ASSETS = Array.from(new Set([
     '/',
     '/index.html',
     '/admin.html',
@@ -18,45 +23,37 @@ const STATIC_ASSETS = [
     '/nhan-su.html',
     '/he-thong.html',
     '/mon-hoc.html',
-    '/css/style.css?v=20260831-scheduler-hd-v2',
+    '/css/style.css?v=20260901-schedule-admin-attendance-v2',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260831-scheduler-hd-v2',
-    '/js/firebase-config.js?v=20260831-scheduler-hd-v2',
-    '/js/db-service.js?v=20260831-scheduler-hd-v2',
-    '/js/report.js?v=20260831-scheduler-hd-v2',
-    '/js/evaluation-service.js?v=20260831-scheduler-hd-v2',
-    '/js/shift-oversight.js?v=20260831-scheduler-hd-v2',
+    '/js/main.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/firebase-config.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/db-service.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/report.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/evaluation-service.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/shift-oversight.js?v=20260901-schedule-admin-attendance-v2',
     '/js/ui-service.js?v=20260829-location-diagnostics-v3',
-    '/js/early10.js?v=20260816-early10-old-unset-v3',
+    '/js/early10.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/schedule-attendance-admin.js?v=20260901-schedule-admin-attendance-v2',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260809-nested-groups-v1',
-    '/js/personnel.js?v=20260831-scheduler-hd-v2',
-    '/js/auth-guard.js?v=20260831-scheduler-hd-v2',
-    '/js/auth-helper.js?v=20260831-scheduler-hd-v2',
+    '/js/personnel.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/auth-guard.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/auth-helper.js?v=20260901-schedule-admin-attendance-v2',
     '/js/chart-service.js?v=20260807-multi-gv-bulk-v1',
     '/js/analytics.js?v=20260814-senior-receptionist-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260831-scheduler-hd-v2',
-    '/js/teacher-shift-state.js?v=20260831-scheduler-hd-v2',
+    '/js/schedule.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/teacher-shift-state.js?v=20260901-schedule-admin-attendance-v2',
     '/js/pdf-export.js?v=20260814-senior-receptionist-v1',
-    '/js/receptionist-schedule.js?v=20260831-scheduler-hd-v2',
-    '/js/timekeeping.js?v=20260831-scheduler-hd-v2',
+    '/js/receptionist-schedule.js?v=20260901-schedule-admin-attendance-v2',
+    '/js/timekeeping.js?v=20260901-schedule-admin-attendance-v2',
     '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
-    // cham-cong.html uses a dedicated release token so installed PWAs cannot
-    // retain the short-lived attendance-policy regression.
-    '/css/style.css?v=20260831-attendance-recovery-v3',
-    '/js/main.js?v=20260831-attendance-recovery-v3',
-    '/js/firebase-config.js?v=20260831-attendance-recovery-v3',
-    '/js/db-service.js?v=20260831-attendance-recovery-v3',
-    '/js/evaluation-service.js?v=20260831-attendance-recovery-v3',
-    '/js/teacher-shift-state.js?v=20260831-attendance-recovery-v3',
-    '/js/timekeeping.js?v=20260831-attendance-recovery-v3',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'
-];
+]));
 
 self.addEventListener('install', event => {
     event.waitUntil(

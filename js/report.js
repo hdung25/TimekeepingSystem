@@ -18,6 +18,27 @@ function escapeReportHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+// REPORT_CHIP_TEXT_NORMALIZER_START
+// Evaluation labels are plain text except for the two small, trusted Lucide
+// icons that mark +10p and overtime.  Report chips escape label text for XSS
+// safety, so carrying those SVG strings into the label makes the SVG source
+// visible on screen.  Convert only those exact internal icons to text glyphs
+// before escaping; every other tag remains untouched and is escaped normally.
+function normalizeReportChipDisplayText(value) {
+    const raw = String(value ?? '');
+    const trustedInternalIcon = /<svg\b(?=[^>]*\bdata-lucide\s*=\s*(["'])(?:clock|star)\1)[^>]*>[\s\S]*?<\/svg>/gi;
+    const trustedFallbackIcon = /<span\b(?=[^>]*\bclass\s*=\s*(["'])icon-fallback\1)(?=[^>]*\bdata-name\s*=\s*(["'])(?:clock|star)\2)[^>]*>\s*<\/span>/gi;
+    const iconGlyph = (iconMarkup) => {
+        const iconName = iconMarkup.match(/\b(?:data-lucide|data-name)\s*=\s*(["'])(clock|star)\1/i)?.[2]?.toLowerCase();
+        return iconName === 'clock' ? '⏱' : '★';
+    };
+
+    return raw
+        .replace(trustedInternalIcon, iconGlyph)
+        .replace(trustedFallbackIcon, iconGlyph);
+}
+// REPORT_CHIP_TEXT_NORMALIZER_END
+
 // REPORT_COLOR_SANITIZER_START
 // Only persisted six-digit hex colors may reach inline style properties. This
 // keeps profile data from becoming an arbitrary CSS injection surface.
@@ -804,7 +825,7 @@ window.openStudentCountReviewModal = function (dateStr, sessionId, chipText, che
     document.getElementById('scr-date-key').value = dateStr;
     document.getElementById('scr-session-id').value = sessionId;
     
-    document.getElementById('scr-class-name').innerHTML = `Lớp: ${chipText}`;
+    document.getElementById('scr-class-name').textContent = `Lớp: ${chipText}`;
     document.getElementById('scr-session-time').innerText = `Thời gian: ${checkIn || '--'} - ${checkOut || '--'}`;
     document.getElementById('scr-reported-count').innerText = `Sĩ số khai báo: ${studentCount} học sinh`;
     
@@ -1203,15 +1224,25 @@ async function renderMonthReport(date, forceServer = false) {
         }
     });
 
-    // Chỉ cần MỘT ca sớm 10p bị admin hủy/từ chối là cả tháng mất 10p
-    // (và mất luôn đơn giá lớp đông — xử lý ở phần tính lương).
-    const early10PenaltyActive = bonus10RequestsList.some(req => req.status === 'rejected');
+    // Explicit monthly state wins over retained rejected audit documents. Old
+    // months without a state marker keep the legacy rejected-request fallback.
+    const bonus10PenaltyState = currentMonthlySalarySettingsAll?.bonus10PenaltyState;
+    const hasExplicitBonus10Penalty = bonus10PenaltyState &&
+        typeof bonus10PenaltyState.active === 'boolean';
+    const early10PenaltyActive = hasExplicitBonus10Penalty
+        ? bonus10PenaltyState.active
+        : bonus10RequestsList.some(req => req.status === 'rejected');
     const early10RejectedCount = bonus10RequestsList.filter(req => req.status === 'rejected').length;
     const monthFlags = { early10PenaltyActive };
     if (!commitCurrentRender(() => {
         window.currentMonthEarly10Penalty = early10PenaltyActive;
         window.currentMonthEarly10RejectedCount = early10RejectedCount;
-        renderEarly10PenaltyBanner(staffId, early10PenaltyActive, early10RejectedCount);
+        renderEarly10PenaltyBanner(
+            staffId,
+            early10PenaltyActive,
+            early10RejectedCount,
+            bonus10PenaltyState || null
+        );
     })) return;
 
     // Build overtimeDateMap: "YYYY-MM-DD" -> { sessionId -> otData }
@@ -1853,7 +1884,7 @@ async function renderMonthReport(date, forceServer = false) {
             }
 
             const chipDisplayText = absenceChipDisplayText(chip, _cachedStaffNotes);
-            const safeChipDisplayText = escapeReportHtml(chipDisplayText);
+            const safeChipDisplayText = escapeReportHtml(normalizeReportChipDisplayText(chipDisplayText));
 
             div.innerHTML = `<span class="report-chip-main" style="min-width:0">${safeChipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
 
@@ -2178,13 +2209,19 @@ async function renderMonthReport(date, forceServer = false) {
                         b10Btn.title = 'Đang chờ admin duyệt';
                     }
                 } else if (b10Status === 'rejected') {
-                    // Ca bị admin hủy → khóa phụ cấp cả tháng, không cho gửi lại.
-                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Đã hủy';
+                    // Rejected request remains visible as audit even after an
+                    // explicit monthly clear. Do not describe retained evidence
+                    // as an active payroll lock when the marker is false.
+                    const monthPenaltyActive = window.currentMonthEarly10Penalty === true;
+                    b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) +
+                        (monthPenaltyActive ? ' Đã hủy' : ' Từ chối · đã gỡ khóa');
                     b10Btn.style.background = '#FEE2E2';
                     b10Btn.style.color = '#DC2626';
-                    b10Btn.disabled = !isAdminRole2;
-                    b10Btn.title = 'Ca này bị hủy sớm 10p — cả tháng mất 10p và mất đơn giá lớp đông';
-                    if (isAdminRole2) {
+                    b10Btn.disabled = !isAdminRole2 || !monthPenaltyActive;
+                    b10Btn.title = monthPenaltyActive
+                        ? 'Ca này bị từ chối +10p và đang khóa phụ cấp tháng'
+                        : 'Dấu vết từ chối được giữ để đối chiếu; tháng đã gỡ khóa phụ cấp';
+                    if (isAdminRole2 && monthPenaltyActive) {
                         b10Btn.style.cursor = 'pointer';
                         b10Btn.title += ' (bấm để gỡ phạt tháng này)';
                         b10Btn.onclick = (e) => {
@@ -2215,11 +2252,12 @@ async function renderMonthReport(date, forceServer = false) {
                         await UIService.notice(message, 'Chưa đủ điều kiện Sớm 10p', 'warning');
                     };
                 } else {
-                    // Chưa có → cho nhân viên tự bấm; hệ thống tự kiểm tra & duyệt.
+                    // Chưa có → nhân viên gửi yêu cầu; trình duyệt chỉ xem trước
+                    // điều kiện, Admin là bên duyệt nguồn lương nguyên tử.
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Sớm';
                     b10Btn.style.background = '#F3F4F6';
                     b10Btn.style.color = '#6B7280';
-                    b10Btn.title = 'Bấm để nhận thưởng vào sớm 10 phút (hệ thống tự kiểm tra giờ chấm công)';
+                    b10Btn.title = 'Gửi yêu cầu +10 phút; Admin sẽ duyệt sau khi hệ thống kiểm tra lại dữ liệu công';
                     b10Btn.onclick = (e) => {
                         e.stopPropagation();
                         submitBonus10Request(chip.sessionId, dateStr, staffId, chip);
@@ -5130,7 +5168,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             // 1. BONUS 10P (Early check-in)
             const b10Container = document.getElementById('modal-bonus10-container');
             const b10Actions = document.getElementById('modal-bonus10-actions');
-            const canSeeBonus10 = !isRecep && isTargetTA;
+            const canSeeBonus10 = !isReceptionist && isTargetTA;
 
             if (canSeeBonus10) {
                 b10Container.style.display = 'flex';
@@ -5194,7 +5232,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             const scLabel = document.getElementById('modal-student-count-label');
             const scBadge = document.getElementById('modal-student-count-status-badge');
 
-            if (!isRecep && chip.studentCount > 0) {
+            if (!isReceptionist && chip.studentCount > 0) {
                 scContainer.style.display = 'flex';
                 scLabel.innerText = `Sĩ số khai báo: ${chip.studentCount} học sinh`;
 
@@ -5595,19 +5633,20 @@ window.modalStudentCountAction = async function(action, dateKey, sessionId) {
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang xử lý...');
         const adminName = localStorage.getItem('currentUserName') || 'Admin';
+        const reviewerId = localStorage.getItem('currentUserId') || adminName;
 
         if (action === 'approve') {
             const chip = window.allMonthChips.find(c => String(c.sessionId) === String(sessionId));
             const count = chip ? chip.studentCount : 10;
-            await DBService.reviewStudentCountReport(staffId, dateKey, sessionId, count, 'approved', adminName);
+            await DBService.updateSessionStudentCount(staffId, dateKey, sessionId, count, 'approved', reviewerId, 'admin');
             if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt sĩ số!', 'success');
         } else if (action === 'reject') {
             const chip = window.allMonthChips.find(c => String(c.sessionId) === String(sessionId));
             const count = chip ? chip.studentCount : 10;
-            await DBService.reviewStudentCountReport(staffId, dateKey, sessionId, count, 'rejected', adminName);
+            await DBService.updateSessionStudentCount(staffId, dateKey, sessionId, count, 'rejected', reviewerId, 'admin');
             if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối sĩ số (phạt cả tháng)!', 'error');
         } else if (action === 'delete') {
-            await DBService.clearStudentCountReport(staffId, dateKey, sessionId);
+            await DBService.updateSessionStudentCount(staffId, dateKey, sessionId, null, null, reviewerId, 'admin');
             if (typeof UIService !== 'undefined') UIService.toast('Đã xóa sĩ số khai báo!', 'success');
         }
         
@@ -5990,17 +6029,18 @@ async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
     }
 
     const confirmed = await UIService.confirm(
-        `${verdict.message}\n\nXác nhận nhận thưởng sớm 10 phút cho ca này?`
+        `${verdict.message}\n\nGửi yêu cầu +10 phút cho ca này để Admin duyệt?`
     );
     if (!confirmed) return;
 
     const staffName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A';
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang xử lý...');
-        // Hệ thống đã tự xác minh đủ 3 điều kiện → duyệt luôn, admin không phải bấm.
+        // Trình duyệt chỉ xem trước điều kiện. Yêu cầu vẫn phải chờ Admin duyệt
+        // nguyên tử cùng cờ phiên công để nhân viên không thể tự cấp tiền lương.
         await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, sessionId, verdict);
         if (typeof UIService !== 'undefined') UIService.hideLoading();
-        UIService.toast(`Đã duyệt tự động: vào sớm ${verdict.earlyMinutes} phút.`, 'success');
+        UIService.toast(`Đã gửi yêu cầu +10p (vào sớm ${verdict.earlyMinutes} phút). Chờ Admin duyệt.`, 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
@@ -6011,7 +6051,7 @@ async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
 
 // Dải cảnh báo trên lịch tháng: admin (và cả nhân viên) nhìn ra ngay tháng này
 // đang bị khóa phụ cấp, thay vì phải tự thắc mắc sao lương hụt.
-function renderEarly10PenaltyBanner(staffId, active, rejectedCount) {
+function renderEarly10PenaltyBanner(staffId, active, rejectedCount, penaltyState = null) {
     // Đặt NGOÀI khung lịch (khung lịch có min-width 850px và tự cuộn ngang) để
     // dải cảnh báo không bị kéo rộng ra trên điện thoại.
     const grid = document.getElementById('calendar-grid');
@@ -6045,11 +6085,15 @@ function renderEarly10PenaltyBanner(staffId, active, rejectedCount) {
     })();
     const isAdmin = roles.some(r => ['admin', 'senior_assistant'].includes(r));
 
+    const markerDate = penaltyState?.lastDateKey
+        ? ` Ca bị từ chối gần nhất: ${escapeReportHtml(penaltyState.lastDateKey)}.`
+        : '';
+    const auditCount = rejectedCount > 0 ? ` Hệ thống đang giữ ${rejectedCount} dấu vết từ chối để đối chiếu.` : '';
     banner.innerHTML =
         `<span style="flex:0 0 auto;color:#DC2626;display:flex;">${window.getIconHtml('alert-triangle', { width: '20', height: '20' })}</span>` +
         `<span style="flex:1;min-width:180px;font-size:0.88rem;color:#7F1D1D;">` +
-            `<b>Tháng này đang bị khóa phụ cấp.</b> ${rejectedCount} ca sớm 10p đã bị hủy nên toàn bộ ` +
-            `thưởng 10p và đơn giá lớp đông (+N HS) trong tháng không được tính.` +
+            `<b>Tháng này đang bị khóa phụ cấp.</b> Toàn bộ thưởng 10p và đơn giá lớp đông (+N HS) ` +
+            `trong tháng không được tính.${markerDate}${auditCount}` +
         `</span>` +
         (isAdmin
             ? `<button onclick="clearEarly10Penalty('${staffId}')" style="flex:0 0 auto;padding:0.5rem 0.9rem;` +
@@ -6058,8 +6102,8 @@ function renderEarly10PenaltyBanner(staffId, active, rejectedCount) {
             : '');
 }
 
-// Gỡ hình phạt tháng khi admin bấm nhầm: xóa hết bản ghi 'rejected' của tháng,
-// sau đó 10p và đơn giá lớp đông được tính lại bình thường.
+// Gỡ hình phạt tháng bằng marker có phiên bản; giữ nguyên request rejected làm
+// lịch sử đối chiếu, tránh xóa mất bằng chứng quyết định lương.
 async function clearEarly10Penalty(staffId) {
     const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
     const confirmed = await UIService.confirm(
@@ -6069,9 +6113,11 @@ async function clearEarly10Penalty(staffId) {
 
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang gỡ phạt...');
-        const removed = await DBService.clearBonus10PenaltyForMonth(staffId, monthStr);
+        const changed = await DBService.clearBonus10PenaltyForMonth(staffId, monthStr);
         if (typeof UIService !== 'undefined') UIService.hideLoading();
-        UIService.toast(removed > 0 ? `Đã gỡ phạt (${removed} ca).` : 'Tháng này không có ca nào bị phạt.', 'success');
+        UIService.toast(changed > 0
+            ? 'Đã gỡ khóa tháng; các dấu vết từ chối vẫn được giữ để đối chiếu.'
+            : 'Đã xác nhận tháng ở trạng thái không khóa phụ cấp.', 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
@@ -7374,6 +7420,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         // from rendering before any salary data could be shown.
         const overtimeRecords = await DBService.getOvertimeRequestsForStaff(staffId, prevMonthStr);
         const bonus10Records = await DBService.getMonthlyBonus10Requests(prevMonthStr, staffId);
+        const prevMonthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, prevMonthStr);
         const scheduleMap = await DBService.getMonthlySchedule(prevMonthStr);
         const observationRecords = await DBService.getShiftObservationsForMonth(prevMonthStr, staffId);
         
@@ -7402,8 +7449,11 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 bonus10Map[req.dateKey][req.sessionId] = req;
             }
         });
+        const previousPenaltyState = prevMonthlySettingsAll?.bonus10PenaltyState;
         const prevMonthFlags = {
-            early10PenaltyActive: bonus10Records.some(req => req.status === 'rejected')
+            early10PenaltyActive: previousPenaltyState && typeof previousPenaltyState.active === 'boolean'
+                ? previousPenaltyState.active
+                : bonus10Records.some(req => req.status === 'rejected')
         };
 
         const observationMap = {};
@@ -7442,7 +7492,6 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
             });
         }
         
-        const prevMonthlySettingsAll = await DBService.getMonthlySalarySettings(staffId, prevMonthStr);
         const prevRoleSettings = prevMonthlySettingsAll[window.modalActiveRole] || prevMonthlySettingsAll[window.modalActiveRole.replace('-', '_')] || {};
         
         let workedShifts = 0;

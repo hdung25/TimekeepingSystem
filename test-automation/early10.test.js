@@ -288,6 +288,30 @@ const atSecond = (clock) => new Date(`2026-08-03T${clock}`);
     assert.equal(Early10.isMonthlyBonusPenaltyActive({}, [{ studentCountStatus: 'rejected' }]), true);
     assert.equal(Early10.isMonthlyBonusPenaltyActive({}, [{ bonus10Status: 'rejected' }]), true);
     assert.equal(
+        Early10.isMonthlyBonusPenaltyActive(
+            { bonus10PenaltyState: { active: true, version: 2 } },
+            [{ bonus10Status: 'approved' }]
+        ),
+        true,
+        'explicit active marker must lock even if request status is approved'
+    );
+    assert.equal(
+        Early10.isMonthlyBonusPenaltyActive(
+            { bonus10PenaltyState: { active: false, version: 3 } },
+            [{ bonus10Status: 'rejected' }]
+        ),
+        false,
+        'explicit clear must override retained rejected bonus audit records'
+    );
+    assert.equal(
+        Early10.isMonthlyBonusPenaltyActive(
+            { bonus10PenaltyState: { active: false, version: 3 } },
+            [{ studentCountStatus: 'rejected', bonus10Status: 'rejected' }]
+        ),
+        true,
+        'clearing the +10 marker must not clear an independent student-count penalty'
+    );
+    assert.equal(
         Early10.isMonthlyBonusPenaltyActive({}, [{ bonus10Status: 'approved' }, { studentCountStatus: 'approved' }]),
         false
     );

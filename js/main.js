@@ -1,4 +1,4 @@
-const APP_VERSION = '20260831-attendance-recovery-v3';
+const APP_VERSION = '20260901-schedule-admin-attendance-v2';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;

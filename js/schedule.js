@@ -28,7 +28,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 function isCenterClosed(dateStr, shiftKey, centerClosures) {
     if (!centerClosures || !centerClosures[dateStr]) return false;
     const closures = centerClosures[dateStr];
-    return closures.includes('all') || closures.includes(shiftKey);
+    if (closures.includes('all') || closures.includes(shiftKey)) return true;
+    const parentPeriod = /^(morning|afternoon|evening)[12]$/.exec(String(shiftKey || '').trim())?.[1] || '';
+    return !!parentPeriod && closures.includes(parentPeriod);
 }
 
 function isScheduleTimePast(compositeKey, startTimeStr) {
@@ -121,6 +123,7 @@ let currentWeekStart = new Date(); // Start of the currently selected week (Mond
 let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
 let currentBranch = 'cs1'; // Multi-branch support
 let scheduleRenderGeneration = 0;
+let scheduleAttendanceEvidenceWarningKey = '';
 let currentShiftFilter = 'all'; // Filter for shifts (all, morning, afternoon, evening)
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 
@@ -312,7 +315,20 @@ async function renderTable() {
     let attendanceEvidence = new Map();
     const todayRealKey = getLocalDateKey(new Date());
     if (dateKey <= todayRealKey) {
-        try { attendanceEvidence = await DBService.getDayAttendance(dateKey); } catch(e) {}
+        try {
+            attendanceEvidence = await DBService.getDayAttendance(dateKey);
+            if (!(attendanceEvidence instanceof Map)) {
+                throw new Error('Nguồn trạng thái công trả về dữ liệu không hợp lệ.');
+            }
+            if (scheduleAttendanceEvidenceWarningKey === dateKey) scheduleAttendanceEvidenceWarningKey = '';
+        } catch (error) {
+            attendanceEvidence = null;
+            console.error('Không tải được trạng thái công cho lịch:', error);
+            if (scheduleAttendanceEvidenceWarningKey !== dateKey) {
+                scheduleAttendanceEvidenceWarningKey = dateKey;
+                window.UIService?.toast?.('Chưa tải được trạng thái công. Lịch vẫn hiển thị nhưng không kết luận ai chưa chấm công.', 'warning');
+            }
+        }
         if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
     }
 
@@ -460,24 +476,72 @@ function scheduleShiftDateTime(dateKey, timeValue) {
     return Number.isNaN(result.getTime()) ? null : result;
 }
 
-function hasAttendanceEvidenceForShift(evidenceByUser, userId, dateKey, startValue, endValue, now = new Date()) {
-    if (!(evidenceByUser instanceof Map)) return false;
+function resolveAttendanceEvidenceForShift(
+    evidenceByUser,
+    userId,
+    dateKey,
+    startValue,
+    endValue,
+    shiftId = '',
+    compositeKey = '',
+    section = ''
+) {
+    if (!(evidenceByUser instanceof Map)) {
+        return { status: 'unavailable', session: null, candidates: [], error: 'Không tải được trạng thái công.' };
+    }
     const sessions = evidenceByUser.get(String(userId)) || evidenceByUser.get(userId) || [];
-    if (!Array.isArray(sessions) || sessions.length === 0) return false;
-    const shiftStart = scheduleShiftDateTime(dateKey, startValue);
-    let shiftEnd = scheduleShiftDateTime(dateKey, endValue);
-    if (!shiftStart || !shiftEnd) return false;
-    if (shiftEnd <= shiftStart) shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000);
+    const usableSessions = Array.isArray(sessions) ? sessions.filter(session => session && !session.isAbsent) : [];
+    if (!usableSessions.length) return { status: 'none', session: null, candidates: [] };
+    if (!window.ScheduleAttendanceAdmin?.buildShiftWindow || !window.ScheduleAttendanceAdmin?.resolveSessionForShift) {
+        return { status: 'unavailable', session: null, candidates: [], error: 'Mô-đun đối chiếu công chưa sẵn sàng.' };
+    }
+    try {
+        const shiftWindow = ScheduleAttendanceAdmin.buildShiftWindow(dateKey, startValue, endValue);
+        return ScheduleAttendanceAdmin.resolveSessionForShift(usableSessions, {
+            dateKey,
+            start: startValue,
+            end: endValue,
+            shiftId: String(shiftId || ''),
+            compositeKey: String(compositeKey || ''),
+            section: String(section || '')
+        }, shiftWindow);
+    } catch (error) {
+        console.warn('Không thể đối chiếu phiên công với ca lịch:', error);
+        return { status: 'unavailable', session: null, candidates: [], error: error?.message || 'Khung giờ ca không hợp lệ.' };
+    }
+}
 
-    return sessions.some(session => {
-        if (!session || session.isAbsent) return false;
-        const sessionStart = new Date(session.checkIn || session.start || '');
-        const sessionEnd = session.checkOut
-            ? new Date(session.checkOut)
-            : (session.end ? new Date(session.end) : new Date(now));
-        if (Number.isNaN(sessionStart.getTime()) || Number.isNaN(sessionEnd.getTime())) return false;
-        return sessionStart < shiftEnd && sessionEnd > shiftStart;
-    });
+function findAttendanceEvidenceForShift(
+    evidenceByUser,
+    userId,
+    dateKey,
+    startValue,
+    endValue,
+    _now = new Date(),
+    shiftId = '',
+    compositeKey = '',
+    section = ''
+) {
+    const resolution = resolveAttendanceEvidenceForShift(
+        evidenceByUser, userId, dateKey, startValue, endValue, shiftId, compositeKey, section
+    );
+    return resolution.status === 'matched' ? resolution.session : null;
+}
+
+function hasAttendanceEvidenceForShift(
+    evidenceByUser,
+    userId,
+    dateKey,
+    startValue,
+    endValue,
+    now = new Date(),
+    shiftId = '',
+    compositeKey = '',
+    section = ''
+) {
+    return !!findAttendanceEvidenceForShift(
+        evidenceByUser, userId, dateKey, startValue, endValue, now, shiftId, compositeKey, section
+    );
 }
 
 function scheduleEscapeHTML(value) {
@@ -549,13 +613,29 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             }
         }
 
+        const attendanceResolutionByTeacher = new Map();
+        if (isShiftPastOrStarted) {
+            gvList.forEach(g => {
+                if (!g.id) return;
+                attendanceResolutionByTeacher.set(String(g.id), resolveAttendanceEvidenceForShift(
+                    attendanceEvidence,
+                    g.id,
+                    dateKey,
+                    row.start,
+                    row.end,
+                    stableScheduleShiftLocatorId(compositeKey, caType, row, index),
+                    compositeKey,
+                    caType
+                ));
+            });
+        }
         const unverified = isShiftPastOrStarted ? gvList.filter(g => {
             if (!g.id) return false;
             const userCancelledShifts = cancelledShiftsMap[g.id] || [];
             const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
             const isDeclaredAbsent = isGV && isRowMainTeacherAbsent(row, g.id);
-            return !isCancelled && !isDeclaredAbsent &&
-                !hasAttendanceEvidenceForShift(attendanceEvidence, g.id, dateKey, row.start, row.end);
+            const resolution = attendanceResolutionByTeacher.get(String(g.id));
+            return !isCancelled && !isDeclaredAbsent && resolution?.status === 'none';
         }) : [];
 
         // Hiện ĐẦY ĐỦ tên từng GV (dạng thẻ, tự xuống dòng) thay vì "Tên +1" —
@@ -564,22 +644,52 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             const userCancelledShifts = cancelledShiftsMap[g.id] || [];
             const isCancelled = userCancelledShifts.includes(`${compositeKey}_${caType}_${index}`);
             const isUnverified = !isCancelled && unverified.some(a => a.id === g.id);
+            const attendanceResolution = isShiftPastOrStarted && !isCancelled
+                ? attendanceResolutionByTeacher.get(String(g.id))
+                : null;
+            const attendanceSession = attendanceResolution?.status === 'matched'
+                ? attendanceResolution.session
+                : null;
+            const attendanceAmbiguous = attendanceResolution?.status === 'ambiguous';
+            const attendanceUnavailable = attendanceResolution?.status === 'unavailable';
             const declaredAbsence = isGV ? getRowTeacherAbsence(row, g.id) : null;
             const isDeclaredAbsent = !isCancelled && isGV && isRowMainTeacherAbsent(row, g.id);
+            const hasAttendanceAbsenceConflict = isDeclaredAbsent && !!attendanceSession;
 
             const absenceType = String(declaredAbsence?.type || '').toUpperCase();
             const mappedReplacementIds = isGV ? getMappedReplacementIds(row, g.id) : [];
             let chipClass = 'gv-chip';
             if (isCancelled) chipClass += ' is-cancelled';
+            else if (hasAttendanceAbsenceConflict) chipClass += ' is-attendance-conflict';
+            else if (attendanceAmbiguous) chipClass += ' is-attendance-ambiguous';
             else if (isDeclaredAbsent) chipClass += absenceType === 'VP' ? ' is-absence-vp' : ' is-absence-vdx';
+            else if (attendanceUnavailable) chipClass += ' is-attendance-unavailable';
             else if (isUnverified) chipClass += ' is-unverified';
+            else if (attendanceSession?.checkOut) chipClass += ' is-attendance-closed';
+            else if (attendanceSession) chipClass += ' is-attendance-open';
             else if (!isGV) chipClass += ' is-substitute';
 
-            const suffix = isCancelled
-                ? ' (Admin Hủy)'
-                    : (isDeclaredAbsent
-                     ? ` · ${absenceType === 'VP' ? 'VP' : 'VĐX'} · ${mappedReplacementIds.length ? 'Đã có GV thay' : 'Chờ GV thay'}`
-                    : (isUnverified ? ' · Chưa xác minh chấm công' : ''));
+            const attendanceSuffix = attendanceSession
+                ? ` · ${attendanceSession.checkOut ? 'Đủ vào/ra' : 'Đã vào ca'}` +
+                    (attendanceSession.bonus10 ? ' · +10p' : '') +
+                    (Number.isInteger(Number(attendanceSession.studentCount)) && attendanceSession.studentCountStatus === 'approved'
+                        ? ` · ${Number(attendanceSession.studentCount)} HS`
+                        : '')
+                : '';
+            let suffix = attendanceSuffix;
+            if (isCancelled) {
+                suffix = ' (Admin Hủy)';
+            } else if (hasAttendanceAbsenceConflict) {
+                suffix = ` · Xung đột: lịch ${absenceType === 'VP' ? 'VP' : 'VĐX'} nhưng đang có công`;
+            } else if (attendanceAmbiguous) {
+                suffix = ' · Cần đối chiếu nhiều phiên công';
+            } else if (isDeclaredAbsent) {
+                suffix = ` · ${absenceType === 'VP' ? 'VP' : 'VĐX'} · ${mappedReplacementIds.length ? 'Đã có GV thay' : 'Chờ GV thay'}`;
+            } else if (attendanceUnavailable) {
+                suffix = ' · Chưa tải được trạng thái công';
+            } else if (isUnverified) {
+                suffix = ' · Chưa xác minh chấm công';
+            }
             const fixedBadge = g.pendingFixed
                 ? ` <span title="Chuẩn bị cố định từ tuần sau" style="color:#9A3412;font-weight:700;">⏳</span>`
                 : '';
@@ -974,6 +1084,38 @@ function scheduleRowSignature(row) {
         .join('|');
 }
 
+function scheduleIdentityHash(value, seed = 2166136261) {
+    let hash = seed >>> 0;
+    const input = String(value || '');
+    for (let index = 0; index < input.length; index += 1) {
+        hash ^= input.charCodeAt(index);
+        hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash.toString(36);
+}
+
+function stableScheduleShiftLocatorId(compositeKey, section, row, index) {
+    const explicit = String(row?.shiftId || '').trim();
+    if (explicit) return explicit;
+    const raw = [compositeKey, section, index, scheduleRowSignature(row)].join('::');
+    return `legacy_shift_${scheduleIdentityHash(raw)}_${scheduleIdentityHash(raw, 3335557771)}`;
+}
+
+function normalizedScheduleSubjectName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi');
+}
+
+function locallyClaimedScheduleRoles() {
+    const raw = localStorage.getItem('currentRole');
+    if (typeof parseRoles === 'function') return parseRoles(raw);
+    try {
+        const parsed = JSON.parse(raw || '[]');
+        return Array.isArray(parsed) ? parsed : [parsed];
+    } catch (_error) {
+        return raw ? [raw] : [];
+    }
+}
+
 function scheduleRowLocator(row, index) {
     return {
         index,
@@ -1029,13 +1171,18 @@ function getTeachingRoleLabel(teacher) {
     return 'Nhân sự giảng dạy';
 }
 
-function closeTeacherShiftManager() {
+function closeTeacherShiftManager(force = false) {
+    if (!force && isAttendanceSaveInFlight()) {
+        window.UIService?.toast?.('Đang lưu công nguyên tử. Vui lòng chờ hoàn tất trước khi đóng popup.', 'warning');
+        return false;
+    }
     teacherPickerGeneration += 1;
     const state = teacherShiftManagerState;
     document.getElementById('gv-picker-overlay')?.remove();
     document.body.classList.remove('teacher-shift-modal-open');
     teacherShiftManagerState = null;
     if (state?.triggerEl && document.contains(state.triggerEl)) state.triggerEl.focus?.();
+    return true;
 }
 
 function teacherManagerMainEntries() {
@@ -1110,6 +1257,499 @@ function substituteCoverageCard(substitute) {
     </article>`;
 }
 
+function attendanceAdminEntryList() {
+    const state = teacherShiftManagerState;
+    return Array.from(state?.attendance?.entries?.values?.() || []);
+}
+
+function selectedAttendanceAdminEntry() {
+    const state = teacherShiftManagerState;
+    if (!state?.attendance?.selectedId) return null;
+    return state.attendance.entries.get(state.attendance.selectedId) || null;
+}
+
+function isAttendanceSaveInFlight(state = teacherShiftManagerState) {
+    return !!state?.attendance?.savingId;
+}
+
+function attendanceEntryHasWorkedEvidence(entry) {
+    if (!entry || entry.sourceWasAbsent) return false;
+    return ['open', 'closed'].includes(String(entry.draft?.mode || ''));
+}
+
+function attendanceAbsenceConflict(state = teacherShiftManagerState, teacherId = '') {
+    if (!state?.attendance?.entries) return null;
+    const ids = teacherId ? [String(teacherId)] : (state.mainIds || []).map(String);
+    for (const id of ids) {
+        if ((state.statuses?.[id]?.type || 'ACTIVE') === 'ACTIVE') continue;
+        const entry = state.attendance.entries.get(id);
+        if (entry?.resolution?.status === 'ambiguous' || attendanceEntryHasWorkedEvidence(entry)) return entry;
+    }
+    return null;
+}
+
+function attendanceConcurrentSubjectSet(entry) {
+    const state = teacherShiftManagerState;
+    const early10 = window.Early10;
+    if (!entry || !state?.dayData || !early10 || !window.TeacherShiftState) {
+        return { ids: [], error: 'Chưa tải được đầy đủ các ca trùng giờ để kiểm tra +10 phút.' };
+    }
+    const staffId = String(entry.staffId || '');
+    const cancelledShiftKeys = Array.isArray(entry.source?.cancelledShiftKeys)
+        ? entry.source.cancelledShiftKeys
+        : [];
+    const rows = SECTIONS.flatMap(section => Array.isArray(state.dayData?.[section.key])
+        ? state.dayData[section.key].map((row, rowIndex) => ({ row, rowIndex, section: section.key }))
+        : []
+    ).filter(candidate => {
+        const { row, rowIndex, section } = candidate;
+        if (!row || row.isClosed === true || String(row.start || '') !== String(state.originalRow.start || '') ||
+            String(row.end || '') !== String(state.originalRow.end || '')) return false;
+        const legacyCancelledKey = `${state.compositeKey}_${section}_${rowIndex}`;
+        const persistedShiftId = String(row.shiftId || '').trim();
+        if (cancelledShiftKeys.includes(legacyCancelledKey) ||
+            (persistedShiftId && cancelledShiftKeys.includes(`shift:${persistedShiftId}`))) return false;
+        const isActiveMain = TeacherShiftState.getMainTeachers(row)
+            .some(item => String(item?.id || '') === staffId) &&
+            !TeacherShiftState.isMainTeacherAbsent(row, staffId);
+        const isSubstitute = TeacherShiftState.getSubstituteTeachers(row)
+            .some(item => String(item?.id || '') === staffId);
+        return isActiveMain || isSubstitute;
+    }).map(candidate => candidate.row);
+    const ids = new Set();
+    const subjects = Array.isArray(state.attendanceContext?.subjects)
+        ? state.attendanceContext.subjects
+        : [];
+    for (const row of rows) {
+        const explicitIds = early10.splitSubjectIds(row.lopId)
+            .map(value => String(value || '').trim())
+            .filter(Boolean);
+        if (explicitIds.length) {
+            explicitIds.forEach(id => ids.add(id));
+            continue;
+        }
+        const name = String(row.lop || '').trim();
+        const matches = subjects.filter(subject => String(subject?.name || '').trim() === name);
+        if (!name || matches.length !== 1 || !String(matches[0]?.id || '').trim()) {
+            return {
+                ids: [],
+                error: matches.length > 1
+                    ? `Môn/Lớp “${name || '?'}” trong ca ghép đang trùng tên dữ liệu.`
+                    : `Môn/Lớp “${name || '?'}” trong ca ghép chưa có mã dữ liệu duy nhất.`
+            };
+        }
+        ids.add(String(matches[0].id).trim());
+    }
+    if (!ids.size) early10.splitSubjectIds(state.subjectId).forEach(id => ids.add(id));
+    return { ids: Array.from(ids).sort(), error: '' };
+}
+
+function attendancePenaltyTimestampLabel(value) {
+    const date = value?.toDate?.() || (Number.isFinite(Number(value?.seconds))
+        ? new Date(Number(value.seconds) * 1000)
+        : (value ? new Date(value) : null));
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('vi-VN', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+    }).format(date);
+}
+
+function attendancePenaltyMessage(entry) {
+    const marker = entry?.bonus10PenaltyState;
+    if (marker?.active === true) {
+        const details = [
+            marker.lastDateKey ? `ca ngày ${marker.lastDateKey}` : '',
+            marker.updatedBy ? `người ghi ${marker.updatedBy}` : '',
+            attendancePenaltyTimestampLabel(marker.updatedAt)
+        ].filter(Boolean).join(' · ');
+        return `Khóa +10p cả tháng do một yêu cầu bị từ chối${details ? ` (${details})` : ''}. Chỉ gỡ khóa có audit tại Bảng Công.`;
+    }
+    if (entry?.legacyRejectedBonusRequest) {
+        return `Khóa +10p cả tháng theo yêu cầu cũ bị từ chối ngày ${entry.legacyRejectedBonusRequest.dateKey || 'không rõ'}. Gỡ khóa tại Bảng Công sẽ giữ nguyên dấu vết này.`;
+    }
+    return 'Phụ cấp +10 phút và lớp đông của tháng này đang bị khóa do trạng thái sĩ số/phụ cấp bị từ chối.';
+}
+
+function attendanceEarly10Verdict(entry) {
+    const state = teacherShiftManagerState;
+    if (state?.subjectResolutionError) {
+        return { ok: false, message: state.subjectResolutionError };
+    }
+    if (!entry || !state?.attendanceContext || !window.Early10) {
+        return { ok: false, message: 'Chưa tải được quy định +10 phút.' };
+    }
+    if (entry.penaltyActive) {
+        return { ok: false, message: attendancePenaltyMessage(entry) };
+    }
+    const concurrentSubjects = attendanceConcurrentSubjectSet(entry);
+    if (concurrentSubjects.error || !concurrentSubjects.ids.length) {
+        return { ok: false, message: concurrentSubjects.error || 'Ca này chưa có mã Môn/Lớp hợp lệ.' };
+    }
+    return Early10.evaluateEarly10Request({
+        sessionRole: concurrentSubjects.ids.join('+'),
+        subjectIds: concurrentSubjects.ids,
+        subjects: state.attendanceContext.subjects,
+        user: entry.profile,
+        checkIn: entry.draft.checkIn,
+        classStart: state.originalRow.start
+    });
+}
+
+function attendanceEntryBlockedReason(entry, validation, bonusVerdict) {
+    const state = teacherShiftManagerState;
+    if (!entry) return 'Chưa chọn nhân sự.';
+    if (state.attendanceShiftClosed) return 'Ca/lớp đang tắt. Hãy mở lại ca trên lịch trước khi ghi công.';
+    if (state.subjectResolutionError) return state.subjectResolutionError;
+    if (entry.payrollLocked) return 'Phiếu lương giảng dạy tháng này đã phát hành/đã nhận nên đang khóa nguồn công.';
+    if (entry.resolution.status === 'ambiguous') return entry.resolution.error || 'Có nhiều phiên công trùng ca; hãy xử lý trong Bảng Công.';
+    if (entry.isMain && (entry.originalAbsent || (state.statuses[entry.staffId]?.type || 'ACTIVE') !== 'ACTIVE')) {
+        return 'GV chính đang ở trạng thái nghỉ. Hãy khôi phục “Đang dạy”, lưu điều phối ca rồi mở lại popup trước khi ghi công.';
+    }
+    if ((entry.draft.mode || 'none') === 'none') return 'Hãy chọn “Đã vào ca” hoặc “Đủ vào/ra” trước khi lưu.';
+    if (!validation?.ok) return validation?.error || validation?.errors?.[0] || 'Dữ liệu giờ công chưa hợp lệ.';
+    if (entry.draft.bonus10 && !bonusVerdict?.ok && (entry.bonus10Dirty || entry.bonus10Status === 'approved')) {
+        return bonusVerdict?.message || 'Chưa đủ điều kiện +10 phút.';
+    }
+    return '';
+}
+
+function attendanceAdminPanelMarkup() {
+    const state = teacherShiftManagerState;
+    if (!state?.canEditAttendance) {
+        if (!state?.likelyPrimaryAdmin || !state.attendanceAuthorizationError) return '';
+        const retrying = state.attendanceAuthorizationRetrying === true;
+        const message = state.attendanceAuthorizationError?.message || 'Không thể xác minh quyền Admin trực tiếp từ Firebase.';
+        return `<section class="attendance-admin-panel attendance-auth-warning" aria-live="polite">
+            <div class="attendance-admin-head"><div><h4>3 · Công & chip nhân viên</h4><p>Chức năng nhạy cảm đang khóa an toàn vì chưa xác minh được quyền Admin từ máy chủ.</p></div><span class="section-count has-alert">ĐÃ KHÓA</span></div>
+            <div class="attendance-admin-error">${scheduleEscapeHTML(message)}</div>
+            <button type="button" class="btn-attendance-save" data-action="attendance-auth-retry" ${retrying ? 'disabled' : ''}>${retrying ? 'Đang xác minh lại…' : 'Xác minh lại quyền Admin'}</button>
+        </section>`;
+    }
+    const attendance = state.attendance;
+    if (attendance.loading) {
+        return `<section class="attendance-admin-panel"><div class="attendance-admin-head"><div><h4>3 · Công & chip nhân viên</h4><p>Chỉ Admin · giờ, +10 phút và sĩ số dùng chung nguồn với Bảng Công/Bảng Lương.</p></div><span class="section-count">ADMIN</span></div><div class="attendance-admin-loading">Đang tải dữ liệu công mới nhất từ Firebase…</div></section>`;
+    }
+    if (attendance.error) {
+        return `<section class="attendance-admin-panel"><div class="attendance-admin-head"><div><h4>3 · Công & chip nhân viên</h4><p>Không tạo dữ liệu thay thế khi đọc Firebase thất bại.</p></div><span class="section-count has-alert">ADMIN</span></div><div class="attendance-admin-error">${scheduleEscapeHTML(attendance.error)}</div><button type="button" class="btn-attendance-save" data-action="attendance-retry">Tải lại dữ liệu công</button></section>`;
+    }
+
+    const entries = attendanceAdminEntryList();
+    if (!entries.length) {
+        return `<section class="attendance-admin-panel"><div class="attendance-admin-head"><div><h4>3 · Công & chip nhân viên</h4><p>Chỉ chỉnh công cho nhân sự đã được lưu trong ca hiện tại.</p></div><span class="section-count">ADMIN</span></div><div class="teacher-empty-state compact">Hãy lưu GV chính/GV thay trước, sau đó mở lại popup để chỉnh công.</div></section>`;
+    }
+    const entry = selectedAttendanceAdminEntry() || entries[0];
+    const shiftWindow = state.shiftWindow;
+    const validation = ScheduleAttendanceAdmin.validateDraft(entry.draft, shiftWindow, { now: new Date() });
+    const bonusVerdict = attendanceEarly10Verdict(entry);
+    const blockedReason = attendanceEntryBlockedReason(entry, validation, bonusVerdict);
+    const preview = ScheduleAttendanceAdmin.previewState(entry.draft, validation);
+    const mode = entry.draft.mode || 'none';
+    const hasSession = !!entry.sessionId;
+    const savingLocked = isAttendanceSaveInFlight(state);
+    const mainStatusBlocked = entry.isMain && (entry.originalAbsent || (state.statuses[entry.staffId]?.type || 'ACTIVE') !== 'ACTIVE');
+    const editorLocked = savingLocked || state.attendanceShiftClosed || entry.payrollLocked ||
+        entry.resolution.status === 'ambiguous' || mainStatusBlocked || !!state.subjectResolutionError;
+    const fieldsDisabled = mode === 'none' || editorLocked;
+    const bonusDisabled = fieldsDisabled || (!entry.draft.bonus10 && !bonusVerdict.ok);
+    const tabs = entries.map(item => {
+        const selected = item.staffId === entry.staffId;
+        const tabToken = scheduleIdentityHash(item.staffId);
+        const stateLabel = item.resolution.status === 'ambiguous'
+            ? 'Cần xử lý'
+            : (item.bonus10Status === 'pending' && !item.bonus10Dirty
+                ? 'Chờ +10p'
+                : (item.draft.mode === 'closed' ? 'Đủ vào/ra' : (item.draft.mode === 'open' ? 'Đã vào ca' : 'Chưa có công')));
+        return `<button type="button" id="attendance-tab-${tabToken}" class="attendance-person-tab${selected ? ' is-active' : ''}" data-action="attendance-select" data-teacher-id="${scheduleEscapeAttr(item.staffId)}" role="tab" aria-selected="${selected}" aria-controls="attendance-editor-panel" tabindex="${selected ? '0' : '-1'}" ${savingLocked ? 'disabled' : ''}>${scheduleEscapeHTML(item.name)} · ${scheduleEscapeHTML(stateLabel)}</button>`;
+    }).join('');
+    const plannedCount = Number(state.originalRow.soHS);
+    const policyClass = bonusVerdict.ok ? ' is-eligible' : '';
+    const policyState = bonusVerdict.ok ? 'eligible' : 'blocked';
+    const previewClass = preview?.className || (mode === 'none' ? 'is-warning' : '');
+    const panelToken = scheduleIdentityHash(entry.staffId);
+    const pendingBonus = entry.bonus10Status === 'pending' && !entry.bonus10Dirty;
+    const bonusDecisionText = entry.bonus10Dirty
+        ? (entry.draft.bonus10 ? 'Sẽ duyệt và áp dụng khi lưu.' : 'Sẽ hủy yêu cầu, không kích hoạt phạt tháng.')
+        : (entry.bonus10Status === 'approved'
+            ? 'Đã duyệt và đang áp dụng.'
+            : (pendingBonus ? 'Yêu cầu đang chờ Admin quyết định; lưu giờ/sĩ số sẽ không tự hủy.' : 'Chưa áp dụng.'));
+    const pendingApproveDisabled = fieldsDisabled || !bonusVerdict.ok;
+    const pendingCancelDisabled = fieldsDisabled;
+    const studentCountStatus = String(entry.draft.studentCountStatus || '').toLowerCase();
+    const studentCountDecisionText = entry.studentCountDirty || entry.draft.studentCountDirty
+        ? (entry.draft.studentCount == null
+            ? 'Sẽ xóa sĩ số và trạng thái duyệt khi lưu.'
+            : 'Sẽ lưu sĩ số ở trạng thái Đã duyệt khi lưu.')
+        : (studentCountStatus
+            ? `Chưa thay đổi; giữ nguyên trạng thái ${studentCountStatus === 'approved' ? 'Đã duyệt' : (studentCountStatus === 'pending' ? 'Chờ duyệt' : 'Đã từ chối')}.`
+            : 'Chưa thay đổi sĩ số.');
+    const bonusControl = pendingBonus || (entry.bonus10Status === 'pending' && entry.bonus10Dirty)
+        ? `<div class="attendance-bonus-status is-pending" role="status">Yêu cầu +10p đang chờ duyệt</div>
+            <div class="attendance-bonus-actions" role="group" aria-label="Quyết định yêu cầu cộng 10 phút">
+                <button type="button" data-action="attendance-bonus-set" data-desired="true" class="${entry.bonus10Dirty && entry.draft.bonus10 ? 'is-active' : ''}" aria-pressed="${entry.bonus10Dirty && entry.draft.bonus10}" ${pendingApproveDisabled ? 'disabled' : ''}>Duyệt +10p</button>
+                <button type="button" data-action="attendance-bonus-set" data-desired="false" class="${entry.bonus10Dirty && !entry.draft.bonus10 ? 'is-active is-negative' : ''}" aria-pressed="${entry.bonus10Dirty && !entry.draft.bonus10}" ${pendingCancelDisabled ? 'disabled' : ''}>Không áp dụng · không phạt tháng</button>
+            </div>`
+        : `<label class="attendance-bonus-toggle"><input type="checkbox" data-action="attendance-bonus10" ${entry.draft.bonus10 ? 'checked' : ''} ${bonusDisabled ? 'disabled' : ''}><span>${entry.draft.bonus10 ? 'Đang áp dụng' : 'Chưa áp dụng'}</span></label>`;
+
+    return `<section class="attendance-admin-panel">
+        <div class="attendance-admin-head">
+            <div><h4>3 · Công & chip nhân viên</h4><p>Chỉ Admin · chỉnh đúng dữ liệu nguồn; chip sẽ tự đổi và Bảng Lương đọc lại cùng một phiên công.</p></div>
+            <span class="section-count">ADMIN</span>
+        </div>
+        <div class="attendance-person-tabs" role="tablist" aria-label="Nhân sự trong ca">${tabs}</div>
+        <article id="attendance-editor-panel" class="attendance-editor-card" data-attendance-editor="${scheduleEscapeAttr(entry.staffId)}" role="tabpanel" aria-labelledby="attendance-tab-${panelToken}" ${savingLocked ? 'aria-busy="true"' : ''}>
+            <div class="attendance-chip-preview ${scheduleEscapeAttr(previewClass)}">${scheduleEscapeHTML(preview?.label || 'Chưa xác minh chấm công')}</div>
+            <div class="attendance-state-segment" role="group" aria-label="Trạng thái công của ${scheduleEscapeAttr(entry.name)}">
+                <button type="button" data-action="attendance-mode" data-state="none" class="${mode === 'none' ? 'is-active' : ''}" aria-pressed="${mode === 'none'}" ${hasSession || editorLocked ? 'disabled title="Không xóa phiên công từ popup lịch; dùng Bảng Công để xử lý có kiểm soát."' : ''}>Chưa có công</button>
+                <button type="button" data-action="attendance-mode" data-state="open" class="${mode === 'open' ? 'is-active' : ''}" aria-pressed="${mode === 'open'}" ${editorLocked ? 'disabled' : ''}>Đã vào ca</button>
+                <button type="button" data-action="attendance-mode" data-state="closed" class="${mode === 'closed' ? 'is-active' : ''}" aria-pressed="${mode === 'closed'}" ${editorLocked ? 'disabled' : ''}>Đủ vào / ra</button>
+            </div>
+            <div class="attendance-time-grid">
+                <label><span>Giờ vào chính xác</span><input type="datetime-local" step="1" data-action="attendance-check-in" value="${scheduleEscapeAttr(entry.draft.checkIn || '')}" ${fieldsDisabled ? 'disabled' : ''}></label>
+                <label><span>Giờ ra chính xác</span><input type="datetime-local" step="1" data-action="attendance-check-out" value="${scheduleEscapeAttr(entry.draft.checkOut || '')}" ${fieldsDisabled || mode !== 'closed' ? 'disabled' : ''}></label>
+            </div>
+            <div class="attendance-extra-grid">
+                <div class="attendance-extra-card">
+                    <strong>Điền nhanh theo lịch</strong><small>${scheduleEscapeHTML(`${state.originalRow.start || '--:--'}–${state.originalRow.end || '--:--'}`)}. Admin vẫn phải kiểm tra giờ thực tế trước khi lưu.</small>
+                    <button type="button" data-action="attendance-use-schedule" ${editorLocked ? 'disabled' : ''}>Dùng giờ của ca</button>
+                </div>
+                <div class="attendance-extra-card">
+                    <label><span>Sĩ số thực tế tính lương</span><input type="number" min="1" max="500" step="1" data-action="attendance-student-count" value="${scheduleEscapeAttr(entry.draft.studentCount ?? '')}" placeholder="Để trống nếu không áp dụng" ${fieldsDisabled ? 'disabled' : ''}></label>
+                    <small>${scheduleEscapeHTML(studentCountDecisionText)} Không tự ghi đè cột Số HS kế hoạch.</small>
+                    ${Number.isInteger(plannedCount) && plannedCount > 0 ? `<button type="button" data-action="attendance-use-planned-count" ${fieldsDisabled ? 'disabled' : ''}>Dùng số đang xếp: ${plannedCount}</button>` : ''}
+                </div>
+                <div class="attendance-extra-card">
+                    <strong>Phụ cấp vào sớm +10p</strong>
+                    ${bonusControl}
+                    <small>${scheduleEscapeHTML(bonusDecisionText)} Chỉ duyệt khi đúng môn, đúng chế độ GV, vào sớm đủ 10 phút và tháng không bị khóa.</small>
+                    ${entry.penaltyActive ? `<div class="attendance-admin-error" role="alert">${scheduleEscapeHTML(attendancePenaltyMessage(entry))}</div>` : ''}
+                </div>
+            </div>
+            <div class="attendance-policy-note${policyClass}" data-state="${policyState}">${scheduleEscapeHTML(bonusVerdict.message || (bonusVerdict.ok ? 'Đủ điều kiện +10 phút.' : 'Chưa đủ điều kiện +10 phút.'))}</div>
+            ${entry.linkNote ? `<div class="attendance-policy-note">${scheduleEscapeHTML(entry.linkNote)}</div>` : ''}
+            ${blockedReason ? `<div class="attendance-admin-error">${scheduleEscapeHTML(blockedReason)}</div>` : ''}
+            <button type="button" class="btn-attendance-save" data-action="attendance-save" ${blockedReason || attendance.savingId ? 'disabled' : ''}>${attendance.savingId === entry.staffId ? 'Đang lưu nguyên tử…' : '✓ Lưu công & cập nhật chip'}</button>
+        </article>
+    </section>`;
+}
+
+async function loadAdminAttendanceEditor(state = teacherShiftManagerState) {
+    if (!state?.canEditAttendance || teacherShiftManagerState !== state) return;
+    if (!state.attendance.teacherIds.length) {
+        state.attendance.loading = false;
+        state.attendance.error = '';
+        state.attendance.entries = new Map();
+        renderTeacherShiftManager();
+        return;
+    }
+    state.attendance.loading = true;
+    state.attendance.error = '';
+    renderTeacherShiftManager();
+    try {
+        const context = await DBService.getAdminTeachingAttendanceEditorContext({
+            staffIds: state.attendance.teacherIds,
+            dateKey: state.dateKey
+        });
+        if (teacherShiftManagerState !== state) return;
+        state.attendanceContext = context;
+        const serverSubjects = Array.isArray(context.subjects) ? context.subjects : [];
+        const rowSubjectId = String(state.originalRow.lopId || '').trim();
+        const normalizedSubjectName = normalizedScheduleSubjectName(state.originalRow.lop);
+        const subjectsByName = normalizedSubjectName
+            ? serverSubjects.filter(subject => normalizedScheduleSubjectName(subject?.name) === normalizedSubjectName)
+            : [];
+        const serverSubjectIds = new Set(serverSubjects.map(subject => String(subject?.id || '').trim()).filter(Boolean));
+        if (rowSubjectId) {
+            const rowSubjectIds = Array.from(new Set(Early10.splitSubjectIds(rowSubjectId)));
+            const missingSubjectIds = rowSubjectIds.filter(subjectId => !serverSubjectIds.has(subjectId));
+            state.subjectId = rowSubjectIds.length && missingSubjectIds.length === 0
+                ? rowSubjectIds.join('+')
+                : '';
+            state.subjectResolutionError = state.subjectId
+                ? ''
+                : `Mã Môn/Lớp trên dòng lịch không còn hợp lệ trên Firebase${missingSubjectIds.length ? `: ${missingSubjectIds.join(', ')}` : ''}. Đã khóa lưu công để tránh sai chip và đơn giá.`;
+        } else {
+            const resolvedSubject = subjectsByName.length === 1 ? subjectsByName[0] : null;
+            state.subjectId = String(resolvedSubject?.id || '').trim();
+            state.subjectResolutionError = state.subjectId
+                ? ''
+                : (subjectsByName.length > 1
+                    ? 'Có nhiều Môn/Lớp trùng tên trên Firebase. Hãy gắn đúng mã Môn/Lớp vào dòng lịch trước khi ghi công.'
+                    : 'Không xác minh được mã Môn/Lớp trên Firebase. Đã khóa lưu công để tránh chip “Role?” và sai đơn giá.');
+        }
+        const entries = new Map();
+        state.attendance.teacherIds.forEach(staffId => {
+            const teacher = state.teacherById.get(staffId) || { id: staffId, name: 'Nhân sự' };
+            const source = context.entries.find(item => item.staffId === staffId) || {
+                staffId, attendance: null, profile: teacher, monthlySettings: {}, monthlyBonusRequests: []
+            };
+            const hasCanonicalSessions = Array.isArray(source.attendance?.sessions) && source.attendance.sessions.length > 0;
+            const sessions = hasCanonicalSessions
+                ? source.attendance.sessions
+                : (source.attendance?.checkIn ? [{
+                    id: '',
+                    checkIn: source.attendance.checkIn,
+                    checkOut: source.attendance.checkOut || null,
+                    start: source.attendance.checkIn
+                }] : []);
+            const resolution = ScheduleAttendanceAdmin.resolveSessionForShift(sessions, {
+                dateKey: state.dateKey,
+                start: state.originalRow.start,
+                end: state.originalRow.end,
+                shiftId: state.shiftId,
+                subjectId: state.subjectId,
+                compositeKey: state.compositeKey,
+                section: state.caType
+            }, state.shiftWindow);
+            const session = resolution.status === 'matched' ? resolution.session : null;
+            const draft = ScheduleAttendanceAdmin.createDraft(session, state.shiftWindow);
+            // The schedule's VP/VĐX controls own absence state. This editor's
+            // open/closed modes are explicit "worked" targets, so saving an
+            // attendance session previously marked absent must clear that flag.
+            if (session?.isAbsent) draft.isAbsent = false;
+            const monthlyBonusRequests = Array.isArray(source.monthlyBonusRequests) ? source.monthlyBonusRequests : [];
+            const matchingBonusRequests = session
+                ? monthlyBonusRequests.filter(item => String(item.sessionId || '') === String(session.id || ''))
+                : [];
+            const approvedBonus = matchingBonusRequests.find(item => item.status === 'approved') || null;
+            const pendingBonus = matchingBonusRequests.find(item => item.status === 'pending') || null;
+            const legacyRejectedBonusRequest = monthlyBonusRequests.find(item => item.status === 'rejected') || null;
+            const bonus10PenaltyState = source.monthlySettings?.bonus10PenaltyState &&
+                typeof source.monthlySettings.bonus10PenaltyState === 'object'
+                ? source.monthlySettings.bonus10PenaltyState
+                : null;
+            if (approvedBonus) draft.bonus10 = true;
+            const isMain = state.originalMainIds.includes(staffId);
+            entries.set(staffId, {
+                staffId,
+                name: teacher.name || teacher.username || 'Nhân sự',
+                profile: { ...teacher, ...(source.profile || {}) },
+                source,
+                resolution,
+                draft,
+                sourceWasAbsent: !!session?.isAbsent,
+                sessionId: session && hasCanonicalSessions ? String(session.id || '') : '',
+                expectedFingerprint: session && hasCanonicalSessions ? ScheduleAttendanceAdmin.fingerprintSession(session) : '',
+                bonus10Status: approvedBonus ? 'approved' : (pendingBonus ? 'pending' : 'none'),
+                bonus10RequestId: approvedBonus?.id || pendingBonus?.id || '',
+                bonus10Dirty: false,
+                bonus10PenaltyState,
+                legacyRejectedBonusRequest,
+                studentCountDirty: false,
+                isMain,
+                originalAbsent: isMain && isRowMainTeacherAbsent(state.originalRow, staffId),
+                payrollLocked: !!DBService.getPayslipDraftLockState(source.monthlySettings?.published || {}, 'gv').locked,
+                penaltyActive: Early10.isMonthlyBonusPenaltyActive(
+                    source.monthlySettings || {},
+                    [
+                        ...monthlyBonusRequests.map(request => ({ bonus10Status: request.status })),
+                        ...sessions.map(candidate => ({ studentCountStatus: candidate?.studentCountStatus }))
+                    ]
+                ),
+                linkNote: [
+                    session?.isAbsent
+                        ? 'Phiên nguồn đang được đánh dấu vắng; khi Admin lưu giờ vào/ra, hệ thống sẽ chuyển phiên này thành có mặt và ghi lịch sử.'
+                        : '',
+                    session && !hasCanonicalSessions
+                        ? 'Đây là dữ liệu công đời cũ. Khi Admin lưu, hệ thống sẽ chuẩn hóa thành phiên có ID và ghi lịch sử; không tự đổi nếu bạn chưa bấm lưu.'
+                        : (session?.linkedClassStart && session.linkedClassStart !== state.originalRow.start
+                            ? `Phiên này đang gắn ca ${session.linkedClassStart}; popup giữ nguyên liên kết để không làm sai lịch sử lương.`
+                            : (resolution.method === 'overlap' && session
+                                ? 'Đã ghép theo khung giờ trùng duy nhất; liên kết lịch cũ (nếu có) sẽ được giữ nguyên.'
+                                : ''))
+                ].filter(Boolean).join(' ')
+            });
+        });
+        state.attendance.entries = entries;
+        if (!entries.has(state.attendance.selectedId)) state.attendance.selectedId = entries.keys().next().value || '';
+        state.attendance.loading = false;
+        state.attendance.error = '';
+        renderTeacherShiftManager();
+    } catch (error) {
+        if (teacherShiftManagerState !== state) return;
+        console.error('Không tải được dữ liệu công cho popup lịch:', error);
+        state.attendance.loading = false;
+        state.attendance.error = error?.message || 'Không tải được dữ liệu công mới nhất.';
+        renderTeacherShiftManager();
+    }
+}
+
+async function saveAdminAttendanceEntry() {
+    const state = teacherShiftManagerState;
+    const entry = selectedAttendanceAdminEntry();
+    if (!state?.canEditAttendance || !entry || state.attendance.savingId) return;
+    const validation = ScheduleAttendanceAdmin.validateDraft(entry.draft, state.shiftWindow, { now: new Date() });
+    const blockedReason = attendanceEntryBlockedReason(entry, validation, attendanceEarly10Verdict(entry));
+    if (blockedReason) {
+        UIService.toast(blockedReason, 'error');
+        return;
+    }
+    state.attendance.savingId = entry.staffId;
+    renderTeacherShiftManager();
+    try {
+        const bonus10Mutation = {
+            dirty: entry.bonus10Dirty === true,
+            desired: entry.draft.bonus10 === true
+        };
+        const studentCountMutation = {
+            dirty: entry.studentCountDirty === true || entry.draft.studentCountDirty === true,
+            value: validation.studentCount
+        };
+        await DBService.saveAdminTeachingAttendanceCorrection({
+            staffId: entry.staffId,
+            staffName: entry.name,
+            dateKey: state.dateKey,
+            sessionId: entry.sessionId,
+            expectedFingerprint: entry.expectedFingerprint,
+            scheduledStart: state.originalRow.start,
+            scheduledEnd: state.originalRow.end,
+            subjectId: state.subjectId,
+            subjectName: state.originalRow.lop,
+            shiftId: state.shiftId,
+            compositeKey: state.compositeKey,
+            section: state.caType,
+            scheduleIndex: state.index,
+            expectedScheduleSignature: state.signature,
+            expectedStaffingUpdatedAt: state.expectedStaffingUpdatedAt,
+            bonus10Dirty: bonus10Mutation.dirty,
+            studentCountDirty: studentCountMutation.dirty,
+            scheduleIdentity: {
+                compositeKey: state.compositeKey,
+                section: state.caType,
+                index: state.index,
+                shiftId: state.shiftId,
+                persistedShiftId: String(state.originalRow.shiftId || ''),
+                signature: state.signature,
+                expectedStaffingUpdatedAt: state.expectedStaffingUpdatedAt,
+                staffId: entry.staffId,
+                scheduledStart: state.originalRow.start,
+                scheduledEnd: state.originalRow.end,
+                subjectId: state.subjectId
+            },
+            bonus10Mutation,
+            studentCountMutation,
+            draft: {
+                ...entry.draft,
+                bonus10Dirty: bonus10Mutation.dirty,
+                studentCountDirty: studentCountMutation.dirty
+            }
+        });
+        UIService.toast(`Đã lưu công của ${entry.name}; chip và nguồn Bảng Lương đã đồng bộ.`, 'success');
+        if (teacherShiftManagerState === state) {
+            state.attendance.savingId = '';
+            await loadAdminAttendanceEditor(state);
+        }
+        await renderTable();
+    } catch (error) {
+        console.error('Lỗi lưu công từ popup lịch:', error);
+        UIService.toast(error?.message || 'Không thể lưu công.', 'error');
+        if (teacherShiftManagerState === state) {
+            state.attendance.savingId = '';
+            renderTeacherShiftManager();
+        }
+    }
+}
+
 function teacherShiftManagerMarkup() {
     const state = teacherShiftManagerState;
     const mains = teacherManagerMainEntries();
@@ -1141,6 +1781,7 @@ function teacherShiftManagerMarkup() {
             <div class="substitute-coverage-list">
                 ${substitutes.length ? substitutes.map(substituteCoverageCard).join('') : `<div class="teacher-empty-state compact">${absent.length ? 'Chưa chọn GV thay — ca sẽ được lưu ở trạng thái “Đang tìm GV thay”.' : 'Khi GV chính báo nghỉ, chọn người dạy thay ở danh sách bên cạnh.'}</div>`}
             </div>
+            ${attendanceAdminPanelMarkup()}
         </section>
         <aside class="teacher-roster-column">
             <div class="roster-tabs" role="tablist">
@@ -1168,9 +1809,49 @@ function applyTeacherRosterFilter(kind) {
     });
 }
 
+function syncTeacherShiftManagerChrome() {
+    const state = teacherShiftManagerState;
+    const overlay = document.getElementById('gv-picker-overlay');
+    if (!state || !overlay) return;
+    const attendanceLocked = isAttendanceSaveInFlight(state);
+    const interactionLocked = attendanceLocked || state.saving === true;
+    const dialog = overlay.querySelector('.teacher-shift-dialog');
+    if (dialog) {
+        dialog.classList.toggle('is-saving-attendance', attendanceLocked);
+        dialog.setAttribute('aria-busy', interactionLocked ? 'true' : 'false');
+    }
+    overlay.querySelectorAll('[data-action="close-manager"], [data-action="save-manager"]').forEach(control => {
+        control.disabled = interactionLocked;
+    });
+    if (attendanceLocked) {
+        overlay.querySelectorAll('#teacher-shift-manager-body button, #teacher-shift-manager-body input, #teacher-shift-manager-body select, #teacher-shift-manager-body textarea')
+            .forEach(control => { control.disabled = true; });
+    }
+}
+
 function renderTeacherShiftManager() {
     const body = document.getElementById('teacher-shift-manager-body');
     if (!body || !teacherShiftManagerState) return;
+    const commandColumn = body.querySelector('.teacher-command-column');
+    const personTabs = body.querySelector('.attendance-person-tabs');
+    const active = body.contains(document.activeElement) ? document.activeElement : null;
+    const activeKey = active?.dataset?.action ? {
+        action: active.dataset.action,
+        teacherId: active.dataset.teacherId || '',
+        kind: active.dataset.kind || '',
+        state: active.dataset.state || '',
+        desired: active.dataset.desired || ''
+    } : null;
+    const selectionStart = Number.isInteger(active?.selectionStart) ? active.selectionStart : null;
+    const viewport = {
+        bodyTop: body.scrollTop,
+        commandTop: commandColumn?.scrollTop || 0,
+        tabsLeft: personTabs?.scrollLeft || 0,
+        roster: Array.from(body.querySelectorAll('[data-roster-list]')).map(list => ({
+            kind: list.dataset.rosterList,
+            top: list.scrollTop
+        }))
+    };
     body.innerHTML = teacherShiftManagerMarkup();
     applyTeacherRosterFilter('main');
     applyTeacherRosterFilter('substitute');
@@ -1179,6 +1860,67 @@ function renderTeacherShiftManager() {
     const subs = teacherManagerSubEntries().length;
     const summary = document.getElementById('teacher-shift-manager-summary');
     if (summary) summary.textContent = `${mains} GV chính · ${absent ? `${absent} GV nghỉ` : 'đủ nhân sự'} · ${subs} GV thay`;
+    body.scrollTop = viewport.bodyTop;
+    const nextCommandColumn = body.querySelector('.teacher-command-column');
+    if (nextCommandColumn) nextCommandColumn.scrollTop = viewport.commandTop;
+    const nextPersonTabs = body.querySelector('.attendance-person-tabs');
+    if (nextPersonTabs) nextPersonTabs.scrollLeft = viewport.tabsLeft;
+    viewport.roster.forEach(saved => {
+        const list = Array.from(body.querySelectorAll('[data-roster-list]'))
+            .find(item => item.dataset.rosterList === saved.kind);
+        if (list) list.scrollTop = saved.top;
+    });
+    if (activeKey) {
+        const nextActive = Array.from(body.querySelectorAll('[data-action]')).find(element =>
+            element.dataset.action === activeKey.action &&
+            (element.dataset.teacherId || '') === activeKey.teacherId &&
+            (element.dataset.kind || '') === activeKey.kind &&
+            (element.dataset.state || '') === activeKey.state &&
+            (element.dataset.desired || '') === activeKey.desired
+        );
+        if (nextActive && !nextActive.disabled) {
+            try { nextActive.focus({ preventScroll: true }); } catch (_error) { nextActive.focus(); }
+            if (selectionStart !== null && typeof nextActive.setSelectionRange === 'function') {
+                try { nextActive.setSelectionRange(selectionStart, selectionStart); } catch (_error) {}
+            }
+            body.scrollTop = viewport.bodyTop;
+            if (nextCommandColumn) nextCommandColumn.scrollTop = viewport.commandTop;
+        }
+    }
+    syncTeacherShiftManagerChrome();
+}
+
+async function retryTeacherAttendanceAuthorization(state = teacherShiftManagerState) {
+    if (!state || teacherShiftManagerState !== state || state.attendanceAuthorizationRetrying) return;
+    state.attendanceAuthorizationRetrying = true;
+    renderTeacherShiftManager();
+    try {
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        if (teacherShiftManagerState !== state) return;
+        if (!Array.isArray(authorization.roles) || !authorization.roles.includes('admin')) {
+            const error = new Error('Firebase không xác nhận vai trò Admin cho tài khoản đang đăng nhập.');
+            error.code = 'auth/admin-required';
+            throw error;
+        }
+        state.strictAuthorization = authorization;
+        state.canEditAttendance = true;
+        state.attendanceAuthorizationError = null;
+        state.attendanceAuthorizationRetrying = false;
+        if (!state.shiftWindow) {
+            state.shiftWindow = ScheduleAttendanceAdmin.buildShiftWindow(
+                state.dateKey, state.originalRow.start, state.originalRow.end
+            );
+        }
+        state.attendance.loading = true;
+        renderTeacherShiftManager();
+        await loadAdminAttendanceEditor(state);
+    } catch (error) {
+        if (teacherShiftManagerState !== state) return;
+        state.canEditAttendance = false;
+        state.attendanceAuthorizationError = error;
+        state.attendanceAuthorizationRetrying = false;
+        renderTeacherShiftManager();
+    }
 }
 
 function handleTeacherShiftManagerClick(event) {
@@ -1187,7 +1929,67 @@ function handleTeacherShiftManagerClick(event) {
     const state = teacherShiftManagerState;
     const action = button.dataset.action;
     if (action === 'close-manager') return closeTeacherShiftManager();
+    if (action === 'attendance-auth-retry') return retryTeacherAttendanceAuthorization(state);
+    if (isAttendanceSaveInFlight(state)) {
+        UIService.toast('Đang lưu công nguyên tử. Các thao tác khác tạm khóa để tránh lệch dữ liệu.', 'warning');
+        return;
+    }
     if (action === 'save-manager') return saveTeacherShiftCommand();
+    if (action === 'attendance-retry' && state.canEditAttendance) return loadAdminAttendanceEditor(state);
+    if (action === 'attendance-select' && state.canEditAttendance) {
+        const teacherId = String(button.dataset.teacherId || '');
+        if (state.attendance.entries.has(teacherId)) state.attendance.selectedId = teacherId;
+        return renderTeacherShiftManager();
+    }
+    if (action === 'attendance-mode' && state.canEditAttendance) {
+        const entry = selectedAttendanceAdminEntry();
+        if (!entry) return;
+        const nextMode = ['none', 'open', 'closed'].includes(button.dataset.state) ? button.dataset.state : 'none';
+        if (nextMode === 'none' && entry.sessionId) return;
+        entry.draft.mode = nextMode;
+        if (nextMode === 'open') entry.draft.checkOut = '';
+        if (nextMode !== 'none' && !entry.draft.checkIn) {
+            entry.draft.checkIn = ScheduleAttendanceAdmin.toDateTimeLocal(state.shiftWindow.start);
+        }
+        if (nextMode === 'closed' && !entry.draft.checkOut) {
+            entry.draft.checkOut = ScheduleAttendanceAdmin.toDateTimeLocal(state.shiftWindow.end);
+        }
+        return renderTeacherShiftManager();
+    }
+    if (action === 'attendance-use-schedule' && state.canEditAttendance) {
+        const entry = selectedAttendanceAdminEntry();
+        if (!entry) return;
+        entry.draft.mode = 'closed';
+        entry.draft.checkIn = ScheduleAttendanceAdmin.toDateTimeLocal(state.shiftWindow.start);
+        entry.draft.checkOut = ScheduleAttendanceAdmin.toDateTimeLocal(state.shiftWindow.end);
+        return renderTeacherShiftManager();
+    }
+    if (action === 'attendance-use-planned-count' && state.canEditAttendance) {
+        const entry = selectedAttendanceAdminEntry();
+        const count = Number(state.originalRow.soHS);
+        if (entry && Number.isInteger(count) && count > 0 && count <= 500) {
+            entry.draft.studentCount = count;
+            entry.draft.studentCountDirty = true;
+            entry.studentCountDirty = true;
+        }
+        return renderTeacherShiftManager();
+    }
+    if (action === 'attendance-bonus-set' && state.canEditAttendance) {
+        const entry = selectedAttendanceAdminEntry();
+        if (!entry) return;
+        const desired = button.dataset.desired === 'true';
+        if (desired) {
+            const verdict = attendanceEarly10Verdict(entry);
+            if (!verdict.ok) {
+                UIService.toast(verdict.message || 'Chưa đủ điều kiện +10 phút.', 'error');
+                return;
+            }
+        }
+        entry.draft.bonus10 = desired;
+        entry.bonus10Dirty = true;
+        return renderTeacherShiftManager();
+    }
+    if (action === 'attendance-save' && state.canEditAttendance) return saveAdminAttendanceEntry();
     if (action === 'roster-tab') {
         state.activeTab = button.dataset.tab === 'substitute' ? 'substitute' : 'main';
         return renderTeacherShiftManager();
@@ -1195,6 +1997,20 @@ function handleTeacherShiftManagerClick(event) {
     const teacherId = button.dataset.teacherId;
     if (action === 'set-status' && state.statuses[teacherId]) {
         const nextType = ['ACTIVE', 'VP', 'VDX'].includes(button.dataset.status) ? button.dataset.status : 'ACTIVE';
+        const attendanceEntry = state.attendance?.entries?.get?.(String(teacherId));
+        if (nextType !== 'ACTIVE' && state.canEditAttendance &&
+            (state.attendance.loading || state.attendance.error || !attendanceEntry)) {
+            UIService.toast('Chưa đối chiếu xong dữ liệu công của nhân sự này. Hãy tải lại dữ liệu công trước khi ghi nhận nghỉ.', 'warning');
+            return;
+        }
+        if (nextType !== 'ACTIVE' && attendanceEntry?.resolution?.status === 'ambiguous') {
+            UIService.toast('Có nhiều phiên công cùng khớp ca của nhân sự này. Hãy đối chiếu trong Bảng Công trước khi ghi nhận nghỉ.', 'error');
+            return;
+        }
+        if (nextType !== 'ACTIVE' && attendanceEntryHasWorkedEvidence(attendanceEntry)) {
+            UIService.toast(`${attendanceEntry.name} đang có phiên công vào/ra. Hãy xử lý phiên công trong Bảng Công trước khi chuyển sang trạng thái nghỉ.`, 'error');
+            return;
+        }
         state.statuses[teacherId].type = nextType;
         if (nextType !== 'ACTIVE' && !state.statuses[teacherId].reportedAt) state.statuses[teacherId].reportedAt = new Date().toISOString();
         if (nextType === 'ACTIVE') {
@@ -1229,7 +2045,24 @@ function handleTeacherShiftManagerChange(event) {
     const input = event.target;
     const state = teacherShiftManagerState;
     if (!state || !input?.dataset?.action) return;
+    if (isAttendanceSaveInFlight(state)) return;
     const id = input.dataset.teacherId;
+    if (state.canEditAttendance && input.dataset.action.startsWith('attendance-')) {
+        const entry = selectedAttendanceAdminEntry();
+        if (!entry) return;
+        if (input.dataset.action === 'attendance-check-in') entry.draft.checkIn = input.value;
+        if (input.dataset.action === 'attendance-check-out') entry.draft.checkOut = input.value;
+        if (input.dataset.action === 'attendance-student-count') {
+            entry.draft.studentCount = input.value === '' ? null : Number(input.value);
+            entry.draft.studentCountDirty = true;
+            entry.studentCountDirty = true;
+        }
+        if (input.dataset.action === 'attendance-bonus10') {
+            entry.draft.bonus10 = input.checked === true;
+            entry.bonus10Dirty = true;
+        }
+        return renderTeacherShiftManager();
+    }
     if (input.dataset.action === 'toggle-main') {
         if (state.isPast) return;
         if (input.checked) {
@@ -1282,6 +2115,19 @@ function handleTeacherShiftManagerChange(event) {
 function handleTeacherShiftManagerInput(event) {
     const input = event.target;
     if (!teacherShiftManagerState) return;
+    if (isAttendanceSaveInFlight(teacherShiftManagerState)) return;
+    if (teacherShiftManagerState.canEditAttendance && input.dataset.action?.startsWith('attendance-')) {
+        const entry = selectedAttendanceAdminEntry();
+        if (!entry) return;
+        if (input.dataset.action === 'attendance-check-in') entry.draft.checkIn = input.value;
+        if (input.dataset.action === 'attendance-check-out') entry.draft.checkOut = input.value;
+        if (input.dataset.action === 'attendance-student-count') {
+            entry.draft.studentCount = input.value === '' ? null : Number(input.value);
+            entry.draft.studentCountDirty = true;
+            entry.studentCountDirty = true;
+        }
+        return;
+    }
     if (input.dataset.action === 'absence-reason') {
         const status = teacherShiftManagerState.statuses[input.dataset.teacherId];
         if (status) status.reason = input.value.slice(0, 300);
@@ -1294,6 +2140,27 @@ function handleTeacherShiftManagerInput(event) {
 }
 
 function trapTeacherManagerFocus(event) {
+    if (event.target?.matches?.('.attendance-person-tab[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+        const tabs = Array.from(event.currentTarget.querySelectorAll('.attendance-person-tab[role="tab"]:not([disabled])'));
+        const currentIndex = tabs.indexOf(event.target);
+        if (currentIndex >= 0 && tabs.length > 0) {
+            event.preventDefault();
+            let nextIndex = currentIndex;
+            if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+            if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+            if (event.key === 'Home') nextIndex = 0;
+            if (event.key === 'End') nextIndex = tabs.length - 1;
+            const nextTeacherId = String(tabs[nextIndex].dataset.teacherId || '');
+            if (teacherShiftManagerState?.attendance?.entries?.has(nextTeacherId)) {
+                teacherShiftManagerState.attendance.selectedId = nextTeacherId;
+                renderTeacherShiftManager();
+                const nextTab = Array.from(event.currentTarget.querySelectorAll('.attendance-person-tab[role="tab"]'))
+                    .find(tab => String(tab.dataset.teacherId || '') === nextTeacherId);
+                nextTab?.focus?.({ preventScroll: true });
+            }
+        }
+        return;
+    }
     if (event.key === 'Escape') {
         event.preventDefault();
         closeTeacherShiftManager();
@@ -1316,10 +2183,19 @@ function trapTeacherManagerFocus(event) {
 }
 
 window.openGVPicker = async function (compositeKey, caType, index, fieldType, triggerEl) {
-    closeTeacherShiftManager();
+    if (isAttendanceSaveInFlight()) {
+        UIService.toast('Đang lưu công. Vui lòng chờ hoàn tất trước khi mở ca khác.', 'warning');
+        return;
+    }
+    if (closeTeacherShiftManager() === false) return;
     const pickerGeneration = teacherPickerGeneration;
     try {
-        const dayData = await DBService.getSchedule(compositeKey);
+        const [dayData, strictAuthorizationResult] = await Promise.all([
+            DBService.getSchedule(compositeKey),
+            DBService.getAuthenticatedAuthorizationContext(true)
+                .then(value => ({ value, error: null }))
+                .catch(error => ({ value: { roles: [] }, error }))
+        ]);
         if (pickerGeneration !== teacherPickerGeneration) return;
         const row = dayData?.[caType]?.[index];
         if (!row) throw new Error('Ca dạy không còn tồn tại. Hãy tải lại lịch.');
@@ -1380,6 +2256,16 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             return [sub.id, { ...sub, replacesTeacherIds }];
         }));
 
+        const strictAuthorization = strictAuthorizationResult.value || { roles: [] };
+        const canEditAttendance = Array.isArray(strictAuthorization.roles) && strictAuthorization.roles.includes('admin');
+        const likelyPrimaryAdmin = locallyClaimedScheduleRoles().includes('admin');
+        const originalMainIds = mains.map(item => String(item.id));
+        const originalSubstituteIds = substitutes.map(item => String(item.id));
+        const attendanceTeacherIds = Array.from(new Set([...originalMainIds, ...originalSubstituteIds]));
+        const dateKey = compositeKey.includes('__') ? compositeKey.split('__').slice(1).join('__') : compositeKey;
+        const shiftWindow = window.ScheduleAttendanceAdmin?.buildShiftWindow(dateKey, row.start, row.end);
+        if (canEditAttendance && !shiftWindow) throw new Error('Khung giờ ca dạy không hợp lệ nên không thể mở trình chỉnh công.');
+
         if (pickerGeneration !== teacherPickerGeneration) return;
         teacherShiftManagerState = {
             compositeKey,
@@ -1387,10 +2273,15 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             index,
             dayData: JSON.parse(JSON.stringify(dayData)),
             originalRow: JSON.parse(JSON.stringify(row)),
-            shiftId: TeacherShiftState.stableShiftId(row),
+            shiftId: stableScheduleShiftLocatorId(compositeKey, caType, row, index),
             expectedStaffingUpdatedAt: row.staffingUpdatedAt || '',
             signature: scheduleRowSignature(row),
             isPast: isScheduleTimePast(compositeKey, row.start),
+            attendanceShiftClosed: row.isClosed === true || isCenterClosed(dateKey, caType, window.centerClosures),
+            dateKey,
+            shiftWindow,
+            subjectId: String(row.lopId || (window._subjectList || []).find(subject => subject.name === row.lop)?.id || ''),
+            subjectResolutionError: '',
             triggerEl: triggerEl || document.activeElement,
             teachers,
             teacherById,
@@ -1399,12 +2290,27 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             statuses,
             substituteIds: substitutes.map(item => item.id),
             substituteById,
+            originalMainIds,
+            originalSubstituteIds,
             activeTab: fieldType === 'gvThayTe' ? 'substitute' : 'main',
             search: { main: '', substitute: '' },
+            strictAuthorization,
+            canEditAttendance,
+            likelyPrimaryAdmin,
+            attendanceAuthorizationError: strictAuthorizationResult.error || null,
+            attendanceAuthorizationRetrying: false,
+            attendanceContext: null,
+            attendance: {
+                teacherIds: attendanceTeacherIds,
+                selectedId: attendanceTeacherIds[0] || '',
+                entries: new Map(),
+                loading: canEditAttendance,
+                error: '',
+                savingId: ''
+            },
             saving: false
         };
 
-        const dateKey = compositeKey.includes('__') ? compositeKey.split('__').slice(1).join('__') : compositeKey;
         const branchLabel = ({ cs1: 'Cơ sở 1', cs2: 'Cơ sở 2', cs3: 'Cơ sở 3' })[compositeKey.split('__')[0]] || 'Cơ sở 1';
         const overlay = document.createElement('div');
         overlay.id = 'gv-picker-overlay';
@@ -1442,6 +2348,7 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
         document.body.appendChild(overlay);
         document.body.classList.add('teacher-shift-modal-open');
         renderTeacherShiftManager();
+        if (teacherShiftManagerState.canEditAttendance) loadAdminAttendanceEditor(teacherShiftManagerState);
         requestAnimationFrame(() => overlay.querySelector('[data-action="close-manager"]')?.focus());
     } catch (error) {
         if (pickerGeneration !== teacherPickerGeneration) return;
@@ -1453,7 +2360,29 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
 
 window.saveTeacherShiftCommand = async function () {
     const state = teacherShiftManagerState;
-    if (!state || state.saving) return;
+    if (!state) return;
+    if (isAttendanceSaveInFlight(state)) {
+        UIService.toast('Đang lưu công nguyên tử. Hãy chờ hoàn tất trước khi lưu điều phối ca.', 'warning');
+        return;
+    }
+    if (state.saving) return;
+    const newlyAbsentId = (state.mainIds || []).find(id =>
+        (state.statuses?.[id]?.type || 'ACTIVE') !== 'ACTIVE' &&
+        !isRowMainTeacherAbsent(state.originalRow, id)
+    );
+    if (state.canEditAttendance && newlyAbsentId &&
+        (state.attendance.loading || state.attendance.error || !state.attendance.entries.has(String(newlyAbsentId)))) {
+        UIService.toast('Chưa đối chiếu được dữ liệu công của GV sắp chuyển sang nghỉ. Hãy tải dữ liệu công rồi thử lại.', 'error');
+        return;
+    }
+    const attendanceConflict = attendanceAbsenceConflict(state);
+    if (attendanceConflict) {
+        const conflictMessage = attendanceConflict.resolution?.status === 'ambiguous'
+            ? `${attendanceConflict.name} có nhiều phiên công cùng khớp ca. Hãy đối chiếu trong Bảng Công trước khi lưu trạng thái nghỉ.`
+            : `${attendanceConflict.name} đang có phiên công vào/ra nhưng lại được đặt trạng thái nghỉ. Hãy xử lý phiên công hoặc khôi phục “Đang dạy” trước khi lưu.`;
+        UIService.toast(conflictMessage, 'error');
+        return;
+    }
     const saveButton = document.querySelector('[data-action="save-manager"]');
     state.saving = true;
     if (saveButton) {
@@ -1475,6 +2404,9 @@ window.saveTeacherShiftCommand = async function () {
             };
         });
         const statuses = Object.fromEntries(state.mainIds.map(id => [id, { ...state.statuses[id] }]));
+        const guardedAbsenceStaffIds = state.mainIds.filter(id =>
+            ['VP', 'VDX'].includes(String(statuses[id]?.type || '').toUpperCase())
+        );
         const actor = {
             id: localStorage.getItem('currentUserId') || '',
             name: localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || ''
@@ -1488,7 +2420,20 @@ window.saveTeacherShiftCommand = async function () {
                 index: state.index,
                 shiftId: state.originalRow.shiftId || '',
                 signature: state.signature,
-                expectedStaffingUpdatedAt: state.expectedStaffingUpdatedAt
+                expectedStaffingUpdatedAt: state.expectedStaffingUpdatedAt,
+                ...(guardedAbsenceStaffIds.length ? {
+                    attendanceAbsenceGuard: {
+                        staffIds: guardedAbsenceStaffIds,
+                        dateKey: state.dateKey,
+                        compositeKey: state.compositeKey,
+                        section: state.caType,
+                        start: state.originalRow.start,
+                        end: state.originalRow.end,
+                        persistedShiftId: state.originalRow.shiftId || '',
+                        resolverShiftId: state.shiftId || '',
+                        signature: state.signature
+                    }
+                } : {})
             },
             latestRow => {
                 const expected = String(state.expectedStaffingUpdatedAt || '');

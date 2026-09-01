@@ -48,14 +48,15 @@ async function seed(testEnv) {
             salary_config: { attendance_rate: 500000 }
         });
         await setDoc(doc(db, 'users', 'staff-2'), {
-            id: 'staff-2', name: 'Staff Two', username: 'staff2', role: 'staff',
+            id: 'staff-2', name: 'Staff Two', username: 'staff2', role: 'staff', roles: ['staff'],
+            authUid: 'uid-other',
             salary_config: { attendance_rate: 900000 }
         });
         await setDoc(doc(db, 'staff_directory', 'staff-1'), {
             id: 'staff-1', name: 'Staff One', username: 'staff1', role: 'staff'
         });
         await setDoc(doc(db, 'staff_directory', 'staff-2'), {
-            id: 'staff-2', name: 'Staff Two', username: 'staff2', role: 'staff'
+            id: 'staff-2', name: 'Staff Two', username: 'staff2', role: 'staff', roles: ['staff']
         });
         await setDoc(doc(db, 'attendance_logs', '2026-08-31_staff-2'), {
             userId: 'staff-2', name: 'Staff Two', date: '2026-08-31', sessions: []
@@ -153,14 +154,67 @@ test('staff cannot self-escalate user_roles; manager can provision a mapping', a
     }));
 });
 
-test('profile writes are management-only', async () => {
+test('senior assistant cannot mint or rewrite security mappings; primary admin can', async () => {
+    await assertFails(updateDoc(doc(seniorDb, 'user_roles', 'uid-senior'), {
+        role: 'admin', roles: ['admin']
+    }));
+    await assertFails(updateDoc(doc(seniorDb, 'user_roles', 'uid-other'), {
+        userId: 'staff-senior', role: 'admin', roles: ['admin']
+    }));
+    await assertFails(setDoc(doc(seniorDb, 'user_roles', 'uid-senior-created'), {
+        userId: 'staff-senior-created', username: 'senior-created',
+        role: 'admin', roles: ['admin']
+    }));
+    await assertFails(deleteDoc(doc(seniorDb, 'user_roles', 'uid-other')));
+
+    await assertSucceeds(setDoc(doc(adminDb, 'user_roles', 'uid-primary-created'), {
+        userId: 'staff-primary-created', username: 'primary-created',
+        role: 'staff', roles: ['staff']
+    }));
+    await assertSucceeds(updateDoc(doc(adminDb, 'user_roles', 'uid-primary-created'), {
+        role: 'assistant', roles: ['assistant']
+    }));
+    await assertSucceeds(deleteDoc(doc(adminDb, 'user_roles', 'uid-primary-created')));
+});
+
+test('senior may edit existing non-security profile fields but cannot mutate identity or lifecycle', async () => {
     await assertFails(updateDoc(doc(staffDb, 'users', 'staff-1'), { role: 'admin' }));
     await assertFails(updateDoc(doc(staffDb, 'users', 'staff-2'), { name: 'Tampered' }));
     await assertSucceeds(updateDoc(doc(seniorDb, 'users', 'staff-2'), { name: 'Staff Two Updated' }));
+    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { username: 'staff2-renamed' }));
+    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { role: 'admin' }));
+    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { roles: ['admin'] }));
+    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { authUid: 'uid-senior' }));
+    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { password: 'should-never-live-here' }));
+    await assertFails(setDoc(doc(seniorDb, 'users', 'staff-senior-created'), {
+        id: 'staff-senior-created', name: 'Senior Created', username: 'senior-created', role: 'staff'
+    }));
+
     await assertFails(updateDoc(doc(staffDb, 'staff_directory', 'staff-1'), { role: 'admin' }));
+    await assertSucceeds(updateDoc(doc(seniorDb, 'staff_directory', 'staff-2'), {
+        name: 'Staff Two Directory Updated'
+    }));
+    await assertFails(updateDoc(doc(seniorDb, 'staff_directory', 'staff-2'), { username: 'staff2-renamed' }));
+    await assertFails(updateDoc(doc(seniorDb, 'staff_directory', 'staff-2'), { roles: ['admin'] }));
+    await assertFails(setDoc(doc(seniorDb, 'staff_directory', 'staff-senior-created'), {
+        id: 'staff-senior-created', name: 'Senior Created', username: 'senior-created', role: 'staff'
+    }));
+
+    await assertSucceeds(setDoc(doc(adminDb, 'users', 'staff-primary-created'), {
+        id: 'staff-primary-created', name: 'Primary Created', username: 'primary-created',
+        role: 'staff', roles: ['staff'], authUid: 'uid-primary-created'
+    }));
+    await assertSucceeds(updateDoc(doc(adminDb, 'users', 'staff-primary-created'), {
+        role: 'assistant', roles: ['assistant']
+    }));
+    await assertFails(deleteDoc(doc(seniorDb, 'users', 'staff-primary-created')));
+    await assertSucceeds(deleteDoc(doc(adminDb, 'users', 'staff-primary-created')));
+
     await assertSucceeds(setDoc(doc(adminDb, 'staff_directory', 'staff-new'), {
         id: 'staff-new', name: 'New Staff', username: 'newstaff', role: 'staff', roles: ['staff']
     }));
+    await assertFails(deleteDoc(doc(seniorDb, 'staff_directory', 'staff-new')));
+    await assertSucceeds(deleteDoc(doc(adminDb, 'staff_directory', 'staff-new')));
     await assertFails(setDoc(doc(adminDb, 'staff_directory', 'staff-leaky'), {
         id: 'staff-leaky', name: 'Leaky', username: 'leaky', role: 'staff',
         salary_config: { attendance_rate: 999999 }
@@ -174,6 +228,10 @@ test('credential documents are unreadable to staff but support safe own rotation
     }));
     await assertSucceeds(setDoc(doc(staffDb, 'user_credentials', 'staff-1'), {
         staffId: 'staff-1', password: 'new-password', updatedAt: serverTimestamp()
+    }));
+    await assertFails(getDoc(doc(seniorDb, 'user_credentials', 'staff-1')));
+    await assertFails(updateDoc(doc(seniorDb, 'user_credentials', 'staff-1'), {
+        password: 'senior-forbidden', updatedAt: serverTimestamp()
     }));
     await assertSucceeds(updateDoc(doc(adminDb, 'user_credentials', 'staff-1'), {
         username: 'legacy-compatible-metadata'
@@ -386,6 +444,168 @@ test('attendance cross-read/write is available only to operational auditors/mana
     }));
 });
 
+test('schedule attendance correction audits are primary-admin-only and append-only', async () => {
+    const auditRef = doc(adminDb, 'schedule_attendance_admin_audits', 'audit-primary-admin');
+    const auditPayload = {
+        authUid: 'uid-admin',
+        actorUserId: 'staff-admin',
+        staffId: 'staff-2',
+        dateKey: '2026-08-31',
+        sessionId: 'session-1',
+        action: 'save_correction',
+        source: 'schedule_attendance_popup',
+        createdAt: serverTimestamp()
+    };
+
+    await assertSucceeds(setDoc(auditRef, auditPayload));
+    await assertSucceeds(getDoc(auditRef));
+
+    for (const [actorDb, authUid, actorUserId, auditId] of [
+        [seniorDb, 'uid-senior', 'staff-senior', 'audit-senior'],
+        [assistantDb, 'uid-assistant', 'staff-assistant', 'audit-assistant'],
+        [staffDb, 'uid-staff', 'staff-1', 'audit-staff']
+    ]) {
+        await assertFails(setDoc(
+            doc(actorDb, 'schedule_attendance_admin_audits', auditId),
+            { ...auditPayload, authUid, actorUserId, createdAt: serverTimestamp() }
+        ));
+        await assertFails(getDoc(doc(
+            actorDb, 'schedule_attendance_admin_audits', 'audit-primary-admin'
+        )));
+    }
+
+    await assertFails(setDoc(doc(adminDb, 'schedule_attendance_admin_audits', 'audit-forged-actor'), {
+        ...auditPayload,
+        authUid: 'uid-senior',
+        actorUserId: 'staff-senior',
+        createdAt: serverTimestamp()
+    }));
+    await assertFails(setDoc(doc(adminDb, 'schedule_attendance_admin_audits', 'audit-extra-field'), {
+        ...auditPayload,
+        details: 'must remain on the attendance session',
+        createdAt: serverTimestamp()
+    }));
+    await assertFails(updateDoc(auditRef, { action: 'save_correction' }));
+    await assertFails(deleteDoc(auditRef));
+});
+
+test('schedule attendance correction transaction is primary-admin-only and atomic', async () => {
+    const attendanceId = '2026-08-31_staff-2';
+    const adminAttendanceRef = doc(adminDb, 'attendance_logs', attendanceId);
+    const adminBonusRef = doc(
+        adminDb,
+        'bonus10_requests',
+        'b10~2026-08-31~staff-2~session-admin-transaction'
+    );
+    const adminAuditRef = doc(
+        adminDb,
+        'schedule_attendance_admin_audits',
+        'tx-admin-schedule-correction'
+    );
+
+    await assertSucceeds(runTransaction(adminDb, async transaction => {
+        const attendanceSnapshot = await transaction.get(adminAttendanceRef);
+        if (!attendanceSnapshot.exists()) {
+            throw new Error('Seeded attendance document is required for the transaction test.');
+        }
+
+        transaction.set(adminAttendanceRef, {
+            lastScheduleAdminEdit: {
+                actorUserId: 'staff-admin',
+                sessionId: 'session-admin-transaction'
+            },
+            lastUpdated: serverTimestamp()
+        }, { merge: true });
+        transaction.set(adminBonusRef, {
+            staffId: 'staff-2',
+            dateKey: '2026-08-31',
+            sessionId: 'session-admin-transaction',
+            status: 'approved'
+        });
+        transaction.set(adminAuditRef, {
+            authUid: 'uid-admin',
+            actorUserId: 'staff-admin',
+            staffId: 'staff-2',
+            dateKey: '2026-08-31',
+            sessionId: 'session-admin-transaction',
+            action: 'save_correction',
+            source: 'schedule_attendance_popup',
+            createdAt: serverTimestamp()
+        });
+    }));
+
+    const committedAttendance = await getDoc(adminAttendanceRef);
+    if (committedAttendance.data()?.lastScheduleAdminEdit?.sessionId
+        !== 'session-admin-transaction') {
+        throw new Error('Admin attendance mutation did not commit.');
+    }
+    if (!(await getDoc(adminBonusRef)).exists()) {
+        throw new Error('Admin bonus mutation did not commit.');
+    }
+    if (!(await getDoc(adminAuditRef)).exists()) {
+        throw new Error('Admin audit mutation did not commit.');
+    }
+
+    const seniorAttendanceRef = doc(seniorDb, 'attendance_logs', attendanceId);
+    const seniorBonusRef = doc(
+        seniorDb,
+        'bonus10_requests',
+        'b10~2026-08-31~staff-2~session-senior-transaction'
+    );
+    const seniorAuditRef = doc(
+        seniorDb,
+        'schedule_attendance_admin_audits',
+        'b10~2026-08-31~staff-2~session-senior-transaction'
+    );
+
+    await assertFails(runTransaction(seniorDb, async transaction => {
+        const attendanceSnapshot = await transaction.get(seniorAttendanceRef);
+        if (!attendanceSnapshot.exists()) {
+            throw new Error('Seeded attendance document is required for the transaction test.');
+        }
+
+        transaction.set(seniorAttendanceRef, {
+            seniorAtomicProbe: 'must-not-commit',
+            lastUpdated: serverTimestamp()
+        }, { merge: true });
+        transaction.set(seniorBonusRef, {
+            staffId: 'staff-2',
+            dateKey: '2026-08-31',
+            sessionId: 'session-senior-transaction',
+            status: 'approved'
+        });
+        transaction.set(seniorAuditRef, {
+            authUid: 'uid-senior',
+            actorUserId: 'staff-senior',
+            staffId: 'staff-2',
+            dateKey: '2026-08-31',
+            sessionId: 'session-senior-transaction',
+            action: 'save_correction',
+            source: 'schedule_attendance_popup',
+            createdAt: serverTimestamp()
+        });
+    }));
+
+    const rolledBackAttendance = await getDoc(doc(adminDb, 'attendance_logs', attendanceId));
+    if (rolledBackAttendance.data()?.seniorAtomicProbe !== undefined) {
+        throw new Error('Denied senior transaction partially changed attendance.');
+    }
+    if ((await getDoc(doc(
+        adminDb,
+        'bonus10_requests',
+        'tx-senior-schedule-correction'
+    ))).exists()) {
+        throw new Error('Denied senior transaction partially created a bonus request.');
+    }
+    if ((await getDoc(doc(
+        adminDb,
+        'schedule_attendance_admin_audits',
+        'tx-senior-schedule-correction'
+    ))).exists()) {
+        throw new Error('Denied senior transaction partially created an audit record.');
+    }
+});
+
 test('legacy single-session attendance can still be safely checked out once', async () => {
     await assertSucceeds(updateDoc(doc(staffDb, 'attendance_logs', '2026-08-29_staff-1'), {
         sessions: [{
@@ -556,8 +776,38 @@ test('OT, bonus and makeup requests are own/pending-only until manager review', 
     const pending = { staffId: 'staff-1', dateKey: '2026-08-31', sessionId: 'session-1', status: 'pending' };
     await assertSucceeds(setDoc(doc(staffDb, 'overtime_requests', 'ot-own'), pending));
     await assertFails(setDoc(doc(staffDb, 'overtime_requests', 'ot-approved'), { ...pending, status: 'approved' }));
-    await assertFails(setDoc(doc(staffDb, 'bonus10_requests', 'bonus-cross'), { ...pending, staffId: 'staff-2' }));
-    await assertSucceeds(setDoc(doc(staffDb, 'bonus10_requests', 'bonus-own'), pending));
+    await assertFails(setDoc(
+        doc(staffDb, 'bonus10_requests', 'b10~2026-08-31~staff-2~session-1'),
+        { ...pending, staffId: 'staff-2' }
+    ));
+    await assertFails(setDoc(doc(staffDb, 'bonus10_requests', 'bonus-own-random'), pending));
+    await assertSucceeds(setDoc(
+        doc(staffDb, 'bonus10_requests', 'b10~2026-08-31~staff-1~session-1'),
+        pending
+    ));
+    const longSessionId = 's'.repeat(130);
+    await assertSucceeds(setDoc(
+        doc(staffDb, 'bonus10_requests', `b10~2026-08-31~staff-1~${longSessionId}`),
+        { ...pending, sessionId: longSessionId }
+    ));
+    await assertFails(setDoc(
+        doc(staffDb, 'bonus10_requests', 'b10~2026-08-31~staff-1~session-approved'),
+        { ...pending, sessionId: 'session-approved', status: 'approved' }
+    ));
+    await assertFails(setDoc(
+        doc(adminDb, 'bonus10_requests', 'admin-random-new'),
+        { ...pending, staffId: 'staff-2', status: 'approved' }
+    ));
+    await env.withSecurityRulesDisabled(async context => {
+        await setDoc(doc(context.firestore(), 'bonus10_requests', 'legacy-random-request'), {
+            ...pending,
+            status: 'pending'
+        });
+    });
+    await assertSucceeds(updateDoc(
+        doc(adminDb, 'bonus10_requests', 'legacy-random-request'),
+        { status: 'approved' }
+    ));
     await assertSucceeds(setDoc(doc(staffDb, 'makeup_requests', 'makeup-own'), {
         ...pending, session: { checkIn: '2026-08-31T01:00:00.000Z', checkOut: '2026-08-31T02:00:00.000Z' }
     }));
