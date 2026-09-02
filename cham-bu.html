@@ -10,10 +10,11 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
-    <script src='js/firebase-config.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/auth-guard.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/db-service.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/evaluation-service.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/firebase-config.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/auth-guard.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/db-service.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/shift-absence-state.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/evaluation-service.js?v=20260902-policy-payroll-absence-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
@@ -206,14 +207,22 @@ function mergeConcurrentTeaching(shifts){
         // riêng vì ngày làm chéo được tính theo từng đoạn, không gộp cứng.
         const host=s.kind==='gv'?out.find(o=>o.kind==='gv'&&o.branch===s.branch&&
             (o.excuse||'')===(s.excuse||'')&&o.start<s.end&&s.start<o.end):null;
-        if(!host){ out.push({...s,parts:[s.label]}); return }
+        if(!host){
+            out.push({...s,parts:[s.label],
+                scheduleLocators:[...(s.scheduleLocators||[])],
+                classIds:[...(s.classIds||[])]});
+            return;
+        }
         host.parts.push(s.label);
+        host.scheduleLocators.push(...(s.scheduleLocators||[]));
+        host.classIds.push(...(s.classIds||[]));
         if(s.start<host.start)host.start=s.start;
         if(s.end>host.end)host.end=s.end;
     });
     out.forEach(o=>{
         const named=[...new Set(o.parts.filter(p=>String(p||'').trim()&&p!=='CHƯA CHỌN LỚP'))];
         o.classNames=named;
+        o.classIds=[...new Set((o.classIds||[]).filter(Boolean))];
         o.label=named.length?named.join(' + '):'CHƯA CHỌN LỚP';
         // Còn ít nhất một lớp có tên thì vẫn tính được lương → không chặn.
         o.noSubject=o.kind==='gv'&&!named.length;
@@ -296,24 +305,14 @@ async function loadMonth(){
         const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
         const reqs=await DBService.getMyMakeupRequests(me);
         const reqMap={}; reqs.forEach(r=>{if(!reqMap[r.dateKey])reqMap[r.dateKey]=[];reqMap[r.dateKey].push(r)});
-        // QUY TẮC GĐ: chấm công bù CHỈ dành cho ca VẮNG KHÔNG PHÉP (nhiều khi chỉ là quên chấm
-        // công). Ca đã được ghi nhận Vắng phép / Vắng đột xuất thì KHÔNG được chấm bù.
-        // Nguồn xác định "đã có phép":
-        //   1. cancelled_shifts  → nhân viên/trợ lý đã báo vắng trước (vắng phép)
-        //   2. daily_notes       → ghi chú ngày có chữ "phép" / "đột xuất"
-        //   3. session.isAbsent  → admin đã cập nhật ca đó là vắng
-        //   4. gvThayThe         → lớp đã có GV thay thế (vắng đột xuất)
+        // QUY TẮC GĐ: chấm công bù chỉ dành cho ca thiếu công chưa được ghi nhận
+        // VP/VĐX. Mọi bằng chứng phải khớp đúng ca; daily_notes chỉ phân loại một
+        // bằng chứng vắng legacy, không được tự biến cả ngày thành Vắng phép.
+        if(!window.ShiftAbsenceState)throw new Error('Không tải được bộ đối chiếu trạng thái vắng theo ca. Vui lòng tải lại trang.');
         let cancelled=[],notes={};
         try{ cancelled=await DBService.getCancelledShifts(mStr,me) }catch(e){}
         try{ notes=await DBService.getDailyNotes(me)||{} }catch(e){}
         const cancelledSet=new Set(cancelled);
-        const excusedNote=(k)=>{
-            const n=String(notes[k]||'').toLowerCase();
-            if(!n)return '';
-            if(n.includes('đột xuất')||n.includes('vdx')||n.includes('đx'))return 'Vắng đột xuất';
-            if(n.includes('phép')||n.includes('vp'))return 'Vắng phép';
-            return '';
-        };
         const dates=[];
         for(let d=1;d<=daysIn;d++){const k=mStr+'-'+String(d).padStart(2,'0'); if(k<=todayK)dates.push(k)}
         const schedRes=await Promise.all(dates.flatMap(k=>BRS.map(b=>
@@ -325,11 +324,9 @@ async function loadMonth(){
             DBService.getOfficeSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
         ])));
 
-        const noteExcuse=(k)=>excusedNote(k);
         dates.forEach(k=>{
             const sess=attMap[k]||[];
             const busy=new Set((reqMap[k]||[]).filter(r=>r.status==='pending').map(r=>r.shiftLabel));
-            const dayExcuse=noteExcuse(k);
             const shifts=[];
             schedRes.filter(r=>r.k===k).forEach(r=>SECS.forEach(sec=>(r.v[sec]||[]).forEach((row,idx)=>{
                 if(!row.start||!row.end)return;
@@ -339,41 +336,47 @@ async function loadMonth(){
                 // khai "Ca Ngoài Lịch" → quản lý thấy "Ngoài lịch / thiếu môn lớp". Dùng helper
                 // chung isAssignedToClass/isScheduledMainTeacher/... trong db-service.js.
                 if(!isAssignedToClass(row,me))return;
-                const iAmMain=isScheduledMainTeacher(row,me);
-                const explicitAbsence=typeof getTeacherAbsenceRecord==='function'?getTeacherAbsenceRecord(row,me):null;
-                // teacherAbsences (kể cả []) là nguồn thật theo TỪNG GV/TỪNG CA.
-                // daily_notes và suy đoán "có GV thay" chỉ áp dụng cho dữ liệu legacy chưa có mảng này.
-                let excuse='';
-                if(Array.isArray(row.teacherAbsences)){
-                    if(explicitAbsence){
-                        const type=String(explicitAbsence.type||'VDX').toUpperCase()==='VP'?'Vắng có phép':'Vắng đột xuất';
-                        const covered=Array.isArray(explicitAbsence.replacementIds)&&explicitAbsence.replacementIds.length>0;
-                        excuse=type+(covered?' (đã có GV thay)':' (đang tìm GV thay)');
-                    }
-                }else{
-                    excuse=dayExcuse;
-                    if(!excuse&&hasScheduledSubstitute(row)&&iAmMain&&!isScheduledSubstitute(row,me))excuse='Vắng đột xuất (dữ liệu cũ có GV thay)';
-                }
-                if(!excuse&&cancelledSet.has(r.b+'__'+k+'_'+sec+'_'+idx))excuse='Vắng phép (đã báo trước)';
+                const cancelKey=r.b+'__'+k+'_'+sec+'_'+idx;
+                const absenceState=ShiftAbsenceState.resolveTeachingShift({
+                    row:row,staffId:me,isAssigned:true,kind:'gv',dateKey:k,start:row.start,end:row.end,
+                    branch:r.b,compositeKey:r.b+'__'+k,section:sec,shiftId:row.shiftId||'',
+                    cancelKey:cancelKey,cancelledShifts:cancelledSet,
+                    attendanceSessions:sess,dateNote:notes[k]||''
+                });
+                const excuse=ShiftAbsenceState.absenceLabel(absenceState);
+                const locator={kind:'gv',compositeKey:r.b+'__'+k,section:sec,rowIndex:idx,
+                    shiftId:row.shiftId||'',start:row.start,end:row.end,branch:r.b,
+                    classId:row.lopId||'',className:row.lop||''};
                 shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,
-                             label:row.lop||'CHƯA CHỌN LỚP',noSubject:!String(row.lop||'').trim(),excuse:excuse});
+                             label:row.lop||'CHƯA CHỌN LỚP',noSubject:!String(row.lop||'').trim(),
+                             excuse:excuse,absenceState:absenceState,
+                             scheduleLocators:[locator],classIds:row.lopId?[row.lopId]:[]});
             })));
             const d=new Date(k+'T12:00:00'),w=d.getDay(),mo=new Date(d);mo.setDate(d.getDate()-w+(w===0?-6:1));
             const mk=dk(mo),dayk=DK[w===0?6:w-1];
             recRes.filter(r=>r.mk===mk).forEach(r=>Object.keys(RS).forEach(sk=>{
                 const en=((r.v[sk]||{})[dayk]||[]).find(x=>x.id===me); if(!en)return;
                 const cf=(r.v._shiftConfig&&r.v._shiftConfig[sk])||{};
-                let excuse=dayExcuse;
                 const cancelPrefix=r.kind==='vp'?'office_':'';
-                if(!excuse&&cancelledSet.has(cancelPrefix+r.b+'_'+mk+'_'+sk+'_'+dayk))excuse='Vắng phép (đã báo trước)';
+                const cancelKey=cancelPrefix+r.b+'_'+mk+'_'+sk+'_'+dayk;
+                const absenceState=ShiftAbsenceState.resolveOperationalShift({
+                    kind:r.kind,dateKey:k,start:en.customStart||cf.start||RS[sk].s,
+                    end:en.customEnd||cf.end||RS[sk].e,branch:r.b,shiftKey:sk,
+                    section:sk,cancelKey:cancelKey,cancelledShifts:cancelledSet,
+                    attendanceSessions:sess,dateNote:notes[k]||''
+                });
+                const excuse=ShiftAbsenceState.absenceLabel(absenceState);
                 const workLabel=r.kind==='vp'?'Văn Phòng':'Tiếp Tân';
-                shifts.push({kind:r.kind,branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:workLabel+' ('+RS[sk].l+')',shiftKey:sk,excuse:excuse});
+                shifts.push({kind:r.kind,branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,label:workLabel+' ('+RS[sk].l+')',shiftKey:sk,
+                    excuse:excuse,absenceState:absenceState,scheduleLocators:[{
+                        kind:r.kind,compositeKey:r.b+'__'+mk,section:sk,dayKey:dayk,
+                        start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,
+                        branch:r.b
+                    }],classIds:[]});
             }));
             shifts.sort((a,b)=>a.start.localeCompare(b.start));
             const merged=mergeConcurrentTeaching(shifts);
             const coverage=window.matchScheduledShiftCoverage(merged,sess,k);
-            // Admin đã cập nhật ca thành "Vắng" → là vắng có xác nhận, không chấm bù được
-            const adminAbsent=sess.some(s=>s&&s.isAbsent);
             merged.forEach((s,i)=>{
                 s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
                 s.done=!!coverage[i];
@@ -383,8 +386,7 @@ async function loadMonth(){
                 if(!s.done&&attendanceOverlaps(sess,ms(k,s.start),ms(k,s.end))){
                     s.done=true; s.coveredByOther=true;
                 }
-                if(!s.excuse&&adminAbsent&&!s.done)s.excuse='Đã ghi nhận Vắng (quản lý cập nhật)';
-                s.locked=!!s.excuse;
+                s.locked=!!s.absenceState?.isAbsent;
             });
             if(merged.length)monthMap[k]={shifts:merged,
                 miss:merged.filter(s=>!s.done&&!s.pending&&!s.locked).length,
@@ -480,18 +482,27 @@ window.submitSched=async function(){
     if(dup){alert('Ca '+dup.lbl+' đã có công (hoặc đang chờ duyệt) trong khung giờ này nên không xin chấm bù thêm được.');return}
     if(!confirm('Gửi yêu cầu chấm bù '+sel.length+' ca ngày '+selDate+'?'))return;
     try{
-        await DBService.createMakeupRequests(sel.map(function(s){return{
+        await DBService.createMakeupRequests(sel.map(function(s){
+            const scheduleLocators=(s.scheduleLocators||[]).map(locator=>({...locator}));
+            const primary=scheduleLocators.length===1?scheduleLocators[0]:null;
+            return{
             staffId:uid(),staffName:uname(),type:'scheduled',dateKey:selDate,branch:s.branch,shiftLabel:s.lbl,
             className:(s.kind==='tt'||s.kind==='vp')?'':s.label,
             // Nhiều lớp cùng giờ → giữ danh sách để quản lý thấy rõ đây là 1 ca gộp
             classNames:(s.kind==='tt'||s.kind==='vp')?[]:(s.classNames||[]),
+            classId:(s.classIds||[]).length===1?s.classIds[0]:'',classIds:s.classIds||[],
             shiftStart:s.start, shiftEnd:s.end, shiftKind:s.kind,
+            scheduleLocators:scheduleLocators,
+            ...(primary?{scheduleCompositeKey:primary.compositeKey||'',scheduleSection:primary.section||'',
+                         scheduleShiftId:primary.shiftId||'',
+                         ...(Number.isInteger(primary.rowIndex)?{scheduleRowIndex:primary.rowIndex}:{})}:{}),
             session:{checkIn:iso(selDate,s.start),checkOut:iso(selDate,s.end),
                      role:s.kind==='tt'?'tiep-tan':(s.kind==='vp'?'van-phong':null),
                      roleName:s.kind==='tt'?'Tiếp Tân':(s.kind==='vp'?'Văn Phòng':(s.label||null)),
                      linkedReceptionistShift:s.kind==='tt'?(s.shiftKey||null):null,
                      linkedOfficeShift:s.kind==='vp'?(s.shiftKey||null):null},
-            reason:reason}}));
+            reason:reason};
+        }));
         alert('Đã gửi '+sel.length+' yêu cầu. Chờ admin duyệt.');
         const keep=selDate; picked.clear(); reasonCache='';
         await loadMonth(); pickDay(keep); loadMy();

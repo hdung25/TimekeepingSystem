@@ -2,8 +2,10 @@
 // Quản lý tài khoản, vai trò, chế độ giáo viên (cũ / mới) và cấu hình lương.
 //
 // teachingMode: 'old' | 'new' | không có (chưa phân loại).
-// Chỉ giáo viên 'old' mới được hưởng thưởng sớm 10 phút — xem js/early10.js.
-// Người chưa phân loại KHÔNG được hưởng, nhưng hiển thị riêng để admin biết còn thiếu ai.
+// Chỉ chế độ 'new' bị loại khỏi thưởng sớm 10 phút. 'old' và trường hợp đặc
+// biệt chưa phân loại vẫn được xét đủ môn + giờ vào + yêu cầu — xem js/early10.js.
+// Người chưa phân loại vẫn là nhánh đặc biệt đủ điều kiện; giao diện hiển thị
+// riêng để Admin biết hồ sơ nào chưa được chốt sang chế độ cũ/mới.
 (function () {
     'use strict';
 
@@ -241,7 +243,7 @@
             ? 'Được hưởng <b>sớm 10 phút</b> ở các môn có bật chính sách.'
             : (mode === 'new'
                 ? 'Không áp dụng chính sách sớm 10 phút.'
-                : 'Chưa phân loại — tạm thời không được hưởng sớm 10 phút.');
+                : 'Chưa phân loại — vẫn được xét sớm 10 phút nếu đúng môn, vào đủ sớm và tự gửi yêu cầu.');
 
         var picked = state.selected[String(user.id)] === true;
         var trusted = isTrusted(user);

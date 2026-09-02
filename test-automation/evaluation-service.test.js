@@ -1184,8 +1184,8 @@ function observation(lateMinutes) {
 }
 
 {
-    // Luồng Mỹ Yến 15/08: cờ session và request cùng tồn tại do transaction,
-    // nhưng chip/lương chỉ được cộng đúng MỘT lần 10 phút.
+    // Luồng Mỹ Yến 15/08: chỉ request đã duyệt và gắn đúng ca dạy mới được
+    // cộng. Cờ session cũ có thể còn tồn tại nhưng không còn là nguồn lương.
     const dateKey = '2026-08-15';
     const staffId = 'nv-myyen';
     const sessionId = '1786781750885';
@@ -1202,8 +1202,14 @@ function observation(lateMinutes) {
         checkOut: `${dateKey}T17:00:00+07:00`,
         bonus10: true
     }];
+    const targetShiftKey = context.window.buildEarly10TargetShiftKey(
+        dateKey, schedule.afternoon2[0], 'afternoon2', 0
+    );
     const bonus10Map = {
-        [sessionId]: { id: 'auto-myyen', status: 'approved', sessionId }
+        [sessionId]: {
+            id: 'auto-myyen', status: 'approved', sessionId,
+            awardScope: 'teaching_shift', targetShiftKey
+        }
     };
     const chips = context.window.calculateDailyChips(
         schedule, sessions, staffId, dateKey,
@@ -1214,6 +1220,152 @@ function observation(lateMinutes) {
     assert.ok(worked, 'phải tạo chip PRE-I1 của Mỹ Yến');
     assert.equal(worked.paidMinutes, 100, '90 phút lịch + đúng một lần thưởng 10 phút');
     assert.equal((worked.text.match(/\+10p/g) || []).length, 1, 'chip chỉ hiện một nhãn +10p');
+}
+
+{
+    // Regression dữ liệu live Triệu Vy 10/08: một phiên phủ BTH và ca tiếp tân.
+    // BTH không có lopId/không thuộc danh sách +10; cờ bonus10 mồ côi trên
+    // session không được cộng cho bất kỳ chip nào.
+    const dateKey = '2026-08-10';
+    const staffId = 'nv_1782628080827';
+    const schedule = {
+        morning2: [{
+            start: '10:30', end: '14:30', lop: 'BTH', lopId: null,
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+            _compositeKey: 'cs1__2026-08-10', _originalIndex: 7
+        }]
+    };
+    const sessions = [{
+        id: 1786331986962,
+        checkIn: '2026-08-10T03:19:46.719Z',
+        checkOut: '2026-08-10T11:00:00.000Z',
+        bonus10: true
+    }];
+    const receptionistShifts = [{
+        shift: 'afternoon', label: 'CHIỀU', start: '14:00', end: '18:00',
+        branch: 'cs1', scheduleType: 'receptionist',
+        documentKey: 'cs1__2026-08-10', cancelCompositeKey: 'cs1_2026-08-10',
+        isFixedShift: false
+    }];
+    const chips = context.window.calculateDailyChips(
+        schedule, sessions, staffId, dateKey,
+        { role: 'teaching_assistant', roles: ['teaching_assistant', 'receptionist'], salary_config: {} },
+        receptionistShifts, {}, [], {}
+    );
+    const teaching = chips.find(chip => chip.isTeaching);
+    const reception = chips.find(chip => chip.isReceptionist);
+    assert.equal(teaching.paidMinutes, 240, 'BTH không được nhận cờ +10 mồ côi');
+    assert.equal(reception.paidMinutes, 210, 'tiếp tân chỉ trừ 30p dạy, tuyệt đối không nhận +10');
+    assert.equal(chips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 450);
+    assert.ok(chips.every(chip => !/\+10p/.test(chip.text)), 'không chip nào được hiện +10');
+}
+
+{
+    // Một session phủ hai ca dạy rời nhau: award của ca A chỉ cộng đúng ca A,
+    // không được lan sang ca B dù sessionId giống hệt.
+    const dateKey = '2026-08-20';
+    const staffId = 'teacher-shared-session';
+    const first = {
+        start: '07:30', end: '09:00', lop: 'E1', lopId: 'subject-e1',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+        _compositeKey: 'cs1__2026-08-20', _originalIndex: 0
+    };
+    const second = {
+        start: '10:00', end: '11:30', lop: 'E2', lopId: 'subject-e2',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+        _compositeKey: 'cs1__2026-08-20', _originalIndex: 0
+    };
+    const sessionId = 'shared-session';
+    const targetShiftKey = context.window.buildEarly10TargetShiftKey(dateKey, first, 'morning1', 0);
+    const chips = context.window.calculateDailyChips(
+        { morning1: [first], morning2: [second] },
+        [{ id: sessionId, checkIn: `${dateKey}T07:15:00+07:00`, checkOut: `${dateKey}T11:30:00+07:00`, bonus10: true }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {
+            [sessionId]: [{
+                id: 'award-first', status: 'approved', sessionId,
+                awardScope: 'teaching_shift', targetShiftKey
+            }]
+        }
+    );
+    const firstChip = chips.find(chip => chip.classStart === '07:30');
+    const secondChip = chips.find(chip => chip.classStart === '10:00');
+    assert.equal(firstChip.paidMinutes, 100, 'ca được nhắm nhận đúng một lần +10');
+    assert.equal(secondChip.paidMinutes, 90, 'ca khác cùng session không nhận ké +10');
+    assert.equal(chips.reduce((sum, chip) => sum + (chip.paidMinutes || 0), 0), 190);
+}
+
+{
+    // Approved request kiểu cũ chỉ có sessionId nhưng thiếu target shift không
+    // được phép tác động lương nếu caller không cung cấp catalog để chứng minh
+    // duy nhất môn/ca hợp lệ.
+    const dateKey = '2026-08-21';
+    const staffId = 'teacher-unscoped-award';
+    const schedule = { morning1: [{
+        start: '07:30', end: '09:00', lop: 'E1', lopId: 'subject-e1',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1'
+    }] };
+    const chips = context.window.calculateDailyChips(
+        schedule,
+        [{ id: 'legacy-session', checkIn: `${dateKey}T07:15:00+07:00`, checkOut: `${dateKey}T09:00:00+07:00`, bonus10: true }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], { 'legacy-session': { id: 'legacy-award', status: 'approved', sessionId: 'legacy-session' } }
+    );
+    assert.equal(chips.find(chip => chip.isTeaching).paidMinutes, 90);
+}
+
+{
+    // Tương thích dữ liệu đã duyệt trước schema v2: chỉ migrate trong bộ nhớ khi
+    // request khớp duy nhất một ca dạy, môn đang bật chính sách, nhân sự không ở
+    // chế độ mới và giờ vào thật đủ sớm. Không ghi lại session.bonus10.
+    const dateKey = '2026-08-22';
+    const staffId = 'legacy-approved-teacher';
+    const sessionId = 'legacy-approved-session';
+    const row = {
+        start: '07:30', end: '09:00', lop: 'E1', lopId: 'subject-e1',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+        _compositeKey: `cs1__${dateKey}`, _originalIndex: 0
+    };
+    const chips = context.window.calculateDailyChips(
+        { morning1: [row] },
+        [{ id: sessionId, checkIn: `${dateKey}T07:19:59+07:00`, checkOut: `${dateKey}T09:00:00+07:00` }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {
+            [sessionId]: [{
+                id: 'legacy-approved', status: 'approved', dateKey, sessionId,
+                scheduledStart: '07:30'
+            }]
+        }, [], { subjectEarly10Map: { 'subject-e1': true } }
+    );
+    const teaching = chips.find(chip => chip.isTeaching);
+    assert.equal(teaching.paidMinutes, 100, 'legacy approved duy nhất được giữ đúng 10 phút');
+    assert.equal(teaching.bonus10Status, 'approved');
+    assert.equal(teaching.bonus10Id, 'legacy-approved');
+}
+
+{
+    // Hai dòng lịch hợp lệ cùng giờ tạo hai target khác nhau: request cũ không
+    // có target không được đoán rồi cộng vào dòng trả lương cao hơn.
+    const dateKey = '2026-08-23';
+    const staffId = 'legacy-ambiguous-teacher';
+    const sessionId = 'legacy-ambiguous-session';
+    const base = {
+        start: '07:30', end: '09:00', gvId: staffId, registeredTeachers: [],
+        _branch: 'cs1', _compositeKey: `cs1__${dateKey}`
+    };
+    const chips = context.window.calculateDailyChips(
+        {
+            morning1: [{ ...base, shiftId: 'shift-a', lop: 'E1', lopId: 'subject-e1', _originalIndex: 0 }],
+            morning2: [{ ...base, shiftId: 'shift-b', lop: 'E2', lopId: 'subject-e2', _originalIndex: 0 }]
+        },
+        [{ id: sessionId, checkIn: `${dateKey}T07:15:00+07:00`, checkOut: `${dateKey}T09:00:00+07:00` }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {
+            [sessionId]: [{ id: 'legacy-ambiguous', status: 'approved', dateKey, sessionId, scheduledStart: '07:30' }]
+        }, [], { subjectEarly10Map: { 'subject-e1': true, 'subject-e2': true } }
+    );
+    assert.equal(chips.find(chip => chip.isTeaching).paidMinutes, 90, 'legacy mơ hồ phải fail-closed');
+    assert.ok(chips.every(chip => chip.bonus10Status !== 'approved'));
 }
 
 {

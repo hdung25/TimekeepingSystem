@@ -10,7 +10,7 @@
     <meta name="app-build" content="20260816-early10-old-unset-v3">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260901-schedule-admin-attendance-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260902-policy-payroll-absence-v1">
     <style>
         /* ===================== TRANG MÔN HỌC ===================== */
         .mh-page { max-width: 1100px; margin: 0 auto; padding-bottom: 5.5rem; }
@@ -264,9 +264,9 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
-    <script src='js/firebase-config.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/auth-guard.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/db-service.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/firebase-config.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/auth-guard.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/db-service.js?v=20260902-policy-payroll-absence-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
@@ -285,7 +285,9 @@
                 <div>
                     <h1>Môn Học &amp; Nhóm Môn</h1>
                     <p>Sắp xếp môn học theo nhóm như thư mục, và chọn môn nào được áp dụng sớm 10 phút.
-                       Bấm vào ô môn để tick chọn nhiều môn, rồi xếp nhóm / bật 10p / xóa một lượt.</p>
+                       Bật tại đây chỉ là một điều kiện: nhân sự còn phải thuộc chế độ được áp dụng,
+                       vào ca thực tế sớm đủ 10 phút và tự gửi yêu cầu đúng ca. Bấm vào ô môn để tick
+                       chọn nhiều môn, rồi xếp nhóm / bật 10p / xóa một lượt.</p>
                 </div>
             </div>
 
@@ -405,7 +407,7 @@
                     <div class="mh-toggle-track"><div class="mh-toggle-knob"></div></div>
                     <div class="mh-toggle-text">
                         <strong>Cho phép sớm 10 phút</strong>
-                        <span id="mh-early10-hint">Chỉ môn được bật mới cho giáo viên nhận thưởng vào sớm</span>
+                        <span id="mh-early10-hint">Chỉ môn được bật mới được xét; vẫn phải đúng nhân sự, giờ vào thực tế và yêu cầu đúng ca</span>
                     </div>
                 </div>
             </div>
@@ -442,8 +444,8 @@
 </div>
 
 <script src="js/ui-service.js?v=20260808-combined-v1"></script>
-<script src="js/early10.js?v=20260901-schedule-admin-attendance-v2"></script>
-<script src="js/main.js?v=20260901-schedule-admin-attendance-v2"></script>
+<script src="js/early10.js?v=20260902-policy-payroll-absence-v1"></script>
+<script src="js/main.js?v=20260902-policy-payroll-absence-v1"></script>
 <script src="js/mon-hoc.js?v=20260809-nested-groups-v1"></script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 <script>

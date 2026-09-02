@@ -120,19 +120,61 @@ function hasValidSessionChronology(session) {
 }
 
 function getClassTeacherAbsenceRecord(cls, staffId) {
+    if (window.ShiftAbsenceState?.getTeacherAbsenceRecord) {
+        return window.ShiftAbsenceState.getTeacherAbsenceRecord(cls, staffId);
+    }
     if (!cls || !staffId || !Array.isArray(cls.teacherAbsences)) return null;
     return cls.teacherAbsences.find(item =>
         item && String(item.teacherId || item.id || '') === String(staffId)
     ) || null;
 }
 
+function resolveClassTeacherAbsenceState(cls, staffId, context = {}) {
+    if (window.ShiftAbsenceState?.resolveTeachingShift) {
+        return window.ShiftAbsenceState.resolveTeachingShift({
+            row: cls,
+            staffId,
+            start: cls?.start,
+            end: cls?.end,
+            shiftId: cls?.shiftId,
+            branch: cls?._branch,
+            compositeKey: cls?._compositeKey,
+            ...context
+        });
+    }
+    const record = getClassTeacherAbsenceRecord(cls, staffId);
+    const hasCanonicalState = Array.isArray(cls?.teacherAbsences);
+    const isAbsent = hasCanonicalState
+        ? !!record
+        : (isScheduledMainTeacher(cls, staffId) && !isScheduledSubstitute(cls, staffId) && hasScheduledSubstitute(cls));
+    return {
+        isAbsent,
+        type: isAbsent ? (String(record?.type || 'VDX').toUpperCase() === 'VP' ? 'VP' : 'VDX') : null,
+        source: record ? 'teacher-absence' : (isAbsent ? 'legacy-substitute' : (hasCanonicalState ? 'teacher-active' : 'none')),
+        hasCanonicalState,
+        isLegacy: !hasCanonicalState,
+        record
+    };
+}
+
+function classAbsenceChipMetadata(resolved) {
+    if (window.ShiftAbsenceState?.toChipMetadata) {
+        return window.ShiftAbsenceState.toChipMetadata(resolved);
+    }
+    const type = ['VP', 'VDX'].includes(String(resolved?.type || '').toUpperCase())
+        ? String(resolved.type).toUpperCase()
+        : null;
+    return {
+        absenceState: resolved?.isAbsent ? (type || 'RECORDED') : 'ACTIVE',
+        ...(type ? { absenceType: type } : {}),
+        absenceStateSource: resolved?.source || 'none',
+        absenceEvidence: !!resolved?.isAbsent,
+        hasCanonicalAbsenceState: !!resolved?.hasCanonicalState
+    };
+}
+
 function isMainTeacherAbsentForEvaluation(cls, staffId) {
-    if (!isScheduledMainTeacher(cls, staffId)) return false;
-    // teacherAbsences (kể cả []) là mô hình mới và là nguồn sự thật theo từng
-    // GV. Dữ liệu cũ chưa có trường này mới suy đoán theo GV thay thế.
-    return Array.isArray(cls?.teacherAbsences)
-        ? !!getClassTeacherAbsenceRecord(cls, staffId)
-        : hasScheduledSubstitute(cls);
+    return resolveClassTeacherAbsenceState(cls, staffId).isAbsent;
 }
 
 function getMappedReplacementIdsForEvaluation(cls, staffId) {
@@ -510,10 +552,158 @@ function getClassObservationSummary(observations, staffId, cls, secKey, classInd
     };
 }
 
+// +10 minutes is an award for one concrete teaching shift, not for the whole
+// attendance session. A single physical session can legitimately cover several
+// classes and a receptionist shift, so using only sessionId leaks/multiplies the
+// award across unrelated payroll chips.
+function buildEarly10TargetShiftKey(dateStr, cls, secKey, classIndex) {
+    const clean = value => String(value == null ? '' : value)
+        .trim()
+        .replace(/[^A-Za-z0-9_-]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 120);
+    const scheduleKey = clean(cls?._compositeKey || `${cls?._branch || 'branch'}__${dateStr || ''}`);
+    const stableShiftId = clean(cls?.shiftId || '');
+    const section = clean(secKey || 'section');
+    const identity = stableShiftId
+        ? `shift__${stableShiftId}`
+        // Old rows may not have a persistent shiftId. Use the immutable payroll
+        // window instead of the array index: row insertion/reordering must not
+        // silently move an approved award to another class.
+        : [scheduleKey, section, `${String(cls?.start || '')}-${String(cls?.end || '')}`]
+            .filter(Boolean).join('__');
+    return `teaching__${clean(dateStr || '')}__${identity}`.slice(0, 240);
+}
+
+function findShiftScopedBonus10Request(bonus10Map, sessionId, targetShiftKey) {
+    if (!sessionId || !targetShiftKey || !bonus10Map || typeof bonus10Map !== 'object') return null;
+    const sessionKey = String(sessionId);
+    const candidates = [];
+    const append = value => {
+        if (Array.isArray(value)) value.forEach(append);
+        else if (value && typeof value === 'object') candidates.push(value);
+    };
+    append(bonus10Map[sessionKey]);
+    append(bonus10Map[`${sessionKey}::${targetShiftKey}`]);
+    return candidates.find(item =>
+        item.awardScope === 'teaching_shift' &&
+        String(item.targetShiftKey || '') === String(targetShiftKey)
+    ) || null;
+}
+
+// Historical approved requests were keyed only by sessionId. Preserve a real
+// award only when the old record can be proven against today's evaluation
+// inputs and resolves to exactly one eligible teaching shift. This is a
+// read-only compatibility bridge: it never treats session.bonus10 as evidence
+// and never guesses when two schedule rows are possible.
+function addDeterministicLegacyBonus10Awards(
+    bonus10Map,
+    schedule,
+    attendanceSessions,
+    staffId,
+    dateStr,
+    currentUserContext,
+    cancelledShifts,
+    subjectEarly10Map
+) {
+    const sourceMap = bonus10Map && typeof bonus10Map === 'object' ? bonus10Map : {};
+    const result = {};
+    Object.keys(sourceMap).forEach(key => {
+        result[key] = Array.isArray(sourceMap[key]) ? sourceMap[key].slice() : sourceMap[key];
+    });
+    if (currentUserContext?.teachingMode === 'new' ||
+        !subjectEarly10Map || typeof subjectEarly10Map !== 'object') return result;
+
+    const requests = [];
+    const seenRequests = new Set();
+    const appendRequest = value => {
+        if (Array.isArray(value)) return value.forEach(appendRequest);
+        if (!value || typeof value !== 'object') return;
+        const identity = String(value.id || [
+            value.dateKey, value.staffId, value.sessionId, value.status,
+            value.scheduledStart, value.classStart
+        ].join('|'));
+        if (seenRequests.has(identity)) return;
+        seenRequests.add(identity);
+        requests.push(value);
+    };
+    Object.keys(sourceMap).forEach(key => appendRequest(sourceMap[key]));
+
+    const sessions = Array.isArray(attendanceSessions) ? attendanceSessions : [];
+    const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+    const cancelled = Array.isArray(cancelledShifts) ? cancelledShifts.map(String) : [];
+    const splitIds = value => String(value || '').split('+').map(part => part.trim()).filter(Boolean);
+    const exactEarlyMinutes = (checkIn, classStart) => {
+        const actual = safeDate(checkIn);
+        if (!actual || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(classStart || ''))) return null;
+        const scheduled = new Date(`${dateStr}T${classStart}:00+07:00`);
+        if (Number.isNaN(scheduled.getTime())) return null;
+        let value = (scheduled.getTime() - actual.getTime()) / 60000;
+        if (value > 720) value -= 1440;
+        if (value < -720) value += 1440;
+        return value;
+    };
+
+    requests.forEach(request => {
+        if (request.status !== 'approved' || request.awardScope === 'teaching_shift' ||
+            String(request.dateKey || '') !== String(dateStr || '')) return;
+        const sessionId = String(request.sessionId || '');
+        const session = sessions.find(item => String(item?.id || '') === sessionId);
+        if (!session || session.isAbsent) return;
+        const requestedStart = String(request.classStart || request.scheduledStart || '').trim();
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(requestedStart) ||
+            !(exactEarlyMinutes(session.checkIn || session.start, requestedStart) >= 10)) return;
+
+        const candidatesByTarget = new Map();
+        sections.forEach(section => {
+            (schedule?.[section] || []).forEach((row, rowIndex) => {
+                if (!row || row.isClosed === true || String(row.start || '') !== requestedStart || !row.end) return;
+                const originalIndex = row._originalIndex !== undefined ? row._originalIndex : rowIndex;
+                const compositeKey = String(row._compositeKey || '');
+                if ((compositeKey && cancelled.includes(`${compositeKey}_${section}_${originalIndex}`)) ||
+                    (row.shiftId && cancelled.includes(`shift:${row.shiftId}`))) return;
+                const isSubstitute = isScheduledSubstitute(row, staffId);
+                const isOriginalAbsent = isMainTeacherAbsentForEvaluation(row, staffId) &&
+                    !hasOverlappingWorkSession(sessions, dateStr, row.start, row.end);
+                const isAssigned = isSubstitute || (!isOriginalAbsent && (
+                    isScheduledMainTeacher(row, staffId) ||
+                    (row.registeredTeachers || []).some(item => String(item?.id || '') === String(staffId))
+                ));
+                if (!isAssigned) return;
+                const subjectIds = splitIds(row.lopId);
+                const allowedIds = subjectIds.filter(id => subjectEarly10Map[id] === true);
+                if (!allowedIds.length) return;
+                if (request.subjectId && !subjectIds.includes(String(request.subjectId))) return;
+                if (request.scheduleDocId && String(request.scheduleDocId) !== compositeKey) return;
+                if (request.scheduleSection && String(request.scheduleSection) !== section) return;
+                if (Number.isInteger(request.scheduleIndex) && request.scheduleIndex !== originalIndex) return;
+                if (request.scheduleShiftId && String(request.scheduleShiftId) !== String(row.shiftId || '')) return;
+                const targetShiftKey = buildEarly10TargetShiftKey(dateStr, row, section, originalIndex);
+                if (request.targetShiftKey && String(request.targetShiftKey) !== targetShiftKey) return;
+                candidatesByTarget.set(targetShiftKey, { row, section, originalIndex, allowedIds });
+            });
+        });
+        if (candidatesByTarget.size !== 1) return;
+        const [targetShiftKey, candidate] = candidatesByTarget.entries().next().value;
+        const compatible = {
+            ...request,
+            awardScope: 'teaching_shift',
+            targetShiftKey,
+            subjectId: request.subjectId || candidate.allowedIds[0],
+            compatibilitySource: 'legacy-approved-unique-shift'
+        };
+        const currentBucket = result[sessionId];
+        result[sessionId] = Array.isArray(currentBucket)
+            ? [...currentBucket, compatible]
+            : (currentBucket ? [currentBucket, compatible] : [compatible]);
+    });
+    return result;
+}
+
 // isScheduledMainTeacher / isScheduledSubstitute / hasScheduledSubstitute: định nghĩa ở
 // db-service.js (nạp trước mọi trang) — dùng chung để lớp nhiều GV không bị sót GV thứ 2.
 
-function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = [], monthFlags = {}) {
+function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = [], monthFlags = {}) {
     // Admin hủy 1 ca sớm 10p → khóa 10p của CẢ THÁNG (và cả phụ cấp lớp đông,
     // xử lý bên report.js). Cờ này do nơi gọi tính sẵn cho cả tháng rồi truyền xuống.
     const early10PenaltyActive = !!(monthFlags && monthFlags.early10PenaltyActive);
@@ -522,6 +712,16 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     // phục vụ tính lương/chip lớp, nhưng không được làm mất mốc lịch khi đối
     // soát một chuỗi tiếp tân → dạy có chip trung gian đã bị xoá.
     const originalSchedule = schedule && typeof schedule === 'object' ? schedule : {};
+    bonus10Map = addDeterministicLegacyBonus10Awards(
+        bonus10Map,
+        originalSchedule,
+        attendanceSessions,
+        staffId,
+        dateStr,
+        currentUserContext,
+        cancelledShifts,
+        monthFlags?.subjectEarly10Map
+    );
     const chips = [];
     const usedSessionIdsTeaching = new Set();
 
@@ -870,8 +1070,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
         classes.forEach((cls, idx) => {
             // 1. Kiểm tra GV thay thế
             const isSubstitute = isScheduledSubstitute(cls, staffId);
-            const absenceRecord = getClassTeacherAbsenceRecord(cls, staffId);
-            const isOriginalVDX = isMainTeacherAbsentForEvaluation(cls, staffId);
+            const shiftAbsenceState = resolveClassTeacherAbsenceState(cls, staffId, {
+                kind: 'gv',
+                dateKey: dateStr,
+                section: secKey
+            });
+            const absenceRecord = shiftAbsenceState.record || getClassTeacherAbsenceRecord(cls, staffId);
+            const isOriginalVDX = shiftAbsenceState.isAbsent;
 
             const classCompositeKey = cls._compositeKey || null;
             const originalIdx = cls._originalIndex !== undefined ? cls._originalIndex : idx;
@@ -887,7 +1092,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 // thực tế vẫn đi làm thì chấm công thắng và luồng dưới tính công bình thường.
                 const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
                 const branchLabel = cls._branch ? cls._branch.toUpperCase() : '';
-                const absenceType = String(absenceRecord?.type || 'VDX').toUpperCase() === 'VP' ? 'VP' : 'VDX';
+                const absenceType = shiftAbsenceState.type === 'VP' ? 'VP' : 'VDX';
                 const mappedReplacementIds = getMappedReplacementIdsForEvaluation(cls, staffId);
                 const mappedIdSet = new Set(mappedReplacementIds.map(String));
                 const replacementEntries = [
@@ -908,6 +1113,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     isVDX: absenceType === 'VDX',
                     isAbsence: true,
                     absenceType,
+                    ...classAbsenceChipMetadata(shiftAbsenceState),
                     payStatus: 'nonpayable',
                     isPendingReplacement,
                     chipFilterName: normalizeChipFilterName(cls.lop),
@@ -1176,13 +1382,30 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
 
             if (matchedSession) {
                 let isClickable = false;
-                const b10DataT = bonus10Map[String(matchedSession.id)];
+                const b10TargetShiftKeyT = buildEarly10TargetShiftKey(
+                    dateStr,
+                    cls,
+                    secKey,
+                    cls._originalIndex !== undefined ? cls._originalIndex : idx
+                );
+                const b10DataT = findShiftScopedBonus10Request(
+                    bonus10Map,
+                    matchedSession.id,
+                    b10TargetShiftKeyT
+                );
                 const b10StatusT = b10DataT ? b10DataT.status : null;
 
                 // Clone sessionData to prevent shared reference modifications
                 const chipSessionData = { ...matchedSession };
 
                 if (matchedSession.isAbsent) {
+                    const attendanceAbsenceState = resolveClassTeacherAbsenceState(cls, staffId, {
+                        kind: 'gv',
+                        dateKey: dateStr,
+                        section: secKey,
+                        isAssigned: true,
+                        attendanceSessions: [matchedSession]
+                    });
                     chips.push({
                         text: `${cls.lop || 'ca dạy'} (Vắng)`,
                         class: 'chip-gray',
@@ -1190,6 +1413,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip: 'Admin đánh dấu vắng mặt',
                         sessionId: matchedSession.id,
                         sessionData: chipSessionData,
+                        ...classAbsenceChipMetadata(attendanceAbsenceState.isAbsent
+                            ? attendanceAbsenceState
+                            : {
+                                isAbsent: true,
+                                type: matchedSession.absenceType || null,
+                                source: 'attendance-session',
+                                hasCanonicalState: Array.isArray(cls.teacherAbsences)
+                            }),
                         isClickable: true,
                         isTeaching: true,
                         isAdminEdited: !!matchedSession.isAdminEdited,
@@ -1387,8 +1618,11 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         tooltip += ` | Đã giới hạn theo giờ lịch (chống tính dư)`;
                     }
 
-                    // BONUS 10P (từ request được duyệt)
-                    if (b10StatusT === 'approved' || matchedSession.bonus10) {
+                    // BONUS 10P: only a server/rules-approved award scoped to
+                    // this exact teaching shift may affect payroll. Historical
+                    // session.bonus10 flags are deliberately ignored: one
+                    // session can also cover other classes/reception work.
+                    if (b10StatusT === 'approved') {
                         if (early10PenaltyActive) {
                             label += ' ★+10p (hủy)';
                             tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
@@ -1525,6 +1759,25 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         .map(id => id.trim())
                         .filter(Boolean)
                 ));
+                const _scheduleRegistrationId = String(
+                    (cls.registeredTeachers || []).find(teacher =>
+                        String(teacher?.id || '') === String(staffId)
+                    )?.registrationId || ''
+                );
+                const _scheduleAssignmentLists = [
+                    'gvList', 'gvThayTeList', 'gvThayTheList', 'registeredTeachers'
+                ];
+                let _scheduleAssignmentList = '';
+                let _scheduleAssignmentEntry = {};
+                for (const field of _scheduleAssignmentLists) {
+                    const entry = (Array.isArray(cls[field]) ? cls[field] : []).find(teacher =>
+                        String(teacher?.id || '') === String(staffId)
+                    );
+                    if (!entry) continue;
+                    _scheduleAssignmentList = field;
+                    _scheduleAssignmentEntry = { ...entry };
+                    break;
+                }
 
                 // Khi admin sửa/chọn lại môn cho một phiên, tên vai trò trong phiên là
                 // nguồn sự thật của chip. Lịch có thể vẫn giữ môn cũ (ví dụ lịch là Nhảy
@@ -1557,11 +1810,19 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     classCompositeKey: cls._compositeKey || null,
                     classSectionKey: secKey,
                     classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx,
+                    scheduleShiftId: cls.shiftId || '',
+                    scheduleIsInherited: cls._isInheritedSchedule === true,
+                    scheduleInheritedFrom: cls._inheritedFromScheduleDocId || '',
+                    scheduleRegistrationId: _scheduleRegistrationId,
+                    scheduleAssignmentList: _scheduleAssignmentList,
+                    scheduleAssignmentEntry: _scheduleAssignmentEntry,
                     overtimeId: otId,
                     overtimePending: otPending,
                     overtimeMinutes: otMinutes,
                     bonus10Status: b10StatusT,
                     bonus10Id: b10DataT ? b10DataT.id : null,
+                    bonus10TargetShiftKey: b10TargetShiftKeyT,
+                    bonus10AwardScope: 'teaching_shift',
                     mergedSegments: (_mergeInfo[_mk] && _mergeInfo[_mk].chainSegments) || null,
                     systemLateMinutes,
                     manualLateMinutes,
@@ -1621,7 +1882,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         classCompositeKey: cls._compositeKey || null,
                         classSectionKey: secKey,
                         classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx,
-                        isScheduledOnly: true
+                        isScheduledOnly: true,
+                        ...classAbsenceChipMetadata(shiftAbsenceState)
                     });
                 } else {
                     // Nếu đã có session khớp ở branch khác cùng giờ → bỏ qua, không sinh chip Vắng
@@ -1651,7 +1913,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         classEnd: cls.end,
                         classCompositeKey: cls._compositeKey || null,
                         classSectionKey: secKey,
-                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx
+                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx,
+                        ...classAbsenceChipMetadata(shiftAbsenceState)
                     });
                 }
             }
@@ -2032,12 +2295,22 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // Các khúc trong ngày (tiếp tân / dạy) — dùng cho ô "Chi tiết ca trong ngày" ở popup sửa
             let _daySegments = [];
 
-            const b10DataR = bonus10Map[String(matchedSession.id)];
-            const b10StatusR = b10DataR ? b10DataR.status : null;
-
             const chipSessionData = { ...matchedSession };
 
             if (matchedSession.isAbsent) {
+                const operationalAbsenceState = window.ShiftAbsenceState?.resolveOperationalShift
+                    ? window.ShiftAbsenceState.resolveOperationalShift({
+                        kind: isOfficeShift ? 'vp' : 'tt',
+                        dateKey: dateStr,
+                        start: rs.start,
+                        end: rs.end,
+                        branch: rs.branch,
+                        shiftKey: rs.shift,
+                        section: rs.shift,
+                        compositeKey: compositeKeyLocal,
+                        attendanceSessions: [matchedSession]
+                    })
+                    : null;
                 chips.push({
                     text: `${rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel} (Vắng)`,
                     class: 'chip-gray',
@@ -2045,6 +2318,14 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip: 'Admin đánh dấu vắng mặt',
                     sessionId: matchedSession.id,
                     sessionData: chipSessionData,
+                    ...classAbsenceChipMetadata(operationalAbsenceState?.isAbsent
+                        ? operationalAbsenceState
+                        : {
+                            isAbsent: true,
+                            type: matchedSession.absenceType || null,
+                            source: 'attendance-session',
+                            hasCanonicalState: false
+                        }),
                     isClickable: true,
                     isReceptionist: true,
                     isOffice: isOfficeShift,
@@ -2055,7 +2336,7 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     classIndex: dayKeyLocal,
                     isFixedShift: rs.isFixedShift,
                     mergedSegments: rs.mergedSegments || null,
-                    bonus10Status: b10StatusR
+                    bonus10Status: null
                 });
                 return;
             }
@@ -2267,21 +2548,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     if (foundRoleR) chipSessionData.roleRate = foundRoleR.rate;
                 }
 
-                // BONUS 10P (từ request được duyệt)
-                if (b10StatusR === 'approved' || matchedSession.bonus10) {
-                    if (early10PenaltyActive) {
-                        label += ' ★+10p (hủy)';
-                        tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
-                    } else {
-                        minutes += 10;
-                        label += ' ★+10p';
-                        tooltip += ` | Thưởng 10p (đã duyệt)`;
-                    }
-                } else if (b10StatusR === 'pending') {
-                    label += ' ★?';
-                    tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
-                }
-
                 if (isLate || isEarlyCheckout) {
                     cssClass = 'chip-orange';
                 } else {
@@ -2404,8 +2670,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 allSubShifts: _fullSubShifts, // full danh sách ca con gốc (cho ô sửa tách ca)
                 splitAbsentStarts: _splitAbsentStartsForChip, // ca con đang bị coi là vắng (auto/tay)
                 daySegments: _daySegments, // các khúc trong ngày: tiếp tân / dạy (popup sửa hiển thị)
-                bonus10Status: b10StatusR,
-                bonus10Id: b10DataR ? b10DataR.id : null
+                bonus10Status: null,
+                bonus10Id: null
             });
 
         } else {
@@ -2438,6 +2704,13 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 const isShiftCancelled = cancelledShifts.includes(`${cancelledCompositeKeyLocal}_${rs.shift}_${dayKeyLocal}`);
 
                 if (isShiftCancelled) {
+                    const cancellationState = window.ShiftAbsenceState?.resolveOperationalShift
+                        ? window.ShiftAbsenceState.resolveOperationalShift({
+                            kind: isOfficeShift ? 'vp' : 'tt',
+                            cancelKey: `${cancelledCompositeKeyLocal}_${rs.shift}_${dayKeyLocal}`,
+                            cancelledShifts
+                        })
+                        : { isAbsent: true, type: 'VP', source: 'cancellation', hasCanonicalState: false };
                     chips.push({
                         text: label + ' (V)',
                         class: 'chip-gray',
@@ -2454,7 +2727,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                         classSectionKey: rs.shift,
                         classIndex: dayKeyLocal,
                         isFixedShift: rs.isFixedShift,
-                        isCancelled: true
+                        isCancelled: true,
+                        ...classAbsenceChipMetadata(cancellationState)
                     });
                 } else {
                     // FIX: So sánh chuỗi ngày thay vì Date object để tránh lỗi timezone
@@ -2749,8 +3023,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
             // Dùng lịch gần nhất nếu trong vòng 90 phút
             const USE_SCHED = !isUsedForTeaching && !isAdminCreated && !s.isAdminEdited && nearestSchedStart && nearestDiff < 90 * 60 * 1000;
 
-            let b10DataU, b10StatusU;
-
             // Ca tự-đóng (autoClosedReason='stale_session') GIỜ ĐÃ được khép đúng theo giờ tan
             // ca/lớp trong lịch, nên vẫn là giờ ra HỢP LỆ. Trước đây khối này loại luôn mọi ca
             // stale → chip hiện "10:24–???" (cam, cảnh báo) dù ca đó đã có giờ ra 16:30 và đã
@@ -2887,7 +3159,6 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 }
                 // Ca bị trùng hoàn toàn thì cũng KHÔNG được cộng thưởng sớm 10p, nếu không
                 // chip 0 phút lại hoá 10 phút và tổng ngày vẫn lệch.
-                const _zeroedByDuplicate = _dupMins > 0 && duration === 0;
                 if (duration > 0) _addPaidClockRange(_uPaidFrom, _uPaidTo, s.id);
 
                 // TRẦN AN TOÀN cho ca ngoài lịch / ca thêm (chống tính dư do giờ rộng bất thường):
@@ -2905,27 +3176,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                     tooltip += ` | Đã giới hạn (chống tính dư)`;
                 }
 
-                // BONUS 10P cho unmatched session
-                b10DataU = bonus10Map[String(s.id)];
-                b10StatusU = b10DataU ? b10DataU.status : null;
-                if (_zeroedByDuplicate) {
-                    if (b10StatusU === 'approved' || s.bonus10 || b10StatusU === 'pending') {
-                        tooltip += ` | Không cộng thưởng 10p cho ca trùng giờ.`;
-                    }
-                } else if (b10StatusU === 'approved' || s.bonus10) {
-                    if (early10PenaltyActive) {
-                        label += ' ★+10p (hủy)';
-                        tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
-                    } else {
-                        duration += 10;
-                        label += ' ★+10p';
-                        tooltip += ` | Thưởng 10p (đã duyệt)`;
-                    }
-                } else if (b10StatusU === 'pending') {
-                    label += ' ★?';
-                    tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
-                }
-
+                // Unmatched sessions have no concrete teaching-shift identity,
+                // therefore they can never receive the subject-based +10 award.
                 tooltip += ` - Làm việc ${Math.floor(duration / 60)}h${Math.floor(duration % 60)}p`;
                 isClickable = true;
             } else {
@@ -3009,8 +3261,8 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
                 overtimeId: otIdU,
                 overtimePending: otPendingU,
                 overtimeMinutes: otMinutesU,
-                bonus10Status: b10DataU ? b10DataU.status : null,
-                bonus10Id: b10DataU ? b10DataU.id : null
+                bonus10Status: null,
+                bonus10Id: null
             });
         }
     });
@@ -3044,6 +3296,182 @@ function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, cur
     return chips;
 }
 
+// ================= VERSIONED ADMIN PAYROLL OVERRIDE =================
+
+function getAdminPayrollOverrideApi() {
+    if (typeof AdminPayrollOverride !== 'undefined' && AdminPayrollOverride?.buildOverrideChips) {
+        return AdminPayrollOverride;
+    }
+    if (typeof window !== 'undefined' && window.AdminPayrollOverride?.buildOverrideChips) {
+        return window.AdminPayrollOverride;
+    }
+    return null;
+}
+
+function getAdminPayrollKind(value) {
+    if (!value || typeof value !== 'object') return '';
+    const payrollKind = value.payrollKind || value.kind || (
+        value.isOffice ? 'office' : (value.isReceptionist ? 'receptionist' : 'teaching')
+    );
+    return ['office', 'receptionist', 'teaching'].includes(payrollKind)
+        ? payrollKind
+        : (payrollKind === 'day' ? 'teaching' : (payrollKind === 'tiep-tan' ? 'receptionist' : ''));
+}
+
+function buildAdminPayrollScheduleIdentity(value) {
+    if (!value || typeof value !== 'object') return '';
+    const type = getAdminPayrollKind(value);
+    const composite = String(value.classCompositeKey || value.documentKey || value.compositeKey || '').trim();
+    const section = String(value.classSectionKey || value.section || value.sectionKey || value.shiftKey || value.shift || '').trim();
+    const rawIndex = value.classIndex !== undefined && value.classIndex !== null
+        ? value.classIndex
+        : (value.rowIndex !== undefined && value.rowIndex !== null
+            ? value.rowIndex
+            : (value.dayKey !== undefined && value.dayKey !== null ? value.dayKey : ''));
+    const index = String(rawIndex).trim();
+    const start = String(value.classStart || value.start || '').trim();
+    const end = String(value.classEnd || value.end || '').trim();
+    const branch = String(value.branch || value._branch || '').trim().toLowerCase();
+
+    // Prefer the exact persisted roster address. Time-only fallback remains
+    // branch-scoped so two campuses with the same clock cannot erase each other.
+    if (type && composite && section && index) return [type, composite, section, index].join('|');
+    if (type && composite && section && start && end) return [type, composite, section, start, end].join('|');
+    if (type && branch && start && end) return [type, branch, start, end].join('|');
+    if (type && section && start && end) return [type, section, start, end].join('|');
+    return '';
+}
+
+function collectAdminPayrollChipScheduleIdentities(chip) {
+    const identities = new Set();
+    const append = value => {
+        const identity = buildAdminPayrollScheduleIdentity(value);
+        if (identity) identities.add(identity);
+    };
+    append(chip);
+    const merged = Array.isArray(chip?.mergedSegments) ? chip.mergedSegments : [];
+    merged.forEach(segment => append({
+        payrollKind: chip?.isOffice ? 'office' : (chip?.isReceptionist ? 'receptionist' : 'teaching'),
+        classCompositeKey: segment?.classCompositeKey || segment?.documentKey || segment?.compositeKey || chip?.classCompositeKey,
+        classSectionKey: segment?.classSectionKey || segment?.section || segment?.secKey || segment?.shiftKey || segment?.shift || chip?.classSectionKey,
+        classIndex: segment?.classIndex !== undefined ? segment.classIndex
+            : (segment?.rowIndex !== undefined ? segment.rowIndex
+                : (segment?.originalIdx !== undefined ? segment.originalIdx
+                    : (segment?.idx !== undefined ? segment.idx
+                        : (segment?.dayKey !== undefined ? segment.dayKey : chip?.classIndex)))),
+        classStart: segment?.classStart || segment?.start || chip?.classStart,
+        classEnd: segment?.classEnd || segment?.end || chip?.classEnd,
+        branch: segment?.branch || chip?.branch || chip?.sessionData?.branch
+    }));
+    return identities;
+}
+
+function calculateDailyChips(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = [], monthFlags = {}) {
+    const runLegacy = sessions => calculateDailyChipsLegacy(
+        schedule,
+        sessions,
+        staffId,
+        dateStr,
+        currentUserContext,
+        receptionistShifts,
+        overtimeMap,
+        cancelledShifts,
+        bonus10Map,
+        shiftObservations,
+        monthFlags
+    );
+    const sourceSessions = Array.isArray(attendanceSessions) ? attendanceSessions : [];
+    const overrideApi = getAdminPayrollOverrideApi();
+    if (!overrideApi) return runLegacy(sourceSessions);
+
+    let overrideResult;
+    try {
+        overrideResult = overrideApi.buildOverrideChips(sourceSessions, {
+            dateKey: dateStr,
+            staffId,
+            currentUserContext,
+            normalizeChipFilterName
+        });
+    } catch (error) {
+        console.error('[evaluation-service] adminPayrollOverride evaluation failed; using legacy calculation.', error);
+        return runLegacy(sourceSessions);
+    }
+    if (!overrideResult?.applied) return runLegacy(sourceSessions);
+
+    const handledIds = new Set((overrideResult.handledSessionIds || [])
+        .filter(id => id !== undefined && id !== null && String(id) !== '')
+        .map(String));
+    const handledObjects = new Set((overrideResult.validations || [])
+        .map(result => result?.normalized?.session)
+        .filter(Boolean));
+    const remainingSessions = sourceSessions.filter(session =>
+        !handledObjects.has(session) && !(session?.id !== undefined && handledIds.has(String(session.id)))
+    );
+
+    // Explicit scheduleRef is authoritative. If an older override has no
+    // resolvable roster address, recover the shift identity once from the
+    // legacy matcher, then remove the equivalent grey/paid legacy chip.
+    const claimedScheduleIdentities = new Set();
+    const allocationsNeedingLegacyIdentity = new Map();
+    (overrideResult.validations || []).forEach(validation => {
+        (validation?.normalized?.allocations || []).forEach(allocation => {
+            const ref = allocation?.scheduleRef;
+            const identity = ref ? buildAdminPayrollScheduleIdentity({
+                    payrollKind: allocation.kind,
+                    documentKey: ref.documentKey,
+                    section: ref.section,
+                    shiftKey: ref.shiftKey,
+                    rowIndex: ref.rowIndex,
+                    dayKey: ref.dayKey,
+                    start: ref.start,
+                    end: ref.end,
+                    branch: ref.branch
+                }) : '';
+            if (identity) {
+                claimedScheduleIdentities.add(identity);
+                return;
+            }
+            if (validation?.normalized?.sessionId === undefined || validation?.normalized?.sessionId === null) return;
+            const sessionKey = String(validation.normalized.sessionId);
+            if (!allocationsNeedingLegacyIdentity.has(sessionKey)) {
+                allocationsNeedingLegacyIdentity.set(sessionKey, new Set());
+            }
+            allocationsNeedingLegacyIdentity.get(sessionKey).add(allocation.kind);
+        });
+    });
+
+    if (handledIds.size > 0) {
+        runLegacy(sourceSessions).forEach(chip => {
+            if (chip?.sessionId === undefined || chip?.sessionId === null) return;
+            const sourceSessionId = String(chip.sessionId);
+            // An override replaces the whole physical source session, even
+            // when Admin reclassifies its work kind (for example a teaching
+            // source corrected to reception). Claim every schedule identity
+            // that legacy evaluation derived from that source so no stale
+            // grey/paid schedule chip survives beside the authoritative chip.
+            if (handledIds.has(sourceSessionId)) {
+                collectAdminPayrollChipScheduleIdentities(chip)
+                    .forEach(identity => claimedScheduleIdentities.add(identity));
+            }
+            const unresolvedKinds = allocationsNeedingLegacyIdentity.get(String(chip.sessionId));
+            if (!unresolvedKinds || !unresolvedKinds.has(getAdminPayrollKind(chip))) return;
+            collectAdminPayrollChipScheduleIdentities(chip).forEach(identity => claimedScheduleIdentities.add(identity));
+        });
+    }
+
+    const legacyChips = runLegacy(remainingSessions).filter(chip => {
+        if (claimedScheduleIdentities.size === 0) return true;
+        return !Array.from(collectAdminPayrollChipScheduleIdentities(chip))
+            .some(identity => claimedScheduleIdentities.has(identity));
+    });
+    const combined = legacyChips.concat(overrideResult.chips || []);
+    combined.sort((left, right) => {
+        const clock = chip => String(chip?.text || '').match(/(\d{1,2}:\d{2})/)?.[1]?.padStart(5, '0') || '99:99';
+        return clock(left).localeCompare(clock(right));
+    });
+    return combined;
+}
+
 // ================= VIETNAMESE STRING UTILITY =================
 
 function removeVietnameseTones(str) {
@@ -3074,4 +3502,5 @@ function removeVietnameseTones(str) {
 
 window.EVALUATION_CRITERIA = EVALUATION_CRITERIA;
 window.calculateDailyChips = calculateDailyChips;
+window.buildEarly10TargetShiftKey = buildEarly10TargetShiftKey;
 window.removeVietnameseTones = removeVietnameseTones;

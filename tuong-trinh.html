@@ -10,10 +10,11 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
-    <script src='js/firebase-config.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/auth-guard.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/db-service.js?v=20260901-schedule-admin-attendance-v2'></script>
-    <script src='js/evaluation-service.js?v=20260901-schedule-admin-attendance-v2'></script>
+    <script src='js/firebase-config.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/auth-guard.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/db-service.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/shift-absence-state.js?v=20260902-policy-payroll-absence-v1'></script>
+    <script src='js/evaluation-service.js?v=20260902-policy-payroll-absence-v1'></script>
     <script src='js/ui-service.js?v=20260807-tuong-trinh-v2'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -405,10 +406,14 @@ async function buildVerdicts(reqs){
     for(const key of Object.keys(byStaffMonth)){
         const [staffId,mStr]=key.split('|');
         const group=byStaffMonth[key];
-        let attMap={};
+        let attMap={},cancelledSet=new Set();
         try{
-            const logs=await DBService.getMonthlyAttendance(mStr,staffId);
+            const [logs,cancelled]=await Promise.all([
+                DBService.getMonthlyAttendance(mStr,staffId),
+                DBService.getCancelledShifts(mStr,staffId)
+            ]);
             logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
+            cancelledSet=new Set(cancelled||[]);
         }catch(e){}
 
         const dates=[...new Set(group.map(r=>r.dateKey).filter(Boolean))];
@@ -418,12 +423,14 @@ async function buildVerdicts(reqs){
             for(const b of BRS_TT){
                 let v=null; try{ v=await DBService.getSchedule(b+'__'+dkey) }catch(e){}
                 if(!v)continue;
-                SECS_TT.forEach(sec=>(v[sec]||[]).forEach(row=>{
+                SECS_TT.forEach(sec=>(v[sec]||[]).forEach((row,rowIndex)=>{
                     if(!row.start||!row.end)return;
                     // isAssignedToClass (db-service.js) đọc ĐỦ gvList + gvThayTeList + gvThayTheList
                     // + registeredTeachers → lớp xếp 2 GV thì GV thứ 2 cũng được nhận đúng.
                     rows.push({branch:b,start:row.start,end:row.end,lop:row.lop||'',
-                        mine:isAssignedToClass(row,staffId)});
+                        mine:isAssignedToClass(row,staffId),row:row,section:sec,rowIndex:rowIndex,
+                        compositeKey:b+'__'+dkey,shiftId:row.shiftId||'',
+                        cancelKey:b+'__'+dkey+'_'+sec+'_'+rowIndex});
                 }));
             }
             schedByDate[dkey]=rows;
@@ -443,7 +450,9 @@ async function buildVerdicts(reqs){
                         const cf=(v._shiftConfig&&v._shiftConfig[sk])||{};
                         rshifts.push({branch:b,shift:sk,kind:src.kind,
                             start:en.customStart||cf.start||RS_TT[sk].s,
-                            end:en.customEnd||cf.end||RS_TT[sk].e});
+                            end:en.customEnd||cf.end||RS_TT[sk].e,
+                            compositeKey:b+'__'+mk,dayKey:dayk,
+                            cancelKey:(src.kind==='vp'?'office_':'')+b+'_'+mk+'_'+sk+'_'+dayk});
                     });
                 });
             }
@@ -495,10 +504,49 @@ async function buildVerdicts(reqs){
             const inSpan=!!(startHM&&endHM&&spans.some(sp=>
                 (!r.branch||!sp.branch||sp.branch===r.branch)&&
                 toMin(sp.start)<=toMin(startHM)&&toMin(endHM)<=toMin(sp.end)));
-            const exactRow=rows.find(x=>x.mine&&x.start===startHM&&x.end===endHM)||
-                           rsh.find(x=>x.start===startHM&&x.end===endHM)||null;
+            const exactRow=rows.find(x=>x.mine&&x.start===startHM&&x.end===endHM&&(!r.branch||x.branch===r.branch))||
+                           rsh.find(x=>x.start===startHM&&x.end===endHM&&(!r.branch||x.branch===r.branch))||null;
             const schedMatch=exactRow||(inSpan?{start:startHM,end:endHM,merged:true}:null);
             const anyClassAtTime=rows.some(x=>toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end));
+
+            // Re-read the exact per-shift state for the approval verdict. A date
+            // note is deliberately absent here: it has no class/shift identity.
+            const locators=Array.isArray(r.scheduleLocators)?r.scheduleLocators:[];
+            const locatorMatches=(rowInfo,locator)=>{
+                if(!locator)return false;
+                if(locator.kind&&locator.kind!==rowInfo.kind&&!(locator.kind==='gv'&&rowInfo.row))return false;
+                if(locator.shiftId&&rowInfo.shiftId)return String(locator.shiftId)===String(rowInfo.shiftId);
+                if(locator.compositeKey&&String(locator.compositeKey)!==String(rowInfo.compositeKey))return false;
+                if(locator.section&&String(locator.section)!==String(rowInfo.section||rowInfo.shift))return false;
+                if(Number.isInteger(locator.rowIndex)&&Number(locator.rowIndex)!==Number(rowInfo.rowIndex))return false;
+                return (!locator.start||locator.start===rowInfo.start)&&(!locator.end||locator.end===rowInfo.end);
+            };
+            let targetedTeachingRows=[];
+            let targetedOperationalRows=[];
+            if(locators.length){
+                targetedTeachingRows=rows.filter(x=>x.mine&&locators.some(locator=>locatorMatches(x,locator)));
+                targetedOperationalRows=rsh.filter(x=>locators.some(locator=>locatorMatches(x,locator)));
+            }else if(startHM&&endHM){
+                targetedTeachingRows=rows.filter(x=>x.mine&&(!r.branch||x.branch===r.branch)&&
+                    toMin(startHM)<=toMin(x.start)&&toMin(x.end)<=toMin(endHM));
+                targetedOperationalRows=rsh.filter(x=>(!r.branch||x.branch===r.branch)&&
+                    toMin(startHM)<=toMin(x.start)&&toMin(x.end)<=toMin(endHM));
+            }
+            const absenceStates=[];
+            if(window.ShiftAbsenceState){
+                targetedTeachingRows.forEach(x=>absenceStates.push(ShiftAbsenceState.resolveTeachingShift({
+                    row:x.row,staffId:staffId,isAssigned:true,kind:'gv',dateKey:r.dateKey,
+                    start:x.start,end:x.end,branch:x.branch,compositeKey:x.compositeKey,
+                    section:x.section,shiftId:x.shiftId,cancelKey:x.cancelKey,
+                    cancelledShifts:cancelledSet,attendanceSessions:sess
+                })));
+                targetedOperationalRows.forEach(x=>absenceStates.push(ShiftAbsenceState.resolveOperationalShift({
+                    kind:x.kind,dateKey:r.dateKey,start:x.start,end:x.end,branch:x.branch,
+                    compositeKey:x.compositeKey,section:x.shift,shiftKey:x.shift,
+                    cancelKey:x.cancelKey,cancelledShifts:cancelledSet,attendanceSessions:sess
+                })));
+            }
+            const blockedAbsence=absenceStates.find(state=>state&&state.isAbsent)||null;
 
             const trusted=trustedIds.has(String(r.staffId));
             const hasMoneyExtra=!!(s.bonus10||(s.overtimeMinutes>0)||s.isAbsent);
@@ -516,6 +564,9 @@ async function buildVerdicts(reqs){
                 level='bad'; title='Trùng giờ với yêu cầu khác';
                 reasons.push('Yêu cầu này chồng khung giờ với một yêu cầu khác cùng ngày '+twinReq.dateKey+' ("'+(twinReq.shiftLabel||'')+'") cũng đang chờ duyệt.');
                 reasons.push('Nhân viên chỉ vào ca một lần nên hai lớp cùng giờ phải gộp thành MỘT ca công — chỉ duyệt một mục, mục còn lại từ chối và ghi rõ lý do (đã gộp).');
+            }else if(blockedAbsence){
+                level='bad'; title='Ca đã được ghi nhận vắng';
+                reasons.push('Trạng thái hiện tại của đúng ca này là '+ShiftAbsenceState.absenceLabel(blockedAbsence)+'. Không được duyệt chấm bù cho tới khi quản lý khôi phục trạng thái ca nếu việc ghi vắng là sai.');
             }else if(r.type==='scheduled'&&schedMatch){
                 level='ok';
                 reasons.push(schedMatch.merged

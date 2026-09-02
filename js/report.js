@@ -66,6 +66,23 @@ function hasTeachingEmploymentRole(value) {
     return roles.some(r => ['assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r));
 }
 
+function getReportViewerRoles() {
+    const roleRaw = localStorage.getItem('currentRole') || 'staff';
+    try {
+        const parsed = JSON.parse(roleRaw);
+        return (Array.isArray(parsed) ? parsed : [parsed]).map(String);
+    } catch (_) {
+        return [String(roleRaw)];
+    }
+}
+
+// Salary-chip overrides are intentionally reserved for the primary Admin.
+// Senior assistants keep their existing attendance-review capabilities, but
+// cannot create an authoritative payroll allocation.
+function isPrimaryPayrollAdminViewer() {
+    return getReportViewerRoles().includes('admin');
+}
+
 async function initReport() {
     // Reset role filter select to default 'all'
     const roleFilterEl = document.getElementById('salary-role-filter');
@@ -1198,6 +1215,10 @@ async function renderMonthReport(date, forceServer = false) {
             attendanceMap[record.date] = record.sessions || [];
         }
     });
+    // Keep the untouched Firestore sessions for the edit popup. Evaluation
+    // clones may carry calculated rates/links; using those clones as an
+    // optimistic-lock token would reject a legitimate Admin edit.
+    if (!commitCurrentRender(() => { window.currentAttendanceMap = attendanceMap; })) return;
 
     // D. Overtime Requests for this staff+month
     let overtimeRequestsList = [];
@@ -1213,15 +1234,14 @@ async function renderMonthReport(date, forceServer = false) {
     } catch (e) { console.warn('[Bonus10] Could not load requests:', e); }
     if (!isCurrentRender()) return;
 
-    // Build bonus10Map: sessionId (string) → request data
+    // One physical session may cover several teaching shifts. Keep every award
+    // in the session bucket; the evaluator resolves the exact targetShiftKey.
     const bonus10Map = {};
     bonus10RequestsList.forEach(req => {
         const key = String(req.sessionId);
-        // Ưu tiên: approved > pending > rejected
-        const existing = bonus10Map[key];
-        if (!existing || req.status === 'approved' || (req.status === 'pending' && existing.status === 'rejected')) {
-            bonus10Map[key] = req;
-        }
+        if (!key) return;
+        if (!Array.isArray(bonus10Map[key])) bonus10Map[key] = [];
+        bonus10Map[key].push(req);
     });
 
     // Explicit monthly state wins over retained rejected audit documents. Old
@@ -1233,7 +1253,15 @@ async function renderMonthReport(date, forceServer = false) {
         ? bonus10PenaltyState.active
         : bonus10RequestsList.some(req => req.status === 'rejected');
     const early10RejectedCount = bonus10RequestsList.filter(req => req.status === 'rejected').length;
-    const monthFlags = { early10PenaltyActive };
+    const monthFlags = {
+        early10PenaltyActive,
+        // Read-only migration bridge for already-approved legacy requests.
+        // The evaluator still requires a unique schedule row and a real >=10m
+        // early check-in; an orphan attendance flag is never sufficient.
+        subjectEarly10Map: typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10Map
+            ? Early10.buildSubjectEarly10Map(currentSubjectCatalog)
+            : {}
+    };
     if (!commitCurrentRender(() => {
         window.currentMonthEarly10Penalty = early10PenaltyActive;
         window.currentMonthEarly10RejectedCount = early10RejectedCount;
@@ -1405,6 +1433,7 @@ async function renderMonthReport(date, forceServer = false) {
                             branch: result.branch,
                             scheduleType: result.scheduleType,
                             documentKey: result.documentKey,
+                            dayKey,
                             cancelCompositeKey: result.scheduleType === 'office'
                                 ? `office_${result.branch}_${mondayKey}`
                                 : `${result.branch}_${mondayKey}`,
@@ -1436,15 +1465,23 @@ async function renderMonthReport(date, forceServer = false) {
                     return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
                 };
 
+                const toMergedSegment = (shift) => ({
+                    id: [shift.scheduleType || 'receptionist', shift.documentKey || '', shift.shift || '', shift.dayKey || '', shift.start || '', shift.end || ''].join('|'),
+                    start: shift.start,
+                    end: shift.end,
+                    schedMinutes: timeStrToMin2(shift.end) - timeStrToMin2(shift.start),
+                    isFixedShift: shift.isFixedShift || false,
+                    branch: shift.branch || '',
+                    scheduleType: shift.scheduleType || 'receptionist',
+                    documentKey: shift.documentKey || '',
+                    shiftKey: shift.shift || '',
+                    dayKey: shift.dayKey || ''
+                });
+
                 // Khởi tạo segment đầu tiên
                 let currentShift = { ...dailyShifts[0] };
                 // Lưu segments để tính lương đúng từng đoạn CĐ/thường
-                let currentSegments = [{
-                    start: dailyShifts[0].start,
-                    end: dailyShifts[0].end,
-                    schedMinutes: timeStrToMin2(dailyShifts[0].end) - timeStrToMin2(dailyShifts[0].start),
-                    isFixedShift: dailyShifts[0].isFixedShift || false
-                }];
+                let currentSegments = [toMergedSegment(dailyShifts[0])];
 
                 for (let i = 1; i < dailyShifts.length; i++) {
                     let nextShift = dailyShifts[i];
@@ -1456,30 +1493,22 @@ async function renderMonthReport(date, forceServer = false) {
                     // Ca CĐ kề ca thường → giữ riêng để stats/lương/hiển thị không lẫn lộn.
                     const sameFixedType = (currentShift.isFixedShift || false) === (nextShift.isFixedShift || false);
                     const sameScheduleType = (currentShift.scheduleType || 'receptionist') === (nextShift.scheduleType || 'receptionist');
+                    const sameBranch = String(currentShift.branch || '') === String(nextShift.branch || '');
 
-                    // Merge if shifts touch, overlap, or have a gap of <= 60 minutes
-                    if (sameFixedType && sameScheduleType && nextStartMin - currentEndMin <= 60) {
+                    // Merge only a continuous/overlapping chain at one branch.
+                    // A gap is a real break and cross-campus shifts are distinct.
+                    if (sameFixedType && sameScheduleType && sameBranch && nextStartMin <= currentEndMin) {
                         if (nextShift.end > currentShift.end) {
                             currentShift.end = nextShift.end;
                         }
                         currentShift.label = `${currentShift.label} + ${nextShift.label}`;
-                        currentSegments.push({
-                            start: nextShift.start,
-                            end: nextShift.end,
-                            schedMinutes: timeStrToMin2(nextShift.end) - timeStrToMin2(nextShift.start),
-                            isFixedShift: nextShift.isFixedShift || false
-                        });
+                        currentSegments.push(toMergedSegment(nextShift));
                     } else {
                         // Gắn segments vào shift nếu có nhiều hơn 1
                         if (currentSegments.length > 1) currentShift.mergedSegments = currentSegments;
                         mergedShifts.push(currentShift);
                         currentShift = { ...nextShift };
-                        currentSegments = [{
-                            start: nextShift.start,
-                            end: nextShift.end,
-                            schedMinutes: timeStrToMin2(nextShift.end) - timeStrToMin2(nextShift.start),
-                            isFixedShift: nextShift.isFixedShift || false
-                        }];
+                        currentSegments = [toMergedSegment(nextShift)];
                     }
                 }
                 if (currentSegments.length > 1) currentShift.mergedSegments = currentSegments;
@@ -1619,10 +1648,9 @@ async function renderMonthReport(date, forceServer = false) {
                     const closeISO = correctEndISO || fallbackISO;
                     
                     if (s.checkOut !== closeISO) {
-                        // Cập nhật local ngay lập tức để render đúng đồng thì
-                        s.checkOut = closeISO;
-                        s.autoClosedReason = 'stale_session';
-                        DBService.autoCloseStaleSession(staffId, dateKey, s.id, closeISO);
+                        // Bảng công là màn hình đọc/duyệt, không phải writer.
+                        // main.js owns automatic checkout; opening a salary
+                        // report must never rewrite historical attendance.
                     }
                 }
             });
@@ -1668,10 +1696,7 @@ async function renderMonthReport(date, forceServer = false) {
             : null;
         if (!latestEnd) return;
         if (isCurrentRender() && nowForAutoClose >= latestEnd) {
-            DBService.checkOutPersonal(staffId, latestEnd).then(() => {
-                s.checkOut = latestEnd.toISOString();
-                console.log(`[Report AutoClose] Auto-closed today's overdue session for ${staffId} at ${latestEnd.toLocaleTimeString()}`);
-            }).catch(e => console.warn('[Report AutoClose] Error:', e));
+            // Deliberately read-only. The attendance flow owns checkout.
         }
     });
 
@@ -2141,9 +2166,7 @@ async function renderMonthReport(date, forceServer = false) {
                 b10Btn.style.cssText = 'font-size:0.68rem;padding:3px 7px;border-radius:999px;border:1px solid transparent;cursor:pointer;margin-left:4px;vertical-align:middle;display:inline-flex;align-items:center;justify-content:center;gap:3px;line-height:1.15;white-space:nowrap;min-height:26px;';
 
                 const b10Status = chip.bonus10Status;
-                const hasBonus = chip.sessionData && chip.sessionData.bonus10;
-
-                if (b10Status === 'approved' || hasBonus) {
+                if (b10Status === 'approved') {
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
@@ -2252,12 +2275,12 @@ async function renderMonthReport(date, forceServer = false) {
                         await UIService.notice(message, 'Chưa đủ điều kiện Sớm 10p', 'warning');
                     };
                 } else {
-                    // Chưa có → nhân viên gửi yêu cầu; trình duyệt chỉ xem trước
-                    // điều kiện, Admin là bên duyệt nguồn lương nguyên tử.
+                    // Chưa có → nhân viên chủ động gửi. DB transaction + rules
+                    // kiểm tra lại dữ liệu live rồi tự duyệt nếu đủ điều kiện.
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + ' Sớm';
                     b10Btn.style.background = '#F3F4F6';
                     b10Btn.style.color = '#6B7280';
-                    b10Btn.title = 'Gửi yêu cầu +10 phút; Admin sẽ duyệt sau khi hệ thống kiểm tra lại dữ liệu công';
+                    b10Btn.title = 'Gửi yêu cầu +10 phút; hệ thống tự duyệt nếu ca đủ điều kiện';
                     b10Btn.onclick = (e) => {
                         e.stopPropagation();
                         submitBonus10Request(chip.sessionId, dateStr, staffId, chip);
@@ -2388,9 +2411,7 @@ async function renderMonthReport(date, forceServer = false) {
                             try {
                                 const btn = e.currentTarget;
                                 btn.style.opacity = '0.5';
-                                await DBService.toggleSessionBonus10(staffId, dateStr, chip.sessionId);
-                                if (typeof UIService !== 'undefined') UIService.toast("Đã cập nhật thưởng 10p!", "success");
-                                renderMonthReport(currentDate); // re-render
+                                await submitBonus10Request(chip.sessionId, dateStr, staffId, chip);
                             } catch (err) {
                                 if (typeof UIService !== 'undefined') UIService.toast(err.message || 'Lỗi', 'error');
                             }
@@ -2839,6 +2860,20 @@ function getTeachingPayAllocations(chip, subjectName, minutes, normalRate, class
     const totalMinutes = Number.isFinite(numericMinutes) ? Math.max(0, numericMinutes) : 0;
     const baseRate = Number(normalRate) || 0;
     const normalizedSubjectName = String(subjectName || '').trim() || 'Chưa phân lớp';
+    // A per-chip rate entered by the primary Admin is the final payroll decision.
+    // Student-count and monthly class-rate policies must not silently replace it.
+    const adminManualRate = typeof getAuthoritativeAdminPayrollRate === 'function'
+        ? getAuthoritativeAdminPayrollRate(chip)
+        : null;
+    if (adminManualRate !== null) {
+        return [{
+            name: normalizedSubjectName,
+            minutes: totalMinutes,
+            rate: adminManualRate,
+            isStudentCount: false,
+            isAdminPayrollOverride: true
+        }];
+    }
     const studentCount = Number(chip?.studentCount) || 0;
     const usesStudentCountRate = studentCount > 0 &&
         normalizeStudentCountApprovalStatus(chip?.studentCountStatus) === 'approved' &&
@@ -3026,7 +3061,11 @@ function calculateSalary() {
                     classRates = gvMonthly.class_rates || cfg.class_rates || {};
                 }
                 
-                if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                const adminManualRate = getAuthoritativeAdminPayrollRate(chip);
+                if (adminManualRate !== null) {
+                    rate = adminManualRate;
+                    hasClassRate = true;
+                } else if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
                     rate = Number(classRates[chip.chipFilterName]);
                     hasClassRate = true;
                 }
@@ -3052,7 +3091,10 @@ function calculateSalary() {
                         const segName = normalizeFn(seg.lop) || "Khác";
                         
                         let segRate = 0;
-                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                        const adminSegmentRate = getAuthoritativeAdminPayrollRate(chip);
+                        if (adminSegmentRate !== null) {
+                            segRate = adminSegmentRate;
+                        } else if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
                             const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
@@ -3206,7 +3248,11 @@ function calculateSalary() {
                     classRates = gvMonthly.class_rates || cfg.class_rates || {};
                 }
                 
-                if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                const adminManualRate = getAuthoritativeAdminPayrollRate(chip);
+                if (adminManualRate !== null) {
+                    rate = adminManualRate;
+                    hasClassRate = true;
+                } else if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
                     rate = Number(classRates[chip.chipFilterName]);
                     hasClassRate = true;
                 }
@@ -3232,7 +3278,10 @@ function calculateSalary() {
                         const segName = normalizeFn(seg.lop);
                         
                         let segRate = 0;
-                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                        const adminSegmentRate = getAuthoritativeAdminPayrollRate(chip);
+                        if (adminSegmentRate !== null) {
+                            segRate = adminSegmentRate;
+                        } else if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
                             const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
@@ -4560,7 +4609,65 @@ function normalizeSubjectLookupName(value) {
     return withoutTones.replace(/[^a-z0-9]+/g, '');
 }
 
+function getAuthoritativeAdminPayrollRate(chip) {
+    const value = Number(chip?.payrollRate);
+    return chip?.isAdminPayrollOverride === true && chip?.payrollRateMode === 'manual' &&
+        Number.isFinite(value) && value >= 0
+        ? value
+        : null;
+}
+window.getAuthoritativeAdminPayrollRate = getAuthoritativeAdminPayrollRate;
+
+function ensurePayrollRateGroup(groups, name) {
+    const key = String(name || '').trim();
+    if (!key) return null;
+    if (!groups[key]) {
+        groups[key] = {
+            name: key,
+            chips: [],
+            totalMinutes: 0,
+            policyMinutes: 0,
+            manualMinutes: 0,
+            manualAmount: 0,
+            manualRates: []
+        };
+    }
+    return groups[key];
+}
+
+function trackPayrollRateGroupChip(groups, name, chip) {
+    const group = ensurePayrollRateGroup(groups, name);
+    if (group && chip && !group.chips.includes(chip)) group.chips.push(chip);
+    return group;
+}
+
+function addPayrollRateGroupMinutes(groups, name, chip, minutes) {
+    const group = trackPayrollRateGroupChip(groups, name, chip);
+    if (!group) return null;
+    const numericMinutes = Number(minutes);
+    const safeMinutes = Number.isFinite(numericMinutes) ? Math.max(0, numericMinutes) : 0;
+    const manualRate = getAuthoritativeAdminPayrollRate(chip);
+    group.totalMinutes += safeMinutes;
+    if (manualRate !== null) {
+        group.manualMinutes += safeMinutes;
+        group.manualAmount += (safeMinutes / 60) * manualRate;
+        if (!group.manualRates.includes(manualRate)) group.manualRates.push(manualRate);
+    } else {
+        group.policyMinutes += safeMinutes;
+    }
+    return group;
+}
+
+function getPayrollRateGroupAmount(group, policyRate, policyDisabled = false) {
+    const manualAmount = Number(group?.manualAmount) || 0;
+    const policyMinutes = Number(group?.policyMinutes) || 0;
+    const rate = Number(policyRate) || 0;
+    return manualAmount + (policyDisabled ? 0 : (policyMinutes / 60) * rate);
+}
+
 function getResolvedTeachingRate(chip, subjectName, fallbackRate) {
+    const adminRate = getAuthoritativeAdminPayrollRate(chip);
+    if (adminRate !== null) return adminRate;
     const legacyRate = Number(fallbackRate) || 0;
     const policyApi = window.SubjectRatePolicy;
     const config = window.currentUserContext?.salary_config || {};
@@ -4697,14 +4804,16 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
             'receptionist_staff', 'senior_assistant', 'tiep-tan', 'tiep_tan'
         ].includes(role));
         const hasTeachingRole = hasTeachingEmploymentRole(userRolesArr);
+        const primaryAdminOverride = isPrimaryPayrollAdminViewer();
 
         let hasSelected = false;
 
         // 1. Option Tiếp Tân
-        if (hasReceptionistRole) {
+        if (hasReceptionistRole || primaryAdminOverride) {
             const opt = document.createElement('option');
             opt.value = 'tiep-tan';
-            opt.textContent = 'Tiếp Tân';
+            opt.textContent = hasReceptionistRole ? 'Tiếp Tân' : 'Tiếp Tân (ngoại lệ Admin)';
+            opt.dataset.adminException = hasReceptionistRole ? 'false' : 'true';
             opt.dataset.rate = user.salary_config?.receptionist_normal_rate || 0;
             if (currentRoleId === 'tiep-tan' || currentRoleId === 'receptionist') {
                 opt.selected = true;
@@ -4715,10 +4824,11 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
 
         // 2. Option Văn Phòng — vẫn dùng đơn giá ca vận hành chung nhưng giữ
         // role riêng để bảng công và liên kết lịch không bị ghi thành Tiếp Tân.
-        if (hasOfficeRole) {
+        if (hasOfficeRole || primaryAdminOverride) {
             const opt = document.createElement('option');
             opt.value = 'van-phong';
-            opt.textContent = 'Văn Phòng';
+            opt.textContent = hasOfficeRole ? 'Văn Phòng' : 'Văn Phòng (ngoại lệ Admin)';
+            opt.dataset.adminException = hasOfficeRole ? 'false' : 'true';
             opt.dataset.rate = user.salary_config?.receptionist_normal_rate || 0;
             if (['van-phong', 'van_phong', 'office_staff'].includes(currentRoleId)) {
                 opt.selected = true;
@@ -4728,10 +4838,11 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
         }
 
         // 3. Option Giáo Viên / Trợ Giảng
-        if (hasTeachingRole) {
+        if (hasTeachingRole || primaryAdminOverride) {
             const opt = document.createElement('option');
             opt.value = 'giao-vien';
-            opt.textContent = 'Giáo Viên / Trợ Giảng';
+            opt.textContent = hasTeachingRole ? 'Giáo Viên / Trợ Giảng' : 'Giáo Viên / Trợ Giảng (ngoại lệ Admin)';
+            opt.dataset.adminException = hasTeachingRole ? 'false' : 'true';
             if (!hasSelected || (currentRoleId && !['tiep-tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'].includes(currentRoleId))) {
                 opt.selected = true;
             }
@@ -4765,7 +4876,11 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
 
 async function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
     const linkType = isLinkable === 'office' ? 'office' : (isLinkable ? 'receptionist' : 'teaching');
+    window.currentAdminPayrollEditContext = null;
+    if (window.AdminPayrollOverrideUI) window.AdminPayrollOverrideUI.close();
     document.getElementById('edit-time-modal').style.display = 'flex';
+    const staleAdminApproval = document.getElementById('admin-approval-section');
+    if (staleAdminApproval) staleAdminApproval.style.display = 'none';
     document.getElementById('edit-date-key').value = dateKey;
     document.getElementById('edit-session-id').value = 'NEW'; // Marker for new session
     const statusEl = document.getElementById('edit-session-status');
@@ -5039,6 +5154,35 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     await populateRoleDropdown(staffId, 'edit-role', sessionData ? sessionData.role : null);
     await loadAndRenderSubjects(staffId);
 
+    const rawSession = (window.currentAttendanceMap?.[dateKey] || []).find(session =>
+        String(session?.id || '') === String(sessionId)
+    ) || sessionData;
+    const canAuthorPayrollOverride = isPrimaryPayrollAdminViewer() &&
+        !!rawSession && sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null';
+    if (canAuthorPayrollOverride && window.AdminPayrollOverrideUI &&
+        typeof DBService.getAdminPayrollSessionFingerprint === 'function') {
+        window.currentAdminPayrollEditContext = {
+            staffId,
+            dateKey,
+            sessionId: String(sessionId),
+            expectedFingerprint: DBService.getAdminPayrollSessionFingerprint(rawSession),
+            expectedRevision: Number(rawSession?.adminPayrollOverride?.revision || 0)
+        };
+        window.AdminPayrollOverrideUI.open({
+            isPrimaryAdmin: true,
+            staffId,
+            dateKey,
+            sessionId: String(sessionId),
+            session: rawSession,
+            chip,
+            user: window.currentUserContext || {},
+            subjects: Array.isArray(window.currentSubjectCatalog) ? window.currentSubjectCatalog : []
+        });
+    } else {
+        window.currentAdminPayrollEditContext = null;
+        if (window.AdminPayrollOverrideUI) window.AdminPayrollOverrideUI.close();
+    }
+
     // A linked class is the normal source of truth. Old admin-edited rows can
     // retain a stale roleName; make the modal show the current scheduled
     // subject unless the admin previously chose an explicit override.
@@ -5174,9 +5318,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                 b10Container.style.display = 'flex';
                 b10Actions.innerHTML = '';
                 const b10Status = chip.bonus10Status;
-                const hasBonus = sessionData && sessionData.bonus10;
-
-                if (b10Status === 'approved' || hasBonus) {
+                if (b10Status === 'approved') {
                     b10Actions.innerHTML = `
                         <span style="color: #059669; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ Đã duyệt</span>
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedBonus10('${chip.bonus10Id || ''}', '${staffId}', '${dateKey}', '${sessionId}')">Hủy thưởng</button>
@@ -5195,7 +5337,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                 } else {
                     b10Actions.innerHTML = `
                         <span style="color: #6B7280; font-size: 0.9rem; margin-right: 8px;">Chưa yêu cầu</span>
-                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalSubmitBonus10Request('${sessionId}', '${dateKey}', '${staffId}')" title="Admin tặng thưởng — bỏ qua kiểm tra tự động">Thưởng +10p</button>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #3B82F6; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalSubmitBonus10Request('${sessionId}', '${dateKey}', '${staffId}', '${String(chip.bonus10TargetShiftKey || '').replace(/'/g, "\\'")}')" title="Tự duyệt theo đúng ca dạy và quy tắc Môn Học">Thưởng +10p</button>
                     `;
                 }
             } else {
@@ -5279,6 +5421,8 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
 }
 
 function closeEditModal() {
+    window.currentAdminPayrollEditContext = null;
+    if (window.AdminPayrollOverrideUI) window.AdminPayrollOverrideUI.close();
     document.getElementById('edit-time-modal').style.display = 'none';
 }
 
@@ -5319,6 +5463,10 @@ async function saveEditedTime() {
         alert("Định dạng giờ ra không hợp lệ!");
         return;
     }
+    if (checkOutDate && checkOutDate <= checkInDate) {
+        alert("Giờ ra phải sau giờ vào!");
+        return;
+    }
 
     const checkInStr = checkInDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const checkOutStr = checkOutDate ? checkOutDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '???';
@@ -5333,6 +5481,14 @@ async function saveEditedTime() {
     const selectedRoleId = roleSelect?.value || null;
     const selectedRoleName = roleSelect?.options[roleSelect.selectedIndex]?.text || null;
     const selectedRoleRate = roleSelect?.options[roleSelect.selectedIndex]?.dataset?.rate || null;
+
+    if (selectedRoleId === 'giao-vien') {
+        const typedSubjectResult = commitExactTypedSubjectSelection();
+        if (!typedSubjectResult.ok) {
+            alert(typedSubjectResult.message);
+            return;
+        }
+    }
 
     const statusVal = document.getElementById('edit-session-status')?.value || 'worked';
     const isAbsent = (statusVal === 'absent');
@@ -5360,6 +5516,8 @@ async function saveEditedTime() {
         ...(classSectionKey && classIsOffice ? { linkedOfficeShift: classSectionKey } : {}),
         ...(absentSubShifts !== null ? { absentSubShifts } : {})
     };
+    let selectedSubjectsForSave = [];
+    let isFixedForSave = false;
 
     if (selectedRoleId === 'tiep-tan' || selectedRoleId === 'van-phong') {
         const isOfficeRole = selectedRoleId === 'van-phong';
@@ -5370,6 +5528,7 @@ async function saveEditedTime() {
         
         const checkedRadio = document.querySelector('input[name="edit-shift-type"]:checked');
         const isFixed = (checkedRadio && checkedRadio.value === 'fixed');
+        isFixedForSave = isFixed;
         newData.isFixedShift = isFixed;
         if (isFixed) {
             try {
@@ -5396,6 +5555,7 @@ async function saveEditedTime() {
         const selectedSubjects = editSelectedSubjectIds.map(subId => {
             return allAvailableSubjects.find(s => s.id === subId);
         }).filter(Boolean);
+        selectedSubjectsForSave = selectedSubjects;
         
         newData.role = selectedSubjects.map(s => s.id).join('+');
         newData.roleName = selectedSubjects.map(s => s.name).join(' + ');
@@ -5420,6 +5580,7 @@ async function saveEditedTime() {
 
     try {
         let finalSessionId = null;
+        let payrollOverrideResult = null;
         if (sessionIdRaw === 'NEW') {
             try {
                 finalSessionId = await DBService.addSession(staffId, dateKey, newData);
@@ -5447,14 +5608,84 @@ async function saveEditedTime() {
             alert("Đã tạo ca làm việc mới!");
         } else {
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
-            await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
-            finalSessionId = parsedSessionId;
-            // Send notification to staff
-            await DBService.createAdminNotification(
-                staffId, staffName, 'edit_session', dateKey,
-                `Admin đã chỉnh sửa giờ làm: ${checkInStr} - ${checkOutStr}`
-            );
-            alert("Cập nhật thành công!");
+            const overrideContext = window.currentAdminPayrollEditContext;
+            const usesAbsoluteAdminEditor = isPrimaryPayrollAdminViewer() &&
+                window.AdminPayrollOverrideUI?.isVisible?.() === true &&
+                overrideContext && String(overrideContext.sessionId) === String(sessionIdRaw) &&
+                String(overrideContext.staffId) === String(staffId) &&
+                String(overrideContext.dateKey) === String(dateKey);
+
+            if (usesAbsoluteAdminEditor) {
+                if (!checkOutDate) {
+                    alert('Phân bổ lương của Admin cần đủ giờ ra. Vui lòng nhập giờ ra trước khi lưu.');
+                    return;
+                }
+                const overrideDraft = window.AdminPayrollOverrideUI.buildDraft({
+                    selectedRoleId,
+                    selectedRoleRate: Number(newData.roleRate || selectedRoleRate || 0),
+                    selectedSubjects: selectedSubjectsForSave,
+                    isTeaching: selectedRoleId === 'giao-vien',
+                    isFixedShift: isFixedForSave,
+                    checkInISO: newData.checkIn,
+                    checkOutISO: newData.checkOut
+                });
+                if (!overrideDraft) throw new Error('Không đọc được phân bổ công trong popup. Hãy đóng và mở lại ca.');
+                if (!overrideDraft.reason || overrideDraft.reason.length < 3) {
+                    alert('Vui lòng ghi lý do điều chỉnh (ít nhất 3 ký tự).');
+                    return;
+                }
+                if (isAbsent && overrideDraft.override.mode !== 'schedule') {
+                    alert('Ca đang đánh dấu Vắng. Hãy chọn “Trở lại tính theo lịch” hoặc đổi trạng thái sang Đi làm trước khi lưu phân bổ lương.');
+                    return;
+                }
+                const overrideSessionPatch = { ...newData };
+                if (overrideDraft.override.mode === 'manual') {
+                    // Manual allocation rows are the complete payroll role
+                    // decision. Preserve the source session's legacy role so
+                    // clicking a different generated chip cannot silently
+                    // change the future schedule-mode fallback.
+                    ['role', 'roleName', 'roleRate', 'isFixedShift', 'roleAssignmentSource', 'subjectOverride']
+                        .forEach(key => { delete overrideSessionPatch[key]; });
+                }
+                const command = {
+                    staffId,
+                    dateKey,
+                    sessionId: String(sessionIdRaw),
+                    sessionPatch: overrideSessionPatch,
+                    override: overrideDraft.override,
+                    reason: overrideDraft.reason,
+                    clearLegacyScheduleLinks: overrideDraft.clearLegacyScheduleLinks,
+                    allowSessionOverlap: overrideDraft.allowSessionOverlap,
+                    expectedFingerprint: overrideContext.expectedFingerprint,
+                    expectedRevision: overrideContext.expectedRevision
+                };
+                try {
+                    payrollOverrideResult = await DBService.saveAdminPayrollOverride(command);
+                } catch (overrideError) {
+                    if (overrideError?.code !== 'SESSION_OVERLAP' || command.allowSessionOverlap === true) throw overrideError;
+                    const continueOverlap = confirm(
+                        `${overrideError.message}\n\nChỉ tiếp tục nếu đây là hai phiên nguồn khác nhau mà Admin cố ý giữ. Phần phân bổ chồng giờ trong cùng override vẫn tự loại trả trùng.`
+                    );
+                    if (!continueOverlap) return;
+                    payrollOverrideResult = await DBService.saveAdminPayrollOverride({
+                        ...command,
+                        allowSessionOverlap: true
+                    });
+                }
+                finalSessionId = parsedSessionId;
+                alert(payrollOverrideResult?.revisionRequired
+                    ? 'Đã lưu phân bổ công. Bảng lương đã gửi trước đó được đánh dấu cần tính/gửi lại.'
+                    : 'Đã lưu phân bổ công của Admin!');
+            } else {
+                await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
+                finalSessionId = parsedSessionId;
+                // Legacy/senior-assistant edits retain their existing flow.
+                await DBService.createAdminNotification(
+                    staffId, staffName, 'edit_session', dateKey,
+                    `Admin đã chỉnh sửa giờ làm: ${checkInStr} - ${checkOutStr}`
+                );
+                alert("Cập nhật thành công!");
+            }
         }
 
         // Save Overtime Minutes if modified (Admin Only)
@@ -5546,25 +5777,23 @@ window.modalCancelApprovedBonus10 = async function(requestId, staffId, dateKey, 
     }
 };
 
-window.modalSubmitBonus10Request = async function(sessionId, dateKey, staffId) {
-    try {
-        if (typeof UIService !== 'undefined') UIService.showLoading('Đang gửi yêu cầu...');
-        // Admin tặng tay: bỏ qua kiểm tra tự động, nhưng vẫn ghi 1 bản ghi đã duyệt
-        // để lịch sử và hình phạt tháng có chỗ bám vào.
-        const staffName = getTargetStaffName();
-        await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, sessionId, null);
-        if (typeof UIService !== 'undefined') {
-            UIService.hideLoading();
-            UIService.toast("Đã tặng thưởng 10p thành công!", "success");
-        }
-        closeEditModal();
-        renderMonthReport(currentDate);
-    } catch (e) {
-        if (typeof UIService !== 'undefined') {
-            UIService.hideLoading();
-            UIService.toast(e.message || 'Lỗi', 'error');
-        }
+window.modalSubmitBonus10Request = async function(sessionId, dateKey, staffId, targetShiftKey) {
+    const chip = (window.allMonthChips || []).find(item =>
+        String(item?.dateStr || '') === String(dateKey) &&
+        String(item?.sessionId || '') === String(sessionId) &&
+        String(item?.bonus10TargetShiftKey || '') === String(targetShiftKey || '') &&
+        item?.isTeaching === true
+    );
+    if (!chip) {
+        await UIService.notice(
+            'Không xác định được chính xác ca dạy nhận +10 phút. Hãy đóng popup, tải lại bảng công và thao tác trên chip ca dạy.',
+            'Thiếu định danh ca dạy',
+            'warning'
+        );
+        return;
     }
+    closeEditModal();
+    await submitBonus10Request(sessionId, dateKey, staffId, chip);
 };
 
 window.modalApproveOvertime = async function(requestId) {
@@ -5987,20 +6216,77 @@ async function evaluateEarly10ForChip(chip, staffId) {
     if (typeof Early10 === 'undefined') {
         return { ok: false, code: 'missing-module', message: 'Chưa tải được quy tắc sớm 10 phút. Hãy tải lại trang.' };
     }
+    if (chip?.scheduleIsInherited === true) {
+        return {
+            ok: false,
+            code: 'schedule-not-materialized',
+            message: 'Ca này đang dùng lịch kế thừa. Admin cần lưu lịch riêng cho ngày này trước khi gửi +10 phút để định danh ca không thay đổi.'
+        };
+    }
     const [subjects, users] = await Promise.all([
         DBService.getSubjects(true).catch(() => []),
         DBService.getUsers().catch(() => [])
     ]);
     const user = users.find(u => u.id === staffId) || null;
     const session = chip?.sessionData || {};
-    return Early10.evaluateEarly10Request({
+    const subjectIds = Early10.getChipSubjectIds ? Early10.getChipSubjectIds(chip) : [];
+    const subjectMap = Early10.buildSubjectEarly10Map(subjects);
+    const subjectId = subjectIds.find(id => subjectMap[String(id)] === true) || '';
+    const verdict = Early10.evaluateEarly10Request({
         sessionRole: session.role,
-        subjectIds: Early10.getChipSubjectIds ? Early10.getChipSubjectIds(chip) : [],
+        subjectIds,
         subjects,
         user,
         checkIn: session.checkIn,
         classStart: chip?.classStart
     });
+    if (!verdict.ok) return verdict;
+    return {
+        ...verdict,
+        awardScope: 'teaching_shift',
+        targetShiftKey: String(chip?.bonus10TargetShiftKey || ''),
+        subjectId,
+        scheduleDocId: String(chip?.classCompositeKey || ''),
+        scheduleSection: String(chip?.classSectionKey || ''),
+        scheduleIndex: Number(chip?.classIndex),
+        scheduleShiftId: String(chip?.scheduleShiftId || ''),
+        scheduleRegistrationId: String(chip?.scheduleRegistrationId || ''),
+        scheduleAssignmentList: String(chip?.scheduleAssignmentList || ''),
+        scheduleAssignmentEntry: chip?.scheduleAssignmentEntry &&
+            typeof chip.scheduleAssignmentEntry === 'object'
+            ? { ...chip.scheduleAssignmentEntry }
+            : {},
+        classStart: String(chip?.classStart || ''),
+        classEnd: String(chip?.classEnd || ''),
+        checkInAt: String(session.checkIn || session.start || '')
+    };
+}
+
+function commitExactTypedSubjectSelection() {
+    const input = document.getElementById('subject-search-input');
+    const typed = String(input?.value || '').trim();
+    if (!typed) return { ok: true, changed: false };
+    const key = normalizeSubjectLookupName(typed);
+    const matches = allAvailableSubjects.filter(subject => {
+        const full = normalizeSubjectLookupName(subject.path || subject.name);
+        const leaf = normalizeSubjectLookupName(String(subject.path || subject.name || '').split(/[›>]/).pop());
+        return full === key || leaf === key || normalizeSubjectLookupName(subject.name) === key;
+    });
+    const unique = Array.from(new Map(matches.map(subject => [String(subject.id), subject])).values());
+    if (unique.length !== 1) {
+        return {
+            ok: false,
+            message: unique.length > 1
+                ? `Có nhiều môn khớp “${typed}”. Vui lòng bấm chọn đúng môn trong danh sách.`
+                : `Không tìm thấy môn khớp chính xác “${typed}”. Vui lòng chọn trong danh sách.`
+        };
+    }
+    const resolvedId = String(unique[0].id);
+    const changed = editSelectedSubjectIds.length !== 1 || String(editSelectedSubjectIds[0]) !== resolvedId;
+    editSelectedSubjectIds = [resolvedId];
+    renderSelectedSubjectBadges();
+    input.value = '';
+    return { ok: true, changed, subject: unique[0] };
 }
 
 async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
@@ -6029,18 +6315,19 @@ async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
     }
 
     const confirmed = await UIService.confirm(
-        `${verdict.message}\n\nGửi yêu cầu +10 phút cho ca này để Admin duyệt?`
+        `${verdict.message}\n\nGửi yêu cầu +10 phút cho ca này? Hệ thống sẽ tự duyệt ngay nếu dữ liệu vẫn hợp lệ.`
     );
     if (!confirmed) return;
 
     const staffName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'N/A';
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang xử lý...');
-        // Trình duyệt chỉ xem trước điều kiện. Yêu cầu vẫn phải chờ Admin duyệt
-        // nguyên tử cùng cờ phiên công để nhân viên không thể tự cấp tiền lương.
+        // Transaction re-reads the exact session, schedule row, subject and
+        // personnel mode. Rules bind the approved award to the authenticated
+        // owner and shift metadata, so no Admin wait is necessary.
         await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, sessionId, verdict);
         if (typeof UIService !== 'undefined') UIService.hideLoading();
-        UIService.toast(`Đã gửi yêu cầu +10p (vào sớm ${verdict.earlyMinutes} phút). Chờ Admin duyệt.`, 'success');
+        UIService.toast(`Đã tự duyệt +10p cho đúng ca dạy (vào sớm ${verdict.earlyMinutes} phút).`, 'success');
         _cachedStaffId = null;
         renderMonthReport(currentDate);
     } catch (e) {
@@ -6204,21 +6491,8 @@ async function approveSelectedBonus10() {
     }
 }
 
-// TEMP CLEANUP — chạy 1 lần rồi xóa
-window._cleanupBonus10ForStaff = async function (staffId) {
-    if (!staffId) { console.error('Cần staffId'); return; }
-    try {
-        const snap = await db.collection('bonus10_requests')
-            .where('staffId', '==', staffId).get();
-        if (snap.empty) { console.log('Không có data nào'); return; }
-        const batch = db.batch();
-        snap.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
-        console.log(`Đã xóa ${snap.size} records của staffId: ${staffId}`);
-    } catch (e) { console.error('Lỗi:', e); }
-};
-
-// DEDUPLICATE — Xóa bản ghi bonus10 pending bị trùng, chỉ giữ lại 1 bản per (staffId, dateKey, sessionId)
+// DEDUPLICATE — chỉ coi là trùng khi cùng ca dạy đích; một session có thể phủ
+// nhiều chip và không được làm mất request của targetShiftKey khác.
 // Chạy từ console: window._deduplicateBonus10Requests()
 window._deduplicateBonus10Requests = async function () {
     try {
@@ -6237,7 +6511,7 @@ window._deduplicateBonus10Requests = async function () {
 
         snap.docs.forEach(doc => {
             const d = doc.data();
-            const key = `${d.staffId}_${d.dateKey}_${d.sessionId}`;
+            const key = `${d.staffId}_${d.dateKey}_${d.sessionId}_${d.targetShiftKey || 'legacy-unscoped'}`;
             if (seen.has(key)) {
                 toDelete.push(doc.ref); // bản trùng → đánh dấu xóa
             } else {
@@ -6295,25 +6569,27 @@ function isStudentCountBonusRow(name) {
 }
 
 function classifyAbsentChip(chip, notesMap) {
-    if (chip.isCancelled) {
-        return 'VP';
+    if (window.ShiftAbsenceState?.classifyChipAbsence) {
+        return window.ShiftAbsenceState.classifyChipAbsence(chip, notesMap);
     }
-    if (chip.absenceType === 'VP' || chip.absenceType === 'VDX') {
-        return chip.absenceType;
+
+    // Rolling-deploy fallback. A daily note has no shift identity, so it may
+    // classify a chip only after that chip carries exact absence evidence.
+    if (chip.hasCanonicalAbsenceState === true && chip.absenceState === 'ACTIVE' && !chip.absenceEvidence) return 'VKP';
+    if (chip.isCancelled || chip.absenceStateSource === 'cancellation') return 'VP';
+    if (chip.absenceStateSource === 'teacher-absence') {
+        return chip.absenceType === 'VP' ? 'VP' : 'VDX';
     }
-    const dateStr = chip.dateStr;
-    const noteText = ((notesMap || {})[dateStr] || '').toLowerCase().trim();
-    // daily_notes is a legacy fallback only. Explicit per-shift absenceType above is
-    // canonical so a note for another shift cannot reclassify this class or payroll.
-    if (noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) {
-        return 'VDX';
+    const evidenceCanUseDailyNote = chip.absenceStateSource === 'legacy-substitute' ||
+        chip.absenceStateSource === 'attendance-session';
+    if (evidenceCanUseDailyNote) {
+        const noteText = ((notesMap || {})[chip.dateStr] || '').toLowerCase().trim();
+        if (noteText.includes('đột xuất') || noteText.includes('vdx') || noteText.includes('đx')) return 'VDX';
+        if (noteText.includes('phép') || /(^|\s)vp($|\s)/.test(noteText)) return 'VP';
     }
-    if (noteText.includes('phép') || noteText.includes('vp') || noteText.includes(' p ') || noteText.endsWith(' p') || noteText.startsWith('p ')) {
-        return 'VP';
-    }
-    if (chip.isVDX) {
-        return 'VDX';
-    }
+    if (chip.absenceState === 'VP' || chip.absenceState === 'VDX') return chip.absenceState;
+    if (chip.absenceType === 'VP' || chip.absenceType === 'VDX') return chip.absenceType;
+    if (chip.isVDX) return 'VDX';
     return 'VKP';
 }
 
@@ -6665,16 +6941,7 @@ async function populateModalCurrentTab() {
         window.currentMonthlySalarySettingsAll || {},
         window.unfilteredAllMonthChips || []
     );
-    const ensureGroup = (groupName) => {
-        if (!groups[groupName]) {
-            groups[groupName] = {
-                name: groupName,
-                chips: [],
-                totalMinutes: 0
-            };
-        }
-        return groups[groupName];
-    };
+    const ensureGroup = (groupName) => ensurePayrollRateGroup(groups, groupName);
     (window.unfilteredAllMonthChips || []).forEach(chip => {
         const name = chip.chipFilterName;
         if (!name) return;
@@ -6703,28 +6970,12 @@ async function populateModalCurrentTab() {
                             remainingMinutes -= segMins;
                         }
                     }
-                    if (!groups[groupName]) {
-                        groups[groupName] = {
-                            name: groupName,
-                            chips: [],
-                            totalMinutes: 0
-                        };
-                    }
-                    groups[groupName].chips.push(chip);
-                    groups[groupName].totalMinutes += segMins;
+                    addPayrollRateGroupMinutes(groups, groupName, chip, segMins);
                 });
             } else {
                 const groupName = chip.isFixedShift ? "Tiếp Tân (Ca Cố Định)" : "Tiếp Tân (Ca Bình Thường)";
                 const mins = chip.paidMinutes || 0;
-                if (!groups[groupName]) {
-                    groups[groupName] = {
-                        name: groupName,
-                        chips: [],
-                        totalMinutes: 0
-                    };
-                }
-                groups[groupName].chips.push(chip);
-                groups[groupName].totalMinutes += mins;
+                addPayrollRateGroupMinutes(groups, groupName, chip, mins);
             }
         } else {
             if (chip.mergedSegments && chip.mergedSegments.length > 0) {
@@ -6747,28 +6998,27 @@ async function populateModalCurrentTab() {
                     const normalizeFn = window.normalizeChipFilterName || (x => x);
                     const segName = normalizeFn(seg.lop);
                     if (segName) {
-                        const baseGroup = ensureGroup(segName);
-                        baseGroup.chips.push(chip);
+                        trackPayrollRateGroupChip(groups, segName, chip);
 
                         // Vẫn hiện dòng "(+N HS)" để cấu hình đơn giá, nhưng giờ chỉ nằm ở 1 dòng.
                         if (chip.studentCount && chip.studentCount > 0) {
-                            ensureGroup(`${segName} (+${chip.studentCount} HS)`).chips.push(chip);
+                            trackPayrollRateGroupChip(groups, `${segName} (+${chip.studentCount} HS)`, chip);
                         }
                         getTeachingPayAllocations(chip, segName, segMins, 0, classRates, classRatePenaltyActive)
                             .forEach(alloc => {
-                                ensureGroup(alloc.name).totalMinutes += alloc.minutes;
+                                addPayrollRateGroupMinutes(groups, alloc.name, chip, alloc.minutes);
                             });
                     }
                 });
             } else {
-                ensureGroup(name).chips.push(chip);
+                trackPayrollRateGroupChip(groups, name, chip);
 
                 if (chip.studentCount && chip.studentCount > 0) {
-                    ensureGroup(`${name} (+${chip.studentCount} HS)`).chips.push(chip);
+                    trackPayrollRateGroupChip(groups, `${name} (+${chip.studentCount} HS)`, chip);
                 }
                 getTeachingPayAllocations(chip, name, chip.paidMinutes || 0, 0, classRates, classRatePenaltyActive)
                     .forEach(alloc => {
-                        ensureGroup(alloc.name).totalMinutes += alloc.minutes;
+                        addPayrollRateGroupMinutes(groups, alloc.name, chip, alloc.minutes);
                     });
             }
         }
@@ -6788,6 +7038,9 @@ async function populateModalCurrentTab() {
             groupKeys.forEach(name => {
                 const group = groups[name];
                 const mins = group.totalMinutes;
+                const policyMinutes = Number(group.policyMinutes) || 0;
+                const manualMinutes = Number(group.manualMinutes) || 0;
+                const manualOnly = policyMinutes === 0 && manualMinutes > 0;
                 grandTotalMinutes += mins;
                 
                 let prefillRate = 0;
@@ -6831,7 +7084,7 @@ async function populateModalCurrentTab() {
                             // used by the main salary calculation.  This removes
                             // the old need to re-enter the hourly rate in the
                             // monthly modal while leaving legacy fallback intact.
-                            const policyChip = group.chips.find(c => c && c.sessionData && !c.isReceptionist);
+                            const policyChip = group.chips.find(c => c && c.sessionData && !c.isReceptionist && getAuthoritativeAdminPayrollRate(c) === null);
                             const policyRate = policyChip ? getResolvedTeachingRate(policyChip, name, 0) : 0;
                             if (policyRate > 0) {
                                 prefillRate = policyRate;
@@ -6844,7 +7097,7 @@ async function populateModalCurrentTab() {
                                 if (foundRoleInConfig) {
                                     prefillRate = Number(foundRoleInConfig.rate || 0);
                                 } else {
-                                    const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
+                                    const firstWithRate = group.chips.find(c => getAuthoritativeAdminPayrollRate(c) === null && c.sessionData && Number(c.sessionData.roleRate) > 0);
                                     prefillRate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
                                 }
                             }
@@ -6856,9 +7109,11 @@ async function populateModalCurrentTab() {
                 const isPenaltyActive = !!window.currentMonthlySalarySettingsAll?.studentCountBonusPenalty || hasRejectedChip;
                 const isBonus = isStudentCountBonusRow(name);
                 const isRowDisabled = isBonus && isPenaltyActive;
+                const displayRate = manualOnly && manualMinutes > 0
+                    ? group.manualAmount / (manualMinutes / 60)
+                    : prefillRate;
                 
-                const hours = mins / 60;
-                let amount = isRowDisabled ? 0 : hours * prefillRate;
+                let amount = getPayrollRateGroupAmount(group, prefillRate, isRowDisabled);
                 grandTotalSalary += amount;
                 
                 const h = Math.floor(mins / 60);
@@ -6866,10 +7121,14 @@ async function populateModalCurrentTab() {
                 const timeStr = `${h}h${m > 0 ? ' ' + m + 'p' : ''}`;
                 
                 const nameStyle = isBonus ? 'padding-left: 2.25rem; font-weight: 600; color: #166534; font-size: 0.85rem;' : 'font-weight: 500; color: #374151;';
-                const displayName = isBonus ? `↳ ${name}` : name;
+                const manualSuffix = manualMinutes > 0
+                    ? ` <span style="font-size:0.72rem;color:#7C3AED;font-weight:600;">(${manualMinutes}p Admin chốt)</span>`
+                    : '';
+                const displayName = (isBonus ? `↳ ${name}` : name) + manualSuffix;
                 
-                const inputBg = isRowDisabled ? 'background-color: #E5E7EB; cursor: not-allowed;' : '';
-                const inputDisabledAttr = isRowDisabled ? 'disabled' : '';
+                const inputLocked = isRowDisabled || manualOnly;
+                const inputBg = inputLocked ? 'background-color: #E5E7EB; cursor: not-allowed;' : '';
+                const inputDisabledAttr = inputLocked ? 'disabled' : '';
 
                 const row = document.createElement('tr');
                 row.style.borderBottom = '1px solid #E5E7EB';
@@ -6882,8 +7141,11 @@ async function populateModalCurrentTab() {
                     <td style="padding: 0.5rem 1rem; text-align: right;">
                         <input type="text" class="class-rate-input table-input money-input" 
                             data-name="${name.replace(/"/g, '&quot;')}" 
-                            data-minutes="${mins}"
-                            value="${formatNumberWithCommas(prefillRate)}" 
+                            data-minutes="${policyMinutes}"
+                            data-total-minutes="${mins}"
+                            data-manual-amount="${group.manualAmount || 0}"
+                            data-save-rate="${manualOnly ? 'false' : 'true'}"
+                            value="${formatNumberWithCommas(displayRate)}"
                             oninput="recalculateSalaryModal()"
                             ${inputDisabledAttr}
                             style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px 8px; font-weight: 600; ${inputBg}">
@@ -7113,14 +7375,16 @@ function recalculateSalaryModal() {
     classRateInputs.forEach(input => {
         const name = input.dataset.name;
         const mins = Number(input.dataset.minutes || 0);
+        const totalMins = Number(input.dataset.totalMinutes || mins || 0);
+        const manualAmount = Number(input.dataset.manualAmount || 0);
         const rate = parseFormattedNumber(input.value);
-        const amount = (mins / 60) * rate;
+        const amount = manualAmount + (mins / 60) * rate;
         basePay += amount;
         
         if (name === "Tiếp Tân (Ca Cố Định)") {
-            fixedMinutes = mins;
+            fixedMinutes = totalMins;
         } else if (name === "Tiếp Tân (Ca Bình Thường)") {
-            normalMinutes = mins;
+            normalMinutes = totalMins;
             normalRate = rate;
         }
         
@@ -7214,12 +7478,14 @@ async function saveSalarySettingsFromModal() {
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
-    const classRates = {};
+    const activeRoleSettings = window.currentMonthlySalarySettingsAll?.[window.modalActiveRole] ||
+        window.currentMonthlySalarySettingsAll?.[String(window.modalActiveRole || '').replace('-', '_')] || {};
+    const classRates = { ...(activeRoleSettings.class_rates || {}) };
     const classRateInputs = document.querySelectorAll('.class-rate-input');
     classRateInputs.forEach(input => {
         const name = input.dataset.name;
         const rate = parseFormattedNumber(input.value);
-        if (name) {
+        if (name && input.dataset.saveRate !== 'false') {
             classRates[name] = rate;
         }
     });
@@ -7398,6 +7664,14 @@ async function switchSalaryModalTab(tab) {
     }
 }
 
+function buildAttendanceSessionMap(records) {
+    return (Array.isArray(records) ? records : []).reduce((map, record) => {
+        const recordDate = record?.date || record?.id;
+        if (recordDate && Array.isArray(record?.sessions)) map[recordDate] = record.sessions;
+        return map;
+    }, {});
+}
+
 async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
     const historyContainer = document.getElementById('modal-history-content');
     const loadingEl = document.getElementById('modal-history-loading');
@@ -7424,10 +7698,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         const scheduleMap = await DBService.getMonthlySchedule(prevMonthStr);
         const observationRecords = await DBService.getShiftObservationsForMonth(prevMonthStr, staffId);
         
-        const attendanceMap = {};
-        attendanceRecords.forEach(rec => {
-            if (rec.id && rec.sessions) attendanceMap[rec.id] = rec.sessions;
-        });
+        const attendanceMap = buildAttendanceSessionMap(attendanceRecords);
         
         const receptionistShiftsMap = {};
         receptionistShifts.forEach(rec => {
@@ -7444,16 +7715,26 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         
         const bonus10Map = {};
         bonus10Records.forEach(req => {
-            if (req.dateKey && req.status === 'approved') {
+            if (req.dateKey) {
                 if (!bonus10Map[req.dateKey]) bonus10Map[req.dateKey] = {};
-                bonus10Map[req.dateKey][req.sessionId] = req;
+                const sessionKey = String(req.sessionId || '');
+                if (!sessionKey) return;
+                if (!Array.isArray(bonus10Map[req.dateKey][sessionKey])) {
+                    bonus10Map[req.dateKey][sessionKey] = [];
+                }
+                bonus10Map[req.dateKey][sessionKey].push(req);
             }
         });
         const previousPenaltyState = prevMonthlySettingsAll?.bonus10PenaltyState;
         const prevMonthFlags = {
             early10PenaltyActive: previousPenaltyState && typeof previousPenaltyState.active === 'boolean'
                 ? previousPenaltyState.active
-                : bonus10Records.some(req => req.status === 'rejected')
+                : bonus10Records.some(req => req.status === 'rejected'),
+            subjectEarly10Map: typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10Map
+                ? Early10.buildSubjectEarly10Map(
+                    Array.isArray(window.currentSubjectCatalog) ? window.currentSubjectCatalog : []
+                )
+                : {}
         };
 
         const observationMap = {};
@@ -7551,20 +7832,12 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                                 remainingMinutes -= segMins;
                             }
                         }
-                        if (!groups[groupName]) {
-                            groups[groupName] = { name: groupName, chips: [], totalMinutes: 0 };
-                        }
-                        groups[groupName].chips.push(chip);
-                        groups[groupName].totalMinutes += segMins;
+                        addPayrollRateGroupMinutes(groups, groupName, chip, segMins);
                     });
                 } else {
                     const groupName = chip.isFixedShift ? "Tiếp Tân (Ca Cố Định)" : "Tiếp Tân (Ca Bình Thường)";
                     const mins = chip.paidMinutes || 0;
-                    if (!groups[groupName]) {
-                        groups[groupName] = { name: groupName, chips: [], totalMinutes: 0 };
-                    }
-                    groups[groupName].chips.push(chip);
-                    groups[groupName].totalMinutes += mins;
+                    addPayrollRateGroupMinutes(groups, groupName, chip, mins);
                 }
             } else {
                 if (chip.mergedSegments && chip.mergedSegments.length > 0) {
@@ -7587,19 +7860,11 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                         const normalizeFn = window.normalizeChipFilterName || (x => x);
                         const segName = normalizeFn(seg.lop);
                         if (segName) {
-                            if (!groups[segName]) {
-                                groups[segName] = { name: segName, chips: [], totalMinutes: 0 };
-                            }
-                            groups[segName].chips.push(chip);
-                            groups[segName].totalMinutes += segMins;
+                            addPayrollRateGroupMinutes(groups, segName, chip, segMins);
                         }
                     });
                 } else {
-                    if (!groups[name]) {
-                        groups[name] = { name: name, chips: [], totalMinutes: 0 };
-                    }
-                    groups[name].chips.push(chip);
-                    groups[name].totalMinutes += (chip.paidMinutes || 0);
+                    addPayrollRateGroupMinutes(groups, name, chip, chip.paidMinutes || 0);
                 }
             }
         });
@@ -7614,6 +7879,8 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
             groupKeys.forEach(name => {
                 const group = groups[name];
                 const mins = group.totalMinutes;
+                const policyMinutes = Number(group.policyMinutes) || 0;
+                const manualMinutes = Number(group.manualMinutes) || 0;
                 
                 let rate = 0;
                 if (classRates[name] !== undefined && Number(classRates[name]) > 0) {
@@ -7636,15 +7903,20 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                         if (foundRoleInConfig) {
                             rate = Number(foundRoleInConfig.rate || 0);
                         } else {
-                            const firstWithRate = group.chips.find(c => c.sessionData && Number(c.sessionData.roleRate) > 0);
-                            rate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
+                        const firstWithRate = group.chips.find(c => getAuthoritativeAdminPayrollRate(c) === null && c.sessionData && Number(c.sessionData.roleRate) > 0);
+                        rate = firstWithRate ? Number(firstWithRate.sessionData.roleRate) : 0;
                         }
                     }
                 }
                 
-                const hours = mins / 60;
-                const amt = hours * rate;
+                const amt = getPayrollRateGroupAmount(group, rate);
                 basePay += amt;
+                const displayRate = policyMinutes === 0 && manualMinutes > 0
+                    ? group.manualAmount / (manualMinutes / 60)
+                    : rate;
+                const displayRateText = policyMinutes > 0 && manualMinutes > 0
+                    ? `${formatNumberWithCommas(displayRate)} ₫ + Admin`
+                    : `${formatNumberWithCommas(displayRate)} ₫`;
                 
                 const h = Math.floor(mins / 60);
                 const m = Math.floor(mins % 60);
@@ -7654,7 +7926,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                     <tr style="border-bottom: 1px solid #E5E7EB;">
                         <td style="padding: 0.65rem 1rem; font-weight: 500; color: #374151;">${name}</td>
                         <td style="padding: 0.65rem 1rem; text-align: center; color: #4B5563;">${timeStr}</td>
-                        <td style="padding: 0.65rem 1rem; text-align: right; font-weight: 600; color: #374151;">${formatNumberWithCommas(rate)} ₫</td>
+                        <td style="padding: 0.65rem 1rem; text-align: right; font-weight: 600; color: #374151;">${displayRateText}</td>
                         <td style="padding: 0.65rem 1rem; text-align: right; font-weight: 700; color: #111827;">${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amt)}</td>
                     </tr>
                 `;
@@ -9013,14 +9285,22 @@ function getCurrentCalculationPayload(role) {
                 classRates = gvMonthly.class_rates || cfg.class_rates || {};
             }
             
-            if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
-                rate = Number(classRates[chip.chipFilterName]);
-                hasClassRate = true;
-            }
+                const adminManualRate = getAuthoritativeAdminPayrollRate(chip);
+                if (adminManualRate !== null) {
+                    rate = adminManualRate;
+                    hasClassRate = true;
+                } else if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+                    rate = Number(classRates[chip.chipFilterName]);
+                    hasClassRate = true;
+                }
 
             if (isTiepTan) {
                 let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
                 let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                if (adminManualRate !== null) {
+                    fixedRate = adminManualRate;
+                    normalRate = adminManualRate;
+                }
                 
                 if (chip.mergedSegments && chip.mergedSegments.length > 0) {
                     let remainingMinutes = minutes;
@@ -9081,7 +9361,10 @@ function getCurrentCalculationPayload(role) {
                         const segName = normalizeFn(seg.lop);
                         
                         let segRate = 0;
-                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                        const adminSegmentRate = getAuthoritativeAdminPayrollRate(chip);
+                        if (adminSegmentRate !== null) {
+                            segRate = adminSegmentRate;
+                        } else if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
                             const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;

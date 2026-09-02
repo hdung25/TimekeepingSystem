@@ -68,6 +68,6 @@ assert.match(registerFlow, /collection\('schedule_registrations'\)/);
 assert.doesNotMatch(registerFlow, /collection\('schedules'\)/,
     'self-registration must never write a schedule document');
 assert.match(registerFlow, /status: nextStatus/);
-assert.match(source, /_attachScheduleRegistrations\(compositeKey, data\)/);
+assert.match(source, /_attachScheduleRegistrations\(compositeKey, data(?:, options)?\)/);
 
 console.log('schedule-registration.test.js: all assertions passed');

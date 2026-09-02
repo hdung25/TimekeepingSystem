@@ -202,7 +202,13 @@ function exportSalaryPDF(overrides) {
                 classRates = gvMonthly.class_rates || cfg.class_rates || {};
             }
             
-            if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
+            const adminManualRate = typeof window.getAuthoritativeAdminPayrollRate === 'function'
+                ? window.getAuthoritativeAdminPayrollRate(chip)
+                : null;
+            if (adminManualRate !== null) {
+                rate = adminManualRate;
+                hasClassRate = true;
+            } else if (chip.chipFilterName && classRates[chip.chipFilterName] !== undefined && Number(classRates[chip.chipFilterName]) > 0) {
                 rate = Number(classRates[chip.chipFilterName]);
                 hasClassRate = true;
             }
@@ -210,6 +216,10 @@ function exportSalaryPDF(overrides) {
             if (isTiepTan) {
                 let fixedRate = classRates["Tiếp Tân (Ca Cố Định)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Cố Định)"]) : Number(cfg.receptionist_fixed_rate || 0);
                 let normalRate = classRates["Tiếp Tân (Ca Bình Thường)"] !== undefined ? Number(classRates["Tiếp Tân (Ca Bình Thường)"]) : Number(cfg.receptionist_normal_rate || 0);
+                if (adminManualRate !== null) {
+                    fixedRate = adminManualRate;
+                    normalRate = adminManualRate;
+                }
                 
                 if (chip.mergedSegments && chip.mergedSegments.length > 0) {
                     let remainingMinutes = minutes;
@@ -270,7 +280,9 @@ function exportSalaryPDF(overrides) {
                         const segName = normalizeFn(seg.lop);
                         
                         let segRate = 0;
-                        if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
+                        if (adminManualRate !== null) {
+                            segRate = adminManualRate;
+                        } else if (segName && classRates[segName] !== undefined && Number(classRates[segName]) > 0) {
                             segRate = Number(classRates[segName]);
                         } else {
                             segRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;

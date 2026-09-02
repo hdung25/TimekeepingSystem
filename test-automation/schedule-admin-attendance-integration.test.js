@@ -133,16 +133,16 @@ assert.match(command, /requestRefs\.forEach\(ref => reads\.push\(transaction\.ge
     'known monthly +10 requests must be re-read inside the correction transaction');
 assert.match(command, /monthlyRequestDocs\.forEach\(doc => transactionRequestRefs\.set\(doc\.id, doc\.ref\)\)/,
     'all known monthly requests must be transactionally checked even when +10 was not toggled');
-assert.match(command, /const canonicalRequestId = _canonicalBonus10RequestId\(dateKey, staffId, targetSessionId\)/,
-    'new popup requests must use the collision-free canonical tuple ID');
+assert.match(command, /const canonicalRequestId = _canonicalBonus10RequestId\(\s*dateKey,\s*staffId,\s*targetSessionId,\s*targetShiftKey\s*\)/,
+    'new popup requests must use the exact teaching-shift singleton ID');
 assert.match(command, /transactionRequestRefs\.set\(canonicalRequestId, canonicalBonusRequestRef\)/,
     'the popup must always read the canonical request inside the transaction');
 const beforeAttendanceTransaction = command.slice(0, command.indexOf('await db.runTransaction'));
 assert.doesNotMatch(beforeAttendanceTransaction, /evaluateEarly10Request\(/,
     'clicked-row policy must not reject joined A+B before the transaction resolves the complete live set');
 assert.match(command, /const bonus10Dirty = command\.bonus10Dirty === true \|\|/);
-assert.match(command, /if \(bonus10Dirty\) session\.bonus10 = desiredBonus10/,
-    'time/count-only edits must preserve the existing +10 flag');
+assert.match(command, /delete session\.bonus10/,
+    'admin corrections must clean the obsolete session-wide +10 flag');
 assert.match(command, /const requiresBonus10Policy = wantsBonus10 \|\| keepsExistingBonus10/,
     'preserved active +10 must be re-evaluated against the corrected time');
 assert.match(command, /bonus10Dirty && bonusRequestSnapshot\?\.exists/,
@@ -169,8 +169,8 @@ assert.match(command, /attendance\/session-role-conflict/,
     'a different teaching subject must not be silently retained or overwritten');
 assert.match(command, /const concurrentTeaching = _resolveConcurrentTeachingSubjectSet\([\s\S]*const effectiveSubjectId = concurrentSubjectIds\.join\('\+'\)/,
     'every save path must compute the complete live concurrent subject set');
-assert.match(command, /sessionRole:\s*effectiveSubjectId,[\s\S]*subjectIds:\s*concurrentSubjectIds/,
-    '+10 policy must use the same complete A+B subject set that payroll stores');
+assert.match(command, /sessionRole:\s*subjectId,[\s\S]*subjectIds,[\s\S]*subjects:\s*liveSubjects/,
+    '+10 policy must evaluate only the clicked teaching row, even when payroll stores a concurrent A+B role');
 assert.match(command, /concurrentSubjectRefs\.map\(ref => transaction\.get\(ref\)\)/,
     'every subject in a merged role set must be re-read inside the attendance transaction');
 assert.match(command, /const linksOneConcurrentRow = isConcurrentTeachingSession[\s\S]*concurrentTeaching\.rows\.some/,
@@ -224,13 +224,17 @@ const createBonusEnd = db.indexOf('\n    createApprovedBonus10Request:', createB
 const createBonusCommand = db.slice(createBonusStart, createBonusEnd);
 assert.match(createBonusCommand, /_canonicalBonus10RequestId/);
 assert.match(createBonusCommand, /db\.runTransaction/);
-assert.match(createBonusCommand, /status:\s*'pending'/,
-    'staff policy preview may only create a pending payroll request');
+assert.match(createBonusCommand, /transaction\.get\(checkInProofRef\)/,
+    'staff auto-approval must read the immutable server check-in receipt in its transaction');
+assert.match(createBonusCommand, /checkIn:\s*proofTime/,
+    'the award threshold must be recomputed from server time, not the client ISO claim');
+assert.match(createBonusCommand, /status:\s*'approved'/,
+    'an eligible authenticated staff request is approved without waiting for Admin');
 assert.doesNotMatch(createBonusCommand, /collection\('bonus10_requests'\)\.add/,
     'random request IDs would reopen the duplicate-create race');
 
 const approveBonusStart = db.indexOf('approveBonus10Request: async');
-const approveBonusEnd = db.indexOf('\n    // Rejecting/cancelling', approveBonusStart);
+const approveBonusEnd = db.indexOf('\n    cancelApprovedBonus10:', approveBonusStart);
 const approveBonusCommand = db.slice(approveBonusStart, approveBonusEnd);
 assert.match(approveBonusCommand, /db\.runTransaction/);
 assert.match(approveBonusCommand, /transaction\.get\(attendanceRef\)/);
@@ -238,8 +242,10 @@ assert.match(approveBonusCommand, /transaction\.get\(monthlyRef\)/);
 assert.match(approveBonusCommand, /String\(request\.status \|\| ''\) !== 'pending'/);
 assert.match(approveBonusCommand, /Early10\.evaluateEarly10Request/,
     'Admin approval must recompute policy from the live attendance/profile/subject documents');
-assert.match(approveBonusCommand, /transaction\.update\(requestRef[\s\S]*transaction\.set\(attendanceRef/,
-    'request approval and attendance bonus flag must commit atomically');
+assert.match(approveBonusCommand, /transaction\.update\(requestRef,[\s\S]*awardScope:\s*'teaching_shift'[\s\S]*targetShiftKey:/,
+    'legacy Admin approval must migrate the request itself onto one exact teaching shift');
+assert.doesNotMatch(approveBonusCommand, /transaction\.(?:set|update)\(attendanceRef/,
+    'request approval must not recreate the obsolete session-wide bonus flag');
 
 const rejectBonusStart = db.indexOf('cancelApprovedBonus10: async');
 const rejectBonusEnd = db.indexOf('\n    rejectBonus10Request:', rejectBonusStart);
@@ -247,7 +253,10 @@ const rejectBonusCommand = db.slice(rejectBonusStart, rejectBonusEnd);
 assert.match(rejectBonusCommand, /db\.runTransaction/);
 assert.match(rejectBonusCommand, /_writeBonus10PenaltyState\([\s\S]*true/,
     'a rejected transition must transactionally activate the monthly sentinel');
-assert.match(rejectBonusCommand, /sessions\[index\]\.bonus10 = false/);
+assert.match(rejectBonusCommand, /transaction\.update\(requestRef,[\s\S]*status:\s*'rejected'/,
+    'cancellation must reject only the selected request');
+assert.doesNotMatch(rejectBonusCommand, /attendanceRef|tupleSnapshots|sessions\[/,
+    'cancelling one target must not rewrite a sibling target sharing the attendance session');
 assert.doesNotMatch(rejectBonusCommand, /collection\('bonus10_requests'\)\.add/);
 
 const clearBonusStart = db.indexOf('clearBonus10PenaltyForMonth: async');
@@ -371,13 +380,13 @@ assert.doesNotMatch(dayAttendance, /catch \(e\)[\s\S]*return new Map\(\)/);
     );
 }
 
-const earlyIndex = html.indexOf('js/early10.js?v=20260901-schedule-admin-attendance-v2');
-const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260901-schedule-admin-attendance-v2');
-const dbIndex = html.indexOf('js/db-service.js?v=20260901-schedule-admin-attendance-v2');
-const scheduleIndex = html.indexOf('js/schedule.js?v=20260901-schedule-admin-attendance-v2');
+const earlyIndex = html.indexOf('js/early10.js?v=20260902-policy-payroll-absence-v1');
+const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260902-policy-payroll-absence-v1');
+const dbIndex = html.indexOf('js/db-service.js?v=20260902-policy-payroll-absence-v1');
+const scheduleIndex = html.indexOf('js/schedule.js?v=20260902-policy-payroll-absence-v1');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v143-schedule-attendance-admin-20260901/);
-assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260901-schedule-admin-attendance-v2/);
+assert.match(serviceWorker, /tdt-chamcong-v144-policy-payroll-absence-20260902/);
+assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260902-policy-payroll-absence-v1/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');

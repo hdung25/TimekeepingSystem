@@ -30,7 +30,8 @@ service cloud.firestore {
     }
     function canAuditAttendance() { return isScheduleManager() || isReceptionistOperator(); }
     function ownsStaffId(staffId) {
-      return isAuthenticated() && getUserId() != '' && staffId == getUserId();
+      let mappedUserId = getUserId();
+      return isAuthenticated() && mappedUserId != '' && staffId == mappedUserId;
     }
     // A first check-in reads today's and yesterday's deterministic document IDs
     // inside a transaction before either document necessarily exists. In that
@@ -45,8 +46,93 @@ service cloud.firestore {
     function isSafeSeniorProfileUpdate() {
       return isSeniorAssistant()
         && request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'id', 'username', 'role', 'roles', 'authUid', 'password'
+          'id', 'username', 'role', 'roles', 'authUid', 'password',
+          // Payroll policy belongs to the primary Admin. These two fields
+          // directly control hourly rates and +10 eligibility.
+          'salary_config', 'teachingMode'
         ]) == false;
+    }
+    // A senior assistant may continue ordinary attendance maintenance, but a
+    // primary-Admin payroll decision embedded in a session is immutable to that
+    // role. List.removeAll turns a one-session edit into one removed + one added
+    // map, so the nested override can be compared without assuming a fixed index.
+    // Multi-session rewrites/reorders fail closed; the UI performs one session
+    // mutation per save.
+    function keepsAttendanceSessionOrderForSeniorEdit(before, after) {
+      return before.size() == after.size()
+        && before.size() <= 6
+        && (before.size() < 1 || before[0].get('id', '') == after[0].get('id', ''))
+        && (before.size() < 2 || before[1].get('id', '') == after[1].get('id', ''))
+        && (before.size() < 3 || before[2].get('id', '') == after[2].get('id', ''))
+        && (before.size() < 4 || before[3].get('id', '') == after[3].get('id', ''))
+        && (before.size() < 5 || before[4].get('id', '') == after[4].get('id', ''))
+        && (before.size() < 6 || before[5].get('id', '') == after[5].get('id', ''));
+    }
+    function preservesPayrollOverrideForSeniorUpdate(logId) {
+      let beforeRaw = resource.data.get('sessions', []);
+      let afterRaw = request.resource.data.get('sessions', []);
+      let before = beforeRaw is list ? beforeRaw : [];
+      let after = afterRaw is list ? afterRaw : [];
+      let added = after.removeAll(before);
+      let removed = before.removeAll(after);
+      return isSeniorAssistant()
+        && beforeRaw is list
+        && afterRaw is list
+        // The document identity is part of the protected payroll source.  A
+        // senior assistant must not be able to make the same immutable session
+        // disappear from, or move into, another employee/day query.
+        && request.resource.data.get('userId', '') == resource.data.get('userId', '')
+        && request.resource.data.get('date', '') == resource.data.get('date', '')
+        && logId == resource.data.get('date', '') + '_' + resource.data.get('userId', '')
+        && request.resource.data.keys().hasAny(['lastAdminPayrollOverride'])
+          == resource.data.keys().hasAny(['lastAdminPayrollOverride'])
+        && request.resource.data.get('lastAdminPayrollOverride', null)
+          == resource.data.get('lastAdminPayrollOverride', null)
+        && (
+          after == before
+          || (
+            after.size() == before.size() + 1
+            && added.size() == 1
+            && removed.size() == 0
+            && added[0] is map
+            && !added[0].keys().hasAny(['adminPayrollOverride'])
+            && after.removeAll(added) == before
+          )
+          || (
+            after.size() + 1 == before.size()
+            && added.size() == 0
+            && removed.size() == 1
+            && removed[0] is map
+            && !removed[0].keys().hasAny(['adminPayrollOverride'])
+            && before.removeAll(removed) == after
+          )
+          || (
+            after.size() == before.size()
+            && added.size() == 1
+            && removed.size() == 1
+            && added[0] is map
+            && removed[0] is map
+            && added[0].get('id', '') == removed[0].get('id', '')
+            && !added[0].keys().hasAny(['adminPayrollOverride'])
+            && !removed[0].keys().hasAny(['adminPayrollOverride'])
+            && after.removeAll(added) == before.removeAll(removed)
+            && keepsAttendanceSessionOrderForSeniorEdit(before, after)
+          )
+        );
+    }
+    function isSafeSeniorAttendanceCreate(logId) {
+      let sessions = request.resource.data.get('sessions', []);
+      return isSeniorAssistant()
+        && request.resource.data.get('userId', '') is string
+        && request.resource.data.get('date', '') is string
+        && request.resource.data.get('date', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && logId == request.resource.data.get('date', '') + '_'
+          + request.resource.data.get('userId', '')
+        && !request.resource.data.keys().hasAny(['lastAdminPayrollOverride'])
+        && sessions is list
+        && sessions.size() == 1
+        && sessions[0] is map
+        && !sessions[0].keys().hasAny(['adminPayrollOverride']);
     }
     function isSafeStaffDirectoryProfile(userId) {
       return request.resource.data.get('id', '') == userId
@@ -135,10 +221,146 @@ service cloud.firestore {
         && request.resource.data.get('dateKey', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
         && request.resource.data.get('sessionId', '') is string
         && request.resource.data.get('sessionId', '').matches('[A-Za-z0-9_-]{1,160}')
+        && request.resource.data.get('targetShiftKey', '') is string
+        && request.resource.data.get('targetShiftKey', '').matches('[A-Za-z0-9_:-]{1,240}')
         && requestId == 'b10~'
           + request.resource.data.get('dateKey', '') + '~'
           + request.resource.data.get('staffId', '') + '~'
-          + request.resource.data.get('sessionId', '');
+          + request.resource.data.get('targetShiftKey', '');
+    }
+    function hasBonus10RegistrationAssignment(data) {
+      let registration = get(/databases/$(database)/documents/schedule_registrations/$(data.scheduleRegistrationId)).data;
+      return data.scheduleRegistrationId.matches('[A-Za-z0-9_-]{1,180}')
+        && registration.status == 'active'
+        && registration.userId == data.staffId
+        && registration.scheduleDocId == data.scheduleDocId
+        && registration.section == data.scheduleSection
+        && registration.rowIndex == data.scheduleIndex
+        && (data.scheduleShiftId == '' || registration.shiftId == data.scheduleShiftId);
+    }
+    function bonus10ClockMinutes(value) {
+      return int(value[0:2]) * 60 + int(value[3:5]);
+    }
+    function bonus10CheckInLocalMinutes(proofTime) {
+      return (proofTime.hours() * 60 + proofTime.minutes() + 420) % 1440;
+    }
+    function bonus10VerifiedEarlyMinutes(data, proofTime) {
+      let raw = bonus10ClockMinutes(data.classStart) - bonus10CheckInLocalMinutes(proofTime);
+      let normalized = raw > 720 ? raw - 1440 : (raw < -720 ? raw + 1440 : raw);
+      // Never round seconds up: 07:50:00.001 for an 08:00 class is only
+      // nine complete minutes early.
+      return normalized - (proofTime.seconds() == 0 && proofTime.nanos() == 0 ? 0 : 1);
+    }
+    function isBonus10ProofOnDate(data, proofTime) {
+      let localTime = proofTime + duration.value(7, 'h');
+      return localTime.year() == int(data.dateKey[0:4])
+        && localTime.month() == int(data.dateKey[5:7])
+        && localTime.day() == int(data.dateKey[8:10]);
+    }
+    function isValidStaffAutoApprovedBonus10() {
+      let data = request.resource.data;
+      let schedule = get(/databases/$(database)/documents/schedules/$(data.scheduleDocId)).data;
+      let row = schedule[data.scheduleSection][data.scheduleIndex];
+      let attendance = get(/databases/$(database)/documents/attendance_logs/$(data.dateKey + '_' + data.staffId)).data;
+      let session = attendance.sessions[data.attendanceSessionIndex];
+      let profile = get(/databases/$(database)/documents/users/$(data.staffId)).data;
+      let subject = get(/databases/$(database)/documents/subjects/$(data.subjectId)).data;
+      let proof = get(/databases/$(database)/documents/attendance_checkin_proofs/$(
+        data.dateKey + '~' + data.staffId + '~' + data.sessionId
+      )).data;
+      let listName = data.scheduleAssignmentList;
+      let assignment = data.scheduleAssignmentEntry;
+      return ownsStaffId(data.staffId)
+        && data.keys().hasOnly([
+          'staffId', 'staffName', 'dateKey', 'sessionId', 'status', 'awardScope',
+          'targetShiftKey', 'subjectId', 'scheduleDocId', 'scheduleSection',
+          'scheduleIndex', 'scheduleShiftId', 'scheduleRegistrationId',
+          'scheduleAssignmentList', 'scheduleAssignmentEntry', 'classStart',
+          'classEnd', 'attendanceSessionIndex', 'earlyMinutes', 'checkInAt',
+          'scheduledStart', 'requestSource', 'authUid', 'schemaVersion',
+          'policyVersion', 'createdAt', 'approvedBy', 'approvedByName', 'approvedAt'
+        ])
+        && data.status == 'approved'
+        && data.awardScope == 'teaching_shift'
+        && data.requestSource == 'staff_auto_approved'
+        && data.authUid == request.auth.uid
+        && data.approvedBy == data.staffId
+        && data.schemaVersion == 2
+        && data.policyVersion == 'early10-shift-v2'
+        && data.createdAt == request.time
+        && data.approvedAt == request.time
+        && data.earlyMinutes is int
+        && data.earlyMinutes >= 10
+        && data.earlyMinutes <= 720
+        && proof.get('staffId', '') == data.staffId
+        && proof.get('dateKey', '') == data.dateKey
+        && proof.get('sessionId', '') == data.sessionId
+        && proof.get('authUid', '') == request.auth.uid
+        && proof.get('recordedAt', null) is timestamp
+        && isBonus10ProofOnDate(data, proof.recordedAt)
+        && data.earlyMinutes == bonus10VerifiedEarlyMinutes(data, proof.recordedAt)
+        && data.checkInAt is string
+        && data.checkInAt.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z')
+        && data.classStart.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+        && data.classEnd.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+        && data.scheduledStart == data.classStart
+        && data.scheduleSection in [
+          'morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'
+        ]
+        && data.scheduleIndex is int
+        && data.scheduleIndex >= 0
+        && data.attendanceSessionIndex is int
+        && data.attendanceSessionIndex >= 0
+        && data.scheduleDocId is string
+        && (
+          data.scheduleDocId == data.dateKey
+          || data.scheduleDocId.matches('[A-Za-z0-9_-]{1,80}__' + data.dateKey)
+        )
+        && data.subjectId.matches('[A-Za-z0-9_-]{1,160}')
+        && data.scheduleShiftId is string
+        && data.scheduleShiftId.size() <= 160
+        && data.scheduleRegistrationId is string
+        && data.scheduleRegistrationId.size() <= 180
+        && listName is string
+        && assignment is map
+        && (data.staffName == profile.get('name', '') || data.staffName == profile.get('username', ''))
+        && (data.approvedByName == profile.get('name', '') || data.approvedByName == profile.get('username', ''))
+        && profile.get('teachingMode', 'unset') != 'new'
+        && subject.get('allowEarly10', false) == true
+        && session.get('checkIn', session.get('start', '')) == data.checkInAt
+        && (
+          !(session.get('id', '') is string)
+          || session.get('id', '') == data.sessionId
+        )
+        && row.get('start', '') == data.classStart
+        && row.get('end', '') == data.classEnd
+        && row.get('lopId', '') is string
+        && row.get('lopId', '').matches('(^|.*[+])' + data.subjectId + '([+].*|$)')
+        && (
+          (
+            row.get('shiftId', '').matches('[A-Za-z0-9_-]{1,160}')
+            && data.scheduleShiftId == row.get('shiftId', '')
+            && data.targetShiftKey == 'teaching__' + data.dateKey + '__shift__' + row.get('shiftId', '')
+          ) || (
+            row.get('shiftId', '') == ''
+            && data.scheduleShiftId == ''
+            && data.targetShiftKey == 'teaching__' + data.dateKey + '__'
+              + data.scheduleDocId + '__' + data.scheduleSection + '__'
+              + data.classStart + '-' + data.classEnd
+          )
+        )
+        && (
+          row.get('gvId', '') == data.staffId
+          || row.get('gvThayTeId', '') == data.staffId
+          || row.get('gvThayTheId', '') == data.staffId
+          || (
+            listName in ['gvList', 'gvThayTeList', 'gvThayTheList', 'registeredTeachers']
+            && assignment.get('id', '') == data.staffId
+            && row.get(listName, []) is list
+            && row.get(listName, []).hasAny([assignment])
+          )
+          || (data.scheduleRegistrationId != '' && hasBonus10RegistrationAssignment(data))
+        );
     }
     function isOwnScheduleRegistration() {
       return ownsStaffId(request.resource.data.get('userId', ''))
@@ -204,23 +426,6 @@ service cloud.firestore {
         && session.get('anchorDateKey', '') == dateKey
         && session.get('status', '') == 'open'
         && session.get('source', '') == 'self'
-        && session.get('start', '') is string
-        && session.get('start', '').size() >= 20
-        && session.get('start', '').size() <= 40
-        && session.get('checkIn', '') == session.get('start', '')
-        && session.get('checkOut', 'not-null') == null;
-    }
-    // Grace path for tabs/PWAs still running the pre-v2 attendance payload.
-    // It deliberately accepts only the former four-field open-session shape;
-    // role, rate, bonus, links and every other payroll-affecting field remain
-    // forbidden. New clients must continue to write the explicit v2 schema.
-    function isSafeLegacyNewAttendanceSession(session) {
-      return session is map
-        && session.keys().hasAll(['id', 'start', 'checkIn', 'checkOut'])
-        && session.keys().hasOnly(['id', 'start', 'checkIn', 'checkOut'])
-        && session.get('id', 0) is int
-        && session.get('id', 0) >= 1000000000000
-        && session.get('id', 0) <= 9999999999999
         && session.get('start', '') is string
         && session.get('start', '').size() >= 20
         && session.get('start', '').size() <= 40
@@ -313,7 +518,6 @@ service cloud.firestore {
               isSafeNewAttendanceSession(
                 addedSessions[0], request.resource.data.get('date', '')
               )
-              || isSafeLegacyNewAttendanceSession(addedSessions[0])
             )
             && request.resource.data.get('checkIn', '') == addedSessions[0].get('checkIn', '')
             && request.resource.data.get('checkOut', 'not-null') == null
@@ -451,15 +655,12 @@ service cloud.firestore {
             request.resource.data.get('sessions', [])[0],
             request.resource.data.get('date', '')
           )
-          || isSafeLegacyNewAttendanceSession(
-            request.resource.data.get('sessions', [])[0]
-          )
         )
         && request.resource.data.get('checkIn', '')
           == request.resource.data.get('sessions', [])[0].get('checkIn', '')
         && request.resource.data.get('checkOut', 'not-null') == null
         && request.resource.data.get('lastUpdated', null) == request.time
-      ) || isAdmin());
+      ) || isPrimaryAdmin() || isSafeSeniorAttendanceCreate(logId));
       allow update: if isAuthenticated() && ((
         ownsStaffId(resource.data.get('userId', ''))
         && request.resource.data.get('userId', '') == resource.data.get('userId', '')
@@ -489,8 +690,8 @@ service cloud.firestore {
             )
           )
         )
-      ) || isAdmin());
-      allow delete: if isAuthenticated() && isAdmin();
+      ) || isPrimaryAdmin() || preservesPayrollOverrideForSeniorUpdate(logId));
+      allow delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     match /attendance_location_events/{eventId} {
@@ -519,6 +720,27 @@ service cloud.firestore {
         ]);
       allow read, delete: if isAuthenticated() && isAdmin();
       allow update: if false;
+    }
+
+    // Immutable server-time receipt for a self check-in. Payroll rules use this
+    // receipt instead of trusting the client-authored ISO display timestamp.
+    match /attendance_checkin_proofs/{proofId} {
+      allow read: if isAuthenticated()
+        && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create: if isAuthenticated()
+        && ownsStaffId(request.resource.data.get('staffId', ''))
+        && request.resource.data.get('authUid', '') == request.auth.uid
+        && request.resource.data.get('dateKey', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && request.resource.data.get('sessionId', '').matches('[A-Za-z0-9_-]{1,120}')
+        && proofId == request.resource.data.get('dateKey', '') + '~'
+          + request.resource.data.get('staffId', '') + '~'
+          + request.resource.data.get('sessionId', '')
+        && request.resource.data.get('recordedAt', null) == request.time
+        && request.resource.data.keys().hasOnly([
+          'staffId', 'dateKey', 'sessionId', 'authUid', 'recordedAt', 'schemaVersion'
+        ])
+        && request.resource.data.get('schemaVersion', 0) == 1;
+      allow update, delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     // Immutable audit marker for the scheduler's attendance-correction panel.
@@ -551,6 +773,41 @@ service cloud.firestore {
         && request.resource.data.sessionId.size() <= 160
         && request.resource.data.action == 'save_correction'
         && request.resource.data.source == 'schedule_attendance_popup'
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Immutable companion write for absolute payroll-chip allocations made in
+    // Bảng Công.  Including this document in the same transaction turns the
+    // literal primary-admin role into a server-enforced boundary even though
+    // senior assistants retain older attendance maintenance permissions.
+    match /admin_payroll_override_audits/{auditId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated()
+        && isPrimaryAdmin()
+        && request.resource.data.keys().hasAll([
+          'authUid', 'actorUserId', 'staffId', 'dateKey', 'sessionId',
+          'action', 'mode', 'revision', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'authUid', 'actorUserId', 'staffId', 'dateKey', 'sessionId',
+          'action', 'mode', 'revision', 'reason', 'createdAt'
+        ])
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.actorUserId == getUserId()
+        && request.resource.data.staffId is string
+        && request.resource.data.staffId.matches('[A-Za-z0-9_-]{1,80}')
+        && request.resource.data.dateKey is string
+        && request.resource.data.dateKey.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && request.resource.data.sessionId is string
+        && request.resource.data.sessionId.matches('[A-Za-z0-9_-]{1,160}')
+        && request.resource.data.action == 'save_payroll_override'
+        && request.resource.data.mode in ['schedule', 'actual', 'manual']
+        && request.resource.data.revision is int
+        && request.resource.data.revision > 0
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 3
+        && request.resource.data.reason.size() <= 500
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
     }
@@ -686,18 +943,21 @@ service cloud.firestore {
     // transition published -> received without changing any monetary payload.
     match /salary_settings/{staffId} {
       allow read: if isAuthenticated() && (ownsStaffId(staffId) || isAdmin());
-      allow create, update, delete: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() && isPrimaryAdmin();
     }
     match /salary_settings_monthly/{docId} {
       allow read: if isAuthenticated() && (isOwnMonthlyDocument(docId) || isAdmin());
-      allow create, delete: if isAuthenticated() && isAdmin();
-      allow update: if isAuthenticated() && (isAdmin() || isSafePayslipReceipt(docId));
+      allow create, delete: if isAuthenticated() && isPrimaryAdmin();
+      allow update: if isAuthenticated() && (isPrimaryAdmin() || isSafePayslipReceipt(docId));
     }
     match /staff_payroll_profiles/{staffId} {
-      allow read, create, update, delete: if isAuthenticated() && isAdmin();
+      allow read: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
-    // Staff requests must begin pending and belong to the UID-mapped staffId.
+    // Overtime requests still begin pending. A +10 request is different: its
+    // immutable teaching-shift evidence is verified here, so an eligible staff
+    // request may be created directly as approved without waiting for Admin.
     match /overtime_requests/{requestId} {
       allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
       allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
@@ -710,7 +970,10 @@ service cloud.firestore {
       // second active request beside the canonical transaction document.
       allow create: if isAuthenticated()
         && isCanonicalBonus10RequestId(requestId)
-        && (isAdmin() || isOwnPendingRequest());
+        // Put the common staff path first. Besides making the intent explicit,
+        // short-circuiting avoids spending the Firestore 1,000-expression budget
+        // on two manager-role lookups before validating a legitimate claim.
+        && (isValidStaffAutoApprovedBonus10() || isAdmin());
       allow update, delete: if isAuthenticated() && isAdmin();
     }
 
