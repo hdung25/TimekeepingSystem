@@ -1105,7 +1105,9 @@ async function renderMonthReport(date, forceServer = false) {
             ? currentUserContext.roles
             : [currentUserContext.role || ''])
         : [];
-    const isTeachingAssistant = staffRoles.includes('teaching_assistant');
+    const isTeachingAssistant = typeof hasTeachingEmploymentRole === 'function'
+        ? hasTeachingEmploymentRole(currentUserContext || staffRoles)
+        : staffRoles.includes('teaching_assistant');
 
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
     const approveSelectedBtn = document.getElementById('btn-approve-selected-bonus10');
@@ -2135,7 +2137,9 @@ async function renderMonthReport(date, forceServer = false) {
                     ? _targetCtx.roles
                     : [_targetCtx.role || ''])
                 : [];
-            const isTargetTA = _targetRoles.includes('teaching_assistant');
+            const isTargetTA = typeof hasTeachingEmploymentRole === 'function'
+                ? hasTeachingEmploymentRole(_targetCtx || _targetRoles)
+                : _targetRoles.includes('teaching_assistant');
             const allowedRoles = ['teaching_assistant', 'admin', 'senior_assistant'];
             const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist && isTargetTA;
             const isAdminRole2 = roles2.some(r => ['admin', 'senior_assistant'].includes(r));
@@ -2159,7 +2163,7 @@ async function renderMonthReport(date, forceServer = false) {
                 chip.class !== 'chip-blue' &&
                 chip.class !== 'chip-gray' &&
                 chip.class !== 'chip-future' &&
-                chip.class !== 'chip-waiting') {
+                (chip.class !== 'chip-waiting' || chip.schedData?.shiftId || chip.schedData?.lopId)) {
 
                 const b10Btn = document.createElement('button');
                 b10Btn.className = 'report-chip-action report-chip-early10-action';

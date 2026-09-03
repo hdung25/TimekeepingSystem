@@ -291,6 +291,147 @@
         return compactObject(result);
     }
 
+    // A class transfer is deliberately separate from absence/substitution.
+    // Moving a teacher must never manufacture teacherAbsences, because that
+    // would turn a normal timetable change into a false absence/payroll event.
+    function applyTeacherTransferCommand(row, command, actor, nowISO) {
+        const current = row && typeof row === 'object' ? row : {};
+        const timestamp = text(nowISO) || new Date().toISOString();
+        const direction = text(command?.direction).toLowerCase();
+        const mode = text(command?.mode).toLowerCase();
+        const teacherId = cleanId(command?.teacherId);
+        const teacherName = text(command?.teacherName);
+        const transferId = cleanId(command?.transferId);
+        const effectiveFrom = text(command?.effectiveFrom);
+        const effectiveTo = text(command?.effectiveTo);
+        const who = {
+            id: cleanId(actor?.id || actor?.userId || actor?.uid),
+            name: text(actor?.name || actor?.displayName || actor?.username)
+        };
+        if (!['out', 'in'].includes(direction)) throw new Error('Chiều điều chuyển giáo viên không hợp lệ.');
+        if (!['temporary', 'permanent'].includes(mode)) throw new Error('Loại điều chuyển không hợp lệ.');
+        if (!teacherId || !transferId) throw new Error('Thiếu mã giáo viên hoặc mã giao dịch điều chuyển.');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) ||
+            (effectiveTo && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) ||
+            (mode === 'temporary' && !effectiveTo) ||
+            (effectiveTo && effectiveTo < effectiveFrom)) {
+            throw new Error('Khoảng thời gian điều chuyển không hợp lệ.');
+        }
+
+        const mains = getMainTeachers(current).filter(item => item.id);
+        const substitutes = getSubstituteTeachers(current).filter(item => item.id);
+        const existingMain = mains.find(item => item.id === teacherId);
+        const existingSubstitute = substitutes.find(item => item.id === teacherId);
+        const replacement = normalizeTeacher(command?.replacementTeacher);
+
+        if (direction === 'out') {
+            if (!existingMain) throw new Error('Giáo viên nguồn không còn trong lớp. Hãy tải lại lịch.');
+            if (isMainTeacherAbsent(current, teacherId)) {
+                throw new Error('Giáo viên nguồn đang ở trạng thái nghỉ. Hãy xử lý trạng thái nghỉ riêng trước khi đổi lớp.');
+            }
+            if (mains.length <= 1 && !replacement) {
+                throw new Error('Lớp nguồn phải còn ít nhất một GV chính hoặc được chọn GV thay thế.');
+            }
+            if (replacement && (replacement.id === teacherId || mains.some(item => item.id === replacement.id) ||
+                substitutes.some(item => item.id === replacement.id))) {
+                throw new Error('GV thay thế đã có trong lớp nguồn hoặc trùng với GV đang chuyển.');
+            }
+            const nextMains = mains.filter(item => item.id !== teacherId);
+            if (replacement) nextMains.push(replacement);
+            return _finishTeacherTransfer(current, nextMains, substitutes, command, {
+                ...who,
+                teacherName: existingMain.name || teacherName,
+                timestamp,
+                direction,
+                replacement
+            });
+        }
+
+        if (existingMain) throw new Error('Giáo viên này đã là GV chính của lớp đích.');
+        const incoming = normalizeTeacher({ id: teacherId, name: teacherName || existingSubstitute?.name || '' });
+        if (!incoming) throw new Error('Không xác định được tên giáo viên chuyển đến.');
+
+        // If the incoming teacher was temporarily listed as a substitute in
+        // the target class, convert that assignment to the normal main roster
+        // and recalculate only the affected absence coverage.
+        const nextSubstitutes = substitutes.filter(item => item.id !== teacherId)
+            .map(item => ({ ...item, replacesTeacherIds: uniqueStrings(item.replacesTeacherIds).filter(id => id !== teacherId) }));
+        const nextAbsences = (Array.isArray(current.teacherAbsences) ? current.teacherAbsences : [])
+            .map(item => {
+                if (!item || !uniqueStrings(item.replacementIds).includes(teacherId)) return item;
+                const oldReplacementIds = uniqueStrings(item.replacementIds);
+                const oldReplacementNames = uniqueStrings(item.replacementNames);
+                const replacementIds = oldReplacementIds.filter(id => id !== teacherId);
+                const replacementNames = oldReplacementIds
+                    .map((id, index) => id === teacherId ? null : (oldReplacementNames[index] || ''))
+                    .filter(Boolean);
+                return compactObject({
+                    ...item,
+                    replacementIds,
+                    replacementNames,
+                    status: replacementIds.length ? 'covered' : 'pending',
+                    updatedAt: timestamp,
+                    updatedById: who.id,
+                    updatedByName: who.name
+                });
+            });
+        return _finishTeacherTransfer(current, [...mains, incoming], nextSubstitutes, command, {
+            ...who,
+            teacherName: incoming.name,
+            timestamp,
+            direction,
+            replacement: null,
+            teacherAbsences: nextAbsences
+        });
+    }
+
+    function _finishTeacherTransfer(current, mains, substitutes, command, metadata) {
+        const firstMain = mains[0] || {};
+        const firstSub = substitutes[0] || {};
+        const sourceRef = compactObject(command?.source || {});
+        const targetRef = compactObject(command?.target || {});
+        const history = Array.isArray(current.assignmentTransferHistory)
+            ? current.assignmentTransferHistory.filter(Boolean).slice(-HISTORY_LIMIT)
+            : [];
+        history.push(compactObject({
+            event: metadata.direction === 'out' ? 'teacher_transfer_out' : 'teacher_transfer_in',
+            transferId: command.transferId,
+            mode: command.mode,
+            effectiveFrom: command.effectiveFrom,
+            effectiveTo: command.effectiveTo || null,
+            teacherId: command.teacherId,
+            teacherName: metadata.teacherName,
+            source: sourceRef,
+            target: targetRef,
+            replacementTeacherId: metadata.replacement?.id || '',
+            replacementTeacherName: metadata.replacement?.name || '',
+            reason: text(command.reason).slice(0, 300),
+            at: metadata.timestamp,
+            byId: metadata.id,
+            byName: metadata.name
+        }));
+        const result = {
+            ...current,
+            staffingSchemaVersion: 2,
+            gvList: mains,
+            gv: firstMain.name || '',
+            gvId: firstMain.id || '',
+            gvThayTeList: substitutes,
+            gvThayTheList: substitutes.map(item => ({ ...item })),
+            gvThayTe: firstSub.name || '',
+            gvThayTeId: firstSub.id || '',
+            gvThayThe: firstSub.name || '',
+            gvThayTheId: firstSub.id || '',
+            gvThayTheAt: substitutes.length ? (current.gvThayTheAt || metadata.timestamp) : '',
+            teacherAbsences: metadata.teacherAbsences || (Array.isArray(current.teacherAbsences) ? current.teacherAbsences : []),
+            assignmentTransferHistory: history.slice(-HISTORY_LIMIT),
+            staffingUpdatedAt: metadata.timestamp,
+            staffingUpdatedById: metadata.id,
+            staffingUpdatedByName: metadata.name
+        };
+        return compactObject(result);
+    }
+
     return {
         ACTIVE,
         VP,
@@ -305,6 +446,7 @@
         normalizeAbsenceType,
         statusLabel,
         stableShiftId,
-        applyStaffingCommand
+        applyStaffingCommand,
+        applyTeacherTransferCommand
     };
 });

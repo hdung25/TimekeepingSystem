@@ -1890,6 +1890,256 @@ function renderTeacherShiftManager() {
     syncTeacherShiftManagerChrome();
 }
 
+let teacherTransferModalState = null;
+
+function getScheduleDateKeysInclusive(fromKey, toKey) {
+    const fromParts = String(fromKey || '').split('-').map(Number);
+    const toParts = String(toKey || '').split('-').map(Number);
+    if (fromParts.length !== 3 || toParts.length !== 3 || fromParts.some(Number.isNaN) || toParts.some(Number.isNaN)) return [];
+    const from = new Date(fromParts[0], fromParts[1] - 1, fromParts[2]);
+    const to = new Date(toParts[0], toParts[1] - 1, toParts[2]);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) return [];
+    const result = [];
+    for (let cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+        result.push(getLocalDateKey(cursor));
+        if (result.length > 31) return [];
+    }
+    return result;
+}
+
+function getTransferTargetOptions(state) {
+    const options = [];
+    SECTIONS.forEach(section => {
+        const rows = Array.isArray(state?.dayData?.[section.key]) ? state.dayData[section.key] : [];
+        rows.forEach((row, index) => {
+            if (section.key === state.caType && index === state.index) return;
+            const teachers = window.TeacherShiftState
+                ? window.TeacherShiftState.getMainTeachers(row).map(item => item.name).filter(Boolean).join(', ')
+                : String(row.gv || '');
+            options.push({
+                value: `${section.key}::${index}`,
+                section: section.key,
+                index,
+                row,
+                label: `${section.label} · ${row.start || '--:--'}–${row.end || '--:--'} · ${row.lop || 'Chưa chọn lớp'}${row.phong ? ` · P.${row.phong}` : ''}${teachers ? ` · GV: ${teachers}` : ''}`
+            });
+        });
+    });
+    return options;
+}
+
+function closeTeacherTransferModal() {
+    document.getElementById('teacher-transfer-overlay')?.remove();
+    teacherTransferModalState = null;
+}
+
+function updateTeacherTransferModeHint() {
+    const modal = document.getElementById('teacher-transfer-overlay');
+    if (!modal) return;
+    const mode = modal.querySelector('[data-action="transfer-mode"]')?.value || 'temporary';
+    const toLabel = modal.querySelector('[data-transfer-scope-label]');
+    const hint = modal.querySelector('[data-transfer-mode-hint]');
+    if (toLabel) toLabel.textContent = mode === 'permanent'
+        ? 'Ngày cuối cập nhật các lịch đang có (bản ghi không hết hạn)'
+        : 'Ngày kết thúc tạm thời';
+    if (hint) hint.textContent = mode === 'permanent'
+        ? '“Chuyển hẳn” không tạo ngày kết thúc. Ngày cuối ở trên chỉ giới hạn các lịch đã tồn tại được cập nhật trong lượt này để tránh tự ý sửa hàng loạt.'
+        : 'Các ngày trong khoảng này sẽ được cập nhật cùng một giao dịch; không phát sinh trạng thái nghỉ hoặc GV thay.';
+}
+
+function handleTeacherTransferModalChange(event) {
+    if (event.target?.dataset?.action === 'transfer-mode') updateTeacherTransferModeHint();
+}
+
+function openTeacherTransferModal(state) {
+    if (!state?.canTransfer || state.isPast) return;
+    const existing = document.getElementById('teacher-transfer-overlay');
+    if (existing) existing.remove();
+    const targets = getTransferTargetOptions(state);
+    if (!targets.length) {
+        UIService.toast('Ngày đang xem chưa có lớp đích để điều chuyển.', 'warning');
+        return;
+    }
+    const mains = (state.mainIds || []).map(id => ({
+        id,
+        name: state.teacherById.get(id)?.name || id
+    }));
+    if (!mains.length) {
+        UIService.toast('Ca nguồn chưa có GV chính để điều chuyển.', 'warning');
+        return;
+    }
+    teacherTransferModalState = { state, targets };
+    const todayKey = getLocalDateKey(new Date());
+    const defaultFrom = state.dateKey >= todayKey ? state.dateKey : todayKey;
+    const defaultTo = defaultFrom;
+    const overlay = document.createElement('div');
+    overlay.id = 'teacher-transfer-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.62);z-index:10020;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+    overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="teacher-transfer-title" style="background:#fff;border-radius:18px;max-width:640px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 80px rgba(15,23,42,.3);padding:22px;box-sizing:border-box;">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:8px;">
+            <div><div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#059669;font-weight:800;">Điều chuyển có kiểm soát</div><h3 id="teacher-transfer-title" style="margin:4px 0;font-size:1.2rem;color:#0f172a;">Đổi lớp / Chuyển giáo viên</h3><p style="margin:0;color:#64748b;font-size:.84rem;">Nguồn: ${scheduleEscapeHTML(state.originalRow.lop || 'Ca dạy')} · ${scheduleEscapeHTML(state.dateKey)} · ${scheduleEscapeHTML(`${state.originalRow.start || '--:--'}–${state.originalRow.end || '--:--'}`)}</p></div>
+            <button type="button" data-action="close-transfer" aria-label="Đóng" style="border:0;background:#F1F5F9;border-radius:10px;width:34px;height:34px;font-size:1.2rem;cursor:pointer;">×</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px;">
+            <label style="font-size:.78rem;color:#334155;font-weight:700;">GV chuyển
+                <select data-action="transfer-teacher" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;">${mains.map(item => `<option value="${scheduleEscapeAttr(item.id)}">${scheduleEscapeHTML(item.name)}</option>`).join('')}</select>
+            </label>
+            <label style="font-size:.78rem;color:#334155;font-weight:700;">Lớp đích
+                <select data-action="transfer-target" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;">${targets.map(item => `<option value="${scheduleEscapeAttr(item.value)}">${scheduleEscapeHTML(item.label)}</option>`).join('')}</select>
+            </label>
+        </div>
+        <label style="display:block;margin-top:12px;font-size:.78rem;color:#334155;font-weight:700;">GV thay vào lớp nguồn (không bắt buộc)
+            <select data-action="transfer-replacement" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;"><option value="">— Giữ nguyên GV khác đang có —</option>${state.teachers.filter(item => !state.mainIds.includes(item.id) && !state.substituteIds.includes(item.id)).map(item => `<option value="${scheduleEscapeAttr(item.id)}">${scheduleEscapeHTML(item.name || item.id)}</option>`).join('')}</select>
+        </label>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px;">
+            <label style="font-size:.78rem;color:#334155;font-weight:700;">Loại điều chuyển
+                <select data-action="transfer-mode" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;"><option value="temporary">Tạm thời</option><option value="permanent">Chuyển hẳn</option></select>
+            </label>
+            <label style="font-size:.78rem;color:#334155;font-weight:700;">Ngày bắt đầu hiệu lực
+                <input data-action="transfer-from" type="date" value="${scheduleEscapeAttr(defaultFrom)}" min="${scheduleEscapeAttr(todayKey)}" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;box-sizing:border-box;">
+            </label>
+        </div>
+        <label style="display:block;margin-top:12px;font-size:.78rem;color:#334155;font-weight:700;" data-transfer-scope-label>Ngày cuối cập nhật các lịch đang có
+            <input data-action="transfer-scope-to" type="date" value="${scheduleEscapeAttr(defaultTo)}" min="${scheduleEscapeAttr(defaultFrom)}" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;box-sizing:border-box;">
+        </label>
+        <div data-transfer-mode-hint style="margin-top:10px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:10px;color:#166534;font-size:.78rem;line-height:1.45;"></div>
+        <label style="display:block;margin-top:12px;font-size:.78rem;color:#334155;font-weight:700;">Lý do bắt buộc
+            <textarea data-action="transfer-reason" rows="3" maxlength="300" placeholder="Ví dụ: GV chuyển sang lớp khác trong tuần 1–7/9 theo phân công..." style="display:block;width:100%;margin-top:5px;border:1px solid #CBD5E1;border-radius:9px;padding:9px;box-sizing:border-box;resize:vertical;"></textarea>
+        </label>
+        <div data-transfer-preview style="margin-top:12px;color:#64748b;font-size:.78rem;">Hệ thống sẽ kiểm tra từng ngày và chỉ lưu khi tất cả ca nguồn/đích còn đúng.</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+            <button type="button" data-action="close-transfer" style="border:1px solid #CBD5E1;background:#fff;color:#334155;border-radius:9px;padding:10px 14px;cursor:pointer;">Hủy</button>
+            <button type="button" data-action="submit-transfer" style="border:0;background:#059669;color:#fff;border-radius:9px;padding:10px 16px;font-weight:800;cursor:pointer;">Kiểm tra & lưu điều chuyển</button>
+        </div>
+    </div>`;
+    overlay.addEventListener('click', event => {
+        if (event.target === overlay || event.target.closest('[data-action="close-transfer"]')) closeTeacherTransferModal();
+        if (event.target.closest('[data-action="submit-transfer"]')) submitTeacherTransferModal();
+    });
+    overlay.addEventListener('change', handleTeacherTransferModalChange);
+    document.body.appendChild(overlay);
+    updateTeacherTransferModeHint();
+}
+
+function findTransferRowIndex(dayData, endpoint) {
+    const rows = Array.isArray(dayData?.[endpoint.section]) ? dayData[endpoint.section] : [];
+    const locator = endpoint.locator || {};
+    const signatureOf = row => scheduleRowSignature(row);
+    if (locator.shiftId) {
+        const byId = rows.findIndex(row => String(row?.shiftId || '') === locator.shiftId);
+        if (byId >= 0) return byId;
+    }
+    if (Number.isInteger(locator.index) && rows[locator.index] &&
+        (!locator.signature || signatureOf(rows[locator.index]) === locator.signature)) return locator.index;
+    const matches = rows.map((row, index) => ({ row, index }))
+        .filter(item => locator.signature && signatureOf(item.row) === locator.signature);
+    return matches.length === 1 ? matches[0].index : -1;
+}
+
+function transferEndpoint(compositeKey, section, index, row, fallbackData) {
+    return {
+        compositeKey,
+        section,
+        locator: {
+            index,
+            shiftId: String(row?.shiftId || ''),
+            signature: scheduleRowSignature(row)
+        },
+        fallbackData
+    };
+}
+
+async function submitTeacherTransferModal() {
+    const modal = document.getElementById('teacher-transfer-overlay');
+    const modalState = teacherTransferModalState;
+    if (!modal || !modalState?.state) return;
+    const state = modalState.state;
+    const mode = modal.querySelector('[data-action="transfer-mode"]')?.value || 'temporary';
+    const teacherId = modal.querySelector('[data-action="transfer-teacher"]')?.value || '';
+    const targetValue = modal.querySelector('[data-action="transfer-target"]')?.value || '';
+    const replacementId = modal.querySelector('[data-action="transfer-replacement"]')?.value || '';
+    const fromKey = modal.querySelector('[data-action="transfer-from"]')?.value || '';
+    const scopeToKey = modal.querySelector('[data-action="transfer-scope-to"]')?.value || '';
+    const reason = modal.querySelector('[data-action="transfer-reason"]')?.value.trim() || '';
+    const target = modalState.targets.find(item => item.value === targetValue);
+    const teacher = state.teacherById.get(teacherId);
+    const replacement = replacementId ? state.teacherById.get(replacementId) : null;
+    const dateKeys = getScheduleDateKeysInclusive(fromKey, scopeToKey);
+    if (!teacher || !target || !dateKeys.length || reason.length < 3) {
+        UIService.toast('Vui lòng chọn GV, lớp đích, khoảng ngày hợp lệ và nhập lý do.', 'warning');
+        return;
+    }
+    if (dateKeys.length > 31) {
+        UIService.toast('Mỗi giao dịch tối đa 31 ngày để tránh sửa nhầm hàng loạt.', 'warning');
+        return;
+    }
+    const submitButton = modal.querySelector('[data-action="submit-transfer"]');
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Đang kiểm tra lịch...'; }
+    const preview = modal.querySelector('[data-transfer-preview]');
+    try {
+        const branch = String(state.compositeKey || '').split('__')[0] || 'cs1';
+        const transferId = `transfer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        const sourceTemplate = { section: state.caType, index: state.index, row: state.originalRow };
+        const targetTemplate = { section: target.section, index: target.index, row: target.row };
+        const operations = [];
+        for (const dateKey of dateKeys) {
+            const compositeKey = `${branch}__${dateKey}`;
+            const dayData = dateKey === state.dateKey
+                ? state.dayData
+                : await DBService.getSchedule(compositeKey, { source: 'server' });
+            if (!dayData || !Object.keys(dayData).length) {
+                throw new Error(`Ngày ${dateKey} chưa có lịch cụ thể để điều chuyển.`);
+            }
+            const sourceIndex = findTransferRowIndex(dayData, {
+                section: sourceTemplate.section,
+                locator: {
+                    index: sourceTemplate.index,
+                    shiftId: String(sourceTemplate.row?.shiftId || ''),
+                    signature: scheduleRowSignature(sourceTemplate.row)
+                }
+            });
+            const targetIndex = findTransferRowIndex(dayData, {
+                section: targetTemplate.section,
+                locator: {
+                    index: targetTemplate.index,
+                    shiftId: String(targetTemplate.row?.shiftId || ''),
+                    signature: scheduleRowSignature(targetTemplate.row)
+                }
+            });
+            if (sourceIndex < 0 || targetIndex < 0) {
+                throw new Error(`Ngày ${dateKey} không tìm thấy đúng ca nguồn/đích (có thể lịch đã thay đổi).`);
+            }
+            const sourceRow = dayData[sourceTemplate.section][sourceIndex];
+            const targetRow = dayData[targetTemplate.section][targetIndex];
+            if (!window.TeacherShiftState.getMainTeachers(sourceRow).some(item => item.id === teacherId)) {
+                throw new Error(`Ngày ${dateKey}: GV được chọn không còn ở ca nguồn.`);
+            }
+            operations.push({
+                transferId,
+                mode,
+                effectiveFrom: fromKey,
+                effectiveTo: mode === 'temporary' ? scopeToKey : '',
+                teacherId,
+                replacementTeacher: replacement ? { id: replacement.id, name: replacement.name } : null,
+                reason,
+                source: transferEndpoint(compositeKey, sourceTemplate.section, sourceIndex, sourceRow, dayData),
+                target: transferEndpoint(compositeKey, targetTemplate.section, targetIndex, targetRow, dayData)
+            });
+        }
+        if (preview) preview.textContent = `Đã kiểm tra ${operations.length} ngày. Đang lưu nguyên tử...`;
+        const result = await DBService.transferTeacherBetweenShiftsAtomic(operations);
+        closeTeacherTransferModal();
+        closeTeacherShiftManager();
+        UIService.toast(`Đã ${mode === 'temporary' ? 'điều chuyển tạm thời' : 'ghi nhận chuyển hẳn'} ${result.count} ngày; không tạo vắng/GV thay.`, 'success');
+        await renderTable();
+    } catch (error) {
+        console.error('Lỗi điều chuyển giáo viên:', error);
+        UIService.toast(error?.message || 'Không thể điều chuyển giáo viên.', 'error');
+        if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Kiểm tra & lưu điều chuyển'; }
+        if (preview) preview.textContent = 'Chưa lưu: hệ thống đã dừng trước khi ghi để bảo toàn lịch.';
+    }
+}
+
 async function retryTeacherAttendanceAuthorization(state = teacherShiftManagerState) {
     if (!state || teacherShiftManagerState !== state || state.attendanceAuthorizationRetrying) return;
     state.attendanceAuthorizationRetrying = true;
@@ -1933,6 +2183,9 @@ function handleTeacherShiftManagerClick(event) {
     if (isAttendanceSaveInFlight(state)) {
         UIService.toast('Đang lưu công nguyên tử. Các thao tác khác tạm khóa để tránh lệch dữ liệu.', 'warning');
         return;
+    }
+    if (action === 'open-transfer' && state.canTransfer && !state.isPast) {
+        return openTeacherTransferModal(state);
     }
     if (action === 'save-manager') return saveTeacherShiftCommand();
     if (action === 'attendance-retry' && state.canEditAttendance) return loadAdminAttendanceEditor(state);
@@ -2296,6 +2549,9 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             search: { main: '', substitute: '' },
             strictAuthorization,
             canEditAttendance,
+            canTransfer: Array.isArray(strictAuthorization.roles) && strictAuthorization.roles.some(role =>
+                ['admin', 'senior_assistant', 'assistant'].includes(role)
+            ),
             likelyPrimaryAdmin,
             attendanceAuthorizationError: strictAuthorizationResult.error || null,
             attendanceAuthorizationRetrying: false,
@@ -2331,6 +2587,9 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             <footer class="teacher-shift-footer">
                 <div><span class="save-state-dot" aria-hidden="true"></span><strong id="teacher-shift-manager-summary"></strong><small>Mọi thay đổi trạng thái đều được lưu lịch sử.</small></div>
                 <div class="teacher-shift-footer-actions">
+                    ${teacherShiftManagerState.canTransfer && !teacherShiftManagerState.isPast
+                        ? '<button type="button" class="btn-manager-cancel" data-action="open-transfer">↔ Đổi lớp / Chuyển GV</button>'
+                        : ''}
                     <button type="button" class="btn-manager-cancel" data-action="close-manager">Hủy</button>
                     <button type="button" class="btn-manager-save" data-action="save-manager"><span>✓</span> Lưu điều phối ca</button>
                 </div>

@@ -1,4 +1,4 @@
-const APP_VERSION = '20260902-policy-payroll-absence-v1';
+const APP_VERSION = '20260903-transfer-location-timestamp-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -1356,6 +1356,21 @@ window.confirmClass = async function (id) {
     }
 };
 
+function getStaffAttendanceErrorMessage(error) {
+    if (error?.name === 'AttendanceLocationError') return error.message;
+    const code = String(error?.code || '').toLowerCase();
+    const rawMessage = String(error?.message || '').toLowerCase();
+    if (code === 'permission-denied' || code.includes('permission-denied') ||
+        rawMessage.includes('missing or insufficient permissions')) {
+        return 'Phiên đăng nhập hoặc quyền chấm công chưa được xác nhận. Vui lòng tải lại trang hoặc đăng nhập lại rồi thử lại.';
+    }
+    if (code.includes('unavailable') || code.includes('deadline-exceeded') ||
+        code.includes('network') || rawMessage.includes('network')) {
+        return 'Kết nối mạng chấm công không ổn định. Vui lòng kiểm tra đúng Wifi của cơ sở rồi thử lại.';
+    }
+    return 'Không thể chấm công lúc này. Vui lòng tải lại trang và thử lại.';
+}
+
 // 1. GLOBAL CHECK-IN/OUT (Cloud Isolated)
 window.globalCheckIn = async function (btn) {
     if (window.__attendanceCheckInPending) return;
@@ -1393,9 +1408,8 @@ window.globalCheckIn = async function (btn) {
         // Check if user has registered for any class today → alert Admin if not
         await checkAndAlertUnregistered(currentUserId, userFullName);
     } catch (e) {
-        alert(e?.name === 'AttendanceLocationError'
-            ? e.message
-            : ("Lỗi: " + e.message));
+        console.error('[Attendance] Check-in failed:', e);
+        alert(getStaffAttendanceErrorMessage(e));
         if (btn) {
             btn.disabled = false;
             btn.innerText = "VÀO CA"; // Reset text

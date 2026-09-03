@@ -375,7 +375,12 @@ function _serializedAdminPayrollOverride(normalized, revision, actor, reason) {
             authUid: actor.uid,
             userId: actor.userId
         },
-        editedAt: firebase.firestore.FieldValue.serverTimestamp()
+        // This object is embedded in attendance_logs.sessions[]. Firestore
+        // rejects a server timestamp sentinel anywhere inside an array, even
+        // though the same sentinel is valid at the document root. Keep the
+        // nested audit time as immutable display data; the surrounding
+        // attendance document/audit document still receives server time.
+        editedAt: new Date().toISOString()
     };
 }
 
@@ -591,7 +596,35 @@ const LOCATION_CACHE_TTL_MS = 2 * 60 * 1000;
 const ATTENDANCE_LOCATION_RECOVERY_TIMEOUT_MS = 26000;
 const ATTENDANCE_LOCATION_PUBLIC_MESSAGE = "IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.";
 const ATTENDANCE_LOCATION_DIAGNOSTIC_COLLECTION = 'attendance_location_events';
+const ATTENDANCE_LOCATION_ACK_KEY = 'tdt-attendance-location-ack-v1';
 let lastBrowserLocation = null;
+
+function rememberAttendanceLocationAcknowledgement(userId) {
+    const staffId = String(userId || '').trim();
+    if (!staffId || typeof localStorage === 'undefined') return false;
+    try {
+        const raw = JSON.parse(localStorage.getItem(ATTENDANCE_LOCATION_ACK_KEY) || '{}');
+        raw[staffId] = {
+            origin: typeof location !== 'undefined' ? location.origin : '',
+            acknowledgedAt: raw[staffId]?.acknowledgedAt || new Date().toISOString()
+        };
+        localStorage.setItem(ATTENDANCE_LOCATION_ACK_KEY, JSON.stringify(raw));
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function hasAttendanceLocationAcknowledgement(userId) {
+    const staffId = String(userId || '').trim();
+    if (!staffId || typeof localStorage === 'undefined') return false;
+    try {
+        const raw = JSON.parse(localStorage.getItem(ATTENDANCE_LOCATION_ACK_KEY) || '{}');
+        return !!raw?.[staffId]?.acknowledgedAt;
+    } catch (_) {
+        return false;
+    }
+}
 
 function createAttendanceLocationError(code, cause = null) {
     const error = new Error(ATTENDANCE_LOCATION_PUBLIC_MESSAGE);
@@ -2592,6 +2625,11 @@ const DBService = {
         return assertAttendanceLocationAllowed(settings);
     },
 
+    // This marker is account-scoped UX state only. It records that this
+    // account has successfully passed the location gate on this browser; it
+    // never bypasses a fresh location check or the browser's own permission.
+    hasAttendanceLocationAcknowledgement: (userId) => hasAttendanceLocationAcknowledgement(userId),
+
     // Copy/template workflows may create a whole day, but must never replace a
     // day that another scheduler already prepared. The existence check and
     // create happen in the same transaction.
@@ -2768,6 +2806,268 @@ const DBService = {
         return committedRow;
     },
 
+    // Explicitly move one teacher between concrete class rows. This is not an
+    // absence/substitute command: the source teacher is removed from the main
+    // roster, the target teacher is added as a main teacher, and no absence is
+    // created as a side effect. Multiple date operations are committed in one
+    // Firestore transaction so a temporary week cannot be half-applied.
+    transferTeacherBetweenShiftsAtomic: async (transfers = []) => {
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        const canManageSchedule = (authorization.roles || []).some(role =>
+            ['admin', 'senior_assistant', 'assistant'].includes(role)
+        );
+        if (!canManageSchedule) {
+            const error = new Error('Bạn không có quyền điều chuyển giáo viên trên lịch.');
+            error.code = 'schedule/transfer-not-authorized';
+            throw error;
+        }
+        if (!window.TeacherShiftState?.applyTeacherTransferCommand) {
+            throw new Error('Không tải được mô-đun điều chuyển giáo viên. Vui lòng tải lại trang.');
+        }
+        if (!Array.isArray(transfers) || transfers.length < 1 || transfers.length > 31) {
+            throw new Error('Số ngày điều chuyển phải nằm trong khoảng từ 1 đến 31 ngày.');
+        }
+
+        const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+        const todayKey = getLocalDateKeyFromDate(new Date());
+        const normalized = transfers.map((item, index) => {
+            const source = item?.source || {};
+            const target = item?.target || {};
+            const sourceKey = String(source.compositeKey || '').trim();
+            const targetKey = String(target.compositeKey || '').trim();
+            const sourceMeta = DBService._parseBranchKey(sourceKey);
+            const targetMeta = DBService._parseBranchKey(targetKey);
+            const sourceSection = String(source.section || '').trim();
+            const targetSection = String(target.section || '').trim();
+            const effectiveFrom = String(item.effectiveFrom || '').trim();
+            const effectiveTo = String(item.effectiveTo || '').trim();
+            const mode = String(item.mode || '').trim().toLowerCase();
+            const teacherId = String(item.teacherId || '').trim();
+            const transferId = String(item.transferId || '').trim();
+            if (!sourceKey || !targetKey || !sourceSection || !targetSection ||
+                !SCHEDULE_SECTION_KEYS.includes(sourceSection) || !SCHEDULE_SECTION_KEYS.includes(targetSection)) {
+                throw new Error(`Ngày ${index + 1}: thiếu định danh lớp nguồn/đích hợp lệ.`);
+            }
+            const dateOutsideRange = mode === 'temporary' &&
+                (sourceMeta.dateKey < effectiveFrom || sourceMeta.dateKey > effectiveTo);
+            if (!datePattern.test(sourceMeta.dateKey) || sourceMeta.dateKey !== targetMeta.dateKey ||
+                (mode === 'permanent' && sourceMeta.dateKey < effectiveFrom) ||
+                dateOutsideRange || sourceMeta.dateKey < todayKey) {
+                throw new Error(`Ngày ${index + 1}: ngày điều chuyển không hợp lệ hoặc đã qua.`);
+            }
+            if (!['temporary', 'permanent'].includes(mode) || !datePattern.test(effectiveFrom) ||
+                (mode === 'temporary' && (!datePattern.test(effectiveTo) || effectiveTo < effectiveFrom)) ||
+                (mode === 'permanent' && effectiveTo) || !teacherId || !transferId) {
+                throw new Error(`Ngày ${index + 1}: thông tin loại/khoảng thời gian điều chuyển không hợp lệ.`);
+            }
+            const rowLocator = locator => ({
+                index: Number.isInteger(locator?.index) ? locator.index : null,
+                shiftId: String(locator?.shiftId || '').trim(),
+                signature: String(locator?.signature || '').trim()
+            });
+            const sourceLocator = rowLocator(source.locator);
+            const targetLocator = rowLocator(target.locator);
+            if (!sourceLocator.shiftId && (!Number.isInteger(sourceLocator.index) || !sourceLocator.signature) ||
+                !targetLocator.shiftId && (!Number.isInteger(targetLocator.index) || !targetLocator.signature)) {
+                throw new Error(`Ngày ${index + 1}: thiếu mã ca hoặc chữ ký ca để chống ghi nhầm.`);
+            }
+            return {
+                ...item,
+                source: { ...source, compositeKey: sourceKey, section: sourceSection, locator: sourceLocator },
+                target: { ...target, compositeKey: targetKey, section: targetSection, locator: targetLocator },
+                sourceMeta,
+                targetMeta,
+                mode,
+                effectiveFrom,
+                effectiveTo,
+                teacherId,
+                transferId,
+                reason: String(item.reason || '').trim().slice(0, 300)
+            };
+        });
+
+        const first = normalized[0];
+        if (first.reason.length < 3) throw new Error('Vui lòng nhập lý do điều chuyển (ít nhất 3 ký tự).');
+        normalized.forEach(item => {
+            if (item.teacherId !== first.teacherId || item.transferId !== first.transferId ||
+                item.mode !== first.mode || item.effectiveFrom !== first.effectiveFrom ||
+                item.effectiveTo !== first.effectiveTo || item.reason !== first.reason) {
+                throw new Error('Các ngày trong một giao dịch điều chuyển phải dùng cùng giáo viên, loại và khoảng thời gian.');
+            }
+        });
+
+        const documents = new Map();
+        normalized.forEach(item => {
+            [item.source, item.target].forEach(endpoint => {
+                const meta = DBService._parseBranchKey(endpoint.compositeKey);
+                if (!documents.has(meta.docId)) {
+                    documents.set(meta.docId, {
+                        ref: db.collection('schedules').doc(meta.docId),
+                        compositeKey: endpoint.compositeKey,
+                        fallbackData: endpoint.fallbackData && typeof endpoint.fallbackData === 'object'
+                            ? JSON.parse(JSON.stringify(endpoint.fallbackData))
+                            : null,
+                        data: null,
+                        sections: new Map()
+                    });
+                } else if (!documents.get(meta.docId).fallbackData && endpoint.fallbackData &&
+                    typeof endpoint.fallbackData === 'object') {
+                    documents.get(meta.docId).fallbackData = JSON.parse(JSON.stringify(endpoint.fallbackData));
+                }
+            });
+        });
+
+        const nowISO = new Date().toISOString();
+        const actor = {
+            id: authorization.userId || authorization.uid,
+            userId: authorization.userId || '',
+            uid: authorization.uid,
+            name: localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || ''
+        };
+        const resolveRow = (rows, locator) => {
+            const list = Array.isArray(rows) ? rows : [];
+            if (locator.shiftId) {
+                const byId = list.findIndex(row => String(row?.shiftId || '') === locator.shiftId);
+                if (byId >= 0) return byId;
+            }
+            if (Number.isInteger(locator.index) && list[locator.index]) {
+                const candidate = list[locator.index];
+                const signature = [candidate?.start, candidate?.end, candidate?.lop, candidate?.phong]
+                    .map(value => String(value || '').trim()).join('|');
+                if (!locator.signature || signature === locator.signature) return locator.index;
+            }
+            const matches = list.map((row, rowIndex) => ({ row, rowIndex })).filter(({ row }) => {
+                const signature = [row?.start, row?.end, row?.lop, row?.phong]
+                    .map(value => String(value || '').trim()).join('|');
+                return locator.signature && signature === locator.signature;
+            });
+            return matches.length === 1 ? matches[0].rowIndex : -1;
+        };
+
+        await db.runTransaction(async transaction => {
+            const entries = Array.from(documents.values());
+            const snapshots = await Promise.all(entries.map(entry => transaction.get(entry.ref)));
+            snapshots.forEach((snapshot, index) => {
+                const entry = entries[index];
+                entry.data = snapshot.exists
+                    ? snapshot.data()
+                    : (entry.fallbackData ? JSON.parse(JSON.stringify(entry.fallbackData)) : {});
+                if (!entry.data || typeof entry.data !== 'object' ||
+                    (!snapshot.exists && !entry.fallbackData)) {
+                    throw new Error(`Không tìm thấy lịch ${entry.compositeKey}. Hãy tải lại tuần trước khi điều chuyển.`);
+                }
+                SCHEDULE_SECTION_KEYS.forEach(section => {
+                    entry.sections.set(section, Array.isArray(entry.data[section])
+                        ? entry.data[section].map(row => JSON.parse(JSON.stringify(row)))
+                        : []);
+                });
+            });
+
+            normalized.forEach(item => {
+                const sourceDoc = documents.get(item.sourceMeta.docId);
+                const targetDoc = documents.get(item.targetMeta.docId);
+                const sourceRows = sourceDoc.sections.get(item.source.section) || [];
+                const targetRows = targetDoc.sections.get(item.target.section) || [];
+                const sourceIndex = resolveRow(sourceRows, item.source.locator);
+                const targetIndex = resolveRow(targetRows, item.target.locator);
+                if (sourceIndex < 0 || targetIndex < 0) {
+                    throw new Error(`Ca nguồn hoặc ca đích ngày ${item.sourceMeta.dateKey} đã thay đổi. Hãy tải lại lịch.`);
+                }
+                if (sourceDoc === targetDoc && item.source.section === item.target.section && sourceIndex === targetIndex) {
+                    throw new Error('Ca nguồn và ca đích không được là cùng một ca.');
+                }
+                const sourceRow = sourceRows[sourceIndex];
+                const targetRow = targetRows[targetIndex];
+                const sourceTeacher = window.TeacherShiftState.getMainTeachers(sourceRow)
+                    .find(teacher => String(teacher.id || '') === item.teacherId);
+                if (!sourceTeacher) throw new Error(`Giáo viên ${item.teacherId} không còn ở ca nguồn ngày ${item.sourceMeta.dateKey}.`);
+                const replacementTeacher = item.replacementTeacher && typeof item.replacementTeacher === 'object'
+                    ? {
+                        id: String(item.replacementTeacher.id || '').trim(),
+                        name: String(item.replacementTeacher.name || '').trim()
+                    }
+                    : null;
+                const sourceNext = window.TeacherShiftState.applyTeacherTransferCommand(
+                    sourceRow,
+                    {
+                        direction: 'out',
+                        transferId: item.transferId,
+                        mode: item.mode,
+                        effectiveFrom: item.effectiveFrom,
+                        effectiveTo: item.effectiveTo,
+                        teacherId: item.teacherId,
+                        teacherName: sourceTeacher.name,
+                        replacementTeacher,
+                        reason: item.reason,
+                        source: {
+                            compositeKey: item.source.compositeKey,
+                            section: item.source.section,
+                            shiftId: String(sourceRow.shiftId || ''),
+                            signature: item.source.locator.signature
+                        },
+                        target: {
+                            compositeKey: item.target.compositeKey,
+                            section: item.target.section,
+                            shiftId: String(targetRow.shiftId || ''),
+                            signature: item.target.locator.signature
+                        }
+                    }, actor, nowISO
+                );
+                const targetNext = window.TeacherShiftState.applyTeacherTransferCommand(
+                    targetRow,
+                    {
+                        direction: 'in',
+                        transferId: item.transferId,
+                        mode: item.mode,
+                        effectiveFrom: item.effectiveFrom,
+                        effectiveTo: item.effectiveTo,
+                        teacherId: item.teacherId,
+                        teacherName: sourceTeacher.name,
+                        reason: item.reason,
+                        source: {
+                            compositeKey: item.source.compositeKey,
+                            section: item.source.section,
+                            shiftId: String(sourceRow.shiftId || ''),
+                            signature: item.source.locator.signature
+                        },
+                        target: {
+                            compositeKey: item.target.compositeKey,
+                            section: item.target.section,
+                            shiftId: String(targetRow.shiftId || ''),
+                            signature: item.target.locator.signature
+                        }
+                    }, actor, nowISO
+                );
+                sourceRows[sourceIndex] = sourceNext;
+                targetRows[targetIndex] = targetNext;
+            });
+
+            documents.forEach(entry => {
+                const nextData = { ...entry.data };
+                entry.sections.forEach((rows, section) => { nextData[section] = rows; });
+                const currentRevision = Number.isInteger(entry.data?._revision) ? entry.data._revision : 0;
+                transaction.set(entry.ref, _withoutSeparateScheduleRegistrations({
+                    ...nextData,
+                    _revision: currentRevision + 1,
+                    _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    _updatedBy: actor.userId || actor.id
+                }));
+            });
+        });
+
+        for (const entry of documents.values()) {
+            await DBService.updateScheduleManifest(entry.compositeKey);
+            DBService._invalidate(`schedule_${entry.compositeKey}`);
+            try {
+                localStorage.setItem('scheduleDataVersion', JSON.stringify({
+                    compositeKey: entry.compositeKey,
+                    at: Date.now()
+                }));
+            } catch (_) { /* best effort cross-tab invalidation */ }
+        }
+        return { transferId: first.transferId, count: normalized.length, mode: first.mode };
+    },
+
     // Add/delete/reorder rows against the latest section in one transaction.
     // This is the section-level companion to updateScheduleRowAtomic and keeps
     // edits in unrelated rows, including staffing/absence state, intact.
@@ -2833,6 +3133,7 @@ const DBService = {
                     );
                     throw locationError;
                 }
+                rememberAttendanceLocationAcknowledgement(userId);
             }
         }
 
