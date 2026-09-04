@@ -119,6 +119,72 @@ function hasValidSessionChronology(session) {
     return !checkOut || checkOut >= checkIn;
 }
 
+// Attendance rows are append-only evidence, not a scheduling priority. Using
+// Array.find() made the oldest overlapping session win even after the staff
+// had checked out and opened the session that actually belongs to the next
+// class. Rank candidates from their timestamps instead; a live session begun
+// near the class start is the strongest automatic signal, while an explicit
+// linkedClassStart remains the higher-level selection step below.
+function selectBestTeachingAttendanceSession(candidates, schedStart, schedEnd, chainStartDates = []) {
+    const starts = (Array.isArray(chainStartDates) ? chainStartDates : [])
+        .filter(value => value instanceof Date && Number.isFinite(value.getTime()));
+    const fallbackStart = schedStart instanceof Date ? schedStart : null;
+    const rankingNow = new Date();
+
+    const ranked = (Array.isArray(candidates) ? candidates : [])
+        .map(session => {
+            const checkIn = safeDate(session?.checkIn || session?.start);
+            const checkOut = safeDate(session?.checkOut);
+            if (!checkIn) return null;
+            const effectiveEnd = checkOut || rankingNow;
+            const anchors = starts.length ? starts : (fallbackStart ? [fallbackStart] : []);
+            const startDistanceMs = anchors.length
+                ? Math.min(...anchors.map(start => Math.abs(checkIn.getTime() - start.getTime())))
+                : Number.MAX_SAFE_INTEGER;
+            const isNearClassStart = startDistanceMs < 60 * 60 * 1000;
+            const overlapMs = schedStart instanceof Date && schedEnd instanceof Date
+                ? Math.max(0, Math.min(effectiveEnd.getTime(), schedEnd.getTime()) -
+                    Math.max(checkIn.getTime(), schedStart.getTime()))
+                : 0;
+            return {
+                session,
+                checkIn,
+                effectiveEnd,
+                isOpen: !checkOut,
+                isNearClassStart,
+                isActiveNearClass: !checkOut && isNearClassStart,
+                hasTemporalOverlap: overlapMs > 0,
+                overlapMs,
+                startDistanceMs
+            };
+        })
+        .filter(Boolean)
+        .sort((left, right) => {
+            // A fresh, still-open check-in for this class beats a session that
+            // merely overlaps its first few minutes after the prior class.
+            if (left.isActiveNearClass !== right.isActiveNearClass) {
+                return Number(right.isActiveNearClass) - Number(left.isActiveNearClass);
+            }
+            // Preserve the old precedence of real coverage over a pure
+            // proximity fallback, but never use document-array order as a tie.
+            if (left.hasTemporalOverlap !== right.hasTemporalOverlap) {
+                return Number(right.hasTemporalOverlap) - Number(left.hasTemporalOverlap);
+            }
+            if (left.isNearClassStart !== right.isNearClassStart) {
+                return Number(right.isNearClassStart) - Number(left.isNearClassStart);
+            }
+            if (left.overlapMs !== right.overlapMs) return right.overlapMs - left.overlapMs;
+            if (left.startDistanceMs !== right.startDistanceMs) return left.startDistanceMs - right.startDistanceMs;
+            if (left.isOpen !== right.isOpen) return Number(right.isOpen) - Number(left.isOpen);
+            if (left.effectiveEnd.getTime() !== right.effectiveEnd.getTime()) {
+                return right.effectiveEnd.getTime() - left.effectiveEnd.getTime();
+            }
+            return String(left.session?.id || '').localeCompare(String(right.session?.id || ''));
+        });
+
+    return ranked[0]?.session || null;
+}
+
 function getClassTeacherAbsenceRecord(cls, staffId) {
     if (window.ShiftAbsenceState?.getTeacherAbsenceRecord) {
         return window.ShiftAbsenceState.getTeacherAbsenceRecord(cls, staffId);
@@ -1178,38 +1244,45 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             );
             const _chainStartDates = [..._chainStarts].map(_toClassDate);
 
-            let matchedSession = attendanceSessions.find(s => {
-                if (!hasValidSessionChronology(s)) return false;
-                if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
-                    (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
-                return s.linkedClassStart && _chainStarts.has(s.linkedClassStart);
-            });
+            const _isEligibleTeachingSession = (session, allowExistingClassLink = false) => {
+                if (!hasValidSessionChronology(session)) return false;
+                if (_sessionBlockedForClass(session.id, schedStart, schedEnd) ||
+                    (isExplicitManualTeachingSession(session) && manuallyRepresentedTeachingSessions.has(session.id))) {
+                    return false;
+                }
+                return allowExistingClassLink || !_hasLiveClassLink(session);
+            };
+
+            // Exact links are an explicit Admin/staff decision. If damaged data
+            // contains more than one exact link, choose deterministically using
+            // the same evidence ranking instead of whichever array item was
+            // stored first.
+            let matchedSession = selectBestTeachingAttendanceSession(
+                attendanceSessions.filter(session =>
+                    _isEligibleTeachingSession(session, true) &&
+                    session.linkedClassStart && _chainStarts.has(session.linkedClassStart)
+                ),
+                schedStart,
+                schedEnd,
+                _chainStartDates
+            );
 
             if (!matchedSession) {
-                matchedSession = attendanceSessions.find(s => {
-                    if (!hasValidSessionChronology(s)) return false;
-                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
-                        (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
-                    if (_hasLiveClassLink(s)) return false; // Already linked to another class
-                    const checkIn = safeDate(s.checkIn || s.start);
+                const automaticCandidates = attendanceSessions.filter(session => {
+                    if (!_isEligibleTeachingSession(session)) return false;
+                    const checkIn = safeDate(session.checkIn || session.start);
                     if (!checkIn) return false;
-                    const checkOut = safeDate(s.checkOut);
-                    if (!checkOut) return false;
-                    return checkIn < schedEnd && checkOut > schedStart;
-                });
-            }
-
-            if (!matchedSession) {
-                matchedSession = attendanceSessions.find(s => {
-                    if (!hasValidSessionChronology(s)) return false;
-                    if (_sessionBlockedForClass(s.id, schedStart, schedEnd) ||
-                        (isExplicitManualTeachingSession(s) && manuallyRepresentedTeachingSessions.has(s.id))) return false;
-                    if (_hasLiveClassLink(s)) return false; // Already linked to another class
-                    const checkIn = safeDate(s.checkIn || s.start);
-                    if (!checkIn) return false;
+                    const checkOut = safeDate(session.checkOut);
+                    const overlapsWindow = checkIn < schedEnd && (!checkOut || checkOut > schedStart);
                     const minDiffMs = Math.min(..._chainStartDates.map(start => Math.abs(checkIn - start)));
-                    return minDiffMs < 60 * 60 * 1000;
+                    return overlapsWindow || minDiffMs < 60 * 60 * 1000;
                 });
+                matchedSession = selectBestTeachingAttendanceSession(
+                    automaticCandidates,
+                    schedStart,
+                    schedEnd,
+                    _chainStartDates
+                );
             }
 
             // Ca lịch này nằm trọn trong một phiên admin đã chọn môn ở hàng

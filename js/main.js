@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260904-admin-payroll-override-v1';
+const APP_VERSION = '20260904-attendance-auth-recovery-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -1372,6 +1372,7 @@ function getStaffAttendanceErrorMessage(error) {
     const code = String(error?.code || '').toLowerCase();
     const rawMessage = String(error?.message || '').toLowerCase();
     if (code === 'permission-denied' || code.includes('permission-denied') ||
+        code.startsWith('auth/') || code.includes('session') || code.includes('token') ||
         rawMessage.includes('missing or insufficient permissions')) {
         return 'Phiên đăng nhập hoặc quyền chấm công chưa được xác nhận. Vui lòng tải lại trang hoặc đăng nhập lại rồi thử lại.';
     }

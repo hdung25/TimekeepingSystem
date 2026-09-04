@@ -61,6 +61,24 @@ assert.match(dbLogin, /finally \{[\s\S]*?_clearStoredAuthSession\(\)/);
 assert.doesNotMatch(dbLogin, /collection\('user_roles'\)[\s\S]*?\.set\(/,
     'login must not promote profile/local roles into user_roles');
 
+const attendanceCheckIn = db.slice(
+    db.indexOf('checkInPersonal: async'),
+    db.indexOf('checkOutPersonal: async')
+);
+assert.match(attendanceCheckIn, /const settingsDoc = await _runAttendanceFirestoreOperation\(\(\) =>/,
+    'the settings read must recover from one stale Firestore credential');
+assert.match(attendanceCheckIn, /const dateKey = await _runAttendanceFirestoreOperation\(async authUser =>/,
+    'the write transaction must recover from one stale Firestore credential');
+assert.equal(
+    (attendanceCheckIn.match(/_runAttendanceFirestoreOperation\(/g) || []).length,
+    2,
+    'check-in must keep exactly two bounded recovery boundaries: read then transaction'
+);
+assert.match(db, /function _isFirestorePermissionDenied\(error\)/);
+assert.match(db, /return code\.includes\('permission-denied'\)[\s\S]*?missing or insufficient permissions/);
+assert.match(db, /Network\/timeout errors deliberately do not[\s\S]*?enter this branch/,
+    'only rejected permission operations are allowed one retry');
+
 const managerRoleSync = db.slice(
     db.indexOf('_syncUserRoleMappingAsManager: async'),
     db.indexOf('deleteUser: async')
@@ -172,6 +190,62 @@ async function verifyMemoizedAuthRestore() {
     authObserver(restoredUser);
     assert.strictEqual(await firstWait, restoredUser);
     assert.equal(unsubscribeCount, 1);
+}
+
+async function verifyAttendancePermissionRecovery() {
+    const tokenRefreshes = [];
+    const authUser = {
+        uid: 'attendance-uid',
+        getIdToken: async forceRefresh => {
+            tokenRefreshes.push(forceRefresh);
+            return forceRefresh ? 'fresh-token' : 'cached-token';
+        }
+    };
+    const auth = { currentUser: authUser };
+    const context = {
+        console: quietConsole,
+        setTimeout,
+        clearTimeout,
+        window: {
+            auth,
+            db: {},
+            localStorage: { getItem() { return ''; }, removeItem() {} }
+        },
+        localStorage: { getItem() { return ''; }, removeItem() {} },
+        navigator: {},
+        firebase: { auth: () => auth },
+        db: {}
+    };
+    vm.runInNewContext(`${db}\nglobalThis.__runAttendanceFirestoreOperation = _runAttendanceFirestoreOperation;`, context);
+
+    let attempts = 0;
+    const recovered = await context.__runAttendanceFirestoreOperation(async actor => {
+        attempts += 1;
+        assert.equal(actor.uid, 'attendance-uid');
+        if (attempts === 1) {
+            const error = new Error('Missing or insufficient permissions.');
+            error.code = 'permission-denied';
+            throw error;
+        }
+        return 'committed-after-token-refresh';
+    });
+    assert.equal(recovered, 'committed-after-token-refresh');
+    assert.equal(attempts, 2, 'a denied Firestore operation retries exactly once');
+    assert.deepEqual(tokenRefreshes, [false, true], 'only the retry forces a Firebase token refresh');
+
+    tokenRefreshes.length = 0;
+    attempts = 0;
+    await assert.rejects(
+        context.__runAttendanceFirestoreOperation(async () => {
+            attempts += 1;
+            const error = new Error('network unavailable');
+            error.code = 'unavailable';
+            throw error;
+        }),
+        error => error?.code === 'unavailable'
+    );
+    assert.equal(attempts, 1, 'network errors never retry a transaction automatically');
+    assert.deepEqual(tokenRefreshes, [false], 'network errors never force-refresh the credential');
 }
 
 function firestoreDoc(id, data, exists = true) {
@@ -493,6 +567,7 @@ assert.match(authGuard, /path\.includes\('mon-hoc\.html'\)[\s\S]*?currentRoles\.
 
 Promise.all([
     verifyMemoizedAuthRestore(),
+    verifyAttendancePermissionRecovery(),
     verifyUidBoundProfileResolution(),
     verifySeniorProfileSaveBoundary()
 ])

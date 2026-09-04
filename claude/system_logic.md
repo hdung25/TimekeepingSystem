@@ -775,3 +775,29 @@ là bảng 4 cột với nhãn dọc như cũ.
   di trú dữ liệu và không tự sửa công/lương đã có. PWA cache/version:
   `20260904-admin-payroll-override-v1`, cache
   `tdt-chamcong-v149-admin-payroll-override-20260904`.
+
+### 04/09/2026 — Khôi phục an toàn phiên chấm công và chọn đúng phiên ca dạy
+- Hai tài khoản báo lỗi được kiểm tra theo UID Firebase, hồ sơ `users` và
+  `user_roles`: ánh xạ hợp lệ. Nguyên nhân không phải GPS hay thiếu role cố
+  định, mà PWA/WebView có thể giữ vỏ đăng nhập sau khi token Firestore cũ đã
+  không còn được chấp nhận.
+- Khi `settings/system` hoặc transaction Vào ca trả đúng `permission-denied`,
+  client chỉ làm mới token của **cùng UID** và chạy lại đúng operation đó một
+  lần. Không retry `unavailable`/network/timeout (có thể không biết commit đã
+  thành công hay chưa), không tạo phiên công trước retry, không sửa role và
+  không tự đăng nhập lại một tài khoản khác.
+- Kiểm tra vị trí thật vẫn nằm ngoài retry và chạy đúng một lần cho mỗi thao
+  tác Vào ca. Marker local chỉ là UX theo tài khoản+trình duyệt; quyền vị trí
+  của Safari/Android thuộc thiết bị nên không có migration/rules nào được phép
+  giả mạo hoặc bypass nó. Thông báo nhân viên tiếp tục không lộ GPS.
+- Bảng công không còn lấy `sessions[]` theo thứ tự lưu. Với ghép tự động,
+  phiên đang mở gần giờ bắt đầu lớp được ưu tiên trước phiên cũ chỉ chồng vài
+  phút; link lớp rõ ràng vẫn có ưu tiên cao nhất. Regression dữ liệu Mỹ Sang:
+  phiên mới 19:36 của TV5 được chọn, không còn `V84p`; dữ liệu chấm công gốc
+  không bị sửa.
+- Có script chỉ gửi thông báo trong app cho đúng hai tài khoản đã audit,
+  default read-only và `--apply` cần xác nhận project + số người. Nó chỉ tạo
+  `admin_notifications` bằng ID xác định, không động đến chấm công/lương/lịch/
+  role. Không thay đổi Firestore Rules. PWA cache/version:
+  `20260904-attendance-auth-recovery-v1`, cache
+  `tdt-chamcong-v150-attendance-auth-recovery-20260904`.

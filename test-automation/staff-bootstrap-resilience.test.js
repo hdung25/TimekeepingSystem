@@ -5,7 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
-const version = '20260904-admin-payroll-override-v1';
+const version = '20260904-attendance-auth-recovery-v1';
 const nhanVien = read('nhan-vien.html');
 const chamCong = read('cham-cong.html');
 const baoCao = read('bao-cao.html');
@@ -74,8 +74,8 @@ assert.match(timekeeping, /getStaffAttendanceErrorMessage\(e\)/,
 assert.doesNotMatch(timekeeping, /<p style="color:red">Lỗi tải trạng thái<\/p>/,
     'Attendance load failures must offer a recovery action, not a dead-end error');
 
-assert.match(worker, /tdt-chamcong-v149-admin-payroll-override-20260904/);
-assert.match(worker, /startup-recovery\.js\?v=20260904-admin-payroll-override-v1/,
+assert.match(worker, /tdt-chamcong-v150-attendance-auth-recovery-20260904/);
+assert.match(worker, /startup-recovery\.js\?v=20260904-attendance-auth-recovery-v1/,
     'The watchdog must be part of the atomic PWA install manifest');
 assert.doesNotMatch(recovery, /DBService|firestore|attendance_logs|salary_settings|localStorage|sessionStorage|fetch\(/,
     'The startup watchdog must remain read-only and independent of business data');

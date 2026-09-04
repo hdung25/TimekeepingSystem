@@ -1029,6 +1029,83 @@ function _createAuthProfileError(message, code = 'auth/profile-mismatch') {
     return error;
 }
 
+// A resumed PWA/WebView can still show the signed-in shell while its Firestore
+// credential has just become stale (for example after the device restores a
+// backgrounded tab). Check-in is a transaction, so retrying an arbitrary error
+// would be unsafe: a network failure can happen after a commit. A permission
+// denial, however, is a rejected commit. Refreshing the same Firebase user's
+// token and retrying that operation exactly once is safe and lets the staff
+// member recover without having to clear browser data.
+function _isFirestorePermissionDenied(error) {
+    const code = String(error?.code || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    return code.includes('permission-denied') ||
+        message.includes('missing or insufficient permissions');
+}
+
+function _attendanceAuthError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
+
+async function _getAttendanceAuthUser(forceRefresh = false) {
+    const primaryAuth = window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
+    const actor = primaryAuth?.currentUser;
+    if (!actor?.uid) {
+        throw _attendanceAuthError(
+            'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại trước khi Vào ca.',
+            'auth/session-missing'
+        );
+    }
+    if (typeof actor.getIdToken !== 'function') {
+        throw _attendanceAuthError(
+            'Không thể xác nhận phiên chấm công. Vui lòng đăng nhập lại.',
+            'auth/attendance-token-unavailable'
+        );
+    }
+
+    try {
+        const token = await actor.getIdToken(forceRefresh === true);
+        if (!token) {
+            throw _attendanceAuthError(
+                'Không thể xác nhận phiên chấm công. Vui lòng đăng nhập lại.',
+                'auth/attendance-token-unavailable'
+            );
+        }
+    } catch (error) {
+        if (error?.code) throw error;
+        throw _attendanceAuthError(
+            'Không thể làm mới phiên chấm công. Vui lòng đăng nhập lại.',
+            'auth/attendance-token-unavailable'
+        );
+    }
+    return actor;
+}
+
+async function _runAttendanceFirestoreOperation(operation) {
+    const initialActor = await _getAttendanceAuthUser(false);
+    try {
+        return await operation(initialActor);
+    } catch (error) {
+        if (!_isFirestorePermissionDenied(error)) throw error;
+
+        console.warn('[Attendance] Firestore denied the current credential; refreshing it once before retrying.');
+        const refreshedActor = await _getAttendanceAuthUser(true);
+        if (refreshedActor.uid !== initialActor.uid) {
+            throw _attendanceAuthError(
+                'Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại trước khi Vào ca.',
+                'auth/session-changed'
+            );
+        }
+
+        // A permission-denied transaction did not commit, so this is the one
+        // safe automatic retry. Network/timeout errors deliberately do not
+        // enter this branch.
+        return operation(refreshedActor);
+    }
+}
+
 const DBService = {
     _cache: {},
     _cacheTime: {},
@@ -3204,7 +3281,13 @@ const DBService = {
     },
 
     checkInPersonal: async (userId, userFullName) => {
-        const settingsDoc = await db.collection('settings').doc('system').get();
+        // Reads and the final Firestore transaction each self-recover once
+        // from a stale mobile token. The location gate remains outside the
+        // retry, so one deliberate Vào ca action performs exactly one real
+        // location check and no retry can bypass it.
+        const settingsDoc = await _runAttendanceFirestoreOperation(() =>
+            db.collection('settings').doc('system').get()
+        );
         if (settingsDoc.exists) {
             const settings = settingsDoc.data();
             const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
@@ -3226,90 +3309,97 @@ const DBService = {
             }
         }
 
-        const now = new Date();
-        const dateKey = getLocalDateKeyFromDate(now);
-        const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-        const docId = `${dateKey}_${userId}`;
-        const ref = db.collection('attendance_logs').doc(docId);
-        const previousRef = db.collection('attendance_logs').doc(`${previousDateKey}_${userId}`);
-        const newSessionId = createAttendanceSessionId();
-        const authUid = String(firebase.auth()?.currentUser?.uid || '').trim();
-        if (!authUid) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại trước khi Vào ca.');
-        const checkInProofRef = db.collection('attendance_checkin_proofs')
-            .doc(`${dateKey}~${userId}~${newSessionId}`);
+        const dateKey = await _runAttendanceFirestoreOperation(async authUser => {
+            const now = new Date();
+            const currentDateKey = getLocalDateKeyFromDate(now);
+            const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+            const ref = db.collection('attendance_logs').doc(`${currentDateKey}_${userId}`);
+            const previousRef = db.collection('attendance_logs').doc(`${previousDateKey}_${userId}`);
+            const newSessionId = createAttendanceSessionId();
+            const authUid = String(authUser.uid || '').trim();
+            if (!authUid) {
+                throw _attendanceAuthError(
+                    'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại trước khi Vào ca.',
+                    'auth/session-missing'
+                );
+            }
+            const checkInProofRef = db.collection('attendance_checkin_proofs')
+                .doc(`${currentDateKey}~${userId}~${newSessionId}`);
 
-        await db.runTransaction(async (t) => {
-            const [doc, previousDoc] = await Promise.all([t.get(ref), t.get(previousRef)]);
-            let data = doc.exists ? doc.data() : {
-                userId,
-                name: userFullName,
-                date: dateKey,
-                sessions: []
-            };
+            await db.runTransaction(async (t) => {
+                const [doc, previousDoc] = await Promise.all([t.get(ref), t.get(previousRef)]);
+                let data = doc.exists ? doc.data() : {
+                    userId,
+                    name: userFullName,
+                    date: currentDateKey,
+                    sessions: []
+                };
 
-            // Initialize sessions if missing (migration)
-            if (!data.sessions) {
-                // Migrate old single field data if exists
-                if (data.checkIn) {
-                    data.sessions = [{
-                        start: data.checkIn,
-                        checkIn: data.checkIn,
-                        checkOut: data.checkOut || null
-                    }];
-                } else {
-                    data.sessions = [];
+                // Initialize sessions if missing (migration)
+                if (!data.sessions) {
+                    // Migrate old single field data if exists
+                    if (data.checkIn) {
+                        data.sessions = [{
+                            start: data.checkIn,
+                            checkIn: data.checkIn,
+                            checkOut: data.checkOut || null
+                        }];
+                    } else {
+                        data.sessions = [];
+                    }
                 }
-            }
 
-            // Check if ANY working session is currently OPEN (no checkOut)
-            const openSession = data.sessions.find(s => !s.checkOut && !s.isAbsent);
-            const previousData = previousDoc.exists ? previousDoc.data() : null;
-            const previousSessions = previousData
-                ? (Array.isArray(previousData.sessions)
-                    ? previousData.sessions
-                    : (previousData.checkIn ? [{ checkIn: previousData.checkIn, checkOut: previousData.checkOut || null }] : []))
-                : [];
-            const previousOpenSession = previousSessions.find(s => !s.checkOut && !s.isAbsent);
-            if (previousOpenSession) {
-                const startTime = new Date(previousOpenSession.checkIn || previousOpenSession.start).toLocaleString('vi-VN');
-                throw new Error(`Bạn còn ca làm việc từ ${startTime} chưa kết thúc. Vui lòng Ra ca trước khi Vào ca mới.`);
-            }
-            if (openSession) {
-                const startTime = new Date(openSession.checkIn || openSession.start).toLocaleTimeString('vi-VN');
-                throw new Error(`Bạn đang có ca làm việc chưa kết thúc (bắt đầu lúc ${startTime})! Vui lòng Check-out hoặc Xóa ca cũ.`);
-            }
+                // Check if ANY working session is currently OPEN (no checkOut)
+                const openSession = data.sessions.find(s => !s.checkOut && !s.isAbsent);
+                const previousData = previousDoc.exists ? previousDoc.data() : null;
+                const previousSessions = previousData
+                    ? (Array.isArray(previousData.sessions)
+                        ? previousData.sessions
+                        : (previousData.checkIn ? [{ checkIn: previousData.checkIn, checkOut: previousData.checkOut || null }] : []))
+                    : [];
+                const previousOpenSession = previousSessions.find(s => !s.checkOut && !s.isAbsent);
+                if (previousOpenSession) {
+                    const startTime = new Date(previousOpenSession.checkIn || previousOpenSession.start).toLocaleString('vi-VN');
+                    throw new Error(`Bạn còn ca làm việc từ ${startTime} chưa kết thúc. Vui lòng Ra ca trước khi Vào ca mới.`);
+                }
+                if (openSession) {
+                    const startTime = new Date(openSession.checkIn || openSession.start).toLocaleTimeString('vi-VN');
+                    throw new Error(`Bạn đang có ca làm việc chưa kết thúc (bắt đầu lúc ${startTime})! Vui lòng Check-out hoặc Xóa ca cũ.`);
+                }
 
-            // Cooldown check-in removed as requested
+                // Cooldown check-in removed as requested
 
-            // Add new session
-            const newSession = {
-                id: newSessionId,
-                anchorDateKey: dateKey,
-                status: 'open',
-                source: 'self',
-                start: now.toISOString(),
-                checkIn: now.toISOString(),
-                checkOut: null
-            };
+                // Add new session
+                const newSession = {
+                    id: newSessionId,
+                    anchorDateKey: currentDateKey,
+                    status: 'open',
+                    source: 'self',
+                    start: now.toISOString(),
+                    checkIn: now.toISOString(),
+                    checkOut: null
+                };
 
-            data.sessions.push(newSession);
+                data.sessions.push(newSession);
 
-            // Sync top-level fields for query compatibility (optional but good for simple queries)
-            data.checkIn = newSession.checkIn;
-            data.checkOut = null;
-            data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+                // Sync top-level fields for query compatibility (optional but good for simple queries)
+                data.checkIn = newSession.checkIn;
+                data.checkOut = null;
+                data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
 
-            t.set(ref, data);
-            // The immutable companion receipt supplies server-authored time to
-            // Firestore Rules. Client ISO timestamps remain display data only.
-            t.set(checkInProofRef, {
-                staffId: userId,
-                dateKey,
-                sessionId: newSessionId,
-                authUid,
-                recordedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                schemaVersion: 1
+                t.set(ref, data);
+                // The immutable companion receipt supplies server-authored time to
+                // Firestore Rules. Client ISO timestamps remain display data only.
+                t.set(checkInProofRef, {
+                    staffId: userId,
+                    dateKey: currentDateKey,
+                    sessionId: newSessionId,
+                    authUid,
+                    recordedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    schemaVersion: 1
+                });
             });
+            return currentDateKey;
         });
         DBService._invalidateAttendance(dateKey, userId);
     },

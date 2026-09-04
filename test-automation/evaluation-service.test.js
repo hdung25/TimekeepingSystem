@@ -1163,6 +1163,42 @@ function observation(lateMinutes) {
 }
 
 {
+    // Regression live data Nguyễn Ngọc Mỹ Sang 04/09: phiên buổi chiều đóng
+    // lúc 19:36 chỉ chồng 6 phút lên lớp TV5 19:30–21:00. Phiên mới mở lúc
+    // 19:36 là lần vào ca của TV5 và phải thắng, dù row cũ nằm trước trong
+    // sessions[]. Không được trả 6 phút rồi gắn V84p cho lớp này.
+    const sangSchedule = {
+        evening2: [{
+            start: '19:30', end: '21:00', lop: 'TV5', lopId: 'subject-tv5',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1'
+        }]
+    };
+    const sangChips = context.window.calculateDailyChips(
+        sangSchedule,
+        [
+            {
+                id: 'prior-afternoon-session',
+                checkIn: '2026-07-14T14:26:33+07:00',
+                checkOut: '2026-07-14T19:36:10+07:00'
+            },
+            {
+                id: 'fresh-tv5-session',
+                checkIn: '2026-07-14T19:36:17+07:00',
+                checkOut: null
+            }
+        ],
+        staffId, dateKey, { roles: ['teaching_assistant'], salary_config: {} }
+    );
+    const tv5Chip = sangChips.find(chip => chip.isTeaching && chip.classStart === '19:30');
+    assert.ok(tv5Chip, 'phải giữ chip TV5');
+    assert.equal(tv5Chip.sessionId, 'fresh-tv5-session', 'phiên mới của lớp TV5 phải thắng phiên cũ chồng 6 phút');
+    assert.equal(tv5Chip.sessionData.id, 'fresh-tv5-session');
+    assert.doesNotMatch(tv5Chip.text, /\(V84p\)/, 'không được biến lỗi chọn phiên thành về sớm 84 phút');
+    assert.match(tv5Chip.text, /\(T6p\)/, 'giờ vào 19:36 vẫn được phản ánh là trễ 6 phút');
+    assert.equal(tv5Chip.paidMinutes, 84, 'ngày cũ chưa ra ca chỉ tự khép theo đúng lớp TV5, không lấy 6 phút phiên trước');
+}
+
+{
     // Mỹ Yến 11/08: lần bấm lỗi mang giờ ra buổi sáng không được che lần bấm
     // hợp lệ ngay sau đó. Phiên đang mở của ngày cũ được khép theo cuối chuỗi lịch.
     const myYenSchedule = {
