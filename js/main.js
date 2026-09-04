@@ -1,4 +1,13 @@
-const APP_VERSION = '20260903-transfer-location-timestamp-v1';
+window.__TDT_CORE_BOOTSTRAP_STARTED__ = true;
+function signalCoreBootstrapReady() {
+    if (window.__TDT_CORE_BOOTSTRAP_READY__) return;
+    window.__TDT_CORE_BOOTSTRAP_READY__ = true;
+    if (typeof window.dispatchEvent === 'function' && typeof Event === 'function') {
+        window.dispatchEvent(new Event('tdt:app-core-ready'));
+    }
+}
+
+const APP_VERSION = '20260904-bootstrap-resilience-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -434,6 +443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (loginForm) {
         console.log('Timekeeping System Loaded (Login Page)');
         loginForm.addEventListener('submit', handleLogin);
+        signalCoreBootstrapReady();
     } else {
         // Wait for Firebase Auth to restore session (critical for Firestore permissions)
         let firebaseUser = null;
@@ -483,6 +493,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // We are inside the app, render sidebar
         renderSidebar();
+        signalCoreBootstrapReady();
         loadDashboardStats(); // Fetch real data
         
         // Refresh alerts khi user quay lại tab/window này
@@ -1369,6 +1380,20 @@ function getStaffAttendanceErrorMessage(error) {
         return 'Kết nối mạng chấm công không ổn định. Vui lòng kiểm tra đúng Wifi của cơ sở rồi thử lại.';
     }
     return 'Không thể chấm công lúc này. Vui lòng tải lại trang và thử lại.';
+}
+
+function getStaffDataLoadErrorMessage(error, featureLabel = 'dữ liệu') {
+    const code = String(error?.code || '').toLowerCase();
+    const rawMessage = String(error?.message || '').toLowerCase();
+    if (code === 'permission-denied' || code.includes('permission-denied') ||
+        rawMessage.includes('missing or insufficient permissions')) {
+        return 'Phiên đăng nhập hoặc quyền truy cập chưa được xác nhận. Vui lòng tải lại trang hoặc đăng nhập lại rồi thử lại.';
+    }
+    if (code.includes('unavailable') || code.includes('deadline-exceeded') ||
+        code.includes('network') || rawMessage.includes('network')) {
+        return 'Kết nối đang không ổn định. Vui lòng kiểm tra mạng rồi thử lại.';
+    }
+    return `Chưa thể tải ${featureLabel}. Vui lòng tải lại trang rồi thử lại.`;
 }
 
 // 1. GLOBAL CHECK-IN/OUT (Cloud Isolated)
@@ -2953,9 +2978,14 @@ async function loadStaffPersonalSalary() {
     } catch (e) {
         if (loadGeneration !== personalSalaryLoadGeneration) return;
         console.error("Error loading personal salary:", e);
-        statusContainer.innerHTML = '<p style="margin:0;color:#EF4444;font-weight:500;"></p>';
-        const errorText = statusContainer.querySelector('p');
-        if (errorText) errorText.textContent = `Lỗi khi tải bảng lương: ${e.message || e}`;
+        statusContainer.innerHTML = `
+            <p id="personal-salary-load-error" style="margin:0 0 0.75rem;color:#B45309;font-weight:500;"></p>
+            <button type="button" id="btn-retry-personal-salary" class="btn btn-sm btn-primary">Tải lại</button>
+        `;
+        const errorText = statusContainer.querySelector('#personal-salary-load-error');
+        if (errorText) errorText.textContent = getStaffDataLoadErrorMessage(e, 'bảng lương');
+        const retryButton = statusContainer.querySelector('#btn-retry-personal-salary');
+        if (retryButton) retryButton.addEventListener('click', () => loadStaffPersonalSalary());
     }
 }
 

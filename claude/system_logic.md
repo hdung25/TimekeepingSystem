@@ -694,3 +694,23 @@ là bảng 4 cột với nhãn dọc như cũ.
 - Regression: 34/34 nhóm ứng dụng, 22/22 tình huống Firestore Rules và browser fixture đều đạt.
   PWA cache/version: `20260831-attendance-recovery-v3`, cache
   `tdt-chamcong-v141-attendance-recovery-20260831`.
+
+### 04/09/2026 — Khôi phục tải trang nhân viên khi CDN phụ trợ chậm hoặc bị chặn
+- Ảnh thực tế cho thấy cả Bảng Cá Nhân, Chấm Công và Bảng Công chỉ còn HTML tĩnh
+  (`--`, spinner đứng yên, không có nút/chức năng). Nguyên nhân chung: các script phụ
+  Chart.js, Lucide và Flatpickr được tải đồng bộ trước module nghiệp vụ; chỉ một CDN chậm
+  là chặn cả chuỗi khởi tạo.
+- Ba trang nhân viên chuyển các thư viện này sang `async`; riêng CSS Flatpickr được tải
+  không chặn. Core Firebase và module nghiệp vụ vẫn theo thứ tự cũ. Lucide/Chart đã có
+  fallback, Flatpickr chỉ dùng khi quản lý mở modal và giờ tự chịu được locale đến muộn.
+- Bỏ riêng đoạn `forceSWUpdate` trên `bao-cao.html`: đoạn này unregister toàn PWA, xóa cache
+  và reload sau 300ms, có thể cắt ngang lần tải đầu. Cập nhật chuẩn vẫn do service worker xử lý.
+- Thêm watchdog chỉ đọc `startup-recovery.js`: chỉ dừng khi core/report/timekeeping đã hoàn tất
+  khởi động đầu tiên. Nếu không, sau 18 giây nhân viên chỉ thấy thông báo dễ hiểu và nút Tải lại.
+  Không đọc/ghi Firestore, localStorage, công, lịch hoặc lương.
+- Bảng Công dùng chung `waitAuth()` 15 giây với vỏ ứng dụng thay vì timeout riêng 3 giây;
+  không gửi Firestore read khi token chưa khôi phục. Các lỗi tải bảng công, trạng thái chấm công
+  và bảng lương chuyển sang thông báo thân thiện có nút thử lại, không in raw Firebase error.
+- Không sửa Firestore Rules hay dữ liệu lịch sử. Regression toàn bộ và Firestore Rules
+  `29/29` đạt trước deploy. PWA cache/version: `20260904-bootstrap-resilience-v1`, cache
+  `tdt-chamcong-v146-bootstrap-resilience-20260904`.

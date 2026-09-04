@@ -1,14 +1,39 @@
 // Timekeeping Logic
 
-document.addEventListener('DOMContentLoaded', async () => {
-    if (window.waitAuth) {
-        await window.waitAuth();
+window.__TDT_TIMEKEEPING_BOOTSTRAP_STARTED__ = true;
+function signalTimekeepingBootstrapReady() {
+    if (window.__TDT_TIMEKEEPING_BOOTSTRAP_READY__) return;
+    window.__TDT_TIMEKEEPING_BOOTSTRAP_READY__ = true;
+    if (typeof window.dispatchEvent === 'function' && typeof Event === 'function') {
+        window.dispatchEvent(new Event('tdt:timekeeping-ready'));
     }
-    // Only initialize if we are on the timekeeping page
-    if (document.getElementById('timekeeping-container')) {
-        initTimekeeping();
-        updateClock();
-        setInterval(updateClock, 1000);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const authUser = typeof window.waitAuth === 'function'
+            ? await window.waitAuth()
+            : (window.auth?.currentUser || null);
+        if (!authUser) return;
+        // Only initialize if we are on the timekeeping page
+        if (document.getElementById('timekeeping-container')) {
+            await initTimekeeping();
+            signalTimekeepingBootstrapReady();
+            updateClock();
+            setInterval(updateClock, 1000);
+        }
+    } catch (error) {
+        console.error('Timekeeping initialization failed:', error);
+        const container = document.getElementById('global-checkin-container');
+        if (container) {
+            container.innerHTML = `
+                <div class="glass-panel" style="padding:1.25rem;text-align:center;color:#92400E;">
+                    <p style="margin:0 0 0.9rem;font-weight:600;">Chưa thể mở chấm công. Vui lòng kiểm tra kết nối rồi tải lại trang.</p>
+                    <button type="button" class="btn btn-primary" onclick="window.location.reload()">Tải lại</button>
+                </div>
+            `;
+        }
+        signalTimekeepingBootstrapReady();
     }
 });
 
@@ -20,7 +45,7 @@ async function initTimekeeping() {
         console.warn("Error loading system settings:", e);
         window.centerClosures = {};
     }
-    renderGlobalCheckIn();
+    await renderGlobalCheckIn();
     renderTodayChips();  // NEW: Show chip status for today's classes
     renderTodayClasses();
 
@@ -142,7 +167,17 @@ async function renderGlobalCheckIn() {
         }
     } catch (e) {
         console.error(e);
-        container.innerHTML = '<p style="color:red">Lỗi tải trạng thái</p>';
+        const message = typeof getStaffAttendanceErrorMessage === 'function'
+            ? getStaffAttendanceErrorMessage(e)
+            : 'Chưa thể tải trạng thái chấm công. Vui lòng kiểm tra kết nối rồi thử lại.';
+        container.innerHTML = `
+            <div class="glass-panel" style="padding:1.25rem;text-align:center;color:#92400E;">
+                <p id="attendance-load-error" style="margin:0 0 0.9rem;font-weight:600;"></p>
+                <button type="button" class="btn btn-primary" onclick="renderGlobalCheckIn()">Tải lại</button>
+            </div>
+        `;
+        const errorText = container.querySelector('#attendance-load-error');
+        if (errorText) errorText.textContent = message;
     }
 
     // Call history render separate

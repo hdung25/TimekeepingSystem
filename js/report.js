@@ -1,5 +1,14 @@
 // Report & Salary Logic
 
+window.__TDT_REPORT_BOOTSTRAP_STARTED__ = true;
+function signalReportBootstrapReady() {
+    if (window.__TDT_REPORT_BOOTSTRAP_READY__) return;
+    window.__TDT_REPORT_BOOTSTRAP_READY__ = true;
+    if (typeof window.dispatchEvent === 'function' && typeof Event === 'function') {
+        window.dispatchEvent(new Event('tdt:report-ready'));
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Check if on report page (has calendar grid)
     if (document.getElementById('calendar-grid')) {
@@ -84,6 +93,7 @@ function isPrimaryPayrollAdminViewer() {
 }
 
 async function initReport() {
+    try {
     // Reset role filter select to default 'all'
     const roleFilterEl = document.getElementById('salary-role-filter');
     if (roleFilterEl) roleFilterEl.value = 'all';
@@ -110,15 +120,13 @@ async function initReport() {
     // Restore saved staff ID if available
     window.initialTargetStaffId = urlParams.get('staffId') || localStorage.getItem('lastSelectedStaffId') || '';
 
-    // 0. Wait for Firebase Auth to restore session (critical for Firestore permissions)
-    await new Promise((resolve) => {
-        const unsubscribe = firebase.auth().onAuthStateChanged(() => {
-            unsubscribe();
-            resolve();
-        });
-        // Timeout fallback: don't block forever if auth fails
-        setTimeout(resolve, 3000);
-    });
+    // Use the same bounded, memoized auth restoration as the application shell.
+    // A separate short timeout could start Firestore reads before the mobile
+    // browser restored its Firebase token, producing an empty static report.
+    const authUser = typeof window.waitAuth === 'function'
+        ? await window.waitAuth()
+        : (window.auth?.currentUser || null);
+    if (!authUser) return;
 
     try {
         const settings = await DBService.getSystemSettings();
@@ -225,8 +233,9 @@ async function initReport() {
 
     // 3. Render
     if (!isAdminLike) {
-        renderMonthReport(currentDate);
+        await renderMonthReport(currentDate);
     }
+    signalReportBootstrapReady();
 
     // Cross-tab update: refresh report if another tab changes class registration
     window.addEventListener('storage', (event) => {
@@ -236,6 +245,11 @@ async function initReport() {
             }
         }
     });
+    } catch (error) {
+        console.error('Report initialization failed:', error);
+        renderReportLoadFailure(error);
+        signalReportBootstrapReady();
+    }
 }
 
 async function populateStaffSelect() {
@@ -974,11 +988,37 @@ function createReportRenderCommitGuard(renderEpoch, staffId, readEpoch, readStaf
 }
 // REPORT_RENDER_COMMIT_GUARD_END
 
+function renderReportLoadFailure(error) {
+    console.error('Report load failed:', error);
+    const grid = document.getElementById('calendar-grid');
+    if (grid) {
+        grid.innerHTML = `
+            <div style="grid-column:1/-1;text-align:center;padding:2rem;color:#92400E;">
+                <p style="margin:0 0 0.9rem;font-weight:600;">Chưa thể tải bảng công. Vui lòng kiểm tra kết nối rồi thử lại.</p>
+                <button type="button" class="btn btn-primary" onclick="renderMonthReport(currentDate, true)">Tải lại</button>
+            </div>
+        `;
+    }
+    const totalHoursEl = document.getElementById('total-hours-display');
+    if (totalHoursEl) totalHoursEl.innerText = 'Tổng giờ làm: Chưa tải được';
+}
+
 function renderPersonalTimesheet() {
     renderMonthReport(currentDate);
 }
 
 async function renderMonthReport(date, forceServer = false) {
+    const requestedRenderEpoch = _reportRenderEpoch + 1;
+    try {
+        return await _renderMonthReport(date, forceServer);
+    } catch (error) {
+        // A stale request must not overwrite the result of a newer staff/month.
+        if (_reportRenderEpoch === requestedRenderEpoch) renderReportLoadFailure(error);
+        return null;
+    }
+}
+
+async function _renderMonthReport(date, forceServer = false) {
     const grid = document.getElementById('calendar-grid');
     if (!grid) return;
     const renderEpoch = ++_reportRenderEpoch;
@@ -4280,7 +4320,7 @@ function initFlatpickr() {
             dateFormat: "Y-m-d\\TH:i",
             altInput: true,
             altFormat: "d/m/Y H:i",  // Changed to 24-hour format (H instead of h)
-            locale: "vn",
+            ...(flatpickr.l10ns && flatpickr.l10ns.vn ? { locale: flatpickr.l10ns.vn } : {}),
             time_24hr: true,          // Use 24-hour format
             minuteIncrement: 1,        // Ensure 1-minute increment (no rounding to 5 or 10)
             allowInput: true,         // Allow typing manually
