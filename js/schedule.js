@@ -1200,6 +1200,65 @@ function teacherManagerSubEntries() {
     return (state?.substituteIds || []).map(id => state.substituteById.get(id)).filter(Boolean);
 }
 
+function teacherManagerReplacementTarget() {
+    const state = teacherShiftManagerState;
+    const teacherId = String(state?.replacementTargetId || '').trim();
+    if (!teacherId || (state.statuses?.[teacherId]?.type || 'ACTIVE') === 'ACTIVE') return null;
+    return state.teacherById?.get(teacherId) || null;
+}
+
+// Keep replacement coverage scoped to one absent main teacher. Removing a
+// pending coverage must never remove a substitute who still covers another
+// teacher in the same class.
+function clearTeacherReplacementMappings(state, teacherId) {
+    const mainId = String(teacherId || '').trim();
+    if (!state || !mainId) return false;
+    let changed = false;
+    state.substituteById.forEach(substitute => {
+        const previousIds = Array.from(new Set((substitute?.replacesTeacherIds || []).map(String)));
+        const nextIds = previousIds.filter(id => id !== mainId);
+        if (nextIds.length !== previousIds.length) changed = true;
+        substitute.replacesTeacherIds = nextIds;
+    });
+    const retainedIds = (state.substituteIds || []).filter(id => {
+        const substitute = state.substituteById.get(id);
+        if ((substitute?.replacesTeacherIds || []).length) return true;
+        if (substitute) {
+            state.substituteById.delete(id);
+            changed = true;
+        }
+        return false;
+    });
+    if (retainedIds.length !== (state.substituteIds || []).length) changed = true;
+    state.substituteIds = retainedIds;
+    if (String(state.replacementTargetId || '') === mainId) state.replacementTargetId = '';
+    return changed;
+}
+
+function assignTeacherReplacement(state, substituteId, teacherId) {
+    const mainId = String(teacherId || '').trim();
+    const replacementId = String(substituteId || '').trim();
+    const isAbsentMain = state?.mainIds?.includes(mainId) &&
+        (state.statuses?.[mainId]?.type || 'ACTIVE') !== 'ACTIVE';
+    const teacher = state?.teacherById?.get(replacementId);
+    if (!isAbsentMain || !replacementId || !teacher || state.mainIds.includes(replacementId)) return false;
+
+    const current = state.substituteById.get(replacementId) || {};
+    const replacesTeacherIds = Array.from(new Set([
+        ...(current.replacesTeacherIds || []).map(String),
+        mainId
+    ]));
+    state.substituteById.set(replacementId, {
+        ...current,
+        id: replacementId,
+        name: current.name || teacher.name || teacher.username || 'Chưa đặt tên',
+        replacesTeacherIds
+    });
+    if (!state.substituteIds.includes(replacementId)) state.substituteIds.push(replacementId);
+    state.replacementTargetId = '';
+    return true;
+}
+
 function teacherRosterItem(teacher, kind, checked, disabled) {
     const id = scheduleEscapeAttr(teacher.id);
     const name = teacher.name || teacher.username || 'Chưa đặt tên';
@@ -1225,6 +1284,10 @@ function teacherStatusCard(teacher) {
             ? `<span class="coverage-pill is-covered">Đã có GV thay · ${scheduleEscapeHTML(replacements.map(item => item.name).join(', '))}</span>`
             : '<span class="coverage-pill is-pending">Đang tìm GV thay</span>')
         : '<span class="coverage-pill is-active">Sẵn sàng đứng lớp</span>';
+    const coverageActions = absence ? `<div class="coverage-decision-actions" role="group" aria-label="Điều phối giáo viên thay cho ${scheduleEscapeAttr(teacher.name)}">
+            <button type="button" data-action="mark-pending" data-teacher-id="${id}" class="${replacements.length ? '' : 'is-active'}">Chưa có GV thay</button>
+            <button type="button" data-action="pick-replacement" data-teacher-id="${id}" class="is-pick">${replacements.length ? 'Đổi / thêm GV thay' : 'Chọn GV thay'}</button>
+        </div>` : '';
     return `<article class="teacher-status-card status-${type.toLowerCase()}" data-main-card="${id}">
         <div class="teacher-status-card-head">
             <div><strong>${scheduleEscapeHTML(teacher.name)}</strong><span>GV chính</span></div>
@@ -1238,9 +1301,29 @@ function teacherStatusCard(teacher) {
         ${absence ? `<div class="teacher-absence-fields">
             <label><span>Thời điểm báo</span><input type="datetime-local" data-action="reported-at" data-teacher-id="${id}" value="${scheduleEscapeAttr(toLocalDateTimeInput(status.reportedAt))}"></label>
             <label class="reason-field"><span>Lý do / ghi chú điều phối</span><input type="text" maxlength="300" data-action="absence-reason" data-teacher-id="${id}" value="${scheduleEscapeAttr(status.reason || '')}" placeholder="Ví dụ: báo bệnh, việc gia đình..."></label>
-        </div>` : ''}
+        </div>${coverageActions}` : ''}
         <button type="button" class="fixed-next-week-btn${pendingFixed ? ' is-active' : ''}" data-action="toggle-fixed" data-teacher-id="${id}">⏳ ${pendingFixed ? 'Đã đánh dấu cố định tuần sau' : 'Đánh dấu cố định từ tuần sau'}</button>
     </article>`;
+}
+
+function replacementTargetPickerMarkup() {
+    const state = teacherShiftManagerState;
+    const target = teacherManagerReplacementTarget();
+    if (!state || !target) return '';
+    const candidates = state.teachers
+        .filter(teacher => teacher?.id && !state.mainIds.includes(String(teacher.id)));
+    const cards = candidates.map(teacher => {
+        const substitute = state.substituteById.get(String(teacher.id));
+        const alreadyAssigned = (substitute?.replacesTeacherIds || []).map(String).includes(String(target.id));
+        return `<button type="button" class="replacement-candidate${alreadyAssigned ? ' is-selected' : ''}" data-action="assign-replacement" data-substitute-id="${scheduleEscapeAttr(teacher.id)}" data-main-id="${scheduleEscapeAttr(target.id)}">
+            <span><strong>${scheduleEscapeHTML(teacher.name || teacher.username || 'Chưa đặt tên')}</strong><small>${scheduleEscapeHTML(getTeachingRoleLabel(teacher))}</small></span>
+            <b>${alreadyAssigned ? 'Đã chọn' : 'Chọn'}</b>
+        </button>`;
+    }).join('');
+    return `<section class="replacement-target-panel" aria-live="polite">
+        <div class="replacement-target-head"><div><strong>Chọn GV thay cho ${scheduleEscapeHTML(target.name)}</strong><span>Người được chọn sẽ được gắn đúng ca nghỉ này.</span></div><button type="button" data-action="cancel-replacement-target">Hủy</button></div>
+        <div class="replacement-candidate-list">${cards || '<div class="no-absence-hint">Không còn GV giảng dạy nào để chọn trong danh sách này. Hãy giữ trạng thái “Chưa có GV thay” và lưu ca.</div>'}</div>
+    </section>`;
 }
 
 function substituteCoverageCard(substitute) {
@@ -1794,6 +1877,7 @@ function teacherShiftManagerMarkup() {
                 <div class="teacher-roster-list" data-roster-list="main">${primaryRoster}</div>
             </div>
             <div class="roster-pane ${state.activeTab === 'substitute' ? 'is-active' : ''}" data-roster-pane="substitute">
+                ${replacementTargetPickerMarkup()}
                 <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="substitute" value="${scheduleEscapeAttr(state.search.substitute)}" placeholder="Tìm GV dạy thay..."></label>
                 <div class="teacher-roster-list" data-roster-list="substitute">${substituteRoster}</div>
             </div>
@@ -2245,6 +2329,7 @@ function handleTeacherShiftManagerClick(event) {
     if (action === 'attendance-save' && state.canEditAttendance) return saveAdminAttendanceEntry();
     if (action === 'roster-tab') {
         state.activeTab = button.dataset.tab === 'substitute' ? 'substitute' : 'main';
+        if (state.activeTab !== 'substitute') state.replacementTargetId = '';
         return renderTeacherShiftManager();
     }
     const teacherId = button.dataset.teacherId;
@@ -2267,16 +2352,38 @@ function handleTeacherShiftManagerClick(event) {
         state.statuses[teacherId].type = nextType;
         if (nextType !== 'ACTIVE' && !state.statuses[teacherId].reportedAt) state.statuses[teacherId].reportedAt = new Date().toISOString();
         if (nextType === 'ACTIVE') {
-            state.substituteById.forEach(item => {
-                item.replacesTeacherIds = (item.replacesTeacherIds || []).filter(id => id !== teacherId);
-            });
-            state.substituteIds = state.substituteIds.filter(id => {
-                const substitute = state.substituteById.get(id);
-                if ((substitute?.replacesTeacherIds || []).length) return true;
-                state.substituteById.delete(id);
-                return false;
-            });
+            clearTeacherReplacementMappings(state, teacherId);
         }
+        return renderTeacherShiftManager();
+    }
+    if (action === 'mark-pending') {
+        if ((state.statuses?.[teacherId]?.type || 'ACTIVE') === 'ACTIVE') return;
+        clearTeacherReplacementMappings(state, teacherId);
+        UIService.toast('Đã đánh dấu “Chưa có GV thay”. Bấm Lưu điều phối ca để xác nhận.', 'info');
+        return renderTeacherShiftManager();
+    }
+    if (action === 'pick-replacement') {
+        if ((state.statuses?.[teacherId]?.type || 'ACTIVE') === 'ACTIVE') return;
+        state.replacementTargetId = teacherId;
+        state.activeTab = 'substitute';
+        state.search.substitute = '';
+        return renderTeacherShiftManager();
+    }
+    if (action === 'cancel-replacement-target') {
+        state.replacementTargetId = '';
+        return renderTeacherShiftManager();
+    }
+    if (action === 'assign-replacement') {
+        const mainId = String(button.dataset.mainId || '');
+        const substituteId = String(button.dataset.substituteId || '');
+        const main = state.teacherById.get(mainId);
+        const substitute = state.teacherById.get(substituteId);
+        if (!assignTeacherReplacement(state, substituteId, mainId)) {
+            UIService.toast('Không thể chọn GV thay cho trạng thái ca hiện tại. Hãy tải lại ca và thử lại.', 'error');
+            return;
+        }
+        state.activeTab = 'main';
+        UIService.toast(`Đã chọn ${substitute?.name || 'giáo viên này'} dạy thay cho ${main?.name || 'GV chính'}. Bấm Lưu điều phối ca để xác nhận.`, 'info');
         return renderTeacherShiftManager();
     }
     if (action === 'toggle-fixed' && state.mainMeta[teacherId]) {
@@ -2335,6 +2442,7 @@ function handleTeacherShiftManagerChange(event) {
             state.mainIds = state.mainIds.filter(value => value !== id);
             delete state.mainMeta[id];
             delete state.statuses[id];
+            if (String(state.replacementTargetId || '') === String(id)) state.replacementTargetId = '';
             state.substituteById.forEach(item => {
                 item.replacesTeacherIds = (item.replacesTeacherIds || []).filter(value => value !== id);
             });
@@ -2546,6 +2654,7 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             originalMainIds,
             originalSubstituteIds,
             activeTab: fieldType === 'gvThayTe' ? 'substitute' : 'main',
+            replacementTargetId: '',
             search: { main: '', substitute: '' },
             strictAuthorization,
             canEditAttendance,

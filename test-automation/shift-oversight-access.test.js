@@ -23,9 +23,9 @@ assert.match(oversight, /await ensureObservationAccess\(\);[\s\S]*?await DBServi
     'The technical presence document must be created automatically before saving');
 assert.match(oversight, /ensureObservationAccess[\s\S]*?DBService\.activateReceptionistShift\([\s\S]*?state\.branch/,
     'Automatic presence must target the branch currently being observed');
-assert.match(page, /shift-oversight\.js\?v=20260904-bootstrap-resilience-v1/,
+assert.match(page, /shift-oversight\.js\?v=20260904-absence-coverage-actions-v1/,
     'The operation page must bypass stale browser caches');
-assert.match(worker, /tdt-chamcong-v146-bootstrap-resilience-20260904/,
+assert.match(worker, /tdt-chamcong-v147-absence-coverage-actions-20260904/,
     'The service worker cache must be bumped for the new access policy');
 
 console.log('✓ Cross-branch receptionist oversight access tests passed');

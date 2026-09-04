@@ -1,6 +1,7 @@
-// Service Worker v146 - resilient staff-page startup. Optional third-party UI
-// libraries can no longer block attendance, dashboard, or report boot.
-const CACHE_NAME = 'tdt-chamcong-v146-bootstrap-resilience-20260904';
+// Service Worker v147 - explicit absence / replacement workflow. The new
+// cache makes the scheduler's pending-coverage and replacement actions arrive
+// together with their canonical state logic.
+const CACHE_NAME = 'tdt-chamcong-v147-absence-coverage-actions-20260904';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -22,36 +23,40 @@ const STATIC_ASSETS = Array.from(new Set([
     '/nhan-su.html',
     '/he-thong.html',
     '/mon-hoc.html',
-    '/css/style.css?v=20260904-bootstrap-resilience-v1',
+    '/css/style.css?v=20260904-absence-coverage-actions-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260904-bootstrap-resilience-v1',
-    '/js/startup-recovery.js?v=20260904-bootstrap-resilience-v1',
-    '/js/firebase-config.js?v=20260904-bootstrap-resilience-v1',
-    '/js/db-service.js?v=20260904-bootstrap-resilience-v1',
-    '/js/report.js?v=20260904-bootstrap-resilience-v1',
-    '/js/evaluation-service.js?v=20260904-bootstrap-resilience-v1',
-    '/js/shift-absence-state.js?v=20260904-bootstrap-resilience-v1',
-    '/js/admin-payroll-override.js?v=20260904-bootstrap-resilience-v1',
-    '/js/admin-payroll-override-ui.js?v=20260904-bootstrap-resilience-v1',
-    '/js/shift-oversight.js?v=20260904-bootstrap-resilience-v1',
+    '/js/main.js?v=20260904-absence-coverage-actions-v1',
+    '/js/startup-recovery.js?v=20260904-absence-coverage-actions-v1',
+    '/js/firebase-config.js?v=20260904-absence-coverage-actions-v1',
+    '/js/db-service.js?v=20260904-absence-coverage-actions-v1',
+    '/js/report.js?v=20260904-absence-coverage-actions-v1',
+    '/js/evaluation-service.js?v=20260904-absence-coverage-actions-v1',
+    '/js/shift-absence-state.js?v=20260904-absence-coverage-actions-v1',
+    '/js/admin-payroll-override.js?v=20260904-absence-coverage-actions-v1',
+    '/js/admin-payroll-override-ui.js?v=20260904-absence-coverage-actions-v1',
+    '/js/shift-oversight.js?v=20260904-absence-coverage-actions-v1',
+    // Keep the legacy key for cham-cong.html while caching the current key used
+    // by the scheduler and the updated staff pages. A fresh cache must support
+    // both paths offline during the page-version transition.
     '/js/ui-service.js?v=20260829-location-diagnostics-v3',
-    '/js/early10.js?v=20260904-bootstrap-resilience-v1',
-    '/js/schedule-attendance-admin.js?v=20260904-bootstrap-resilience-v1',
+    '/js/ui-service.js?v=20260904-absence-coverage-actions-v1',
+    '/js/early10.js?v=20260904-absence-coverage-actions-v1',
+    '/js/schedule-attendance-admin.js?v=20260904-absence-coverage-actions-v1',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260809-nested-groups-v1',
-    '/js/personnel.js?v=20260904-bootstrap-resilience-v1',
-    '/js/auth-guard.js?v=20260904-bootstrap-resilience-v1',
-    '/js/auth-helper.js?v=20260904-bootstrap-resilience-v1',
+    '/js/personnel.js?v=20260904-absence-coverage-actions-v1',
+    '/js/auth-guard.js?v=20260904-absence-coverage-actions-v1',
+    '/js/auth-helper.js?v=20260904-absence-coverage-actions-v1',
     '/js/chart-service.js?v=20260807-multi-gv-bulk-v1',
-    '/js/analytics.js?v=20260904-bootstrap-resilience-v1',
+    '/js/analytics.js?v=20260904-absence-coverage-actions-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260904-bootstrap-resilience-v1',
-    '/js/teacher-shift-state.js?v=20260904-bootstrap-resilience-v1',
-    '/js/pdf-export.js?v=20260904-bootstrap-resilience-v1',
-    '/js/receptionist-schedule.js?v=20260904-bootstrap-resilience-v1',
-    '/js/timekeeping.js?v=20260904-bootstrap-resilience-v1',
+    '/js/schedule.js?v=20260904-absence-coverage-actions-v1',
+    '/js/teacher-shift-state.js?v=20260904-absence-coverage-actions-v1',
+    '/js/pdf-export.js?v=20260904-absence-coverage-actions-v1',
+    '/js/receptionist-schedule.js?v=20260904-absence-coverage-actions-v1',
+    '/js/timekeeping.js?v=20260904-absence-coverage-actions-v1',
     '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',

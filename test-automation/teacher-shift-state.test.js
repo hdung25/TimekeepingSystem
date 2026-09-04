@@ -53,6 +53,21 @@ assert.deepEqual(state.getReplacementIdsForTeacher(covered, 'main-a'), ['sub-a']
 assert.deepEqual(state.getReplacementIdsForTeacher(covered, 'main-b'), []);
 assert.equal(covered.teacherAbsenceHistory.at(-1).event, 'coverage_changed');
 
+const pendingAgain = state.applyStaffingCommand(covered, {
+    shiftId: 'shift-test',
+    mains: baseRow.gvList,
+    statuses: {
+        'main-a': { type: 'VDX', reason: 'Báo bệnh', reportedAt: now },
+        'main-b': { type: 'ACTIVE' }
+    },
+    substitutes: []
+}, actor, '2026-08-31T03:05:30.000Z');
+assert.equal(pendingAgain.teacherAbsences[0].status, 'pending',
+    'khi chưa tìm được người thay, GV vẫn được ghi nghỉ và ca phải ở trạng thái chờ người thay');
+assert.deepEqual(pendingAgain.teacherAbsences[0].replacementIds, []);
+assert.equal(pendingAgain.teacherAbsenceHistory.at(-1).event, 'coverage_changed',
+    'việc bỏ người thay phải để lại lịch sử điều phối thay vì xóa dấu vết');
+
 const correctedReportedTime = state.applyStaffingCommand(covered, {
     shiftId: 'shift-test',
     mains: baseRow.gvList,

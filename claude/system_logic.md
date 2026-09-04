@@ -714,3 +714,23 @@ là bảng 4 cột với nhãn dọc như cũ.
 - Không sửa Firestore Rules hay dữ liệu lịch sử. Regression toàn bộ và Firestore Rules
   `29/29` đạt trước deploy. PWA cache/version: `20260904-bootstrap-resilience-v1`, cache
   `tdt-chamcong-v146-bootstrap-resilience-20260904`.
+
+### 04/09/2026 — Điều phối GV nghỉ và GV thay rõ ràng theo từng ca
+- Trong Bảng điều khiển ca dạy, người xếp lịch chọn rõ **Vắng có phép** hoặc
+  **Vắng đột xuất** cho đúng GV chính. Sau đó có hai thao tác độc lập: **Chưa có
+  GV thay** để giữ ca ở trạng thái chờ, hoặc **Chọn/Đổi GV thay** để gắn người
+  dạy thay vào chính GV đang nghỉ.
+- Một GV thay có thể vẫn được giữ cho giáo viên nghỉ khác trong cùng ca. Khi đánh
+  dấu “Chưa có GV thay”, hệ thống chỉ gỡ ánh xạ của GV đang thao tác; không xoá
+  nhầm người thay hoặc trạng thái của ca khác. Danh sách chọn chỉ nạp nhân sự có
+  vai trò giảng dạy.
+- Mọi lựa chọn trong popup chỉ là bản nháp cho đến khi bấm **Lưu điều phối ca**.
+  Lần lưu dùng `updateScheduleRowAtomic` và `TeacherShiftState.applyStaffingCommand`:
+  nguồn trạng thái, projection tương thích và lịch sử `teacherAbsenceHistory`
+  được cập nhật trong một transaction; có khóa xung đột và chặn chuyển sang nghỉ
+  nếu người đó đã có phiên công phù hợp ca.
+- Không có Firestore Rules, dữ liệu công, dữ liệu lương, bảng lương hoặc migration
+  nào bị sửa bởi tính năng này. Điều chuyển lớp/GV vẫn là luồng riêng, không tự
+  tạo trạng thái nghỉ.
+- PWA cache/version: `20260904-absence-coverage-actions-v1`, cache
+  `tdt-chamcong-v147-absence-coverage-actions-20260904`.

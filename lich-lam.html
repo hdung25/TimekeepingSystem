@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260904-bootstrap-resilience-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260904-absence-coverage-actions-v1">
     <style>
         /* Specific Styles for Schedule Page */
         .branch-tabs {
@@ -681,6 +681,46 @@
             background: #FFF7ED;
         }
 
+        .coverage-decision-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px;
+            margin-top: 10px;
+        }
+
+        .coverage-decision-actions button {
+            min-height: 42px;
+            padding: 7px 8px;
+            border: 1px solid #CBD9D4;
+            border-radius: 10px;
+            color: #5B7068;
+            background: #F8FAF9;
+            font: inherit;
+            font-size: 0.71rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .coverage-decision-actions button:hover,
+        .coverage-decision-actions button:focus-visible {
+            outline: none;
+            border-color: #34D399;
+            color: #047857;
+            background: #ECFDF5;
+        }
+
+        .coverage-decision-actions button.is-active {
+            border-color: #FDBA74;
+            color: #9A3412;
+            background: #FFF7ED;
+        }
+
+        .coverage-decision-actions button.is-pick {
+            border-color: #6EE7B7;
+            color: #047857;
+            background: #ECFDF5;
+        }
+
         .teacher-status-segment {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -810,6 +850,105 @@
             border-color: #34D399;
             color: #047857;
             background: #D1FAE5;
+        }
+
+        .replacement-target-panel {
+            margin: 11px 0;
+            padding: 12px;
+            border: 1px solid #86EFAC;
+            border-radius: 13px;
+            background: linear-gradient(145deg, #F0FDF4, #ECFDF5);
+        }
+
+        .replacement-target-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .replacement-target-head strong,
+        .replacement-target-head span,
+        .replacement-candidate strong,
+        .replacement-candidate small {
+            display: block;
+        }
+
+        .replacement-target-head strong {
+            color: #166534;
+            font-size: 0.78rem;
+        }
+
+        .replacement-target-head span {
+            margin-top: 2px;
+            color: #4B7B62;
+            font-size: 0.67rem;
+            line-height: 1.35;
+        }
+
+        .replacement-target-head button {
+            min-height: 34px;
+            padding: 5px 9px;
+            border: 1px solid #BBF7D0;
+            border-radius: 8px;
+            color: #166534;
+            background: white;
+            font: inherit;
+            font-size: 0.68rem;
+            font-weight: 800;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .replacement-candidate-list {
+            display: grid;
+            max-height: 245px;
+            gap: 6px;
+            margin-top: 10px;
+            overflow-y: auto;
+        }
+
+        .replacement-candidate {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 9px;
+            min-height: 46px;
+            padding: 8px 10px;
+            border: 1px solid #BBE8CF;
+            border-radius: 10px;
+            color: #24523C;
+            background: white;
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .replacement-candidate:hover,
+        .replacement-candidate:focus-visible,
+        .replacement-candidate.is-selected {
+            outline: none;
+            border-color: #34D399;
+            background: #D1FAE5;
+        }
+
+        .replacement-candidate strong {
+            overflow: hidden;
+            font-size: 0.74rem;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .replacement-candidate small {
+            margin-top: 2px;
+            color: #6B8B7A;
+            font-size: 0.62rem;
+        }
+
+        .replacement-candidate b {
+            flex: 0 0 auto;
+            color: #047857;
+            font-size: 0.67rem;
         }
 
         .no-absence-hint {
@@ -1725,6 +1864,8 @@
             .teacher-status-segment button,
             .teacher-absence-fields input,
             .fixed-next-week-btn,
+            .coverage-decision-actions button,
+            .replacement-candidate,
             .replacement-map-options button,
             .roster-tabs button {
                 min-height: 44px;
@@ -2039,11 +2180,11 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js?v=20260904-bootstrap-resilience-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260904-bootstrap-resilience-v1'></script>
-    <script src='js/early10.js?v=20260904-bootstrap-resilience-v1'></script>
-    <script src='js/schedule-attendance-admin.js?v=20260904-bootstrap-resilience-v1'></script>
-    <script src='js/db-service.js?v=20260904-bootstrap-resilience-v1'></script>
+    <script src='js/firebase-config.js?v=20260904-absence-coverage-actions-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260904-absence-coverage-actions-v1'></script>
+    <script src='js/early10.js?v=20260904-absence-coverage-actions-v1'></script>
+    <script src='js/schedule-attendance-admin.js?v=20260904-absence-coverage-actions-v1'></script>
+    <script src='js/db-service.js?v=20260904-absence-coverage-actions-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -2183,9 +2324,9 @@
 
         </main>
     </div>
-    <script src="js/ui-service.js?v=20260904-bootstrap-resilience-v1"></script>
-    <script src="js/main.js?v=20260904-bootstrap-resilience-v1"></script>
-    <script src="js/schedule.js?v=20260904-bootstrap-resilience-v1"></script>
+    <script src="js/ui-service.js?v=20260904-absence-coverage-actions-v1"></script>
+    <script src="js/main.js?v=20260904-absence-coverage-actions-v1"></script>
+    <script src="js/schedule.js?v=20260904-absence-coverage-actions-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
