@@ -31,6 +31,10 @@ assert.match(report, /DBService\.saveAdminPayrollOverride\(command\)/);
 assert.match(report, /expectedFingerprint:\s*overrideContext\.expectedFingerprint/);
 assert.match(report, /expectedRevision:\s*overrideContext\.expectedRevision/);
 assert.match(report, /overrideDraft\.clearLegacyScheduleLinks/);
+assert.match(report, /b10Status === 'admin_override'/,
+    'an Admin-owned +10 must render as an authoritative chip state, not re-enter self-service validation');
+assert.match(report, /Cộng \+10 phút bằng quyền Admin/,
+    'the old self-service button must guide Admin to the absolute editor instead of showing a schedule error');
 assert.match(report, /commitExactTypedSubjectSelection/,
     'an exact typed subject such as E7 must be committed before save');
 assert.match(report, /hasReceptionistRole \|\| primaryAdminOverride/);
@@ -74,6 +78,11 @@ assert.match(ui, /data-apo-add="office"/);
 assert.match(ui, /apo-reason/);
 assert.match(ui, /apo-clear-links/);
 assert.match(ui, /apo-allow-overlap/);
+assert.match(ui, /apo-admin-early10/);
+assert.match(ui, /Cộng \+10 phút theo quyết định Admin/);
+assert.match(ui, /buildAdminEarly10Draft/);
+assert.match(ui, /adminEarly10/,
+    'the editor must persist the explicit Admin +10 decision with the payroll override');
 assert.match(ui, /dayKey:\s*type !== 'teaching'/,
     'reception/office allocations retain their weekday locator');
 assert.match(ui, /scheduleRef:\s*compatibleScheduleRef\(resolvedKind, inheritedScheduleRef\)/,
@@ -120,6 +129,10 @@ assert.match(command, /_adminPayrollSessionFingerprint\(originalSession\) !== ex
 assert.match(command, /admin_payroll_override_audits/);
 assert.match(command, /admin_notifications/);
 assert.match(command, /clearLegacyScheduleLinks === true/);
+assert.match(command, /adminEarly10: command\.override\?\.adminEarly10/,
+    'the writer must carry the UI decision through transaction validation');
+assert.match(db, /adminEarly10: normalized\.adminEarly10\?\.enabled === true/,
+    'the persisted override must record the Admin +10 decision and its audit actor');
 assert.match(command, /session\.adminPayrollOverride = _serializedAdminPayrollOverride/,
     'schedule rollback remains revisioned and auditable instead of deleting its envelope');
 assert.match(command, /attendanceRevisionState/,

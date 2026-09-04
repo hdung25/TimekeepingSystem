@@ -13,6 +13,11 @@ Trạng thái: giai đoạn 1 đang triển khai, **chưa bật tự động tí
 3. Mọi sửa giờ thủ công phải giữ liên kết ca/lớp cũ, trừ khi người sửa chọn rõ
    thay thế hoặc xoá liên kết. Mỗi lần sửa lưu lịch sử trước/sau.
 4. Không di trú hay ghi hàng loạt dữ liệu cũ trong giai đoạn 1.
+5. Admin chính có thể quyết định trực tiếp một chip lương, gồm cộng đúng `+10`
+   phút cho một phân bổ dạy học. Quyết định này không mượn điều kiện tự động
+   từ lịch/môn/check-in của nhân viên, nhưng vẫn cần phiên vào-ra hợp lệ, lý do,
+   phiên bản chống ghi đè và dấu vết người sửa. Không mở quyền này cho nhân viên
+   hoặc trợ lý quản lý.
 
 ## Các lỗi được đưa vào phạm vi xử lý
 

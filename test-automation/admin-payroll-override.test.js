@@ -109,6 +109,62 @@ function session(id, mode, allocations, extras = {}) {
     assert.equal(result.chips[0].sessionData.roleRate, 123456);
 }
 
+// Primary Admin may explicitly add +10 minutes to an absolute teaching chip
+// even when there is no schedule locator. This is intentionally a different
+// path from the employee self-service early-10 policy.
+{
+    const source = session('admin-early10-without-schedule', 'actual', undefined, {
+        role: 'subject-e7',
+        roleName: 'E7'
+    });
+    source.adminPayrollOverride.adminEarly10 = {
+        enabled: true,
+        minutes: 10,
+        allocationId: 'actual'
+    };
+    const result = overrideApi.buildOverrideChips([source]);
+    assert.equal(result.applied, true);
+    assert.equal(result.totalPaidMinutes, 250);
+    assert.equal(result.chips[0].paidMinutes, 250);
+    assert.equal(result.chips[0].classStart, null,
+        'Admin +10 must not require a schedule start when the payroll chip is authoritative');
+    assert.equal(result.chips[0].bonus10Status, 'admin_override');
+    assert.equal(result.chips[0].isAdminEarly10Override, true);
+    assert.match(result.chips[0].text, /\+10p Admin/);
+}
+
+// The direct authority is still precise: it cannot change the bonus amount or
+// attach a teaching allowance to an operational allocation.
+{
+    const wrongMinutes = session('bad-admin-early10-minutes', 'actual', undefined, {
+        role: 'subject-e7',
+        roleName: 'E7'
+    });
+    wrongMinutes.adminPayrollOverride.adminEarly10 = {
+        enabled: true,
+        minutes: 15,
+        allocationId: 'actual'
+    };
+    assert.equal(
+        overrideApi.validateOverride(wrongMinutes).errors.some(error => error.code === 'INVALID_ADMIN_EARLY10_MINUTES'),
+        true
+    );
+
+    const receptionist = session('bad-admin-early10-role', 'actual', undefined, {
+        role: 'tiep-tan',
+        roleName: 'Tiếp Tân'
+    });
+    receptionist.adminPayrollOverride.adminEarly10 = {
+        enabled: true,
+        minutes: 10,
+        allocationId: 'actual'
+    };
+    assert.equal(
+        overrideApi.validateOverride(receptionist).errors.some(error => error.code === 'ADMIN_EARLY10_REQUIRES_TEACHING'),
+        true
+    );
+}
+
 // The interval union is global across override sessions, not just within one row.
 {
     const first = session('overlap-a', 'manual', [

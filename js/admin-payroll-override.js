@@ -182,6 +182,19 @@
         };
     }
 
+    // +10 phút do Admin quyết định là một phần của cùng nguồn chip tuyệt đối,
+    // không phải một yêu cầu tự động dựa trên lịch.  Vẫn cố định đúng 10 phút
+    // và phải gắn vào một phân bổ Dạy học cụ thể để không thể cộng mơ hồ cho
+    // tiếp tân/văn phòng hoặc nhiều chip cùng lúc.
+    function normalizeAdminEarly10(input) {
+        var source = input && typeof input === 'object' ? input : {};
+        return {
+            enabled: source.enabled === true,
+            minutes: Number(source.minutes),
+            allocationId: asText(source.allocationId)
+        };
+    }
+
     function normalizeOverride(session) {
         var sourceSession = session && typeof session === 'object' ? session : {};
         var source = sourceSession.adminPayrollOverride && typeof sourceSession.adminPayrollOverride === 'object'
@@ -233,6 +246,7 @@
             actualFromMs: toDate(actualFrom) ? toDate(actualFrom).getTime() : NaN,
             actualToMs: toDate(actualTo) ? toDate(actualTo).getTime() : NaN,
             allocations: allocations,
+            adminEarly10: normalizeAdminEarly10(source.adminEarly10),
             session: sourceSession,
             sessionId: sourceSession.id
         };
@@ -260,6 +274,12 @@
             errors.push({ code: 'INVALID_MODE', message: 'Chế độ override phải là schedule, actual hoặc manual.' });
         }
         if (normalized.mode === 'schedule') {
+            if (normalized.adminEarly10.enabled) {
+                errors.push({
+                    code: 'ADMIN_EARLY10_REQUIRES_ACTIVE_OVERRIDE',
+                    message: 'Chỉ có thể cộng +10 phút theo quyết định Admin khi chip Admin đang được áp dụng.'
+                });
+            }
             return { ok: errors.length === 0, active: false, normalized: normalized, errors: errors, warnings: warnings };
         }
         if (!ACTIVE_MODES.has(normalized.mode)) {
@@ -326,6 +346,28 @@
                 errors.push({ code: 'INVALID_MANUAL_RATE', allocationId: allocation.id, message: 'Đơn giá nhập tay phải là số không âm.' });
             }
         });
+
+        if (normalized.adminEarly10.enabled) {
+            var early10Target = normalized.allocations
+                .filter(function (allocation) { return allocation.id === normalized.adminEarly10.allocationId; })[0];
+            if (normalized.adminEarly10.minutes !== 10) {
+                errors.push({
+                    code: 'INVALID_ADMIN_EARLY10_MINUTES',
+                    message: 'Quyết định Admin chỉ được cộng đúng 10 phút.'
+                });
+            }
+            if (!early10Target) {
+                errors.push({
+                    code: 'ADMIN_EARLY10_ALLOCATION_NOT_FOUND',
+                    message: 'Không xác định được phân bổ Dạy học nhận +10 phút của Admin.'
+                });
+            } else if (early10Target.kind !== 'teaching') {
+                errors.push({
+                    code: 'ADMIN_EARLY10_REQUIRES_TEACHING',
+                    message: '+10 phút theo quyết định Admin chỉ áp dụng cho phân bổ Dạy học.'
+                });
+            }
+        }
 
         for (var leftIndex = 0; leftIndex < normalized.allocations.length; leftIndex++) {
             for (var rightIndex = leftIndex + 1; rightIndex < normalized.allocations.length; rightIndex++) {
@@ -503,6 +545,7 @@
         var paidMinutes = paidRanges.reduce(function (sum, range) {
             return sum + Math.round((range.toMs - range.fromMs) / 60000);
         }, 0);
+        var basePaidMinutes = paidMinutes;
         var requestedMinutes = allocations.reduce(function (sum, allocation) {
             return sum + Math.round((allocation.toMs - allocation.fromMs) / 60000);
         }, 0);
@@ -528,13 +571,23 @@
         if (scheduleRef && first.kind === 'office' && (scheduleRef.shiftKey || scheduleRef.start)) {
             clonedSession.linkedOfficeShift = scheduleRef.shiftKey || scheduleRef.start;
         }
-        var label = formatClock(fromMs) + '–' + formatClock(toMs) + ' (' + first.roleName + ')';
-        if (paidMinutes === 0) label += ' (trùng giờ)';
-        var tooltip = 'Admin override ' + sessionResult.normalized.mode + ': ' +
-            formatMinutes(paidMinutes) + ' được tính';
-        if (overlapDeduction > 0) tooltip += ' | Đã loại ' + formatMinutes(overlapDeduction) + ' chồng giờ';
-        if (branch) tooltip += ' | ' + branch.toUpperCase();
         var allocationIds = allocations.map(function (allocation) { return allocation.id; });
+        var adminEarly10 = sessionResult.normalized.adminEarly10 || {};
+        var adminEarly10Applies = adminEarly10.enabled === true &&
+            adminEarly10.minutes === 10 &&
+            basePaidMinutes > 0 &&
+            allocations.some(function (allocation) {
+                return allocation.kind === 'teaching' && allocation.id === adminEarly10.allocationId;
+            });
+        if (adminEarly10Applies) paidMinutes += adminEarly10.minutes;
+        var label = formatClock(fromMs) + '–' + formatClock(toMs) + ' (' + first.roleName + ')';
+        if (basePaidMinutes === 0) label += ' (trùng giờ)';
+        if (adminEarly10Applies) label += ' ★+10p Admin';
+        var tooltip = 'Admin override ' + sessionResult.normalized.mode + ': ' +
+            formatMinutes(basePaidMinutes) + ' được tính';
+        if (overlapDeduction > 0) tooltip += ' | Đã loại ' + formatMinutes(overlapDeduction) + ' chồng giờ';
+        if (adminEarly10Applies) tooltip += ' | Admin quyết định cộng +10 phút, không dùng điều kiện lịch tự động';
+        if (branch) tooltip += ' | ' + branch.toUpperCase();
         var mergedSegments = allocations.length > 1
             ? allocations.map(function (allocation) {
                 return {
@@ -565,6 +618,10 @@
             isAdminEdited: true,
             isAdminPayrollOverride: true,
             adminPayrollOverrideMode: sessionResult.normalized.mode,
+            isAdminEarly10Override: adminEarly10Applies,
+            bonus10Status: adminEarly10Applies ? 'admin_override' : null,
+            bonus10Minutes: adminEarly10Applies ? adminEarly10.minutes : 0,
+            bonus10Source: adminEarly10Applies ? 'admin_payroll_override' : '',
             payrollAllocationId: allocationIds.length === 1 ? allocationIds[0] : null,
             payrollAllocationIds: allocationIds,
             payrollAllocationRanges: paidRanges.map(function (range) {

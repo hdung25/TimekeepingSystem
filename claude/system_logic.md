@@ -756,3 +756,22 @@ là bảng 4 cột với nhãn dọc như cũ.
   không đổi Rules, công, lương, payslip hoặc chạy migration/bulk write.
 - PWA cache/version: `20260904-transfer-source-coverage-v1`, cache
   `tdt-chamcong-v148-transfer-source-coverage-20260904`.
+
+### 04/09/2026 — Quyết định +10 phút trực tiếp trong chip lương Admin
+- Xác nhận lỗi thực tế: sau khi Admin chọn “Theo giờ Admin nhập”, evaluator đã
+  đúng khi dùng chip tuyệt đối và không cần lịch; nhưng nút Sớm 10p cũ vẫn đi
+  qua luồng tự phục vụ, bắt buộc `classStart` từ lịch nên báo “không có giờ vào
+  ca theo lịch”. Đây là hai nguồn dữ liệu mâu thuẫn, không phải lỗi giờ vào của
+  nhân viên.
+- `adminPayrollOverride.adminEarly10` là quyết định Primary Admin gắn đúng một
+  phân bổ **Dạy học**, cố định 10 phút. Khi được chọn, chip cộng thêm 10 phút
+  và hiển thị `+10p Admin` dù không có lịch/môn/chế độ dạy/bằng chứng check-in
+  theo luồng tự động. Thời gian Vào/Ra hợp lệ của phiên, lý do điều chỉnh,
+  optimistic-concurrency, lịch sử trước/sau và audit transaction vẫn bắt buộc.
+- Không thể dùng quyết định này cho tiếp tân/văn phòng, số phút khác 10 hoặc
+  phân bổ không tồn tại. Nhân viên và Senior Assistant tiếp tục dùng policy
+  +10 cũ; chỉ literal role `admin` được ghi nguồn chip tuyệt đối.
+- Không đổi Firestore Rules, không tạo/sửa hàng loạt `bonus10_requests`, không
+  di trú dữ liệu và không tự sửa công/lương đã có. PWA cache/version:
+  `20260904-admin-payroll-override-v1`, cache
+  `tdt-chamcong-v149-admin-payroll-override-20260904`.

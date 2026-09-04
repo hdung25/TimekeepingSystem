@@ -2210,7 +2210,13 @@ async function _renderMonthReport(date, forceServer = false) {
                 b10Btn.style.cssText = 'font-size:0.68rem;padding:3px 7px;border-radius:999px;border:1px solid transparent;cursor:pointer;margin-left:4px;vertical-align:middle;display:inline-flex;align-items:center;justify-content:center;gap:3px;line-height:1.15;white-space:nowrap;min-height:26px;';
 
                 const b10Status = chip.bonus10Status;
-                if (b10Status === 'approved') {
+                if (b10Status === 'admin_override') {
+                    b10Btn.innerHTML = window.getIconHtml('shield-check', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p Admin';
+                    b10Btn.style.background = '#DCFCE7';
+                    b10Btn.style.color = '#166534';
+                    b10Btn.disabled = true;
+                    b10Btn.title = 'Đã cộng +10 phút theo quyết định của Admin trong chip nguồn';
+                } else if (b10Status === 'approved') {
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
@@ -5362,7 +5368,12 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                 b10Container.style.display = 'flex';
                 b10Actions.innerHTML = '';
                 const b10Status = chip.bonus10Status;
-                if (b10Status === 'approved') {
+                if (b10Status === 'admin_override') {
+                    b10Actions.innerHTML = `
+                        <span style="color: #166534; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ +10p theo quyết định Admin</span>
+                        <span style="display:block;font-size:.78rem;color:#475569;margin-top:4px;">Mở phần “Quyền Admin · nguồn tính chip”, bỏ chọn “Cộng +10 phút theo quyết định Admin” rồi lưu nếu cần hủy.</span>
+                    `;
+                } else if (b10Status === 'approved') {
                     b10Actions.innerHTML = `
                         <span style="color: #059669; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ Đã duyệt</span>
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedBonus10('${chip.bonus10Id || ''}', '${staffId}', '${dateKey}', '${sessionId}')">Hủy thưởng</button>
@@ -6334,6 +6345,15 @@ function commitExactTypedSubjectSelection() {
 }
 
 async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
+    if (isPrimaryPayrollAdminViewer() && chip?.isAdminPayrollOverride === true) {
+        await UIService.notice(
+            'Đây là chip do Admin quyết định. Hãy mở “Chỉnh Sửa Giờ Làm”, tích “Cộng +10 phút theo quyết định Admin”, ghi lý do rồi lưu. ' +
+            'Quyết định này không phụ thuộc lịch hoặc điều kiện tự động.',
+            'Cộng +10 phút bằng quyền Admin',
+            'info'
+        );
+        return;
+    }
     // Tháng đang bị khóa phụ cấp thì không cho gửi mới — nếu không sẽ lách được hình phạt.
     if (window.currentMonthEarly10Penalty) {
         await UIService.notice(

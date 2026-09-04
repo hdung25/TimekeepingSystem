@@ -98,9 +98,9 @@ assert.match(html, /\.replacement-target-panel\s*\{/,
     'bảng chọn GV thay phải hiển thị như một bước riêng');
 assert.match(html, /\.replacement-candidate,\s*\n\s*\.replacement-map-options button/,
     'các nút chọn GV thay phải đạt kích thước chạm tối thiểu trên điện thoại');
-assert.match(worker, /schedule\.js\?v=20260904-transfer-source-coverage-v1/);
-assert.match(worker, /teacher-shift-state\.js\?v=20260904-transfer-source-coverage-v1/);
-assert.match(worker, /ui-service\.js\?v=20260904-transfer-source-coverage-v1/,
+assert.match(worker, /schedule\.js\?v=20260904-admin-payroll-override-v1/);
+assert.match(worker, /teacher-shift-state\.js\?v=20260904-admin-payroll-override-v1/);
+assert.match(worker, /ui-service\.js\?v=20260904-admin-payroll-override-v1/,
     'PWA mới phải cache UI service cùng version với trang lịch để dùng được khi offline');
 
 console.log('teacher absence coverage UI regression tests passed');

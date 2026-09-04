@@ -246,6 +246,13 @@
                 <label style="display:flex;gap:7px;align-items:center;margin-top:.7rem;font-size:.8rem;color:#334155;cursor:pointer;"><input id="apo-merge-touching" type="checkbox" checked> Gộp nhãn các đoạn cùng công việc liền nhau, cùng cơ sở</label>
             </div>
             <div id="apo-preview" style="margin-top:.75rem;padding:.65rem .75rem;border-radius:8px;background:white;border:1px solid #BFDBFE;font-size:.82rem;color:#334155;"></div>
+            <section id="apo-admin-early10-wrap" style="margin-top:.75rem;padding:.7rem .8rem;border:1px solid #86EFAC;background:#F0FDF4;border-radius:9px;">
+                <label style="display:flex;gap:7px;align-items:flex-start;font-size:.82rem;color:#14532D;cursor:pointer;font-weight:700;"><input id="apo-admin-early10" type="checkbox" style="margin-top:2px;accent-color:#059669;"> Cộng +10 phút theo quyết định Admin</label>
+                <div id="apo-admin-early10-note" style="font-size:.74rem;color:#166534;margin:4px 0 0 23px;line-height:1.4;">Chỉ dành cho phân bổ Dạy học. Không kiểm tra lịch, môn, chế độ GV hay điều kiện vào sớm tự động; lý do điều chỉnh vẫn được lưu cùng chip.</div>
+                <label id="apo-admin-early10-target-wrap" style="display:none;font-size:.75rem;color:#166534;font-weight:700;margin:7px 0 0 23px;">Phân bổ Dạy học nhận +10 phút
+                    <select id="apo-admin-early10-allocation" style="display:block;width:100%;height:36px;margin-top:3px;border:1px solid #86EFAC;border-radius:7px;background:white;padding:0 7px;"></select>
+                </label>
+            </section>
             <label style="display:block;font-size:.82rem;font-weight:700;color:#334155;margin:.8rem 0 4px;">Lý do điều chỉnh <span style="color:#DC2626">*</span></label>
             <textarea id="apo-reason" rows="2" maxlength="500" placeholder="Ví dụ: Thực tế dạy E7 thay E1 và trực tiếp tân phần giờ còn lại" style="width:100%;box-sizing:border-box;border:1.5px solid #93C5FD;border-radius:8px;padding:8px 10px;background:white;"></textarea>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px;margin-top:.65rem;">
@@ -266,6 +273,8 @@
             });
         });
         panel.querySelector('#apo-merge-touching').addEventListener('change', refreshPreview);
+        panel.querySelector('#apo-admin-early10').addEventListener('change', refreshPreview);
+        panel.querySelector('#apo-admin-early10-allocation').addEventListener('change', refreshPreview);
         return panel;
     }
 
@@ -452,6 +461,58 @@
         };
     }
 
+    function syncAdminEarly10Control(allocations, mode) {
+        const panel = document.getElementById('admin-payroll-override-editor');
+        const checkbox = panel?.querySelector('#apo-admin-early10');
+        const note = panel?.querySelector('#apo-admin-early10-note');
+        const targetWrap = panel?.querySelector('#apo-admin-early10-target-wrap');
+        const targetSelect = panel?.querySelector('#apo-admin-early10-allocation');
+        if (!note || !targetWrap || !targetSelect) return;
+        const teaching = (allocations || []).filter(allocation => allocation?.kind === 'teaching');
+        const savedId = String(state.session?.adminPayrollOverride?.adminEarly10?.allocationId || '');
+        const previousId = String(targetSelect.value || savedId);
+        targetSelect.replaceChildren();
+        teaching.forEach((allocation, index) => {
+            const option = document.createElement('option');
+            option.value = allocation.id;
+            option.textContent = `${allocation.roleName || 'Dạy học'} · phân bổ ${index + 1}`;
+            targetSelect.appendChild(option);
+        });
+        if (teaching.some(allocation => String(allocation.id) === previousId)) {
+            targetSelect.value = previousId;
+        }
+        targetSelect.disabled = teaching.length === 0;
+        targetWrap.style.display = mode === 'manual' && teaching.length > 1 ? 'block' : 'none';
+        if (mode === 'schedule') {
+            // Returning to schedule is an explicit rollback of the whole
+            // absolute chip decision, including an earlier Admin +10 choice.
+            if (checkbox) checkbox.checked = false;
+            note.textContent = 'Khi trở lại tính theo lịch, quyết định +10 phút của chip Admin sẽ được bỏ cùng lượt lưu.';
+        } else if (mode === 'manual' && teaching.length === 0) {
+            note.textContent = 'Hãy thêm một phân bổ Dạy học trước khi có thể cộng +10 phút theo quyết định Admin.';
+        } else if (mode === 'manual' && teaching.length > 1) {
+            note.textContent = 'Chọn đúng phân bổ Dạy học nhận +10 phút. Hệ thống cộng một lần duy nhất vào chip đó, không dùng điều kiện tự động.';
+        } else {
+            note.textContent = 'Chỉ dành cho phân bổ Dạy học. Không kiểm tra lịch, môn, chế độ GV hay điều kiện vào sớm tự động; lý do điều chỉnh vẫn được lưu cùng chip.';
+        }
+    }
+
+    function buildAdminEarly10Draft(allocations, mode) {
+        const panel = document.getElementById('admin-payroll-override-editor');
+        const enabled = panel?.querySelector('#apo-admin-early10')?.checked === true;
+        if (!enabled) return { enabled: false };
+        if (mode === 'schedule') {
+            throw new Error('Hãy chọn “Theo giờ Admin nhập” hoặc “Chia một lần vào ca” trước khi cộng +10 phút theo quyết định Admin.');
+        }
+        const teaching = (allocations || []).filter(allocation => allocation?.kind === 'teaching');
+        const requestedId = String(panel?.querySelector('#apo-admin-early10-allocation')?.value || '');
+        const target = teaching.find(allocation => String(allocation.id) === requestedId) || teaching[0];
+        if (!target) {
+            throw new Error('+10 phút theo quyết định Admin cần một phân bổ Dạy học hợp lệ.');
+        }
+        return { enabled: true, minutes: 10, allocationId: target.id };
+    }
+
     function buildDraft(options = {}) {
         const panel = document.getElementById('admin-payroll-override-editor');
         if (!state.visible || !panel) return null;
@@ -459,8 +520,9 @@
         const allocations = mode === 'manual'
             ? readManualAllocations()
             : (mode === 'actual' ? [primaryAllocation(options)] : []);
+        const adminEarly10 = buildAdminEarly10Draft(allocations, mode);
         return {
-            override: { version: 1, mode, allocations },
+            override: { version: 1, mode, allocations, adminEarly10 },
             reason: panel.querySelector('#apo-reason').value.trim(),
             clearLegacyScheduleLinks: panel.querySelector('#apo-clear-links').checked,
             allowSessionOverlap: panel.querySelector('#apo-allow-overlap').checked
@@ -472,15 +534,18 @@
         const preview = panel?.querySelector('#apo-preview');
         if (!preview || !state.visible) return;
         const mode = panel.querySelector('#apo-mode').value;
+        const allocations = mode === 'manual' ? readManualAllocations() : [];
+        syncAdminEarly10Control(allocations, mode);
+        const adminEarly10Enabled = panel.querySelector('#apo-admin-early10')?.checked === true;
         if (mode === 'schedule') {
             preview.innerHTML = '<strong>Theo lịch:</strong> bỏ ghi đè, chip trở lại quy tắc lịch hiện hành.';
             return;
         }
         if (mode === 'actual') {
-            preview.innerHTML = '<strong>Theo giờ Admin nhập:</strong> khi lưu, một chip sẽ dùng nguyên khoảng Vào/Ra và công việc đang chọn, không bị lịch cắt lại.';
+            preview.innerHTML = '<strong>Theo giờ Admin nhập:</strong> khi lưu, một chip sẽ dùng nguyên khoảng Vào/Ra và công việc đang chọn, không bị lịch cắt lại.' +
+                (adminEarly10Enabled ? ' <strong style="color:#047857;">+10 phút sẽ được cộng theo quyết định Admin nếu công việc lưu là Dạy học.</strong>' : '');
             return;
         }
-        const allocations = readManualAllocations();
         const draftSession = {
             ...(state.session || {}),
             adminPayrollOverride: { version: 1, mode: 'manual', allocations }
@@ -499,7 +564,8 @@
         const warningCount = result.warnings?.length || 0;
         const minutes = result.totalPaidMinutes || 0;
         preview.innerHTML = `<strong>Xem trước:</strong> ${result.chips.length} chip · ${Math.floor(minutes / 60)}h${minutes % 60 ? (minutes % 60) + 'p' : ''}` +
-            (warningCount ? ` · <span style="color:#B45309;">đã tự loại phần chồng giờ (${warningCount} cảnh báo)</span>` : '');
+            (warningCount ? ` · <span style="color:#B45309;">đã tự loại phần chồng giờ (${warningCount} cảnh báo)</span>` : '') +
+            (adminEarly10Enabled ? ' · <span style="color:#047857;font-weight:700;">+10 phút sẽ được cộng theo quyết định Admin khi lưu</span>' : '');
     }
 
     function open(context = {}) {
@@ -521,6 +587,7 @@
         panel.querySelector('#apo-reason').value = saved.reason || '';
         panel.querySelector('#apo-clear-links').checked = false;
         panel.querySelector('#apo-allow-overlap').checked = false;
+        panel.querySelector('#apo-admin-early10').checked = saved.adminEarly10?.enabled === true;
         panel.querySelector('#apo-revision-badge').textContent = `Bản ${Number(saved.revision || 0)}`;
         renderRows();
         refreshPreview();

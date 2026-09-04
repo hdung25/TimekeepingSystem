@@ -370,6 +370,19 @@ function _serializedAdminPayrollOverride(normalized, revision, actor, reason) {
         mode: normalized.mode,
         revision,
         allocations,
+        // This is an explicit Primary-Admin decision for one teaching
+        // allocation. It deliberately lives beside the absolute payroll
+        // allocation instead of impersonating a self-service schedule claim.
+        adminEarly10: normalized.adminEarly10?.enabled === true ? {
+            enabled: true,
+            minutes: 10,
+            allocationId: String(normalized.adminEarly10.allocationId || '').trim(),
+            appliedBy: {
+                authUid: actor.uid,
+                userId: actor.userId
+            },
+            appliedAt: new Date().toISOString()
+        } : { enabled: false },
         reason: String(reason || '').trim().slice(0, 500),
         editedBy: {
             authUid: actor.uid,
@@ -3698,6 +3711,9 @@ const DBService = {
                 allocations: Array.isArray(command.override?.allocations)
                     ? command.override.allocations
                     : [],
+                adminEarly10: command.override?.adminEarly10 && typeof command.override.adminEarly10 === 'object'
+                    ? command.override.adminEarly10
+                    : { enabled: false },
                 reason
             };
             const candidateSession = { ...session, adminPayrollOverride: candidateOverride };
@@ -3762,7 +3778,18 @@ const DBService = {
                 checkIn: session.checkIn || session.start || null,
                 checkOut: session.checkOut || null,
                 role: session.role || null,
-                adminPayrollOverride: { version: 1, mode: requestedMode, revision: oldRevision + 1 }
+                adminPayrollOverride: {
+                    version: 1,
+                    mode: requestedMode,
+                    revision: oldRevision + 1,
+                    adminEarly10: session.adminPayrollOverride?.adminEarly10?.enabled === true
+                        ? {
+                            enabled: true,
+                            minutes: 10,
+                            allocationId: session.adminPayrollOverride.adminEarly10.allocationId
+                        }
+                        : { enabled: false }
+                }
             };
             const history = Array.isArray(session.editHistory) ? session.editHistory.slice(-19) : [];
             history.push({
