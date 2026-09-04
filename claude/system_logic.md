@@ -734,3 +734,25 @@ là bảng 4 cột với nhãn dọc như cũ.
   tạo trạng thái nghỉ.
 - PWA cache/version: `20260904-absence-coverage-actions-v1`, cache
   `tdt-chamcong-v147-absence-coverage-actions-20260904`.
+
+### 04/09/2026 — Điều chuyển GV chính kèm quyết định lớp nguồn
+- Xác nhận thiếu luồng trong popup điều chuyển: người xếp lịch có thể muốn đưa
+  một GV đang dạy lớp nguồn sang đứng **GV chính** ở lớp đích, nhưng lớp nguồn
+  cần được quyết định rõ là bàn giao cho GV khác hay ghi VP/VĐX khi chưa có
+  người thay. Trước đây popup chỉ có chọn “GV thay” mơ hồ, nên ca nguồn một GV
+  thường bị chặn trước khi người đó được chuyển từ hỗ trợ thành GV chính lớp đích.
+- Popup nay bắt buộc chọn một trong ba cách: **Bàn giao cho GV tiếp quản** (GV
+  chuyển rời lớp nguồn), **Giữ lịch nguồn · Vắng có phép**, hoặc **Giữ lịch
+  nguồn · Vắng đột xuất**. Bàn giao ca chỉ có một GV chính bắt buộc chọn người
+  tiếp quản; VP/VĐX chỉ được tạo khi người xếp lịch chọn trực tiếp.
+- Khi chọn VP/VĐX, GV vẫn nằm trong roster lớp nguồn với `teacherAbsences`
+  `pending` (có thể chọn GV thay sau), đồng thời được nâng từ GV hỗ trợ thành
+  GV chính ở lớp đích. Cả hai cập nhật, projection legacy và hai lịch sử
+  (`teacherAbsenceHistory`, `assignmentTransferHistory`) ghi trong một
+  Firestore transaction.
+- Trước mọi điều chuyển làm thay đổi lớp nguồn, transaction đọc lại công của
+  đúng ca nguồn. Nếu đã có phiên công hoặc nhiều phiên mơ hồ, transaction dừng
+  trước khi ghi bất cứ lớp nguồn/đích nào. Không tự tạo vắng ở luồng bàn giao,
+  không đổi Rules, công, lương, payslip hoặc chạy migration/bulk write.
+- PWA cache/version: `20260904-transfer-source-coverage-v1`, cache
+  `tdt-chamcong-v148-transfer-source-coverage-20260904`.

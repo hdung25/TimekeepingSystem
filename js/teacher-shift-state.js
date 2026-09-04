@@ -291,9 +291,10 @@
         return compactObject(result);
     }
 
-    // A class transfer is deliberately separate from absence/substitution.
-    // Moving a teacher must never manufacture teacherAbsences, because that
-    // would turn a normal timetable change into a false absence/payroll event.
+    // A normal class transfer is deliberately separate from absence/substitution.
+    // It must never manufacture teacherAbsences. A source absence is allowed only
+    // through the explicit source_absence command, which records the scheduler's
+    // chosen VP/VDX decision alongside the transfer history.
     function applyTeacherTransferCommand(row, command, actor, nowISO) {
         const current = row && typeof row === 'object' ? row : {};
         const timestamp = text(nowISO) || new Date().toISOString();
@@ -308,7 +309,7 @@
             id: cleanId(actor?.id || actor?.userId || actor?.uid),
             name: text(actor?.name || actor?.displayName || actor?.username)
         };
-        if (!['out', 'in'].includes(direction)) throw new Error('Chiều điều chuyển giáo viên không hợp lệ.');
+        if (!['out', 'in', 'source_absence'].includes(direction)) throw new Error('Chiều điều chuyển giáo viên không hợp lệ.');
         if (!['temporary', 'permanent'].includes(mode)) throw new Error('Loại điều chuyển không hợp lệ.');
         if (!teacherId || !transferId) throw new Error('Thiếu mã giáo viên hoặc mã giao dịch điều chuyển.');
         if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) ||
@@ -345,6 +346,58 @@
                 direction,
                 replacement
             });
+        }
+
+        if (direction === 'source_absence') {
+            if (!existingMain) throw new Error('Giáo viên nguồn không còn trong lớp. Hãy tải lại lịch.');
+            if (isMainTeacherAbsent(current, teacherId)) {
+                throw new Error('Giáo viên nguồn đang ở trạng thái nghỉ. Hãy tải lại ca trước khi ghi nhận điều chuyển.');
+            }
+            const requestedAbsence = command?.sourceAbsence && typeof command.sourceAbsence === 'object'
+                ? command.sourceAbsence
+                : {};
+            const absenceType = normalizeAbsenceType(requestedAbsence.type || requestedAbsence.status);
+            if (absenceType === ACTIVE) {
+                throw new Error('Hãy chọn Vắng có phép hoặc Vắng đột xuất cho lớp nguồn.');
+            }
+            const statuses = Object.fromEntries(mains.map(main => {
+                if (main.id === teacherId) {
+                    return [main.id, {
+                        type: absenceType,
+                        reason: text(requestedAbsence.reason || command.reason).slice(0, 300),
+                        reportedAt: text(requestedAbsence.reportedAt) || timestamp
+                    }];
+                }
+                const currentAbsence = getAbsenceRecord(current, main.id);
+                return [main.id, currentAbsence ? {
+                    type: currentAbsence.type,
+                    reason: currentAbsence.reason,
+                    reportedAt: currentAbsence.reportedAt
+                } : { type: ACTIVE }];
+            }));
+            const sourceWithExplicitAbsence = applyStaffingCommand(current, {
+                shiftId: current.shiftId || command.shiftId,
+                mains,
+                substitutes,
+                statuses
+            }, who, timestamp);
+            return _finishTeacherTransfer(
+                sourceWithExplicitAbsence,
+                getMainTeachers(sourceWithExplicitAbsence),
+                getSubstituteTeachers(sourceWithExplicitAbsence),
+                command,
+                {
+                    ...who,
+                    teacherName: existingMain.name || teacherName,
+                    timestamp,
+                    direction,
+                    event: 'teacher_transfer_source_absence',
+                    sourceAbsenceType: absenceType,
+                    replacement: null,
+                    teacherAbsences: sourceWithExplicitAbsence.teacherAbsences,
+                    teacherAbsenceHistory: sourceWithExplicitAbsence.teacherAbsenceHistory
+                }
+            );
         }
 
         if (existingMain) throw new Error('Giáo viên này đã là GV chính của lớp đích.');
@@ -394,7 +447,7 @@
             ? current.assignmentTransferHistory.filter(Boolean).slice(-HISTORY_LIMIT)
             : [];
         history.push(compactObject({
-            event: metadata.direction === 'out' ? 'teacher_transfer_out' : 'teacher_transfer_in',
+            event: metadata.event || (metadata.direction === 'out' ? 'teacher_transfer_out' : 'teacher_transfer_in'),
             transferId: command.transferId,
             mode: command.mode,
             effectiveFrom: command.effectiveFrom,
@@ -405,6 +458,7 @@
             target: targetRef,
             replacementTeacherId: metadata.replacement?.id || '',
             replacementTeacherName: metadata.replacement?.name || '',
+            ...(metadata.sourceAbsenceType ? { sourceAbsenceType: metadata.sourceAbsenceType } : {}),
             reason: text(command.reason).slice(0, 300),
             at: metadata.timestamp,
             byId: metadata.id,
@@ -424,6 +478,8 @@
             gvThayTheId: firstSub.id || '',
             gvThayTheAt: substitutes.length ? (current.gvThayTheAt || metadata.timestamp) : '',
             teacherAbsences: metadata.teacherAbsences || (Array.isArray(current.teacherAbsences) ? current.teacherAbsences : []),
+            teacherAbsenceHistory: metadata.teacherAbsenceHistory ||
+                (Array.isArray(current.teacherAbsenceHistory) ? current.teacherAbsenceHistory : []),
             assignmentTransferHistory: history.slice(-HISTORY_LIMIT),
             staffingUpdatedAt: metadata.timestamp,
             staffingUpdatedById: metadata.id,

@@ -58,7 +58,7 @@ for (const [name, page] of [
     assert.match(page, /@media \(max-width: 768px\)[\s\S]*?\.cell-modal[\s\S]*?align-items:\s*flex-end/,
         `${name} must turn the editor into a mobile bottom sheet`);
     assert.match(page, /\.schedule-table th:first-child[\s\S]*?position:\s*sticky[\s\S]*?left:\s*0/);
-    assert.match(page, /receptionist-schedule\.js\?v=20260904-absence-coverage-actions-v1/,
+    assert.match(page, /receptionist-schedule\.js\?v=20260904-transfer-source-coverage-v1/,
         `${name} must request the upgraded script cache key`);
 }
 

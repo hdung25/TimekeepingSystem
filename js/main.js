@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260904-absence-coverage-actions-v1';
+const APP_VERSION = '20260904-transfer-source-coverage-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;

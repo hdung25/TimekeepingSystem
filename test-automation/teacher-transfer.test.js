@@ -34,6 +34,29 @@ assert.equal(movedOut.assignmentTransferHistory.at(-1).mode, 'temporary');
 assert.equal(movedOut.assignmentTransferHistory.at(-1).effectiveTo, '2026-09-09');
 assert.equal(typeof movedOut.assignmentTransferHistory.at(-1).at, 'string');
 
+const sourceHeldAsAbsent = state.applyTeacherTransferCommand({
+    shiftId: 'source-absence-1',
+    start: '08:00', end: '09:30', lop: 'Toán 5', phong: 'P1',
+    gvList: [{ id: 'teacher-a', name: 'GV A' }]
+}, {
+    ...command,
+    direction: 'source_absence',
+    sourceAbsence: {
+        type: 'VP',
+        reason: 'Điều chuyển sang Ngữ văn 7, chưa có GV thay lớp nguồn'
+    }
+}, actor, '2026-09-03T02:01:00.000Z');
+assert.deepEqual(sourceHeldAsAbsent.gvList.map(item => item.id), ['teacher-a'],
+    'source VP/VDX must keep the original teacher on the source roster');
+assert.deepEqual(sourceHeldAsAbsent.teacherAbsences.map(item => ({
+    teacherId: item.teacherId,
+    type: item.type,
+    status: item.status
+})), [{ teacherId: 'teacher-a', type: 'VP', status: 'pending' }]);
+assert.equal(sourceHeldAsAbsent.teacherAbsenceHistory.at(-1).event, 'reported_absent');
+assert.equal(sourceHeldAsAbsent.assignmentTransferHistory.at(-1).event, 'teacher_transfer_source_absence');
+assert.equal(sourceHeldAsAbsent.assignmentTransferHistory.at(-1).sourceAbsenceType, 'VP');
+
 const target = {
     shiftId: 'target-1',
     start: '10:00', end: '11:30', lop: 'Lớp đích', phong: 'P2',

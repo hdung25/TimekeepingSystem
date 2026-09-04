@@ -2806,11 +2806,12 @@ const DBService = {
         return committedRow;
     },
 
-    // Explicitly move one teacher between concrete class rows. This is not an
-    // absence/substitute command: the source teacher is removed from the main
-    // roster, the target teacher is added as a main teacher, and no absence is
-    // created as a side effect. Multiple date operations are committed in one
-    // Firestore transaction so a temporary week cannot be half-applied.
+    // Explicitly move one teacher between concrete class rows. The normal
+    // handoff removes the source teacher and adds that teacher as a main at the
+    // target without inventing an absence. A source absence is supported only
+    // when the scheduler explicitly chooses it. Every source roster mutation
+    // re-checks its attendance in this same transaction. Multiple dates can
+    // never be half-applied.
     transferTeacherBetweenShiftsAtomic: async (transfers = []) => {
         const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
         const canManageSchedule = (authorization.roles || []).some(role =>
@@ -2844,6 +2845,15 @@ const DBService = {
             const mode = String(item.mode || '').trim().toLowerCase();
             const teacherId = String(item.teacherId || '').trim();
             const transferId = String(item.transferId || '').trim();
+            const sourceDisposition = String(item.sourceDisposition || 'handoff').trim().toLowerCase();
+            const rawSourceAbsence = item.sourceAbsence && typeof item.sourceAbsence === 'object'
+                ? item.sourceAbsence
+                : null;
+            const sourceAbsence = rawSourceAbsence ? {
+                type: String(rawSourceAbsence.type || rawSourceAbsence.status || '').trim().toUpperCase(),
+                reason: String(rawSourceAbsence.reason || item.reason || '').trim().slice(0, 300),
+                reportedAt: String(rawSourceAbsence.reportedAt || '').trim()
+            } : null;
             if (!sourceKey || !targetKey || !sourceSection || !targetSection ||
                 !SCHEDULE_SECTION_KEYS.includes(sourceSection) || !SCHEDULE_SECTION_KEYS.includes(targetSection)) {
                 throw new Error(`Ngày ${index + 1}: thiếu định danh lớp nguồn/đích hợp lệ.`);
@@ -2859,6 +2869,10 @@ const DBService = {
                 (mode === 'temporary' && (!datePattern.test(effectiveTo) || effectiveTo < effectiveFrom)) ||
                 (mode === 'permanent' && effectiveTo) || !teacherId || !transferId) {
                 throw new Error(`Ngày ${index + 1}: thông tin loại/khoảng thời gian điều chuyển không hợp lệ.`);
+            }
+            if (!['handoff', 'absence'].includes(sourceDisposition) ||
+                (sourceDisposition === 'absence' && (!sourceAbsence || !['VP', 'VDX'].includes(sourceAbsence.type)))) {
+                throw new Error(`Ngày ${index + 1}: hãy chọn cách xử lý lớp nguồn hợp lệ.`);
             }
             const rowLocator = locator => ({
                 index: Number.isInteger(locator?.index) ? locator.index : null,
@@ -2882,7 +2896,9 @@ const DBService = {
                 effectiveTo,
                 teacherId,
                 transferId,
-                reason: String(item.reason || '').trim().slice(0, 300)
+                reason: String(item.reason || '').trim().slice(0, 300),
+                sourceDisposition,
+                sourceAbsence
             };
         });
 
@@ -2891,7 +2907,9 @@ const DBService = {
         normalized.forEach(item => {
             if (item.teacherId !== first.teacherId || item.transferId !== first.transferId ||
                 item.mode !== first.mode || item.effectiveFrom !== first.effectiveFrom ||
-                item.effectiveTo !== first.effectiveTo || item.reason !== first.reason) {
+                item.effectiveTo !== first.effectiveTo || item.reason !== first.reason ||
+                item.sourceDisposition !== first.sourceDisposition ||
+                JSON.stringify(item.sourceAbsence || null) !== JSON.stringify(first.sourceAbsence || null)) {
                 throw new Error('Các ngày trong một giao dịch điều chuyển phải dùng cùng giáo viên, loại và khoảng thời gian.');
             }
         });
@@ -2963,6 +2981,62 @@ const DBService = {
                 });
             });
 
+            // Both handoff and explicit VP/VDX change the source staffing. Check
+            // the exact source shift in this same transaction before any write,
+            // so a completed source attendance can never be detached or marked
+            // absent by a later schedule edit.
+            const sourceAttendanceChecks = [];
+            normalized.forEach(item => {
+                const sourceDoc = documents.get(item.sourceMeta.docId);
+                const sourceRows = sourceDoc.sections.get(item.source.section) || [];
+                const sourceIndex = resolveRow(sourceRows, item.source.locator);
+                if (sourceIndex < 0 || !sourceRows[sourceIndex]) {
+                    throw new Error(`Ca nguồn ngày ${item.sourceMeta.dateKey} đã thay đổi. Hãy tải lại lịch.`);
+                }
+                const sourceRow = sourceRows[sourceIndex];
+                const sourceTeacher = window.TeacherShiftState.getMainTeachers(sourceRow)
+                    .find(teacher => String(teacher.id || '') === item.teacherId);
+                if (!sourceTeacher) {
+                    throw new Error(`Giáo viên ${item.teacherId} không còn ở ca nguồn ngày ${item.sourceMeta.dateKey}.`);
+                }
+                sourceAttendanceChecks.push({ item, sourceRow, sourceTeacher });
+            });
+            if (sourceAttendanceChecks.length) {
+                const attendanceSnapshots = await Promise.all(sourceAttendanceChecks.map(check =>
+                    transaction.get(db.collection('attendance_logs').doc(
+                        `${check.item.sourceMeta.dateKey}_${check.item.teacherId}`
+                    ))
+                ));
+                const hasSourceAttendance = attendanceSnapshots.some(snapshot => snapshot.exists);
+                const evidenceResolver = window.ScheduleAttendanceAdmin?.workedAttendanceConflictForShift;
+                if (hasSourceAttendance && typeof evidenceResolver !== 'function') {
+                    const unavailable = new Error('Không tải được bộ đối chiếu công. Đã dừng điều chuyển lớp nguồn để tránh sai chip.');
+                    unavailable.code = 'schedule/attendance-guard-unavailable';
+                    throw unavailable;
+                }
+                attendanceSnapshots.forEach((attendanceSnapshot, checkIndex) => {
+                    if (!attendanceSnapshot.exists) return;
+                    const check = sourceAttendanceChecks[checkIndex];
+                    const conflict = evidenceResolver(attendanceSnapshot.data() || {}, {
+                        dateKey: check.item.sourceMeta.dateKey,
+                        start: check.sourceRow.start,
+                        end: check.sourceRow.end,
+                        shiftId: String(check.sourceRow.shiftId || ''),
+                        compositeKey: check.item.source.compositeKey,
+                        section: check.item.source.section
+                    });
+                    if (!conflict?.conflict) return;
+                    const sourceAction = check.item.sourceDisposition === 'absence' ? 'ghi Vắng' : 'bàn giao lớp nguồn';
+                    const error = new Error(conflict.kind === 'ambiguous'
+                        ? `${check.sourceTeacher.name || check.item.teacherId} có nhiều phiên công cùng khớp ca nguồn. Hãy đối chiếu Bảng Công trước khi ${sourceAction}.`
+                        : `${check.sourceTeacher.name || check.item.teacherId} đã có giờ vào/ra khớp ca nguồn. Không thể đồng thời ${sourceAction}.`);
+                    error.code = conflict.kind === 'ambiguous'
+                        ? 'schedule/attendance-ambiguous'
+                        : 'schedule/attendance-work-conflict';
+                    throw error;
+                });
+            }
+
             normalized.forEach(item => {
                 const sourceDoc = documents.get(item.sourceMeta.docId);
                 const targetDoc = documents.get(item.targetMeta.docId);
@@ -2987,17 +3061,19 @@ const DBService = {
                         name: String(item.replacementTeacher.name || '').trim()
                     }
                     : null;
+                const sourceDirection = item.sourceDisposition === 'absence' ? 'source_absence' : 'out';
                 const sourceNext = window.TeacherShiftState.applyTeacherTransferCommand(
                     sourceRow,
                     {
-                        direction: 'out',
+                        direction: sourceDirection,
                         transferId: item.transferId,
                         mode: item.mode,
                         effectiveFrom: item.effectiveFrom,
                         effectiveTo: item.effectiveTo,
                         teacherId: item.teacherId,
                         teacherName: sourceTeacher.name,
-                        replacementTeacher,
+                        replacementTeacher: sourceDirection === 'out' ? replacementTeacher : null,
+                        sourceAbsence: sourceDirection === 'source_absence' ? item.sourceAbsence : null,
                         reason: item.reason,
                         source: {
                             compositeKey: item.source.compositeKey,

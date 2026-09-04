@@ -2021,18 +2021,40 @@ function updateTeacherTransferModeHint() {
     const modal = document.getElementById('teacher-transfer-overlay');
     if (!modal) return;
     const mode = modal.querySelector('[data-action="transfer-mode"]')?.value || 'temporary';
+    const sourceAction = modal.querySelector('[data-action="transfer-source-action"]')?.value || '';
     const toLabel = modal.querySelector('[data-transfer-scope-label]');
     const hint = modal.querySelector('[data-transfer-mode-hint]');
+    const replacementTitle = modal.querySelector('[data-transfer-replacement-title]');
+    const replacementSelect = modal.querySelector('[data-action="transfer-replacement"]');
     if (toLabel) toLabel.textContent = mode === 'permanent'
         ? 'Ngày cuối cập nhật các lịch đang có (bản ghi không hết hạn)'
         : 'Ngày kết thúc tạm thời';
-    if (hint) hint.textContent = mode === 'permanent'
+    if (replacementSelect) {
+        const isHandoff = sourceAction === 'handoff';
+        replacementSelect.disabled = !isHandoff;
+        if (!isHandoff) replacementSelect.value = '';
+        replacementSelect.style.background = isHandoff ? '#fff' : '#F1F5F9';
+    }
+    if (replacementTitle) replacementTitle.textContent = sourceAction === 'handoff'
+        ? 'GV tiếp quản lớp nguồn '
+        : 'GV tiếp quản lớp nguồn (không dùng khi ghi Vắng) ';
+    const periodHint = mode === 'permanent'
         ? '“Chuyển hẳn” không tạo ngày kết thúc. Ngày cuối ở trên chỉ giới hạn các lịch đã tồn tại được cập nhật trong lượt này để tránh tự ý sửa hàng loạt.'
-        : 'Các ngày trong khoảng này sẽ được cập nhật cùng một giao dịch; không phát sinh trạng thái nghỉ hoặc GV thay.';
+        : 'Các ngày trong khoảng này sẽ được cập nhật cùng một giao dịch.';
+    const sourceHint = sourceAction === 'handoff'
+        ? 'Bàn giao: GV chuyển sẽ rời lớp nguồn và trở thành GV chính ở lớp đích. Nếu lớp nguồn chỉ có một GV chính, bắt buộc chọn người tiếp quản.'
+        : sourceAction === 'absence-vp'
+            ? 'Vắng có phép: GV chuyển vẫn được giữ ở lớp nguồn nhưng được ghi Vắng có phép/chờ GV thay; đồng thời trở thành GV chính ở lớp đích.'
+            : sourceAction === 'absence-vdx'
+                ? 'Vắng đột xuất: GV chuyển vẫn được giữ ở lớp nguồn nhưng được ghi Vắng đột xuất/chờ GV thay; đồng thời trở thành GV chính ở lớp đích.'
+                : 'Hãy chọn cách xử lý lớp nguồn. Nếu GV đang là hỗ trợ ở lớp đích, hệ thống sẽ chuyển người đó thành GV chính sau khi lưu.';
+    if (hint) hint.textContent = `${sourceHint} ${periodHint}`;
 }
 
 function handleTeacherTransferModalChange(event) {
-    if (event.target?.dataset?.action === 'transfer-mode') updateTeacherTransferModeHint();
+    if (['transfer-mode', 'transfer-source-action', 'transfer-teacher'].includes(event.target?.dataset?.action)) {
+        updateTeacherTransferModeHint();
+    }
 }
 
 function openTeacherTransferModal(state) {
@@ -2064,7 +2086,7 @@ function openTeacherTransferModal(state) {
             <div><div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#059669;font-weight:800;">Điều chuyển có kiểm soát</div><h3 id="teacher-transfer-title" style="margin:4px 0;font-size:1.2rem;color:#0f172a;">Đổi lớp / Chuyển giáo viên</h3><p style="margin:0;color:#64748b;font-size:.84rem;">Nguồn: ${scheduleEscapeHTML(state.originalRow.lop || 'Ca dạy')} · ${scheduleEscapeHTML(state.dateKey)} · ${scheduleEscapeHTML(`${state.originalRow.start || '--:--'}–${state.originalRow.end || '--:--'}`)}</p></div>
             <button type="button" data-action="close-transfer" aria-label="Đóng" style="border:0;background:#F1F5F9;border-radius:10px;width:34px;height:34px;font-size:1.2rem;cursor:pointer;">×</button>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:16px;">
             <label style="font-size:.78rem;color:#334155;font-weight:700;">GV chuyển
                 <select data-action="transfer-teacher" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;">${mains.map(item => `<option value="${scheduleEscapeAttr(item.id)}">${scheduleEscapeHTML(item.name)}</option>`).join('')}</select>
             </label>
@@ -2072,10 +2094,15 @@ function openTeacherTransferModal(state) {
                 <select data-action="transfer-target" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;">${targets.map(item => `<option value="${scheduleEscapeAttr(item.value)}">${scheduleEscapeHTML(item.label)}</option>`).join('')}</select>
             </label>
         </div>
-        <label style="display:block;margin-top:12px;font-size:.78rem;color:#334155;font-weight:700;">GV thay vào lớp nguồn (không bắt buộc)
-            <select data-action="transfer-replacement" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;"><option value="">— Giữ nguyên GV khác đang có —</option>${state.teachers.filter(item => !state.mainIds.includes(item.id) && !state.substituteIds.includes(item.id)).map(item => `<option value="${scheduleEscapeAttr(item.id)}">${scheduleEscapeHTML(item.name || item.id)}</option>`).join('')}</select>
-        </label>
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px;">
+            <label style="font-size:.78rem;color:#334155;font-weight:700;">Xử lý lớp nguồn <span style="color:#DC2626;">*</span>
+                <select data-action="transfer-source-action" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;"><option value="">— Chọn cách xử lý —</option><option value="handoff">Bàn giao cho GV tiếp quản</option><option value="absence-vp">Giữ lịch nguồn · Vắng có phép</option><option value="absence-vdx">Giữ lịch nguồn · Vắng đột xuất</option></select>
+            </label>
+            <label style="font-size:.78rem;color:#334155;font-weight:700;"><span data-transfer-replacement-title>GV tiếp quản lớp nguồn</span>
+                <select data-action="transfer-replacement" disabled style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#F1F5F9;"><option value="">— Chọn khi bàn giao —</option>${state.teachers.filter(item => !state.mainIds.includes(item.id) && !state.substituteIds.includes(item.id)).map(item => `<option value="${scheduleEscapeAttr(item.id)}">${scheduleEscapeHTML(item.name || item.id)}</option>`).join('')}</select>
+            </label>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px;">
             <label style="font-size:.78rem;color:#334155;font-weight:700;">Loại điều chuyển
                 <select data-action="transfer-mode" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;background:#fff;"><option value="temporary">Tạm thời</option><option value="permanent">Chuyển hẳn</option></select>
             </label>
@@ -2141,16 +2168,29 @@ async function submitTeacherTransferModal() {
     const mode = modal.querySelector('[data-action="transfer-mode"]')?.value || 'temporary';
     const teacherId = modal.querySelector('[data-action="transfer-teacher"]')?.value || '';
     const targetValue = modal.querySelector('[data-action="transfer-target"]')?.value || '';
+    const sourceAction = modal.querySelector('[data-action="transfer-source-action"]')?.value || '';
     const replacementId = modal.querySelector('[data-action="transfer-replacement"]')?.value || '';
     const fromKey = modal.querySelector('[data-action="transfer-from"]')?.value || '';
     const scopeToKey = modal.querySelector('[data-action="transfer-scope-to"]')?.value || '';
     const reason = modal.querySelector('[data-action="transfer-reason"]')?.value.trim() || '';
     const target = modalState.targets.find(item => item.value === targetValue);
     const teacher = state.teacherById.get(teacherId);
-    const replacement = replacementId ? state.teacherById.get(replacementId) : null;
+    const sourceDisposition = sourceAction === 'handoff'
+        ? 'handoff'
+        : ['absence-vp', 'absence-vdx'].includes(sourceAction) ? 'absence' : '';
+    const sourceAbsenceType = sourceAction === 'absence-vp' ? 'VP'
+        : sourceAction === 'absence-vdx' ? 'VDX' : '';
+    const replacement = sourceDisposition === 'handoff' && replacementId
+        ? state.teacherById.get(replacementId)
+        : null;
     const dateKeys = getScheduleDateKeysInclusive(fromKey, scopeToKey);
-    if (!teacher || !target || !dateKeys.length || reason.length < 3) {
-        UIService.toast('Vui lòng chọn GV, lớp đích, khoảng ngày hợp lệ và nhập lý do.', 'warning');
+    if (!teacher || !target || !sourceDisposition || !dateKeys.length || reason.length < 3) {
+        UIService.toast('Vui lòng chọn GV, lớp đích, cách xử lý lớp nguồn, khoảng ngày hợp lệ và nhập lý do.', 'warning');
+        return;
+    }
+    const sourceHasAnotherMain = state.mainIds.some(id => String(id) !== String(teacherId));
+    if (sourceDisposition === 'handoff' && !sourceHasAnotherMain && !replacement) {
+        UIService.toast('Lớp nguồn chỉ có GV này. Hãy chọn GV tiếp quản hoặc chọn Vắng có phép/Vắng đột xuất.', 'warning');
         return;
     }
     if (dateKeys.length > 31) {
@@ -2165,6 +2205,10 @@ async function submitTeacherTransferModal() {
         const transferId = `transfer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         const sourceTemplate = { section: state.caType, index: state.index, row: state.originalRow };
         const targetTemplate = { section: target.section, index: target.index, row: target.row };
+        const sourceAbsence = sourceDisposition === 'absence' ? {
+            type: sourceAbsenceType,
+            reason: `Điều chuyển sang ${target.row?.lop || 'lớp đích'}: ${reason}`.slice(0, 300)
+        } : null;
         const operations = [];
         for (const dateKey of dateKeys) {
             const compositeKey = `${branch}__${dateKey}`;
@@ -2205,16 +2249,26 @@ async function submitTeacherTransferModal() {
                 effectiveTo: mode === 'temporary' ? scopeToKey : '',
                 teacherId,
                 replacementTeacher: replacement ? { id: replacement.id, name: replacement.name } : null,
+                sourceDisposition,
+                sourceAbsence,
                 reason,
                 source: transferEndpoint(compositeKey, sourceTemplate.section, sourceIndex, sourceRow, dayData),
                 target: transferEndpoint(compositeKey, targetTemplate.section, targetIndex, targetRow, dayData)
             });
         }
-        if (preview) preview.textContent = `Đã kiểm tra ${operations.length} ngày. Đang lưu nguyên tử...`;
+        const sourceSummary = sourceDisposition === 'absence'
+            ? `${teacher.name || 'GV chuyển'} sẽ được ghi ${sourceAbsenceType === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'} ở lớp nguồn`
+            : replacement
+                ? `${replacement.name || 'GV tiếp quản'} sẽ tiếp quản lớp nguồn`
+                : 'lớp nguồn vẫn còn GV chính khác';
+        if (preview) preview.textContent = `Đã kiểm tra ${operations.length} ngày. ${sourceSummary}; ${teacher.name || 'GV chuyển'} sẽ là GV chính ở lớp đích. Đang lưu nguyên tử...`;
         const result = await DBService.transferTeacherBetweenShiftsAtomic(operations);
         closeTeacherTransferModal();
         closeTeacherShiftManager();
-        UIService.toast(`Đã ${mode === 'temporary' ? 'điều chuyển tạm thời' : 'ghi nhận chuyển hẳn'} ${result.count} ngày; không tạo vắng/GV thay.`, 'success');
+        const completedSource = sourceDisposition === 'absence'
+            ? `đã ghi ${sourceAbsenceType === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'} ở lớp nguồn`
+            : 'đã bàn giao lớp nguồn';
+        UIService.toast(`Đã ${mode === 'temporary' ? 'điều chuyển tạm thời' : 'ghi nhận chuyển hẳn'} ${result.count} ngày: ${completedSource}; ${teacher.name || 'GV chuyển'} là GV chính ở lớp đích.`, 'success');
         await renderTable();
     } catch (error) {
         console.error('Lỗi điều chuyển giáo viên:', error);
