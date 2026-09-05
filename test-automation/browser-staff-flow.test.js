@@ -15,6 +15,11 @@ const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const roles = [
     {id:'fixture-huy',username:'fixturehuy',name:'Quang Huy ',roles:['teaching_assistant','receptionist']},
     {id:'fixture-nhan',username:'fixturenhan',name:'Nguyễn Phan Thanh Nhàn ',roles:['teaching_assistant']},
+    {id:'fixture-senior',username:'fixturesenior',name:'Fixture Senior',roles:['senior_assistant']},
+    {id:'fixture-assistant',username:'fixtureassistant',name:'Fixture Assistant',roles:['assistant']},
+    {id:'fixture-office',username:'fixtureoffice',name:'Fixture Office',roles:['office_staff']},
+    {id:'fixture-reception',username:'fixturereception',name:'Fixture Reception',roles:['receptionist_assistant']},
+    {id:'fixture-staff',username:'fixturestaff',name:'Fixture Staff',roles:['staff']},
     {id:'fixture-admin',username:'fixtureadmin',name:'Fixture Admin',roles:['admin']}
 ];
 async function main() {
@@ -89,14 +94,16 @@ async function main() {
             await page.type('#password',password);
             await Promise.all([page.waitForNavigation({waitUntil:'domcontentloaded'}),page.click('#login-form button[type="submit"]')]);
             const pages=user.roles.includes('admin')
-                ? ['admin.html',`bao-cao.html?staffId=fixture-nhan&date=${payrollDate}`,'lich-lam.html','lich-tiep-tan.html','lich-van-phong.html','nhan-su.html','he-thong.html']
-                : ['nhan-vien.html','cham-cong.html','bao-cao.html','lich-lam.html'];
+                ? ['admin.html',`bao-cao.html?staffId=fixture-nhan&date=${payrollDate}`,`bao-cao.html?staffId=fixture-huy&date=${payrollDate}`,'lich-lam.html','lich-tiep-tan.html','lich-van-phong.html','nhan-su.html','he-thong.html']
+                : user.roles.includes('senior_assistant')
+                    ? ['admin.html','cham-cong.html',`bao-cao.html?staffId=${user.id}`,'lich-lam.html']
+                    : ['nhan-vien.html','cham-cong.html','bao-cao.html','lich-lam.html'];
             for(const route of pages) {
                 const started=Date.now();
                 await page.goto(origin+'/'+route,{waitUntil:'domcontentloaded',timeout:60000});
                 await page.waitForFunction(()=>window.__TDT_CORE_BOOTSTRAP_READY__===true,{timeout:30000});
                 if(route.startsWith('bao-cao')) await page.waitForFunction(()=>window.__TDT_REPORT_BOOTSTRAP_READY__===true,{timeout:30000});
-                if(route.startsWith('bao-cao') && user.roles.includes('admin')) {
+                if(route.includes('staffId=fixture-nhan') && user.roles.includes('admin')) {
                     const edit='[data-edit-session-id="fixture-payroll"]';
                     await page.waitForSelector(edit,{timeout:30000});
                     await page.click(edit);
@@ -110,6 +117,47 @@ async function main() {
                     assert.equal(saved.sessions[0].adminPayrollOverride.adminEarly10.enabled,true,'primary Admin must save +10 without a matching schedule');
                     await page.waitForFunction(()=> (window.allMonthChips||[]).some(c=>c.sessionId==='fixture-payroll'&&c.paidMinutes===100),{timeout:30000});
                     console.log('PASS Admin actual Sửa công button -> +10 decision without schedule -> transaction -> 100-minute chip');
+                    await page.evaluate(async () => {
+                        window.__realOTReader = DBService.getOvertimeRequestsForStaff;
+                        window.__realPublisher = DBService.publishSalary;
+                        window.__publishInvocations = 0;
+                        DBService.getOvertimeRequestsForStaff = async () => {throw new Error('Fixture: payroll input unavailable');};
+                        DBService.publishSalary = async () => {window.__publishInvocations++;};
+                        await renderMonthReport(currentDate, true);
+                        await publishSalary();
+                    });
+                    const failed = await page.evaluate(() => ({ready:window.payrollReadyScope,calls:window.__publishInvocations,text:document.getElementById('calendar-grid').innerText}));
+                    assert.equal(failed.ready,null);assert.equal(failed.calls,0);assert.match(failed.text,/Chưa thể tải/);
+                    await page.evaluate(async () => {
+                        DBService.getOvertimeRequestsForStaff = window.__realOTReader;
+                        DBService.publishSalary = window.__realPublisher;
+                        await renderMonthReport(currentDate, true);
+                    });
+                    await page.waitForFunction(()=>window.payrollReadyScope===window.currentReportScope,{timeout:30000});
+                    console.log('PASS failed financial read blocks actual publish handler; retry restores complete report');
+                }
+                if(route.startsWith('bao-cao')) await page.waitForFunction(()=>window.payrollReadyScope===window.currentReportScope && !!window.payrollReadyScope,{timeout:30000});
+                if(route.includes('staffId=fixture-huy') && user.roles.includes('admin')) {
+                    await page.evaluate(async () => {
+                        window.__realMonthlyReader = DBService.getMonthlyAttendance;
+                        window.__realPublisher = DBService.publishSalary;
+                        window.__publishInvocations = 0;
+                        DBService.getMonthlyAttendance = async (...args) => {
+                            if(args[1] === 'fixture-reception') throw new Error('Fixture: collective bonus attendance unavailable');
+                            return window.__realMonthlyReader(...args);
+                        };
+                        DBService.publishSalary = async () => {window.__publishInvocations++;};
+                        await renderMonthReport(currentDate, true);
+                        await publishSalary();
+                    });
+                    assert.deepEqual(await page.evaluate(() => [window.payrollReadyScope, window.__publishInvocations]), [null, 0]);
+                    await page.evaluate(async () => {
+                        DBService.getMonthlyAttendance = window.__realMonthlyReader;
+                        DBService.publishSalary = window.__realPublisher;
+                        await renderMonthReport(currentDate, true);
+                    });
+                    await page.waitForFunction(()=>window.payrollReadyScope===window.currentReportScope && !!window.payrollReadyScope,{timeout:30000});
+                    console.log('PASS collective receptionist attendance failure blocks dual-role payroll publication; retry recovers');
                 }
                 if(route==='cham-cong.html') {
                     await page.waitForFunction(()=>window.__TDT_TIMEKEEPING_BOOTSTRAP_READY__===true,{timeout:30000});

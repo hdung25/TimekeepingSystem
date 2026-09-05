@@ -214,6 +214,22 @@ service cloud.firestore {
       return ownsStaffId(request.resource.data.get('staffId', ''))
         && request.resource.data.get('status', '') == 'pending';
     }
+    function isOwnOvertimeId(requestId) {
+      return getUserId().matches('[A-Za-z0-9_-]{1,120}')
+        && requestId.matches('ot_[0-9]{4}-[0-9]{2}-[0-9]{2}~' + getUserId() + '~[A-Za-z0-9_-]{1,120}');
+    }
+    function isValidOwnOvertime(requestId) {
+      let data = request.resource.data;
+      return isOwnPendingRequest()
+        && isOwnOvertimeId(requestId)
+        && requestId == 'ot_' + data.get('dateKey', '') + '~' + getUserId() + '~' + data.get('sessionId', '')
+        && data.get('minutes', 0) is int && data.minutes > 0 && data.minutes <= 1440
+        && data.get('duration', '').matches('[0-9]{1,3}:[0-5][0-9]')
+        && data.get('approvedBy', null) == null && data.get('approvedAt', null) == null
+        && data.get('createdAt', null) == request.time
+        && data.keys().hasOnly(['staffId', 'staffName', 'dateKey', 'sessionId', 'duration', 'minutes',
+          'status', 'createdAt', 'approvedBy', 'approvedAt', 'previousDecision']);
+    }
     function isCanonicalBonus10RequestId(requestId) {
       return request.resource.data.get('staffId', '') is string
         && request.resource.data.get('staffId', '').matches('[A-Za-z0-9_-]{1,80}')
@@ -415,6 +431,32 @@ service cloud.firestore {
         && request.resource.data.get('schemaVersion', 0) == resource.data.get('schemaVersion', 0)
         && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
     }
+    // Existing clients store ISO strings. Parse the canonical UTC shape rather
+    // than accepting any 20-character string as a clock value. This preserves
+    // their schema and keeps Admin corrections outside staff clock restrictions.
+    function isAttendanceISO(value) {
+      return value is string && value.matches('[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z');
+    }
+    function attendanceISOTime(value) {
+      let parts = value.split('[-T:.Z]');
+      return timestamp.date(int(parts[0]), int(parts[1]), int(parts[2]))
+        + duration.value(int(parts[3]) * 3600000 + int(parts[4]) * 60000
+          + int(parts[5]) * 1000 + int(parts[6]), 'ms');
+    }
+    function isCurrentCheckIn(value, dateKey) {
+      let parts = dateKey.split('-');
+      let instant = attendanceISOTime(value);
+      return isAttendanceISO(value)
+        && instant >= request.time - duration.value(5, 'm')
+        && instant <= request.time + duration.value(2, 'm')
+        && (instant + duration.value(7, 'h')).date()
+          == timestamp.date(int(parts[0]), int(parts[1]), int(parts[2]));
+    }
+    function isChronologicalCheckOut(start, end) {
+      return isAttendanceISO(start) && isAttendanceISO(end)
+        && end >= start
+        && attendanceISOTime(end) <= request.time + duration.value(2, 'm');
+    }
     function isSafeNewAttendanceSession(session, dateKey) {
       return session is map
         && session.keys().hasOnly([
@@ -430,11 +472,15 @@ service cloud.firestore {
         && session.get('start', '').size() >= 20
         && session.get('start', '').size() <= 40
         && session.get('checkIn', '') == session.get('start', '')
+        && isCurrentCheckIn(session.get('checkIn', ''), dateKey)
         && session.get('checkOut', 'not-null') == null;
     }
     function keepsAttendanceSessionFinancialFields(oldSession, newSession, dateKey) {
       return oldSession is map
         && newSession is map
+        && newSession.diff(oldSession).affectedKeys().hasOnly([
+          'checkOut', 'status', 'anchorDateKey', 'autoClosedReason'
+        ])
         && newSession.get('id', '') == oldSession.get('id', '')
         && newSession.get('start', '') == oldSession.get('start', '')
         && newSession.get('checkIn', '') == oldSession.get('checkIn', '')
@@ -443,10 +489,13 @@ service cloud.firestore {
         && newSession.get('checkOut', '') is string
         && newSession.get('checkOut', '').size() >= 20
         && newSession.get('checkOut', '').size() <= 40
-        && newSession.get('status', 'open') in ['open', 'closed']
-        && newSession.diff(oldSession).affectedKeys().hasOnly([
-          'checkOut', 'status', 'anchorDateKey', 'autoClosedReason'
-        ]);
+        && (oldSession.get('checkOut', null) == null || (
+          oldSession.get('autoClosedReason', '') == 'stale_session'
+          && newSession.get('autoClosedReason', '') == 'stale_session'
+          && newSession.get('checkOut', '') >= oldSession.get('checkOut', '')
+        ))
+        && isChronologicalCheckOut(oldSession.get('checkIn', oldSession.get('start', '')), newSession.get('checkOut', ''))
+        && newSession.get('status', 'open') in ['open', 'closed'];
     }
     function isSafeStudentCountSessionTransition(oldSession, newSession, dateKey) {
       let oldStatus = oldSession.get('studentCountStatus', '');
@@ -490,6 +539,8 @@ service cloud.firestore {
         ? oldSessions.removeAll(newSessions) : [];
       return oldSessions is list
         && newSessions is list
+        && request.resource.data.get('checkIn', null) == resource.data.get('checkIn', null)
+        && request.resource.data.get('checkOut', null) == resource.data.get('checkOut', null)
         && newSessions.size() == oldSessions.size()
         && addedSessions.size() == 1
         && removedSessions.size() == 1
@@ -508,7 +559,9 @@ service cloud.firestore {
         && newSessions is list
         && newSessions.size() <= 24
         && (
-          newSessions == oldSessions
+          (newSessions == oldSessions
+            && request.resource.data.get('checkIn', null) == resource.data.get('checkIn', null)
+            && request.resource.data.get('checkOut', null) == resource.data.get('checkOut', null))
           || (
             newSessions.size() == oldSessions.size() + 1
             && addedSessions.size() == 1
@@ -529,6 +582,9 @@ service cloud.firestore {
             && keepsAttendanceSessionFinancialFields(
               removedSessions[0], addedSessions[0], request.resource.data.get('date', '')
             )
+            && request.resource.data.get('checkIn', null) == resource.data.get('checkIn', null)
+            && (request.resource.data.get('checkOut', null) == addedSessions[0].get('checkOut', null)
+              || request.resource.data.get('checkOut', null) == resource.data.get('checkOut', null))
           )
         );
     }
@@ -561,6 +617,8 @@ service cloud.firestore {
             && newSessions[0].get('id', '') == 'legacy'
             && newSessions[0].get('checkOut', '') is string
             && newSessions[0].get('checkOut', '').size() >= 20
+            && resource.data.get('checkOut', null) == null
+            && isChronologicalCheckOut(legacyCheckIn, newSessions[0].get('checkOut', ''))
             && newSessions[0].get('status', '') == 'closed'
             && newSessions[0].get('anchorDateKey', '') == request.resource.data.get('date', '')
           )
@@ -635,7 +693,7 @@ service cloud.firestore {
       allow list: if isAuthenticated()
         && (isAdmin() || canAuditAttendance()
           || ownsStaffId(resource.data.get('userId', '')));
-      allow create: if isAuthenticated() && ((
+      allow create: if isAuthenticated() && (isPrimaryAdmin() || (
         ownsStaffId(request.resource.data.get('userId', ''))
         && request.resource.data.get('date', '') is string
         && request.resource.data.get('date', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
@@ -660,8 +718,8 @@ service cloud.firestore {
           == request.resource.data.get('sessions', [])[0].get('checkIn', '')
         && request.resource.data.get('checkOut', 'not-null') == null
         && request.resource.data.get('lastUpdated', null) == request.time
-      ) || isPrimaryAdmin() || isSafeSeniorAttendanceCreate(logId));
-      allow update: if isAuthenticated() && ((
+      ) || isSafeSeniorAttendanceCreate(logId));
+      allow update: if isAuthenticated() && (isPrimaryAdmin() || (
         ownsStaffId(resource.data.get('userId', ''))
         && request.resource.data.get('userId', '') == resource.data.get('userId', '')
         && request.resource.data.get('date', '') == resource.data.get('date', '')
@@ -690,7 +748,7 @@ service cloud.firestore {
             )
           )
         )
-      ) || isPrimaryAdmin() || preservesPayrollOverrideForSeniorUpdate(logId));
+      ) || preservesPayrollOverrideForSeniorUpdate(logId));
       allow delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
@@ -968,9 +1026,24 @@ service cloud.firestore {
     // immutable teaching-shift evidence is verified here, so an eligible staff
     // request may be created directly as approved without waiting for Admin.
     match /overtime_requests/{requestId} {
-      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
-      allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
-      allow update, delete: if isAuthenticated() && isAdmin();
+      allow get: if isAuthenticated() && (isAdmin()
+        || (isOwnOvertimeId(requestId) && !exists(/databases/$(database)/documents/overtime_requests/$(requestId)))
+        || ownsStaffId(resource.data.get('staffId', '')));
+      allow list: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create: if isAuthenticated() && (isAdmin() || isValidOwnOvertime(requestId));
+      allow update: if isAuthenticated() && (isAdmin() || (
+        resource.data.get('status', '') == 'rejected'
+        && isValidOwnOvertime(requestId)
+        && request.resource.data.get('staffId', '') == resource.data.get('staffId', '')
+        && request.resource.data.get('sessionId', '') == resource.data.get('sessionId', '')
+        && request.resource.data.get('dateKey', '') == resource.data.get('dateKey', '')
+        && request.resource.data.get('previousDecision', {}) == {
+          'status': resource.data.status, 'minutes': resource.data.minutes,
+          'duration': resource.data.duration, 'approvedBy': resource.data.get('approvedBy', null),
+          'approvedAt': resource.data.get('approvedAt', null)
+        }
+      ));
+      allow delete: if isAuthenticated() && isAdmin();
     }
     match /bonus10_requests/{requestId} {
       allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));

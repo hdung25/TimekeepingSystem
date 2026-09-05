@@ -837,3 +837,24 @@ là bảng 4 cột với nhãn dọc như cũ.
   vẫn cần xác nhận, không được cam kết quyền vĩnh viễn hoặc hết mọi lỗi.
 - Build: `20260905-attendance-integrity-v1`, cache
   `tdt-chamcong-v151-attendance-integrity-20260905`.
+
+### 05/09/2026 — Review v2: tính đầy đủ của lương, giao dịch tăng ca và hết hạn điều chuyển
+- Chi tiết: `claude/release-review-20260905-v2.md`. Không sửa công/lương/hồ sơ lịch sử production.
+- OT/+10 đọc phân trang, không cắt 100/200 bản ghi trước khi lọc tháng, không cache lỗi thành rỗng.
+  Báo cáo có cờ tải đủ đúng nhân sự/tháng; lưu nháp, lưu modal và gửi lương đều kiểm tra cờ này.
+  Tính quỹ thưởng tiếp tân được chờ hoàn tất và chặn kết quả bất đồng bộ của nhân sự/tháng cũ.
+  Công, ghi chú, điều chỉnh trễ và lịch tiếp tân/văn phòng dùng đọc server bắt buộc trong bản tính;
+  lỗi công của thành viên khác trong quỹ thưởng không được đổi thành 0 điểm. Lưu thông tin bổ sung
+  tiếp tân cũng kiểm tra đủ dữ liệu trước khi ghi, không dùng cấu hình rỗng khi truy vấn lỗi.
+- Tăng ca dùng canonical transaction chung với Admin; duyệt/từ chối từ nút legacy cũng đồng bộ
+  quyết định canonical. Hủy duyệt giữ lịch sử, không xóa bản ghi trước khi lưu.
+- Điều chuyển tạm thời hết hạn được hoàn nguyên roster khi kế thừa lịch, không rewrite ngày cũ;
+  điều chuyển lâu dài vẫn giữ nguyên. Các trang dùng chung TeacherShiftState.
+- Rules kiểm tra ISO, ngày Việt Nam và thời gian server cho nhân viên; chặn ghi công quá khứ/
+  tương lai, sửa giờ tổng không sửa phiên, và ghi lại checkout đã đóng. Admin chính được xét trước
+  giới hạn dành cho nhân viên. Ca tự đóng hợp lệ và dữ liệu v2 đang dùng vẫn được kiểm thử.
+- Đây KHÔNG phải chuyển kiểm tra vị trí sang backend. GPS client-side vẫn là giới hạn kiến trúc;
+  không được tuyên bố đã chống mọi bypass API. RuleHD/không lưu tọa độ chẩn đoán được giữ nguyên.
+- Kiểm chứng: 53 regression files; 30 Rules scenarios + hai nhóm integration; 8 cấu hình tài khoản/
+  36 lượt trang trong Chrome với Auth/Firestore emulator. Safari thiết bị thật chưa được kiểm chứng.
+- Build `20260905-payroll-schedule-integrity-v2`, cache `tdt-chamcong-v152-payroll-schedule-integrity-20260905`.

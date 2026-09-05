@@ -264,21 +264,26 @@ test('credential documents are unreadable to staff but support safe own rotation
 });
 
 test('owner can read a canonical missing attendance document before first check-in', async () => {
-    const todayRef = doc(staffDb, 'attendance_logs', '2026-09-01_staff-1');
+    const clockDay = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+    const clockBase = Date.now();
+    const clockISO = offset => new Date(clockBase + offset).toISOString();
+
+    const todayRef = doc(staffDb, 'attendance_logs', clockDay + '_staff-1');
     const previousRef = doc(staffDb, 'attendance_logs', '2026-08-31_staff-1');
     const missingOwnSnapshot = await assertSucceeds(getDoc(todayRef));
     if (missingOwnSnapshot.exists()) {
         throw new Error('The attendance fixture must remain absent before first check-in');
     }
 
-    await assertFails(getDoc(doc(staffDb, 'attendance_logs', '2026-09-01_staff-2')));
+    await assertFails(getDoc(doc(staffDb, 'attendance_logs', clockDay + '_staff-2')));
     await assertFails(getDoc(doc(staffDb, 'attendance_logs', 'not-a-date_staff-1')));
     await assertFails(getDoc(doc(staffDb, 'attendance_logs', '2026-08-26_staff-1')));
 
     const openSession = {
-        id: 'first-session', anchorDateKey: '2026-09-01', status: 'open', source: 'self',
-        start: '2026-09-01T01:00:00.000Z', checkIn: '2026-09-01T01:00:00.000Z', checkOut: null
+        id: 'first-session', anchorDateKey: clockDay, status: 'open', source: 'self',
+        start: clockISO(-240000), checkIn: null, checkOut: null
     };
+    openSession.checkIn = openSession.start;
     await assertSucceeds(runTransaction(staffDb, async transaction => {
         const todaySnapshot = await transaction.get(todayRef);
         const previousSnapshot = await transaction.get(previousRef);
@@ -286,12 +291,12 @@ test('owner can read a canonical missing attendance document before first check-
             throw new Error('Both deterministic documents must be absent in this regression');
         }
         transaction.set(todayRef, {
-            userId: 'staff-1', name: 'Staff One', date: '2026-09-01',
+            userId: 'staff-1', name: 'Staff One', date: clockDay,
             sessions: [openSession], checkIn: openSession.checkIn, checkOut: null,
             lastUpdated: serverTimestamp()
         });
-        transaction.set(doc(staffDb, 'attendance_checkin_proofs', '2026-09-01~staff-1~first-session'), {
-            staffId: 'staff-1', dateKey: '2026-09-01', sessionId: 'first-session',
+        transaction.set(doc(staffDb, 'attendance_checkin_proofs', clockDay + '~staff-1~first-session'), {
+            staffId: 'staff-1', dateKey: clockDay, sessionId: 'first-session',
             authUid: 'uid-staff', recordedAt: serverTimestamp(), schemaVersion: 1
         });
     }));
@@ -303,44 +308,51 @@ test('owner can read a canonical missing attendance document before first check-
 });
 
 test('owner can create/update own attendance but cannot mutate another employee', async () => {
-    const ownRef = doc(staffDb, 'attendance_logs', '2026-08-31_staff-1');
+    const clockDay = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+    const clockBase = Date.now();
+    const clockISO = offset => new Date(clockBase + offset).toISOString();
+    await deleteDoc(doc(adminDb, 'attendance_logs', clockDay + '_staff-1'));
+
+    const ownRef = doc(staffDb, 'attendance_logs', clockDay + '_staff-1');
     const openSession = {
-        id: 'session-1', anchorDateKey: '2026-08-31', status: 'open', source: 'self',
-        start: '2026-08-31T01:00:00.000Z', checkIn: '2026-08-31T01:00:00.000Z', checkOut: null
+        id: 'session-1', anchorDateKey: clockDay, status: 'open', source: 'self',
+        start: clockISO(-240000), checkIn: null, checkOut: null
     };
+    openSession.checkIn = openSession.start;
     await assertSucceeds(runTransaction(staffDb, async transaction => {
         transaction.set(ownRef, {
-            userId: 'staff-1', name: 'Staff One', date: '2026-08-31',
+            userId: 'staff-1', name: 'Staff One', date: clockDay,
             sessions: [openSession], checkIn: openSession.checkIn, checkOut: null,
             lastUpdated: serverTimestamp()
         });
-        transaction.set(doc(staffDb, 'attendance_checkin_proofs', '2026-08-31~staff-1~session-1'), {
-            staffId: 'staff-1', dateKey: '2026-08-31', sessionId: 'session-1',
+        transaction.set(doc(staffDb, 'attendance_checkin_proofs', clockDay + '~staff-1~session-1'), {
+            staffId: 'staff-1', dateKey: clockDay, sessionId: 'session-1',
             authUid: 'uid-staff', recordedAt: serverTimestamp(), schemaVersion: 1
         });
     }));
     await assertFails(setDoc(doc(staffDb, 'attendance_logs', 'arbitrary-duplicate-id'), {
-        userId: 'staff-1', name: 'Staff One', date: '2026-08-31', sessions: []
+        userId: 'staff-1', name: 'Staff One', date: clockDay, sessions: []
     }));
     await assertFails(setDoc(doc(staffDb, 'attendance_logs', '2026-08-30_staff-1'), {
         userId: 'staff-1', name: 'Another Person', date: '2026-08-30', sessions: []
     }));
-    const closedSession = { ...openSession, status: 'closed', checkOut: '2026-08-31T03:00:00.000Z' };
+    const closedSession = { ...openSession, status: 'closed', checkOut: clockISO(-180000) };
     await assertSucceeds(updateDoc(ownRef, {
         sessions: [closedSession],
-        checkOut: '2026-08-31T03:00:00.000Z', lastUpdated: serverTimestamp()
+        checkOut: clockISO(-180000), lastUpdated: serverTimestamp()
     }));
     const secondSession = {
-        id: 'session-2', anchorDateKey: '2026-08-31', status: 'open', source: 'self',
-        start: '2026-08-31T05:00:00.000Z', checkIn: '2026-08-31T05:00:00.000Z', checkOut: null
+        id: 'session-2', anchorDateKey: clockDay, status: 'open', source: 'self',
+        start: clockISO(-120000), checkIn: null, checkOut: null
     };
+    secondSession.checkIn = secondSession.start;
     await assertSucceeds(runTransaction(staffDb, async transaction => {
         transaction.update(ownRef, {
             sessions: [closedSession, secondSession], checkIn: secondSession.checkIn,
             checkOut: null, lastUpdated: serverTimestamp()
         });
-        transaction.set(doc(staffDb, 'attendance_checkin_proofs', '2026-08-31~staff-1~session-2'), {
-            staffId: 'staff-1', dateKey: '2026-08-31', sessionId: 'session-2',
+        transaction.set(doc(staffDb, 'attendance_checkin_proofs', clockDay + '~staff-1~session-2'), {
+            staffId: 'staff-1', dateKey: clockDay, sessionId: 'session-2',
             authUid: 'uid-staff', recordedAt: serverTimestamp(), schemaVersion: 1
         });
     }));
@@ -354,18 +366,18 @@ test('owner can create/update own attendance but cannot mutate another employee'
     }));
     await assertSucceeds(updateDoc(ownRef, {
         sessions: [closedSession, {
-            ...secondSession, status: 'closed', checkOut: '2026-08-31T07:00:00.000Z'
+            ...secondSession, status: 'closed', checkOut: clockISO(-60000)
         }],
-        checkOut: '2026-08-31T07:00:00.000Z', lastUpdated: serverTimestamp()
+        checkOut: clockISO(-60000), lastUpdated: serverTimestamp()
     }));
     const closedSecondSession = {
-        ...secondSession, status: 'closed', checkOut: '2026-08-31T07:00:00.000Z'
+        ...secondSession, status: 'closed', checkOut: clockISO(-60000)
     };
     const pendingStudentCount = {
         ...closedSecondSession,
         studentCount: 12,
         studentCountStatus: 'pending',
-        studentCountUpdatedAt: '2026-08-31T07:05:00.000Z',
+        studentCountUpdatedAt: clockISO(-30000),
         studentCountUpdatedBy: 'staff-1'
     };
     await assertSucceeds(updateDoc(ownRef, {
@@ -399,27 +411,33 @@ test('owner can create/update own attendance but cannot mutate another employee'
         lastUpdated: serverTimestamp()
     }));
     await assertFails(updateDoc(ownRef, { name: 'Another Person' }));
-    await assertFails(updateDoc(doc(staffDb, 'attendance_logs', '2026-08-31_staff-2'), {
+    await assertFails(updateDoc(doc(staffDb, 'attendance_logs', clockDay + '_staff-2'), {
         sessions: [{ id: 'forged' }]
     }));
     await assertFails(deleteDoc(ownRef));
 });
 
 test('cached v2 check-in remains writable during proof rollout but cannot mint a +10 receipt', async () => {
-    const compatibilityRef = doc(staffDb, 'attendance_logs', '2026-09-02_staff-1');
+    const clockDay = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+    const clockBase = Date.now();
+    const clockISO = offset => new Date(clockBase + offset).toISOString();
+    await deleteDoc(doc(adminDb, 'attendance_logs', clockDay + '_staff-1'));
+
+    const compatibilityRef = doc(staffDb, 'attendance_logs', clockDay + '_staff-1');
     const cachedSession = {
-        id: 'cached-v2-session', anchorDateKey: '2026-09-02', status: 'open', source: 'self',
-        start: '2026-09-02T01:00:00.000Z', checkIn: '2026-09-02T01:00:00.000Z', checkOut: null
+        id: 'cached-v2-session', anchorDateKey: clockDay, status: 'open', source: 'self',
+        start: clockISO(-240000), checkIn: null, checkOut: null
     };
+    cachedSession.checkIn = cachedSession.start;
     await assertSucceeds(setDoc(compatibilityRef, {
-        userId: 'staff-1', name: 'Staff One', date: '2026-09-02',
+        userId: 'staff-1', name: 'Staff One', date: clockDay,
         sessions: [cachedSession], checkIn: cachedSession.checkIn, checkOut: null,
         lastUpdated: serverTimestamp()
     }));
     await env.withSecurityRulesDisabled(async context => {
         const missingProof = await getDoc(doc(
             context.firestore(), 'attendance_checkin_proofs',
-            '2026-09-02~staff-1~cached-v2-session'
+            clockDay + '~staff-1~cached-v2-session'
         ));
         if (missingProof.exists()) throw new Error('Cached v2 compatibility must not fabricate a server receipt');
     });
@@ -1029,7 +1047,9 @@ test('legacy aggregate payslip can still move published to received', async () =
 
 test('eligible staff can self-submit one authenticated, shift-scoped approved +10 award', async () => {
     const pending = { staffId: 'staff-1', dateKey: '2026-08-31', sessionId: 'session-1', status: 'pending' };
-    await assertSucceeds(setDoc(doc(staffDb, 'overtime_requests', 'ot-own'), pending));
+    await assertSucceeds(setDoc(doc(staffDb, 'overtime_requests', 'ot_2026-08-31~staff-1~session-1'), {
+        ...pending, duration: '00:15', minutes: 15, createdAt: serverTimestamp(), approvedAt: null, approvedBy: null
+    }));
     await assertFails(setDoc(doc(staffDb, 'overtime_requests', 'ot-approved'), { ...pending, status: 'approved' }));
 
     const assignmentEntry = { id: 'staff-1', name: 'Staff One' };
@@ -1155,8 +1175,8 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
     await assertSucceeds(setDoc(doc(staffDb, 'makeup_requests', 'makeup-own'), {
         ...pending, session: { checkIn: '2026-08-31T01:00:00.000Z', checkOut: '2026-08-31T02:00:00.000Z' }
     }));
-    await assertFails(updateDoc(doc(staffDb, 'overtime_requests', 'ot-own'), { status: 'approved' }));
-    await assertSucceeds(updateDoc(doc(adminDb, 'overtime_requests', 'ot-own'), { status: 'approved' }));
+    await assertFails(updateDoc(doc(staffDb, 'overtime_requests', 'ot_2026-08-31~staff-1~session-1'), { status: 'approved' }));
+    await assertSucceeds(updateDoc(doc(adminDb, 'overtime_requests', 'ot_2026-08-31~staff-1~session-1'), { status: 'approved' }));
 });
 
 test('notification recipient can read/acknowledge but cannot alter content', async () => {

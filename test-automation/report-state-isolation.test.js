@@ -77,9 +77,9 @@ assert.equal(committedOwner, 'staff-a');
 
 // Regression: each long-running data source is guarded immediately after its
 // await, and shared values are staged locally before a guarded commit.
-assert.match(source, /let currentUserContext = null;[\s\S]*?await DBService\.refs\.users\(\)\.doc\(staffId\)\.get\(\);\s*if \(!isCurrentRender\(\)\) return;/);
-assert.match(source, /let staffNotesForRender =[\s\S]*?await DBService\.getDailyNotes\(staffId\)[\s\S]*?if \(!isCurrentRender\(\)\) return;/);
-assert.match(source, /let savedFixedShiftsMonth = \[\];[\s\S]*?await DBService\.getFixedShifts\(monthStr, staffId\)[\s\S]*?if \(!isCurrentRender\(\)\) return;/);
+assert.match(source, /let currentUserContext = null;[\s\S]*?await DBService\.refs\.users\(\)\.doc\(staffId\)\.get\(\{ source: 'server' \}\);\s*if \(!isCurrentRender\(\)\) return;/);
+assert.match(source, /let staffNotesForRender =[\s\S]*?await DBService\.getDailyNotes\(staffId, \{ strict: true \}\)[\s\S]*?if \(!isCurrentRender\(\)\) return;/);
+assert.match(source, /let savedFixedShiftsMonth = \[\];[\s\S]*?await DBService\.getFixedShifts\(monthStr, staffId, \{ strict: true \}\)[\s\S]*?if \(!isCurrentRender\(\)\) return;/);
 assert.match(source, /const attendanceRecords = await DBService\.getMonthlyAttendance\([^;]+;\s*if \(!isCurrentRender\(\)\) return;/);
 assert.match(source, /const scheduleResults = await Promise\.all\(schedulePromises\);\s*if \(!isCurrentRender\(\)\) return;/);
 assert.match(source, /const recepResults = await Promise\.all\(recepPromises\);\s*if \(!isCurrentRender\(\)\) return;/);

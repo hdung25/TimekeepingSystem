@@ -1949,9 +1949,15 @@ const DBService = {
         const cacheKey = `schedule_${compositeKey}`;
         const serverFresh = options.source === 'server';
         if (!serverFresh && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
-        const getDocument = ref => serverFresh
-            ? ref.get({ source: 'server' })
-            : ref.get();
+        const getDocument = ref => {
+            // One report reads many dates sharing a manifest/template. Share
+            // those reads only inside that render, never across editing sessions.
+            const readCache = options.readCache;
+            if (readCache && ref.path && readCache.has(ref.path)) return readCache.get(ref.path);
+            const read = serverFresh ? ref.get({ source: 'server' }) : ref.get();
+            if (readCache && ref.path) readCache.set(ref.path, read);
+            return read;
+        };
 
         const promise = (async () => {
             try {
@@ -2004,7 +2010,9 @@ const DBService = {
                 Object.keys(templateData).forEach(key => {
                     if (Array.isArray(templateData[key])) {
                         templateData[key] = templateData[key].map((row, rowIndex) => {
-                            const newRow = { ...row, registeredTeachers: [] };
+                            const roster = typeof TeacherShiftState !== 'undefined' && TeacherShiftState.projectInheritedRoster
+                                ? TeacherShiftState.projectInheritedRoster(row, dateKey) : row;
+                            const newRow = { ...roster, registeredTeachers: [] };
                             delete newRow.isClosed;
                             // GV thay thế chỉ có hiệu lực đúng ngày được gán — không kế thừa
                             // sang tuần sau (dữ liệu cũ tồn tại cả 2 cách viết The/Te).
@@ -2487,7 +2495,8 @@ const DBService = {
         }
     },
 
-    getMonthlyAttendance: async (monthStr, userId, forceServer = false) => {
+    getMonthlyAttendance: async (monthStr, userId, forceServer = false, options = {}) => {
+        if (options.strict) forceServer = true;
         const cacheKey = `monthly_attendance_${monthStr}_${userId}`;
         if (!forceServer && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
@@ -2525,6 +2534,7 @@ const DBService = {
                 return logs;
             } catch (error) {
                 console.error("Monthly attendance error:", error);
+                if (options.strict) throw error;
                 return [];
             }
         })();
@@ -2536,7 +2546,11 @@ const DBService = {
     },
 
     // 9a. Subjects (Môn học) CRUD
-    getSubjects: async (forceServer = false) => {
+    getSubjects: async (forceServer = false, options = {}) => {
+        if (options.strict) {
+            const snapshot = await db.collection('subjects').orderBy('name').get({ source: 'server' });
+            return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        }
         const cacheKey = 'subjects_all';
         if (!forceServer && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
@@ -6522,10 +6536,10 @@ const DBService = {
         }
     },
 
-    async getShiftObservationsForMonth(monthStr, staffId = '') {
+    async getShiftObservationsForMonth(monthStr, staffId = '', options = {}) {
         if (!/^\d{4}-\d{2}$/.test(monthStr || '')) return [];
         const cacheKey = `shift_observations_${monthStr}_${staffId || 'all'}`;
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+        if (!options.strict && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
             const start = `${monthStr}-01`;
@@ -6542,18 +6556,19 @@ const DBService = {
                 } else {
                     query = query.where('dateKey', '>=', start).where('dateKey', '<', end);
                 }
-                const snap = await query.get();
+                const snap = await query.get(options.strict ? { source: 'server' } : {});
                 return snap.docs
                     .map(doc => ({ id: doc.id, ...doc.data() }))
                     .filter(item => item.dateKey >= start && item.dateKey < end)
                     .filter(item => !staffId || item.teacherId === staffId);
             } catch (e) {
                 console.error('[ShiftOversight] Error loading monthly observations:', e);
+                if (options.strict) throw e;
                 return [];
             }
         })();
 
-        DBService._cache[cacheKey] = promise;
+        if (!options.strict) DBService._cache[cacheKey] = promise;
         return promise;
     },
 
@@ -6643,6 +6658,7 @@ const DBService = {
 
     // Get all daily notes for a staff member
     async getDailyNotes(staffId, options = {}) {
+        if (options.strict) return await DBService._getRequiredFinancialDocument('daily_notes', staffId) || {};
         if (!staffId || staffId.trim() === '') {
             console.warn('[DailyNotes] staffId is empty, skipping.');
             return {};
@@ -6679,7 +6695,8 @@ const DBService = {
     // ================= SALARY SETTINGS (Firestore-synced) =================
 
     // Get salary settings for a staff member
-    async getSalarySettings(staffId) {
+    async getSalarySettings(staffId, options = {}) {
+        if (options.strict) return await DBService._getRequiredFinancialDocument('salary_settings', staffId) || {};
         if (!staffId || staffId.trim() === '') {
             console.warn('[SalarySettings] staffId is empty, skipping.');
             return {};
@@ -6731,7 +6748,8 @@ const DBService = {
     },
 
     // Get monthly salary settings for a staff member and specific month
-    async getMonthlySalarySettings(staffId, monthStr) {
+    async getMonthlySalarySettings(staffId, monthStr, options = {}) {
+        if (options.strict) return await DBService._getRequiredFinancialDocument('salary_settings_monthly', `${monthStr}_${staffId}`) || {};
         if (!staffId || staffId.trim() === '' || !monthStr) {
             console.warn('[MonthlySalarySettings] staffId or monthStr is empty, skipping.');
             return {};
@@ -6988,8 +7006,14 @@ const DBService = {
     },
 
     // Get all monthly salary settings for a given month
-    async getAllMonthlySalarySettings(monthStr) {
+    async getAllMonthlySalarySettings(monthStr, options = {}) {
         if (!monthStr) return {};
+        if (options.strict) {
+            const id = firebase.firestore.FieldPath.documentId();
+            const snapshot = await db.collection('salary_settings_monthly')
+                .where(id, '>=', monthStr + '_').where(id, '<=', monthStr + '_\uf8ff').get({ source: 'server' });
+            return Object.fromEntries(snapshot.docs.map(doc => [doc.id.slice(monthStr.length + 1), doc.data()]));
+        }
         const cacheKey = `all_monthly_salary_settings_${monthStr}`;
         if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
@@ -7060,30 +7084,84 @@ const DBService = {
 
     // ================= OVERTIME REQUESTS =================
 
+    _getRequiredFinancialDocument: async (collection, id) => {
+        const snapshot = await db.collection(collection).doc(id).get({ source: 'server' });
+        return snapshot.exists ? snapshot.data() : null;
+    },
+
+    // Legacy requests have random IDs and no month field. Page the owner index
+    // completely before filtering; a global limit silently drops newer months.
+    // Never cache a failed/partial read as a valid empty financial result.
+    _getStaffFinancialRequests: async (collection, staffId, monthStr, normalize = value => value) => {
+        if (!staffId || !String(staffId).trim()) return [];
+        if (monthStr && !/^\d{4}-(0[1-9]|1[0-2])$/.test(monthStr)) throw new Error('Tháng tính lương không hợp lệ.');
+        const cacheKey = `${collection}_staff_${staffId}_${monthStr || 'all'}`;
+        DBService._financialReadTimes ||= {};
+        if (DBService._cache[cacheKey] && Date.now() - (DBService._financialReadTimes[cacheKey] || 0) < 15000) return DBService._cache[cacheKey];
+        const promise = (async () => {
+            const list = [];
+            let cursor = null;
+            do {
+                let query = db.collection(collection).where('staffId', '==', staffId)
+                    .orderBy(firebase.firestore.FieldPath.documentId()).limit(200);
+                if (cursor) query = query.startAfter(cursor);
+                const snapshot = await query.get({ source: 'server' });
+                snapshot.docs.forEach(doc => {
+                    const data = { ...doc.data(), id: doc.id };
+                    if (!monthStr || String(data.dateKey || '').startsWith(monthStr + '-')) list.push(normalize(data));
+                });
+                cursor = snapshot.docs.length === 200 ? snapshot.docs[snapshot.docs.length - 1] : null;
+            } while (cursor);
+            return list;
+        })();
+        DBService._cache[cacheKey] = promise;
+        DBService._financialReadTimes[cacheKey] = Date.now();
+        try { return await promise; }
+        catch (error) {
+            if (DBService._cache[cacheKey] === promise) delete DBService._cache[cacheKey];
+            throw error;
+        }
+    },
+
+    _overtimeRequestId: (staffId, dateKey, sessionId, allowLegacySession = false) => {
+        if (!/^[A-Za-z0-9_-]{1,120}$/.test(String(staffId || '')) ||
+            (allowLegacySession ? !String(sessionId || '') || String(sessionId).length > 240 :
+                !/^[A-Za-z0-9_-]{1,120}$/.test(String(sessionId || ''))) ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) {
+            throw new Error('Thiếu định danh hợp lệ của phiên tăng ca.');
+        }
+        return 'ot_' + [dateKey, staffId, String(sessionId)].map(encodeURIComponent).join('~');
+    },
+
     // Staff submits an overtime request (status: pending)
     // duration: "HH:MM" string, sessionId: the attendance session this OT belongs to
     createOvertimeRequest: async (staffId, staffName, dateKey, sessionId, duration) => {
         try {
-            // Check duplicate: chỉ dùng 2 WHERE để tránh lỗi composite index Firestore,
-            // filter sessionId + status ở client-side
+            const canonicalId = DBService._overtimeRequestId(staffId, dateKey, sessionId);
+            if (!/^\d{1,3}:[0-5]\d$/.test(String(duration || ''))) throw new Error('Nhập tăng ca theo giờ:phút, ví dụ 00:15.');
+            const [h, m] = duration.split(':').map(Number);
+            const minutes = h * 60 + m;
+            if (minutes <= 0 || minutes > 1440) throw new Error('Số phút tăng ca phải từ 1 đến 1440.');
+            // Compatibility read for legacy random-ID requests. New writes all
+            // contend on one canonical document, including Admin decisions.
             const dupSnap = await db.collection('overtime_requests')
                 .where('staffId', '==', staffId)
                 .where('dateKey', '==', dateKey)
-                .get();
+                .get({ source: 'server' });
             const alreadyExists = dupSnap.docs.some(doc => {
                 const d = doc.data();
-                return String(d.sessionId) === String(sessionId) && d.status === 'pending';
+                return doc.id !== canonicalId && String(d.sessionId) === String(sessionId) && ['pending', 'approved'].includes(d.status);
             });
             if (alreadyExists) {
                 throw new Error('Bạn đã gửi yêu cầu tăng ca cho ca này rồi!');
             }
 
-            // Convert HH:MM to minutes
-            const [h, m] = duration.split(':').map(Number);
-            const minutes = (h || 0) * 60 + (m || 0);
-            if (minutes <= 0) throw new Error('Số giờ tăng ca phải lớn hơn 0.');
-
-            const docRef = await db.collection('overtime_requests').add({
+            const docRef = db.collection('overtime_requests').doc(canonicalId);
+            await db.runTransaction(async transaction => {
+                const snapshot = await transaction.get(docRef);
+                const previous = snapshot.exists ? snapshot.data() : null;
+                if (previous && previous.status !== 'rejected') throw new Error('Ca này đã có yêu cầu tăng ca. Vui lòng xem lại trạng thái.');
+                transaction.set(docRef, {
                 staffId,
                 staffName: staffName || 'N/A',
                 dateKey,
@@ -7093,7 +7171,13 @@ const DBService = {
                 status: 'pending',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 approvedBy: null,
-                approvedAt: null
+                approvedAt: null,
+                ...(previous ? { previousDecision: {
+                    status: previous.status, minutes: previous.minutes,
+                    duration: previous.duration, approvedBy: previous.approvedBy || null,
+                    approvedAt: previous.approvedAt || null
+                } } : {})
+                });
             });
             DBService._invalidate('overtime_requests_staff_');
             console.log('[OT] Request created:', docRef.id);
@@ -7122,34 +7206,42 @@ const DBService = {
 
     // Admin approves an overtime request → mark approved
     approveOvertimeRequest: async (requestId, adminName) => {
-        try {
-            await db.collection('overtime_requests').doc(requestId).update({
-                status: 'approved',
-                approvedBy: adminName || 'Admin',
-                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            DBService._invalidate('overtime_requests_staff_');
-            console.log('[OT] Approved:', requestId);
-        } catch (e) {
-            console.error('[OT] Error approving:', e);
-            throw e;
-        }
+        return DBService._setOvertimeRequestStatus(requestId, 'approved', adminName);
     },
 
     // Admin rejects an overtime request
     rejectOvertimeRequest: async (requestId, adminName) => {
-        try {
-            await db.collection('overtime_requests').doc(requestId).update({
-                status: 'rejected',
-                approvedBy: adminName || 'Admin',
-                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+        return DBService._setOvertimeRequestStatus(requestId, 'rejected', adminName);
+    },
+
+    _setOvertimeRequestStatus: async (requestId, status, adminName) => {
+        if (!['approved', 'rejected'].includes(status)) throw new Error('Trạng thái duyệt không hợp lệ.');
+        const source = await db.collection('overtime_requests').doc(requestId).get({ source: 'server' });
+        if (!source.exists) throw new Error('Yêu cầu tăng ca không còn tồn tại. Vui lòng tải lại.');
+        const identity = source.data();
+        const canonicalId = DBService._overtimeRequestId(identity.staffId, identity.dateKey, identity.sessionId, true);
+        const matches = await db.collection('overtime_requests').where('staffId', '==', identity.staffId)
+            .where('dateKey', '==', identity.dateKey).get({ source: 'server' });
+        const ids = [...new Set([requestId, canonicalId, ...matches.docs
+            .filter(doc => String(doc.data().sessionId) === String(identity.sessionId)).map(doc => doc.id)])];
+        if (ids.length > 100) throw new Error('Có quá nhiều bản tăng ca trùng phiên; cần kiểm tra trước khi duyệt.');
+        const refs = ids.map(id => db.collection('overtime_requests').doc(id));
+        await db.runTransaction(async transaction => {
+            const snapshots = await Promise.all(refs.map(ref => transaction.get(ref)));
+            if (!snapshots[ids.indexOf(requestId)].exists) throw new Error('Yêu cầu đã thay đổi. Vui lòng tải lại.');
+            const canonical = snapshots[ids.indexOf(canonicalId)];
+            const base = canonical.exists ? canonical.data() : snapshots[ids.indexOf(requestId)].data();
+            snapshots.forEach((snapshot, index) => {
+                const previous = snapshot.exists ? snapshot.data() : base;
+                if (previous.staffId !== identity.staffId || previous.dateKey !== identity.dateKey ||
+                    String(previous.sessionId) !== String(identity.sessionId)) throw new Error('Định danh yêu cầu đã thay đổi.');
+                transaction.set(refs[index], {
+                    ...previous, status, approvedBy: adminName || 'Admin',
+                    approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
             });
-            DBService._invalidate('overtime_requests_staff_');
-            console.log('[OT] Rejected:', requestId);
-        } catch (e) {
-            console.error('[OT] Error rejecting:', e);
-            throw e;
-        }
+        });
+        DBService._invalidate('overtime_requests_staff_');
     },
 
     saveAdminOvertimeConfig: async (staffId, staffName, dateKey, sessionId, minutes) => {
@@ -7164,11 +7256,14 @@ const DBService = {
             const snap = await db.collection('overtime_requests')
                 .where('staffId', '==', staffId)
                 .where('dateKey', '==', dateKey)
-                .get();
+                .get({ source: 'server' });
             const matching = snap.docs.filter(doc => String(doc.data()?.sessionId) === String(sessionId));
             if (!matching.length && numericMinutes === 0) return;
-            const canonicalId = 'ot_admin_' + [dateKey, staffId, String(sessionId)].map(encodeURIComponent).join('~');
-            const ids = matching.length ? matching.map(doc => doc.id) : [canonicalId];
+            const canonicalId = DBService._overtimeRequestId(staffId, dateKey, sessionId, true);
+            // The singleton is also the Admin's decision marker. Always include
+            // it for an existing zero decision, so concurrent staff submits retry
+            // against the authoritative decision instead of creating a sibling.
+            const ids = [...new Set([...matching.map(doc => doc.id), canonicalId])];
             if (ids.length > 100) throw new Error('Có quá nhiều bản tăng ca trùng phiên; cần kiểm tra trước khi lưu.');
             const refs = ids.map(id => db.collection('overtime_requests').doc(id));
             const adminName = localStorage.getItem('currentUserName') || 'Admin';
@@ -7201,33 +7296,23 @@ const DBService = {
 
     // Get overtime requests for a specific staff member in a month ("YYYY-MM")
     getOvertimeRequestsForStaff: async (staffId, monthStr) => {
-        if (!staffId || staffId.trim() === '') return [];
-        const cacheKey = `overtime_requests_staff_${staffId}_${monthStr || 'all'}`;
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
-
-        const promise = (async () => {
-            try {
-                const snap = await db.collection('overtime_requests')
-                    .where('staffId', '==', staffId)
-                    .limit(100)
-                    .get();
-                const list = snap.docs.map(doc => _normalizeOvertimeRequest({ id: doc.id, ...doc.data() }));
-                // Filter by month client-side to avoid composite index
-                return monthStr
-                    ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
-                    : list;
-            } catch (e) {
-                console.warn('[OT] Error getting staff requests:', e);
-                return [];
+        const requests = await DBService._getStaffFinancialRequests('overtime_requests', staffId, monthStr, _normalizeOvertimeRequest);
+        const selected = new Map();
+        requests.forEach(request => {
+            const key = `${request.dateKey}~${request.sessionId}`;
+            const previous = selected.get(key);
+            const canonical = 'ot_' + [request.dateKey, staffId, String(request.sessionId)].map(encodeURIComponent).join('~');
+            if (!previous || request.id === canonical || (previous.id !== canonical &&
+                (request.status === 'approved' || (request.status === 'pending' && previous.status === 'rejected')))) {
+                selected.set(key, request);
             }
-        })();
-
-        DBService._cache[cacheKey] = promise;
-        return promise;
+        });
+        return [...selected.values()];
     },
 
     // 10. Fixed Shifts (Receptionist)
-    getFixedShifts: async (monthStr, userId) => {
+    getFixedShifts: async (monthStr, userId, options = {}) => {
+        if (options.strict) return (await DBService._getRequiredFinancialDocument('fixed_shifts', `${monthStr}_${userId}`))?.shifts || [];
         if (!userId || userId.trim() === '') {
             console.warn('[FixedShifts] userId is empty, skipping.');
             return [];
@@ -7269,7 +7354,8 @@ const DBService = {
 
     // ================= CANCELLED SHIFTS (ADMIN) =================
 
-    getCancelledShifts: async (monthStr, staffId) => {
+    getCancelledShifts: async (monthStr, staffId, options = {}) => {
+        if (options.strict) return (await DBService._getRequiredFinancialDocument('cancelled_shifts', `${monthStr}_${staffId}`))?.shifts || [];
         if (!staffId || staffId.trim() === '') {
             console.warn('[CancelledShifts] staffId is empty, skipping.');
             return [];
@@ -7666,31 +7752,7 @@ const DBService = {
     },
 
     getBonus10RequestsForStaff: async (staffId, monthStr) => {
-        if (!staffId || staffId.trim() === '') {
-            console.warn('[Bonus10] staffId is empty, skipping.');
-            return [];
-        }
-        const cacheKey = `bonus10_requests_staff_${staffId}_${monthStr || 'all'}`;
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
-
-        const promise = (async () => {
-            try {
-                const snap = await db.collection('bonus10_requests')
-                    .where('staffId', '==', staffId)
-                    .limit(200)
-                    .get();
-                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                return monthStr
-                    ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
-                    : list;
-            } catch (e) {
-                console.warn('[Bonus10] Error getting staff requests:', e);
-                return [];
-            }
-        })();
-
-        DBService._cache[cacheKey] = promise;
-        return promise;
+        return DBService._getStaffFinancialRequests('bonus10_requests', staffId, monthStr);
     },
 
     getPendingBonus10Requests: async () => {

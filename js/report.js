@@ -544,7 +544,7 @@ window.filterStaffListByRole = function() {
         renderMonthReport(currentDate);
     } else {
         // If current is still in list, just refresh salary settings loading
-        loadSalarySettings();
+        loadSalarySettings().catch(error => console.error('Salary filter reload failed:', error));
     }
 };
 
@@ -989,6 +989,9 @@ function createReportRenderCommitGuard(renderEpoch, staffId, readEpoch, readStaf
 // REPORT_RENDER_COMMIT_GUARD_END
 
 function renderReportLoadFailure(error) {
+    window.payrollReadyScope = null;
+    const salary = document.getElementById('final-salary-display');
+    if (salary) salary.innerText = 'Chưa tải đủ dữ liệu';
     console.error('Report load failed:', error);
     const grid = document.getElementById('calendar-grid');
     if (grid) {
@@ -1001,6 +1004,14 @@ function renderReportLoadFailure(error) {
     }
     const totalHoursEl = document.getElementById('total-hours-display');
     if (totalHoursEl) totalHoursEl.innerText = 'Tổng giờ làm: Chưa tải được';
+}
+
+function requireCompletePayrollReport() {
+    const month = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const scope = `${getTargetStaffId() || 'none'}__${month}`;
+    if (window.payrollReadyScope === scope && window.currentReportScope === scope) return true;
+    UIService.toast('Bảng công/lương chưa tải đủ dữ liệu. Chị bấm Tải lại rồi lưu hoặc gửi bảng lương nhé.', 'warning');
+    return false;
 }
 
 function renderPersonalTimesheet() {
@@ -1059,6 +1070,7 @@ async function _renderMonthReport(date, forceServer = false) {
     // previous employee's subject breakdown from surviving under a new empty
     // calendar or a direct report URL.
     window.currentReportScope = reportScope;
+    window.payrollReadyScope = null;
     window.currentSubjectBreakdown = [];
     window.currentSubjectBreakdownScope = reportScope;
     window.currentMonthChips = [];
@@ -1069,6 +1081,9 @@ async function _renderMonthReport(date, forceServer = false) {
     window.currentMonthlySalarySettingsAll = {};
     window.currentSubjectCatalog = [];
     window.savedFixedShiftsMonth = [];
+    window.allReceptionistsData = [];
+    const payrollSystemSettings = await DBService._getRequiredFinancialDocument('settings', 'system') || {};
+    if (!commitCurrentRender(() => { window.centerClosures = payrollSystemSettings.centerClosures || {}; })) return;
     const staleBreakdownSection = document.getElementById('subject-breakdown-section');
     const staleBreakdownBody = document.getElementById('subject-breakdown-body');
     if (staleBreakdownSection) staleBreakdownSection.style.display = 'none';
@@ -1097,20 +1112,22 @@ async function _renderMonthReport(date, forceServer = false) {
     // 0. Fetch User Context for Name Matching
     let currentUserContext = null;
     try {
-        const userDoc = await DBService.refs.users().doc(staffId).get();
+        const userDoc = await DBService.refs.users().doc(staffId).get({ source: 'server' });
         if (!isCurrentRender()) return;
         if (userDoc.exists) currentUserContext = userDoc.data();
-    } catch (e) { console.error("Error fetching user context", e); }
+    } catch (e) { throw e; }
+    if (!currentUserContext) throw new Error('Không tìm thấy hồ sơ nhân sự để tính lương.');
     if (!commitCurrentRender(() => { window.currentUserContext = currentUserContext; })) return;
 
     // Load monthly settings for all users to ensure penalty flag and publish status are present
     let currentMonthlySalarySettingsAll = {};
     try {
-        currentMonthlySalarySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        currentMonthlySalarySettingsAll = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true }) || {};
         if (!isCurrentRender()) return;
     } catch (e) {
         console.error("Error fetching monthly salary settings in render:", e);
         if (!isCurrentRender()) return;
+        throw e;
     }
     if (!commitCurrentRender(() => {
         window.currentMonthlySalarySettingsAll = currentMonthlySalarySettingsAll;
@@ -1122,12 +1139,13 @@ async function _renderMonthReport(date, forceServer = false) {
     try {
         // Luôn hỏi server khi mở/tải lại báo cáo để thay đổi "Sớm 10p" từ
         // trang Môn Học có hiệu lực ngay trên PWA đang mở lâu ngày.
-        const subjectCatalog = await DBService.getSubjects(true);
+        const subjectCatalog = await DBService.getSubjects(true, { strict: true });
         if (!isCurrentRender()) return;
         currentSubjectCatalog = Array.isArray(subjectCatalog) ? subjectCatalog : [];
     } catch (e) {
-        console.warn('Subject catalog unavailable; keeping legacy payroll rates:', e);
+        console.warn('Subject catalog unavailable; payroll is not ready:', e);
         if (!isCurrentRender()) return;
+        throw e;
     }
     if (!commitCurrentRender(() => { window.currentSubjectCatalog = currentSubjectCatalog; })) return;
 
@@ -1179,19 +1197,19 @@ async function _renderMonthReport(date, forceServer = false) {
     // _cachedNotesOwnerId ghi RÕ ghi chú đang giữ là của AI. Thiếu nó thì lúc admin đổi
     // người trên ô chọn (không tải lại trang), ghi chú của người trước vẫn nằm trong bộ
     // nhớ và có thể bị ghi đè sang người sau — đúng vụ "ghi chú lộn qua người khác".
-    let staffNotesForRender = (_cachedStaffId === staffId && _cachedNotesOwnerId === staffId)
+    let staffNotesForRender = (!forceServer && _cachedStaffId === staffId && _cachedNotesOwnerId === staffId)
         ? { ..._cachedStaffNotes }
         : null;
     let staffNotesLoaded = staffNotesForRender !== null;
     if (!staffNotesLoaded) {
         try {
-            staffNotesForRender = { ...(await DBService.getDailyNotes(staffId) || {}) };
+            staffNotesForRender = { ...(await DBService.getDailyNotes(staffId, { strict: true }) || {}) };
             if (!isCurrentRender()) return;
             staffNotesLoaded = true;
         } catch (e) {
             console.error("Error loading notes from Firestore:", e);
             if (!isCurrentRender()) return;
-            staffNotesForRender = {};
+            throw e;
         }
     }
     if (!commitCurrentRender(() => {
@@ -1210,11 +1228,12 @@ async function _renderMonthReport(date, forceServer = false) {
     // Fetch Fixed Shifts for the month
     let savedFixedShiftsMonth = [];
     try {
-        savedFixedShiftsMonth = await DBService.getFixedShifts(monthStr, staffId) || [];
+        savedFixedShiftsMonth = await DBService.getFixedShifts(monthStr, staffId, { strict: true }) || [];
         if (!isCurrentRender()) return;
     } catch (e) {
         console.error("Could not fetch fixed shifts:", e);
         if (!isCurrentRender()) return;
+        throw e;
     }
     if (!commitCurrentRender(() => {
         window.savedFixedShiftsMonth = savedFixedShiftsMonth;
@@ -1227,20 +1246,21 @@ async function _renderMonthReport(date, forceServer = false) {
     // Fetch Cancelled Shifts (Admin specifically excluded)
     let cancelledShifts = [];
     try {
-        cancelledShifts = await DBService.getCancelledShifts(monthStr, staffId);
+        cancelledShifts = await DBService.getCancelledShifts(monthStr, staffId, { strict: true });
     } catch (e) {
         console.error("Could not fetch cancelled shifts:", e);
+        throw e;
     }
     if (!isCurrentRender()) return;
 
     // A. Attendance Logs (Actual Check-in/out)
     // DBService.getMonthlyAttendance returns array of docs with { sessions: [...] }
-    const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId, forceServer);
+    const attendanceRecords = await DBService.getMonthlyAttendance(monthStr, staffId, true, { strict: true });
     if (!isCurrentRender()) return;
 
     // Receptionist notes/late commands are stored separately from attendance.
     // Keeping them separate preserves the original clock timestamps for audit.
-    const shiftObservations = await DBService.getShiftObservationsForMonth(monthStr, staffId);
+    const shiftObservations = await DBService.getShiftObservationsForMonth(monthStr, staffId, { strict: true });
     if (!isCurrentRender()) return;
     const shiftObservationsMap = {};
     shiftObservations.forEach(item => {
@@ -1263,17 +1283,21 @@ async function _renderMonthReport(date, forceServer = false) {
     if (!commitCurrentRender(() => { window.currentAttendanceMap = attendanceMap; })) return;
 
     // D. Overtime Requests for this staff+month
+    if (forceServer) {
+        DBService._invalidate(`overtime_requests_staff_${staffId}_${monthStr}`);
+        DBService._invalidate(`bonus10_requests_staff_${staffId}_${monthStr}`);
+    }
     let overtimeRequestsList = [];
     try {
         overtimeRequestsList = await DBService.getOvertimeRequestsForStaff(staffId, monthStr);
-    } catch (e) { console.warn('[OT] Could not load OT requests:', e); }
+    } catch (e) { throw e; }
     if (!isCurrentRender()) return;
 
     // Fetch bonus10 requests cho tháng này
     let bonus10RequestsList = [];
     try {
         bonus10RequestsList = await DBService.getBonus10RequestsForStaff(staffId, monthStr);
-    } catch (e) { console.warn('[Bonus10] Could not load requests:', e); }
+    } catch (e) { throw e; }
     if (!isCurrentRender()) return;
 
     // One physical session may cover several teaching shifts. Keep every award
@@ -1334,12 +1358,13 @@ async function _renderMonthReport(date, forceServer = false) {
     const BRANCHES = ['cs1', 'cs2', 'cs3'];
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const schedulePromises = [];
+    const scheduleReadCache = new Map();
     for (let d = 1; d <= daysInMonth; d++) {
         const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         BRANCHES.forEach(branch => {
             const compositeKey = `${branch}__${dateKey}`;
             schedulePromises.push(
-                DBService.getSchedule(compositeKey).then(data => ({ date: dateKey, data: data || {}, branch, compositeKey }))
+                DBService.getSchedule(compositeKey, { source: 'server', readCache: scheduleReadCache }).then(data => ({ date: dateKey, data: data || {}, branch, compositeKey }))
             );
         });
     }
@@ -1372,9 +1397,9 @@ async function _renderMonthReport(date, forceServer = false) {
             const shiftConfigMap = {}; // branch -> receptionist config
             const officeShiftConfigMap = {}; // branch -> office config
             for (const branch of BRANCHES) {
-                shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
+                shiftConfigMap[branch] = resolvePayrollShiftConfig(payrollSystemSettings, 'receptionist', branch);
                 if (!isCurrentRender()) return;
-                officeShiftConfigMap[branch] = await DBService.getOfficeShiftConfig(branch);
+                officeShiftConfigMap[branch] = resolvePayrollShiftConfig(payrollSystemSettings, 'office', branch);
                 if (!isCurrentRender()) return;
             }
             const SHIFT_LABELS = { morning: 'SÁNG', afternoon: 'CHIỀU', evening: 'TỐI' };
@@ -1407,7 +1432,7 @@ async function _renderMonthReport(date, forceServer = false) {
                 mondaysList.forEach(mondayKey => {
                     const compositeKey = `${branch}__${mondayKey}`;
                     recepPromises.push(
-                        DBService.getReceptionistSchedule(compositeKey).then(data => ({
+                        DBService.getReceptionistSchedule(compositeKey, { source: 'server' }).then(data => ({
                             branch,
                             mondayKey,
                             scheduleType: 'receptionist',
@@ -1416,7 +1441,7 @@ async function _renderMonthReport(date, forceServer = false) {
                         }))
                     );
                     recepPromises.push(
-                        DBService.getOfficeSchedule(compositeKey).then(data => ({
+                        DBService.getOfficeSchedule(compositeKey, { source: 'server' }).then(data => ({
                             branch,
                             mondayKey,
                             scheduleType: 'office',
@@ -1488,6 +1513,7 @@ async function _renderMonthReport(date, forceServer = false) {
             console.log('[Report] Receptionist shifts loaded:', Object.keys(receptionistShiftsMap).length, 'days with shifts');
         } catch (e) {
             console.error('[Report] Error loading receptionist schedules:', e);
+            throw e;
         }
         if (!isCurrentRender()) return;
     }
@@ -2708,8 +2734,9 @@ async function _renderMonthReport(date, forceServer = false) {
     // window.currentMonthSalary set by calculateSalary()
 
     if (isAdminRole) {
-        loadSalarySettings();
+        await loadSalarySettings(isCurrentRender);
     }
+    if (!commitCurrentRender(() => { window.payrollReadyScope = reportScope; })) return;
 
     // Highlight and scroll to focus date if parameter exists
     const urlParamsFocus = new URLSearchParams(window.location.search);
@@ -3869,6 +3896,7 @@ function applySalaryVisibility() {
 }
 
 async function saveSalarySettings() {
+    if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (staffId === 'all') return;
     
@@ -3979,7 +4007,11 @@ async function saveSalarySettings() {
     }
 }
 
-async function loadSalarySettings() {
+async function loadSalarySettings(isCurrent = null) {
+    const requestedEpoch = _reportRenderEpoch;
+    const requestedStaff = getTargetStaffId();
+    const canCommit = typeof isCurrent === 'function' ? isCurrent :
+        () => requestedEpoch === _reportRenderEpoch && requestedStaff === getTargetStaffId();
     const staffId = document.getElementById('staff-select').value;
     if (!staffId || staffId === 'all') return;
 
@@ -4036,7 +4068,8 @@ async function loadSalarySettings() {
     let settings = {};
     try {
         // Load monthly settings first
-        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true }) || {};
+        if (!canCommit()) return;
         window.currentMonthlySalarySettingsAll = monthlySettings;
         
         let gvSettings = monthlySettings['giao_vien'] || monthlySettings['giao-vien'];
@@ -4044,13 +4077,15 @@ async function loadSalarySettings() {
         
         // If teaching role is needed but not in monthly settings, fallback to general settings
         if (hasTeaching && !gvSettings) {
-            gvSettings = await DBService.getSalarySettings(staffId) || {};
+            gvSettings = await DBService.getSalarySettings(staffId, { strict: true }) || {};
+            if (!canCommit()) return;
             window.currentMonthlySalarySettingsAll['giao_vien'] = gvSettings;
         }
         
         // If receptionist role is needed but not in monthly settings, fallback to general settings
         if (hasReceptionist && !ttSettings) {
-            ttSettings = await DBService.getSalarySettings(staffId) || {};
+            ttSettings = await DBService.getSalarySettings(staffId, { strict: true }) || {};
+            if (!canCommit()) return;
             if (!ttSettings.evaluation) {
                 ttSettings.evaluation = [];
             }
@@ -4061,9 +4096,8 @@ async function loadSalarySettings() {
         if (!settings) settings = {};
     } catch (e) {
         console.error('Error loading salary settings:', e);
-        // Fallback to localStorage
-        const allSettings = JSON.parse(localStorage.getItem('salary_settings')) || {};
-        settings = allSettings[staffId] || {};
+        if (canCommit()) renderReportLoadFailure(e);
+        throw e;
     }
 
     window.currentLoadedSalarySettings = settings;
@@ -4089,7 +4123,8 @@ async function loadSalarySettings() {
     
     // Load monthly actual revenues unconditionally for the header
     try {
-        const revDoc = await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).get();
+        const revDoc = await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).get({ source: 'server' });
+        if (!canCommit()) return;
         const revenues = revDoc.exists ? revDoc.data() : { total: 0, cs2: 0 };
         
         const headerTotal = document.getElementById('header-actual-revenue-total');
@@ -4099,16 +4134,20 @@ async function loadSalarySettings() {
         if (headerCs2) headerCs2.value = formatNumberWithCommas(revenues.cs2 || 0);
     } catch (e) {
         console.error('Error loading global monthly revenues:', e);
+        if (canCommit()) renderReportLoadFailure(e);
+        throw e;
     }
 
-    if (activeFilter === 'tiep-tan') {
+    if (hasReceptionist) {
         try {
-            // Load and compute cống hiến points for all receptionists in background
-            loadAndComputeAllReceptionists(monthStr).catch(err => {
-                console.error("Error computing all receptionist scores:", err);
-            });
+            // Collective bonuses are financial input, not a background cosmetic
+            // enhancement. A stale month must never replace the current points.
+            await loadAndComputeAllReceptionists(monthStr, canCommit);
+            if (!canCommit()) return;
         } catch (e) {
             console.error('Error loading receptionist cống hiến points:', e);
+            if (canCommit()) renderReportLoadFailure(e);
+            throw e;
         }
     }
     
@@ -5922,11 +5961,8 @@ window.modalRejectOvertime = async function(requestId) {
 
 window.modalCancelApprovedOvertime = async function(requestId, staffId, dateKey, sessionId) {
     try {
-        if (!confirm("Bạn có muốn hủy duyệt tăng ca cho ca này không?")) return;
+        if (!await UIService.confirm('Chị muốn hủy duyệt tăng ca của ca này? Lịch sử vẫn được giữ lại.')) return;
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang hủy...');
-        if (requestId) {
-            await db.collection('overtime_requests').doc(requestId).delete();
-        }
         await DBService.saveAdminOvertimeConfig(staffId, '', dateKey, sessionId, 0);
         if (typeof UIService !== 'undefined') {
             UIService.hideLoading();
@@ -7566,6 +7602,7 @@ function recalculateSalaryModal() {
 }
 
 async function saveSalarySettingsFromModal() {
+    if (!requireCompletePayrollReport()) return;
     const staffId = getTargetStaffId();
     if (!staffId || staffId === 'all') return;
     
@@ -8354,21 +8391,34 @@ async function saveRecepBonusConfigUI() {
     }
 }
 
-async function loadAndComputeAllReceptionists(monthStr) {
+function resolvePayrollShiftConfig(settings, type, branch) {
+    return settings?.[`${type}Shifts_${branch}`] || settings?.[`${type}Shifts`] || {
+        morning: { start: '07:00', end: '11:30' },
+        afternoon: { start: '14:00', end: '18:00' },
+        evening: { start: '17:30', end: '21:30' }
+    };
+}
+
+async function loadAndComputeAllReceptionists(monthStr, isCurrent = null) {
+    const epoch = _reportRenderEpoch;
+    const staff = getTargetStaffId();
+    const canCommit = typeof isCurrent === 'function' ? isCurrent :
+        () => _reportRenderEpoch === epoch && getTargetStaffId() === staff;
     const allUsers = window._allStaffList || [];
     const receptionists = allUsers.filter(u => {
         const roles = Array.isArray(u.roles) ? u.roles : [u.role || ''];
         return hasReceptionistEmploymentRole(roles);
     });
     
-    const allMonthlySettings = await DBService.getAllMonthlySalarySettings(monthStr);
+    const allMonthlySettings = await DBService.getAllMonthlySalarySettings(monthStr, { strict: true });
+    const systemSettings = await DBService._getRequiredFinancialDocument('settings', 'system') || {};
     
     const BRANCHES = ['cs1', 'cs2', 'cs3'];
     const shiftConfigMap = {};
     const officeShiftConfigMap = {};
     for (const branch of BRANCHES) {
-        shiftConfigMap[branch] = await DBService.getReceptionistShiftConfig(branch);
-        officeShiftConfigMap[branch] = await DBService.getOfficeShiftConfig(branch);
+        shiftConfigMap[branch] = resolvePayrollShiftConfig(systemSettings, 'receptionist', branch);
+        officeShiftConfigMap[branch] = resolvePayrollShiftConfig(systemSettings, 'office', branch);
     }
     
     const [yearStr, monthValStr] = monthStr.split('-');
@@ -8399,7 +8449,7 @@ async function loadAndComputeAllReceptionists(monthStr) {
         mondaysList.forEach(mondayKey => {
             const compositeKey = `${branch}__${mondayKey}`;
             recepPromises.push(
-                DBService.getReceptionistSchedule(compositeKey).then(data => ({
+                DBService.getReceptionistSchedule(compositeKey, { source: 'server' }).then(data => ({
                     branch,
                     mondayKey,
                     scheduleType: 'receptionist',
@@ -8408,7 +8458,7 @@ async function loadAndComputeAllReceptionists(monthStr) {
                 }))
             );
             recepPromises.push(
-                DBService.getOfficeSchedule(compositeKey).then(data => ({
+                DBService.getOfficeSchedule(compositeKey, { source: 'server' }).then(data => ({
                     branch,
                     mondayKey,
                     scheduleType: 'office',
@@ -8423,9 +8473,9 @@ async function loadAndComputeAllReceptionists(monthStr) {
     const staffDataPromises = receptionists.map(async (u) => {
         const rId = u.id;
         const [attendanceRecords, notes, cancelledShifts] = await Promise.all([
-            DBService.getMonthlyAttendance(monthStr, rId),
-            DBService.getDailyNotes(rId),
-            DBService.getCancelledShifts(monthStr, rId)
+            DBService.getMonthlyAttendance(monthStr, rId, true, { strict: true }),
+            DBService.getDailyNotes(rId, { strict: true }),
+            DBService.getCancelledShifts(monthStr, rId, { strict: true })
         ]);
         return {
             id: rId,
@@ -8604,6 +8654,7 @@ async function loadAndComputeAllReceptionists(monthStr) {
         });
     });
     
+    if (!canCommit()) return;
     window.allReceptionistsData = results;
     console.log('[Redistribution] Computed cống hiến point for receptionists:', results);
     calculateSalary();
@@ -8627,6 +8678,7 @@ window.removeRecepCs2Tier = removeRecepCs2Tier;
 window.loadAndComputeAllReceptionists = loadAndComputeAllReceptionists;
 
 async function saveRecepExtras() {
+    if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (!staffId || staffId === 'all') {
         alert("Vui lòng chọn nhân viên Tiếp Tân!");
@@ -8649,7 +8701,7 @@ async function saveRecepExtras() {
     
     try {
         // 1. Get the current monthly settings from DB to prevent wiping other data
-        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr) || {};
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true }) || {};
         let settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {};
         if (Object.keys(settings).length === 0) {
             // Check if they are a pure receptionist
@@ -8663,7 +8715,7 @@ async function saveRecepExtras() {
             }
             const isPureRecep = hasReceptionist && !hasTeaching;
             if (isPureRecep) {
-                settings = await DBService.getSalarySettings(staffId) || {};
+                settings = await DBService.getSalarySettings(staffId, { strict: true }) || {};
             } else {
                 settings = { evaluation: [] };
             }
@@ -8748,6 +8800,7 @@ window.saveRecepExtras = saveRecepExtras;
 // ==========================================
 
 async function publishSalary() {
+    if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (!staffId || staffId === 'all') return;
     
@@ -9797,6 +9850,9 @@ function showDraftSaveOutcome(result, successMessage) {
 
 async function saveCalculationDraftToDb(staffId, monthStr) {
     if (!staffId || !monthStr) return;
+    if (!requireCompletePayrollReport() || window.payrollReadyScope !== `${staffId}__${monthStr}`) {
+        throw new Error('Chưa thể lưu bản tính: dữ liệu nhân sự/tháng chưa tải đủ.');
+    }
     
     const user = window.currentUserContext;
     let hasReceptionist = false;

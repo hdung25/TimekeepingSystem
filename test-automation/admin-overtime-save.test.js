@@ -40,6 +40,11 @@ const service=new Function('db','window','firebase','localStorage','console',sou
     await service.saveAdminOvertimeConfig('staff','Staff','2026-09-04','legacy',0);
     assert.equal(documents.get('pending').status,'rejected');
     assert.equal(documents.get('pending').minutes,0);
+    await service.saveAdminOvertimeConfig('staff','Staff','2026-09-04','ca cũ/18:00',15);
+    const legacyId = service._overtimeRequestId('staff','2026-09-04','ca cũ/18:00',true);
+    assert.equal(documents.get(legacyId).minutes,15,'Admin can still edit legacy IDs without accepting unsafe path segments');
+    assert.equal(legacyId.includes('/'),false);
+    assert.throws(()=>service._overtimeRequestId('staff','2026-09-04','ca cũ/18:00'));
     await assert.rejects(service.saveAdminOvertimeConfig('staff','Staff','2026-09-04','legacy',Infinity));
     console.log('admin-overtime-save.test.js: all assertions passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

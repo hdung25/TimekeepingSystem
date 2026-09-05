@@ -454,6 +454,10 @@
             effectiveTo: command.effectiveTo || null,
             teacherId: command.teacherId,
             teacherName: metadata.teacherName,
+            // Only the normal roster is inherited. Day-specific absences and
+            // cover teachers are already cleared by schedule inheritance.
+            rosterBefore: getMainTeachers(current),
+            rosterAfter: mains.map(item => ({ ...item })),
             source: sourceRef,
             target: targetRef,
             replacementTeacherId: metadata.replacement?.id || '',
@@ -488,6 +492,52 @@
         return compactObject(result);
     }
 
+    // Read projection only: never rewrite a historical day to expire a transfer.
+    // Undo expired deltas newest-first so nested temporary moves unwind correctly;
+    // later permanent transfers of the same teacher take precedence.
+    function projectInheritedRoster(row, targetDateKey) {
+        const current = row && typeof row === 'object' ? row : {};
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(text(targetDateKey))) return { ...current };
+        const history = Array.isArray(current.assignmentTransferHistory) ? current.assignmentTransferHistory : [];
+        let mains = getMainTeachers(current).map(item => ({ ...item }));
+        const protectedIds = new Set();
+        for (let index = history.length - 1; index >= 0; index--) {
+            const event = history[index];
+            if (!event || !event.teacherId) continue;
+            const affected = [event.teacherId, event.replacementTeacherId].filter(Boolean);
+            if (event.mode !== 'temporary' || !event.effectiveTo || targetDateKey <= event.effectiveTo) {
+                affected.forEach(id => protectedIds.add(id));
+                continue;
+            }
+            let before = Array.isArray(event.rosterBefore) ? event.rosterBefore : null;
+            let after = Array.isArray(event.rosterAfter) ? event.rosterAfter : null;
+            // Legacy transfer history still contains enough identity to reverse
+            // its narrow add/remove operation without inventing an absence.
+            if (!before || !after) {
+                if (event.event === 'teacher_transfer_in') {
+                    before = []; after = [{ id: event.teacherId, name: event.teacherName }];
+                } else if (event.event === 'teacher_transfer_out') {
+                    before = [{ id: event.teacherId, name: event.teacherName }];
+                    after = event.replacementTeacherId ? [{ id: event.replacementTeacherId, name: event.replacementTeacherName }] : [];
+                } else continue;
+            }
+            for (const id of affected) {
+                if (protectedIds.has(id)) continue;
+                const was = before.find(item => item.id === id);
+                const became = after.find(item => item.id === id);
+                if (!!was === !!became) continue;
+                const isPresent = mains.some(item => item.id === id);
+                // If a newer explicit edit already changed this membership,
+                // preserve that edit rather than blindly replacing the roster.
+                if (isPresent !== !!became) continue;
+                mains = mains.filter(item => item.id !== id);
+                if (was) mains.push({ ...was });
+            }
+        }
+        const first = mains[0] || {};
+        return { ...current, gvList: mains, gvId: first.id || '', gv: first.name || '' };
+    }
+
     return {
         ACTIVE,
         VP,
@@ -503,6 +553,7 @@
         statusLabel,
         stableShiftId,
         applyStaffingCommand,
-        applyTeacherTransferCommand
+        applyTeacherTransferCommand,
+        projectInheritedRoster
     };
 });
