@@ -2526,8 +2526,12 @@ async function _renderMonthReport(date, forceServer = false) {
 
             // Add Edit Icon for Admin if there is an underlying session
             if (isAdminRole && chip.sessionId) {
-                const editBtn = document.createElement('span');
-                editBtn.innerHTML = window.getIconHtml('pencil', {width: '12', height: '12'});
+                const editBtn = document.createElement('button');
+                editBtn.type = 'button';
+                editBtn.className = 'report-chip-action';
+                editBtn.dataset.editSessionId = String(chip.sessionId);
+                editBtn.textContent = '✎ Sửa công';
+                editBtn.title = 'Sửa giờ, loại công, đơn giá và +10 phút bằng quyền Admin';
                 editBtn.style.cursor = 'pointer';
                 editBtn.style.fontSize = '0.8em';
                 editBtn.style.marginLeft = '4px';
@@ -5482,6 +5486,20 @@ function closeEditModal() {
 }
 
 async function saveEditedTime() {
+    if (window.__adminPayrollSavePending) return;
+    window.__adminPayrollSavePending = true;
+    const button = document.querySelector('[onclick="saveEditedTime()"]');
+    const originalText = button?.textContent;
+    if (button) { button.disabled = true; button.textContent = 'Đang lưu...'; }
+    try {
+        await saveEditedTimeOperation();
+    } finally {
+        window.__adminPayrollSavePending = false;
+        if (button) { button.disabled = false; button.textContent = originalText; }
+    }
+}
+
+async function saveEditedTimeOperation() {
     const staffId = getTargetStaffId();
     const staffName = getTargetStaffName();
     const dateKey = document.getElementById('edit-date-key').value;
@@ -5633,6 +5651,8 @@ async function saveEditedTime() {
         newData.subjectOverride = false;
     }
 
+    let coreCommitted = false;
+    let savedMessage = '';
     try {
         let finalSessionId = null;
         let payrollOverrideResult = null;
@@ -5643,7 +5663,7 @@ async function saveEditedTime() {
                 // Ca mới trùng khung giờ ca đã có → hỏi lại, vì thêm là bảng công tính
                 // lương hai lần cho cùng một giờ làm (nhân viên chỉ bấm vào ca một lần).
                 if (errAdd && errAdd.code === 'SESSION_OVERLAP') {
-                    const goOn = confirm(
+                    const goOn = await UIService.confirm(
                         'KHÔNG THÊM ĐƯỢC — ' + errAdd.message +
                         '\n\nThường gặp khi giáo viên dạy 2 lớp cùng một khung giờ: chỉ cần MỘT ca, ' +
                         'chọn cả 2 môn trong ô "Môn học" của ca đó.' +
@@ -5655,12 +5675,13 @@ async function saveEditedTime() {
                     throw errAdd;
                 }
             }
+            coreCommitted = true;
             // Send notification to staff
             await DBService.createAdminNotification(
                 staffId, staffName, 'add_session', dateKey,
                 `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`
             );
-            alert("Đã tạo ca làm việc mới!");
+            savedMessage = 'Đã tạo ca làm việc mới!';
         } else {
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
             const overrideContext = window.currentAdminPayrollEditContext;
@@ -5718,7 +5739,7 @@ async function saveEditedTime() {
                     payrollOverrideResult = await DBService.saveAdminPayrollOverride(command);
                 } catch (overrideError) {
                     if (overrideError?.code !== 'SESSION_OVERLAP' || command.allowSessionOverlap === true) throw overrideError;
-                    const continueOverlap = confirm(
+                    const continueOverlap = await UIService.confirm(
                         `${overrideError.message}\n\nChỉ tiếp tục nếu đây là hai phiên nguồn khác nhau mà Admin cố ý giữ. Phần phân bổ chồng giờ trong cùng override vẫn tự loại trả trùng.`
                     );
                     if (!continueOverlap) return;
@@ -5728,18 +5749,20 @@ async function saveEditedTime() {
                     });
                 }
                 finalSessionId = parsedSessionId;
-                alert(payrollOverrideResult?.revisionRequired
+                coreCommitted = true;
+                savedMessage = payrollOverrideResult?.revisionRequired
                     ? 'Đã lưu phân bổ công. Bảng lương đã gửi trước đó được đánh dấu cần tính/gửi lại.'
-                    : 'Đã lưu phân bổ công của Admin!');
+                    : 'Đã lưu phân bổ công của Admin!';
             } else {
                 await DBService.updateSession(staffId, dateKey, parsedSessionId, newData);
+                coreCommitted = true;
                 finalSessionId = parsedSessionId;
                 // Legacy/senior-assistant edits retain their existing flow.
                 await DBService.createAdminNotification(
                     staffId, staffName, 'edit_session', dateKey,
                     `Admin đã chỉnh sửa giờ làm: ${checkInStr} - ${checkOutStr}`
                 );
-                alert("Cập nhật thành công!");
+                savedMessage = 'Cập nhật thành công!';
             }
         }
 
@@ -5763,9 +5786,17 @@ async function saveEditedTime() {
 
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore after edit
-        renderMonthReport(currentDate, true); // true = bypass Firestore cache
+        alert(savedMessage);
+        await renderMonthReport(currentDate, true); // true = bypass Firestore cache
     } catch (e) {
-        alert("Lỗi: " + e.message);
+        if (coreCommitted) {
+            closeEditModal();
+            _cachedStaffId = null;
+            alert('Đã lưu giờ/công, nhưng chưa hoàn tất phần tăng ca hoặc thông báo: ' + e.message + '. Vui lòng mở lại ca để kiểm tra; không thêm lại ca.');
+            await renderMonthReport(currentDate, true);
+        } else {
+            alert("Chưa lưu thay đổi: " + e.message);
+        }
     }
 }
 

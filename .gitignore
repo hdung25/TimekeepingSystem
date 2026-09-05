@@ -13,6 +13,7 @@ node_modules/
 test-automation/node_modules/
 firestore-debug.log
 **/firestore-debug.log
+**/firebase-debug.log
 .env*
 
 # Local secrets / env — never commit

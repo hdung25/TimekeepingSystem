@@ -15,6 +15,8 @@
     </main>
     <script>
         window.firebase = { firestore: { FieldValue: { serverTimestamp: () => ({ __serverTimestamp: true }) } } };
+        window.auth = {currentUser:{uid:'fixture-auth',getIdToken:async()=> 'fixture-only'}};
+        window.firebase.auth = () => window.auth;
         window.__fixtureWrites = [];
         window.db = {
             collection(name) {
@@ -26,6 +28,7 @@
                                 if (name === 'settings' && id === 'system') {
                                     return { exists: true, data: () => ({ gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 }) };
                                 }
+                                if (name === 'users') return {exists:true,data:()=>({name:'Fixture User'})};
                                 return { exists: false, data: () => null };
                             }
                         };
@@ -34,7 +37,7 @@
             },
             async runTransaction(callback) {
                 const transaction = {
-                    get: async () => ({ exists: false, data: () => null }),
+                    get: async ref => ref.get(),
                     set: (ref, data) => window.__fixtureWrites.push({ ref: { name: ref.name, id: ref.id }, data })
                 };
                 return callback(transaction);

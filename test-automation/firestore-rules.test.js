@@ -133,6 +133,20 @@ let staffDb;
 let otherDb;
 let guestDb;
 
+test('first registration reads only canonical missing own IDs; existing ownership and list isolation remain enforced', async () => {
+    await assertSucceeds(getDoc(doc(staffDb,'schedule_registrations','reg_abc_123_staff-1')));
+    await assertFails(getDoc(doc(guestDb,'schedule_registrations','reg_abc_123_staff-1')));
+    await assertFails(getDoc(doc(staffDb,'schedule_registrations','reg_abc_123_staff-2')));
+    await assertFails(getDoc(doc(staffDb,'schedule_registrations','anything_staff-1')));
+    await assertFails(getDoc(doc(staffDb,'schedule_registrations','reg_abc_123_staff-1_extra')));
+    await env.withSecurityRulesDisabled(async c => {
+        await setDoc(doc(c.firestore(),'schedule_registrations','reg_abc_123_staff-1'),{userId:'staff-2'});
+    });
+    await assertFails(getDoc(doc(staffDb,'schedule_registrations','reg_abc_123_staff-1')));
+    await assertFails(getDocs(collection(staffDb,'schedule_registrations')));
+    await assertSucceeds(getDocs(query(collection(staffDb,'schedule_registrations'),where('userId','==','staff-1'))));
+});
+
 test('unauthenticated users cannot read the staff directory', async () => {
     await assertFails(getDoc(doc(guestDb, 'staff_directory', 'staff-1')));
 });

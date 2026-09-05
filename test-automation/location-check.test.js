@@ -26,6 +26,7 @@ function loadHooks(responses = [], watchResponses = [], options = {}) {
     const currentResponses = [...responses];
     const watchedResponses = [...watchResponses];
     const navigator = {
+        permissions: options.permissionState ? {query:async()=>({state:options.permissionState})} : undefined,
         geolocation: {
             getCurrentPosition(success, failure, options) {
                 calls.push(options);
@@ -107,7 +108,7 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
         assert.equal(await hooks.assertAttendanceLocationAllowed(settings), true);
         assert.equal(calls.length, 1, 'điểm đầu nằm ngoài vùng chỉ được mở một watcher phục hồi');
         assert.equal(watchCalls.length, 1);
-        assert.equal(calls[0].maximumAge, 120000);
+        assert.equal(calls[0].maximumAge, 0, 'mỗi lần Vào ca phải xác minh vị trí mới');
         assert.equal(watchCalls[0].maximumAge, 0, 'watcher xác minh lại không được dùng cache của thiết bị');
         assert.equal(clearedWatchIds.length, 1, 'watcher phải được dọn ngay khi có điểm hợp lệ');
     }
@@ -116,6 +117,30 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
         const { hooks, calls } = loadHooks([makePosition(10.0001, 106.0001, 15)]);
         assert.equal(await hooks.assertAttendanceLocationAllowed(settings), true);
         assert.equal(calls.length, 1, 'điểm hợp lệ không gọi định vị dư thừa');
+    }
+
+    {
+        const { hooks, calls } = loadHooks([makePosition(10,106),makePosition(10,106)]);
+        await hooks.assertAttendanceLocationAllowed(settings);
+        await hooks.assertAttendanceLocationAllowed(settings);
+        assert.equal(calls.length,2,'không tái sử dụng điểm của lần chấm công trước');
+        assert.equal(hooks.getConfiguredGPSCampuses({gpsCS1Lat:null,gpsCS1Lng:' '}).length,0);
+        await assert.rejects(hooks.assertAttendanceLocationAllowed({}), e=>e.code==='CONFIG_UNAVAILABLE');
+    }
+
+    {
+        const { hooks, calls, watchCalls, clearedWatchIds } = loadHooks(
+            [{error:1}], [makePosition(10,106)], {permissionState:'granted'});
+        await hooks.assertAttendanceLocationAllowed(settings);
+        assert.equal(calls.length,1);
+        assert.equal(watchCalls.length,1,'chỉ phục hồi một lần khi provider báo từ chối nhưng quyền đang granted');
+        assert.equal(clearedWatchIds.length,1);
+        const denied = loadHooks([{error:1}],[],{permissionState:'denied'});
+        await assert.rejects(denied.hooks.assertAttendanceLocationAllowed(settings), e=>e.code==='PERMISSION_DENIED');
+        assert.equal(denied.watchCalls.length,0,'không tự hỏi lại khi quyền đã bị từ chối');
+        const stillDenied = loadHooks([{error:1}],[{error:1}],{permissionState:'granted'});
+        await assert.rejects(stillDenied.hooks.assertAttendanceLocationAllowed(settings), e=>e.code==='RECOVERY_PERMISSION_DENIED');
+        assert.equal(stillDenied.watchCalls.length,1);
     }
 
     {
@@ -231,8 +256,8 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     assert.match(uiSource, /dataset\.toastKey/);
     assert.match(uiSource, /find\(item => item\.dataset\.toastKey === toastKey\)/,
         'cảnh báo giống nhau đang hiện phải được gộp');
-    assert.match(dbSource, /await recordAttendanceLocationFailure\([\s\S]*?locationError\?\.code/,
-        'lỗi cổng vị trí phải ghi mã chẩn đoán trước khi trả lỗi cho nhân viên');
+    assert.match(dbSource, /void recordAttendanceLocationFailure\([\s\S]*?locationError\?\.code/,
+        'lỗi cổng vị trí khởi động ghi chẩn đoán nhưng không khóa nút khi mất mạng');
     const checkInSource = dbSource.slice(
         dbSource.indexOf('checkInPersonal: async'),
         dbSource.indexOf('checkOutPersonal: async')

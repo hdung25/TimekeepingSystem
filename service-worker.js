@@ -1,7 +1,7 @@
-// Service Worker v150 - attendance token recovery and deterministic teaching
-// session matching must arrive together. This prevents a resumed staff PWA
-// from retaining an older check-in path or payroll chip evaluator.
-const CACHE_NAME = 'tdt-chamcong-v150-attendance-auth-recovery-20260904';
+// Service Worker v151 - canonical write names, safe check-in recovery and
+// authoritative Admin overtime. Install the new cache without interrupting
+// old clients that may currently be recording attendance or saving payroll.
+const CACHE_NAME = 'tdt-chamcong-v151-attendance-integrity-20260905';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -23,40 +23,40 @@ const STATIC_ASSETS = Array.from(new Set([
     '/nhan-su.html',
     '/he-thong.html',
     '/mon-hoc.html',
-    '/css/style.css?v=20260904-attendance-auth-recovery-v1',
+    '/css/style.css?v=20260905-attendance-integrity-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/startup-recovery.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/firebase-config.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/db-service.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/report.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/evaluation-service.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/shift-absence-state.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/admin-payroll-override.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/admin-payroll-override-ui.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/shift-oversight.js?v=20260904-attendance-auth-recovery-v1',
+    '/js/main.js?v=20260905-attendance-integrity-v1',
+    '/js/startup-recovery.js?v=20260905-attendance-integrity-v1',
+    '/js/firebase-config.js?v=20260905-attendance-integrity-v1',
+    '/js/db-service.js?v=20260905-attendance-integrity-v1',
+    '/js/report.js?v=20260905-attendance-integrity-v1',
+    '/js/evaluation-service.js?v=20260905-attendance-integrity-v1',
+    '/js/shift-absence-state.js?v=20260905-attendance-integrity-v1',
+    '/js/admin-payroll-override.js?v=20260905-attendance-integrity-v1',
+    '/js/admin-payroll-override-ui.js?v=20260905-attendance-integrity-v1',
+    '/js/shift-oversight.js?v=20260905-attendance-integrity-v1',
     // Keep the legacy key for cham-cong.html while caching the current key used
     // by the scheduler and the updated staff pages. A fresh cache must support
     // both paths offline during the page-version transition.
     '/js/ui-service.js?v=20260829-location-diagnostics-v3',
-    '/js/ui-service.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/early10.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/schedule-attendance-admin.js?v=20260904-attendance-auth-recovery-v1',
+    '/js/ui-service.js?v=20260905-attendance-integrity-v1',
+    '/js/early10.js?v=20260905-attendance-integrity-v1',
+    '/js/schedule-attendance-admin.js?v=20260905-attendance-integrity-v1',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260809-nested-groups-v1',
-    '/js/personnel.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/auth-guard.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/auth-helper.js?v=20260904-attendance-auth-recovery-v1',
+    '/js/personnel.js?v=20260905-attendance-integrity-v1',
+    '/js/auth-guard.js?v=20260905-attendance-integrity-v1',
+    '/js/auth-helper.js?v=20260905-attendance-integrity-v1',
     '/js/chart-service.js?v=20260807-multi-gv-bulk-v1',
-    '/js/analytics.js?v=20260904-attendance-auth-recovery-v1',
+    '/js/analytics.js?v=20260905-attendance-integrity-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/teacher-shift-state.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/pdf-export.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/receptionist-schedule.js?v=20260904-attendance-auth-recovery-v1',
-    '/js/timekeeping.js?v=20260904-attendance-auth-recovery-v1',
+    '/js/schedule.js?v=20260905-attendance-integrity-v1',
+    '/js/teacher-shift-state.js?v=20260905-attendance-integrity-v1',
+    '/js/pdf-export.js?v=20260905-attendance-integrity-v1',
+    '/js/receptionist-schedule.js?v=20260905-attendance-integrity-v1',
+    '/js/timekeeping.js?v=20260905-attendance-integrity-v1',
     '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
@@ -67,7 +67,8 @@ self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => cache.addAll(STATIC_ASSETS))
-            .then(() => self.skipWaiting())
+            // Download now, activate after old tabs close. Forcing activation
+            // would make pre-fix clients reload in the middle of a live write.
     );
 });
 

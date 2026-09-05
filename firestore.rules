@@ -823,7 +823,16 @@ service cloud.firestore {
     // manager-owned schedule document. Owners can only activate/cancel their
     // own immutable shift target; cancellation is an auditable tombstone.
     match /schedule_registrations/{registrationId} {
-      allow read: if isAuthenticated()
+      // First registration reads its deterministic ID before creating it.
+      // Only a missing own-ID path is readable without resource.data; existing
+      // documents and queries must still prove the stored owner.
+      allow get: if isAuthenticated() && (
+        (getUserId().matches('[A-Za-z0-9_-]{1,60}')
+          && registrationId.matches('reg_[a-z0-9]{1,7}_[a-z0-9]{1,7}_' + getUserId())
+          && !exists(/databases/$(database)/documents/schedule_registrations/$(registrationId)))
+        || isScheduleManager() || ownsStaffId(resource.data.get('userId', ''))
+      );
+      allow list: if isAuthenticated()
         && (isScheduleManager() || ownsStaffId(resource.data.get('userId', '')));
       allow create: if isAuthenticated()
         && (isScheduleManager() || isOwnScheduleRegistration());

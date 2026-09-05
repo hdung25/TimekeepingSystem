@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260904-attendance-auth-recovery-v1';
+const APP_VERSION = '20260905-attendance-integrity-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -47,20 +47,42 @@ if (!window.RolePolicy) {
     if (!('serviceWorker' in navigator)) return;
 
     let refreshing = false;
+    let formEdited = false;
+    // A cache update must not discard a payroll/schedule draft or interrupt
+    // a check-in transaction. The new worker is installed; reload can wait.
+    document.addEventListener('input', () => { formEdited = true; }, true);
+    document.addEventListener('change', () => { formEdited = true; }, true);
     const reloadOnceForVersion = (announcedVersion = APP_VERSION) => {
         if (refreshing) return;
         const reloadKey = 'tdt-app-reloaded-version';
         // Dùng version DO service worker thông báo. Trước đây chỉ so APP_VERSION
         // đang chạy nên tab cũ có thể bỏ qua chính bản cập nhật mới cần tải.
         const targetVersion = String(announcedVersion || APP_VERSION);
-        if (sessionStorage.getItem(reloadKey) === targetVersion) return;
+        try { if (sessionStorage.getItem(reloadKey) === targetVersion) return; } catch (_) { /* restricted storage */ }
+
+        if (formEdited || window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending) {
+            let notice = document.getElementById('app-update-ready');
+            if (!notice) {
+                notice = document.createElement('button');
+                notice.id = 'app-update-ready';
+                notice.type = 'button';
+                notice.textContent = 'Có bản mới · Lưu xong rồi bấm tải lại';
+                notice.style.cssText = 'position:fixed;bottom:12px;left:12px;z-index:9999;padding:12px;border:0;border-radius:8px;background:#047857;color:white;max-width:calc(100vw - 24px)';
+                notice.onclick = () => {
+                    if (window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending) return;
+                    window.location.reload();
+                };
+                document.body?.appendChild(notice);
+            }
+            return;
+        }
 
         refreshing = true;
-        sessionStorage.setItem(reloadKey, targetVersion);
+        try { sessionStorage.setItem(reloadKey, targetVersion); } catch (_) { /* restricted storage */ }
         window.location.reload();
     };
 
-    navigator.serviceWorker.addEventListener('controllerchange', reloadOnceForVersion);
+    navigator.serviceWorker.addEventListener('controllerchange', () => reloadOnceForVersion());
     navigator.serviceWorker.addEventListener('message', event => {
         if (event.data && event.data.type === 'APP_UPDATED') {
             reloadOnceForVersion(event.data.version);
@@ -70,7 +92,7 @@ if (!window.RolePolicy) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.getRegistration()
             .then(registration => {
-                if (registration) registration.update();
+                if (registration) return registration.update();
             })
             .catch(err => console.warn('Service worker update check failed:', err));
     });
@@ -1371,16 +1393,27 @@ function getStaffAttendanceErrorMessage(error) {
     if (error?.name === 'AttendanceLocationError') return error.message;
     const code = String(error?.code || '').toLowerCase();
     const rawMessage = String(error?.message || '').toLowerCase();
+    // auth/network-request-failed is a connectivity failure, not a bad login.
+    if (code.includes('unavailable') || code.includes('deadline-exceeded') ||
+        code.includes('network') || rawMessage.includes('network')) {
+        return 'Kết nối mạng chấm công không ổn định. Vui lòng kiểm tra đúng Wifi của cơ sở rồi thử lại.';
+    }
     if (code === 'permission-denied' || code.includes('permission-denied') ||
         code.startsWith('auth/') || code.includes('session') || code.includes('token') ||
         rawMessage.includes('missing or insufficient permissions')) {
         return 'Phiên đăng nhập hoặc quyền chấm công chưa được xác nhận. Vui lòng tải lại trang hoặc đăng nhập lại rồi thử lại.';
     }
-    if (code.includes('unavailable') || code.includes('deadline-exceeded') ||
-        code.includes('network') || rawMessage.includes('network')) {
-        return 'Kết nối mạng chấm công không ổn định. Vui lòng kiểm tra đúng Wifi của cơ sở rồi thử lại.';
-    }
     return 'Không thể chấm công lúc này. Vui lòng tải lại trang và thử lại.';
+}
+
+async function refreshAttendanceAfterCommit() {
+    try {
+        if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+        if (typeof renderTodayChips === 'function') await renderTodayChips();
+    } catch (error) {
+        console.warn('[Attendance] Saved, but display refresh failed:', error?.code || 'DISPLAY_REFRESH_FAILED');
+        alert('Đã lưu chấm công. Màn hình chưa cập nhật được, vui lòng tải lại để xem; không cần chấm lại.');
+    }
 }
 
 function getStaffDataLoadErrorMessage(error, featureLabel = 'dữ liệu') {
@@ -1428,8 +1461,7 @@ window.globalCheckIn = async function (btn) {
         // write cannot be cancelled and could otherwise succeed after a false
         // timeout message. Location acquisition already has bounded timeouts.
         await DBService.checkInPersonal(currentUserId, userFullName);
-        if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
-        if (typeof renderTodayChips === 'function') renderTodayChips();
+        await refreshAttendanceAfterCommit();
 
         // Check if user has registered for any class today → alert Admin if not
         await checkAndAlertUnregistered(currentUserId, userFullName);
@@ -1510,15 +1542,18 @@ window.globalCheckOut = async function (btn) {
         // transaction result prevents a false timeout followed by a duplicate tap.
         await DBService.checkOutPersonal(currentUserId);
         // alert("Check-out thành công!");
-        if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
-        if (typeof renderTodayChips === 'function') renderTodayChips();
+        await refreshAttendanceAfterCommit();
     } catch (e) {
-        alert("Lỗi: " + e.message);
+        alert(getStaffAttendanceErrorMessage(e));
         if (btn) {
             btn.disabled = false;
             btn.innerText = "RA CA";
         }
-        if (typeof renderGlobalCheckIn === 'function') renderGlobalCheckIn();
+        try {
+            if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+        } catch (refreshError) {
+            console.warn('[Attendance] Retry display unavailable:', refreshError?.code || 'DISPLAY_REFRESH_FAILED');
+        }
     } finally {
         window.__attendanceCheckOutPending = false;
     }

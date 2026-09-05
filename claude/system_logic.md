@@ -778,9 +778,10 @@ là bảng 4 cột với nhãn dọc như cũ.
 
 ### 04/09/2026 — Khôi phục an toàn phiên chấm công và chọn đúng phiên ca dạy
 - Hai tài khoản báo lỗi được kiểm tra theo UID Firebase, hồ sơ `users` và
-  `user_roles`: ánh xạ hợp lệ. Nguyên nhân không phải GPS hay thiếu role cố
-  định, mà PWA/WebView có thể giữ vỏ đăng nhập sau khi token Firestore cũ đã
-  không còn được chấp nhận.
+  `user_roles`: ánh xạ hợp lệ. Khi đó mới kiểm tra được quyền đọc và giả thuyết
+  token cũ, chưa tái hiện giao dịch lỗi. **Đính chính 05/09:** nguyên nhân ghi
+  công bị từ chối là tên hồ sơ có dấu cách cuối khác tên UI đã trim; riêng Huy
+  còn có lỗi provider vị trí, xem mục sau. Không được kết luận chỉ do token.
 - Khi `settings/system` hoặc transaction Vào ca trả đúng `permission-denied`,
   client chỉ làm mới token của **cùng UID** và chạy lại đúng operation đó một
   lần. Không retry `unavailable`/network/timeout (có thể không biết commit đã
@@ -801,3 +802,38 @@ là bảng 4 cột với nhãn dọc như cũ.
   role. Không thay đổi Firestore Rules. PWA cache/version:
   `20260904-attendance-auth-recovery-v1`, cache
   `tdt-chamcong-v150-attendance-auth-recovery-20260904`.
+
+### 05/09/2026 — Tái hiện bằng Rules thật, sửa tên gửi lên và tăng ca Admin
+- Audit chỉ đọc production: tên `users` của Quang Huy và Nguyễn Phan Thanh Nhàn
+  có dấu cách cuối; `persistAuthenticatedSession` trim tên hiển thị nhưng
+  `matchesStaffProfileName` so khớp nguyên bản. Chạy chính `DBService.checkInPersonal`
+  với Rules trong emulator tái hiện permission-denied kể cả sau refresh token.
+- Khi Vào ca/Nhận lớp, transaction đọc hồ sơ và gửi nguyên tên chuẩn. Không sửa
+  hồ sơ/role/công/lương lịch sử. Nhận lớp cũng bị GET-denied trước create;
+  Rules chỉ bổ sung GET đường dẫn canonical chưa tồn tại của chính nhân viên,
+  không nới list hay dữ liệu của người khác.
+- RuleHD vẫn dùng GPS thật và UI IP/Wifi. Mỗi lần Vào ca lấy điểm mới; cấu hình
+  thiếu không được bypass. Lỗi provider PERMISSION_DENIED chỉ thử một watch mới
+  nếu Permissions đang granted; denied/prompt/unknown không bị tự hỏi lại.
+  Mất quyền OS hoặc thay origin vẫn cần người dùng xử lý, marker theo tài khoản
+  không thay thế quyền trình duyệt. Diagnostic không chặn UI khi offline.
+- Không cache lỗi đọc thành “chưa có công”; phân biệt lỗi mạng auth, giữ kết quả
+  ghi thành công nếu render sau đó lỗi. Chặn đổi UID giữa xác minh và ghi.
+- Tăng ca Admin cũ chỉ ghi duration số, quên minutes được evaluator sử dụng.
+  Lưu mới ghi minutes + duration HH:MM theo đúng staff/date/session, dùng
+  transaction và ID ổn định khi tạo mới. Đặt 0 giữ bản ghi rejected để có lịch sử.
+  Read projection hiểu duration số của Admin cũ, không rewrite dữ liệu gốc hoặc
+  snapshot lương đã công bố. Audit 205 requests có 6 duration số (4 lệch/thiếu).
+- Nút “Sửa công” có chữ rõ ràng; Lưu có single-flight và trạng thái chờ, xác nhận
+  trùng ca dùng UIService. Chỉ báo hoàn tất sau khi lưu các phần phụ; nếu phần công
+  đã lưu nhưng tăng ca/thông báo lỗi, báo rõ phần đã thành công, tránh tạo lại ca.
+- Worker mới chờ đóng tab cũ, không ép skipWaiting làm gián đoạn người đang dùng.
+  Client không reload khi đang nhập form hoặc ghi công/lương. Bắt cả lỗi promise
+  registration.update thay vì để phát sinh unhandled rejection.
+- Kiểm chứng: npm test; npm run test:rules (30 nhóm + DBService integration);
+  npm run test:browser (Auth/Firestore emulator, 2 staff + primary admin,
+  Vào/Ra ca và nút Admin +10 không lịch cho kết quả 100 phút từ ca 90 phút).
+  Timing từ fixture local không phải benchmark production; Safari thiết bị thật
+  vẫn cần xác nhận, không được cam kết quyền vĩnh viễn hoặc hết mọi lỗi.
+- Build: `20260905-attendance-integrity-v1`, cache
+  `tdt-chamcong-v151-attendance-integrity-20260905`.

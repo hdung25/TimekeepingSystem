@@ -799,7 +799,9 @@ function getConfiguredGPSCampuses(settings = {}) {
         { lat: settings.gpsCS1Lat, lng: settings.gpsCS1Lng, radius: settings.gpsCS1Radius || 200, name: 'CS1' },
         { lat: settings.gpsCS2Lat, lng: settings.gpsCS2Lng, radius: settings.gpsCS2Radius || 150, name: 'CS2' },
         { lat: settings.gpsCS3Lat, lng: settings.gpsCS3Lng, radius: settings.gpsCS3Radius || 200, name: 'CS3' }
-    ].map(campus => ({
+    ].filter(campus => [campus.lat, campus.lng].every(value =>
+        (typeof value === 'number' || typeof value === 'string') && String(value).trim() !== ''
+    )).map(campus => ({
         ...campus,
         lat: Number(campus.lat),
         lng: Number(campus.lng),
@@ -934,15 +936,22 @@ function getBrowserLocationFromWatch(campuses, options = {}) {
 
 async function assertAttendanceLocationAllowed(settings = {}) {
     const campuses = getConfiguredGPSCampuses(settings);
-    if (campuses.length === 0) return false;
+    if (campuses.length === 0) throw createAttendanceLocationError('CONFIG_UNAVAILABLE');
 
     let firstCoords;
     try {
-        firstCoords = await getBrowserLocation();
+        // Each deliberate check-in needs a new fix, even if the user has
+        // granted permission before or another account just used this tab.
+        firstCoords = await getBrowserLocation({ forceFresh: true });
     } catch (e) {
         console.warn('[AttendanceLocation] Initial browser fix failed:', e?.locationCode || 'UNKNOWN');
         const initialCode = e?.locationCode || 'ACQUIRE_FAILED';
-        if (!['TIMEOUT', 'POSITION_UNAVAILABLE'].includes(initialCode)) {
+        // Some Safari providers return code 1 while Permissions reports granted.
+        // Try one bounded fresh watch only in that contradictory state; never
+        // re-prompt a denied/prompt/unknown permission or accept without a fix.
+        const permissionContradiction = initialCode === 'PERMISSION_DENIED' &&
+            await getAttendanceLocationPermissionState() === 'granted';
+        if (!['TIMEOUT', 'POSITION_UNAVAILABLE'].includes(initialCode) && !permissionContradiction) {
             throw createAttendanceLocationError(initialCode, e);
         }
 
@@ -1080,7 +1089,36 @@ async function _getAttendanceAuthUser(forceRefresh = false) {
             'auth/attendance-token-unavailable'
         );
     }
+    if (primaryAuth.currentUser?.uid !== actor.uid) {
+        throw _attendanceAuthError('Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại.', 'auth/session-changed');
+    }
     return actor;
+}
+
+// Display text is trimmed in the UI. Rules validate the original profile
+// value, so never use localStorage/display text as an authoritative write name.
+function _canonicalStaffWriteName(profileSnapshot) {
+    if (!profileSnapshot.exists) {
+        throw _attendanceAuthError('Không tìm thấy hồ sơ nhân viên.', 'auth/profile-missing');
+    }
+    const profile = profileSnapshot.data();
+    const name = [profile.name, profile.username].find(value =>
+        typeof value === 'string' && value.trim().length > 0 && value.length <= 120);
+    if (!name) throw _attendanceAuthError('Hồ sơ nhân viên cần được kiểm tra.', 'auth/profile-invalid');
+    return name;
+}
+
+function _normalizeOvertimeRequest(record) {
+    const result = { ...record };
+    // The legacy Admin editor wrote its chosen minutes into numeric duration
+    // and left minutes stale/missing. Staff requests use an HH:MM string.
+    // Correct the read projection only; published payslip snapshots stay intact.
+    if (result.status === 'approved' && typeof result.duration === 'number' &&
+        Number.isSafeInteger(result.duration) && result.duration >= 0) {
+        result.minutes = result.duration;
+        result.duration = `${String(Math.floor(result.minutes / 60)).padStart(2, '0')}:${String(result.minutes % 60).padStart(2, '0')}`;
+    }
+    return result;
 }
 
 async function _runAttendanceFirestoreOperation(operation) {
@@ -2087,7 +2125,10 @@ const DBService = {
             if (!authUid) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
 
             await db.runTransaction(async transaction => {
-                const existingSnapshot = await transaction.get(registrationRef);
+                const [existingSnapshot, profileSnapshot] = await Promise.all([
+                    transaction.get(registrationRef),
+                    transaction.get(db.collection('users').doc(String(userId)))
+                ]);
                 const existing = existingSnapshot.exists ? existingSnapshot.data() : null;
                 const immutable = existing || {
                     scheduleKey: compositeKey,
@@ -2112,7 +2153,7 @@ const DBService = {
                 }
                 transaction.set(registrationRef, {
                     ...immutable,
-                    userName: userName || existing?.userName || 'Staff',
+                    userName: _canonicalStaffWriteName(profileSnapshot),
                     status: nextStatus,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -2391,7 +2432,10 @@ const DBService = {
                 return data;
             } catch (error) {
                 console.error("Get personal attendance error:", error);
-                return null;
+                // A denied/offline read is not an absent attendance record.
+                // Evict failures so a subsequent explicit retry can succeed.
+                delete DBService._cache[cacheKey];
+                throw error;
             }
         })();
 
@@ -3285,31 +3329,31 @@ const DBService = {
         // from a stale mobile token. The location gate remains outside the
         // retry, so one deliberate Vào ca action performs exactly one real
         // location check and no retry can bypass it.
+        const initialAuthUid = (await _getAttendanceAuthUser()).uid;
         const settingsDoc = await _runAttendanceFirestoreOperation(() =>
             db.collection('settings').doc('system').get()
         );
-        if (settingsDoc.exists) {
-            const settings = settingsDoc.data();
-            const hasGPS = getConfiguredGPSCampuses(settings).length > 0;
-
-            if (hasGPS) {
-                // GPS is the real attendance gate. The exact Wifi/IP sentence
-                // remains the only staff-facing explanation by policy.
-                try {
-                    await assertAttendanceLocationAllowed(settings);
-                } catch (locationError) {
-                    await recordAttendanceLocationFailure(
-                        userId,
-                        locationError?.code || 'UNKNOWN',
-                        'location_gate'
-                    );
-                    throw locationError;
-                }
-                rememberAttendanceLocationAcknowledgement(userId);
-            }
+        const settings = settingsDoc.exists ? settingsDoc.data() : {};
+        // GPS is the real attendance gate. The exact Wifi/IP sentence
+        // remains the only staff-facing explanation by policy.
+        try {
+            await assertAttendanceLocationAllowed(settings);
+        } catch (locationError) {
+            // Diagnostics must not hold the button indefinitely when
+            // Firestore is offline. This is not an attendance write.
+            void recordAttendanceLocationFailure(
+                userId,
+                locationError?.code || 'UNKNOWN',
+                'location_gate'
+            );
+            throw locationError;
         }
+        rememberAttendanceLocationAcknowledgement(userId);
 
         const dateKey = await _runAttendanceFirestoreOperation(async authUser => {
+            if (authUser.uid !== initialAuthUid) {
+                throw _attendanceAuthError('Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại.', 'auth/session-changed');
+            }
             const now = new Date();
             const currentDateKey = getLocalDateKeyFromDate(now);
             const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
@@ -3327,10 +3371,12 @@ const DBService = {
                 .doc(`${currentDateKey}~${userId}~${newSessionId}`);
 
             await db.runTransaction(async (t) => {
-                const [doc, previousDoc] = await Promise.all([t.get(ref), t.get(previousRef)]);
+                const [doc, previousDoc, profileSnapshot] = await Promise.all([
+                    t.get(ref), t.get(previousRef), t.get(db.collection('users').doc(userId))
+                ]);
                 let data = doc.exists ? doc.data() : {
                     userId,
-                    name: userFullName,
+                    name: _canonicalStaffWriteName(profileSnapshot),
                     date: currentDateKey,
                     sessions: []
                 };
@@ -7108,39 +7154,43 @@ const DBService = {
 
     saveAdminOvertimeConfig: async (staffId, staffName, dateKey, sessionId, minutes) => {
         try {
+            const numericMinutes = Number(minutes);
+            if (!Number.isSafeInteger(numericMinutes) || numericMinutes < 0) {
+                throw new Error('Số phút tăng ca phải là số nguyên từ 0 trở lên.');
+            }
+            if (!staffId || !sessionId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+                throw new Error('Thiếu ngày hoặc phiên công cần chỉnh tăng ca.');
+            }
             const snap = await db.collection('overtime_requests')
                 .where('staffId', '==', staffId)
-                .where('sessionId', '==', String(sessionId))
+                .where('dateKey', '==', dateKey)
                 .get();
-
-            if (Number(minutes) > 0) {
-                const adminName = localStorage.getItem('currentUserName') || 'Admin';
-                if (!snap.empty) {
-                    const docId = snap.docs[0].id;
-                    await db.collection('overtime_requests').doc(docId).update({
-                        duration: Number(minutes),
-                        status: 'approved',
-                        approvedBy: adminName,
-                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                } else {
-                    await db.collection('overtime_requests').add({
-                        staffId: staffId,
-                        staffName: staffName || '',
-                        dateKey: dateKey,
-                        sessionId: String(sessionId),
-                        duration: Number(minutes),
-                        status: 'approved',
+            const matching = snap.docs.filter(doc => String(doc.data()?.sessionId) === String(sessionId));
+            if (!matching.length && numericMinutes === 0) return;
+            const canonicalId = 'ot_admin_' + [dateKey, staffId, String(sessionId)].map(encodeURIComponent).join('~');
+            const ids = matching.length ? matching.map(doc => doc.id) : [canonicalId];
+            if (ids.length > 100) throw new Error('Có quá nhiều bản tăng ca trùng phiên; cần kiểm tra trước khi lưu.');
+            const refs = ids.map(id => db.collection('overtime_requests').doc(id));
+            const adminName = localStorage.getItem('currentUserName') || 'Admin';
+            const duration = `${String(Math.floor(numericMinutes / 60)).padStart(2, '0')}:${String(numericMinutes % 60).padStart(2, '0')}`;
+            await db.runTransaction(async transaction => {
+                const snapshots = await Promise.all(refs.map(ref => transaction.get(ref)));
+                snapshots.forEach((snapshot, index) => {
+                    const previous = snapshot.exists ? snapshot.data() : null;
+                    if (previous && (previous.staffId !== staffId || previous.dateKey !== dateKey || String(previous.sessionId) !== String(sessionId))) {
+                        throw new Error('Phiên tăng ca đã thay đổi. Vui lòng tải lại trước khi lưu.');
+                    }
+                    transaction.set(refs[index], {
+                        ...(previous || {}),
+                        staffId, staffName: staffName || previous?.staffName || '', dateKey,
+                        sessionId: String(sessionId), minutes: numericMinutes, duration,
+                        status: numericMinutes > 0 ? 'approved' : 'rejected',
                         approvedBy: adminName,
                         approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        ...(!previous ? {createdAt: firebase.firestore.FieldValue.serverTimestamp()} : {})
                     });
-                }
-            } else {
-                if (!snap.empty) {
-                    await db.collection('overtime_requests').doc(snap.docs[0].id).delete();
-                }
-            }
+                });
+            });
             DBService._invalidate('overtime_requests_staff_');
             console.log('[OT] Saved admin overtime config:', staffId, sessionId, minutes);
         } catch (e) {
@@ -7161,7 +7211,7 @@ const DBService = {
                     .where('staffId', '==', staffId)
                     .limit(100)
                     .get();
-                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const list = snap.docs.map(doc => _normalizeOvertimeRequest({ id: doc.id, ...doc.data() }));
                 // Filter by month client-side to avoid composite index
                 return monthStr
                     ? list.filter(r => r.dateKey && r.dateKey.startsWith(monthStr))
