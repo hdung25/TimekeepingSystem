@@ -858,3 +858,18 @@ là bảng 4 cột với nhãn dọc như cũ.
 - Kiểm chứng: 53 regression files; 30 Rules scenarios + hai nhóm integration; 8 cấu hình tài khoản/
   36 lượt trang trong Chrome với Auth/Firestore emulator. Safari thiết bị thật chưa được kiểm chứng.
 - Build `20260905-payroll-schedule-integrity-v2`, cache `tdt-chamcong-v152-payroll-schedule-integrity-20260905`.
+
+### 05/09/2026 — Review v3: đồng bộ tính/gửi/nhận lương và thống kê
+- Chi tiết kiểm thử: `claude/release-review-20260905-v3.md`. Đã được Owner cho phép sửa và deploy;
+  kết quả dưới đây là kiểm thử tự động/UI local, chưa thay thế xác nhận sử dụng thực tế của Owner.
+- Lương tháng lấy nguồn chip đầy đủ, không dùng tập đang lọc lớp/ngày. Header và draft dùng cùng
+  payload theo vai trò; tách thưởng GV/TT. Lưu chính/modal giữ đơn giá theo tháng, không làm bẩn
+  hồ sơ chung. Thưởng Admin nhập tay, kể cả 0, không bị tính tự động ghi đè.
+- VP/VĐX/VKP nhận diện bằng metadata/token CSS; lịch sử ưu tiên snapshot đã lưu, không lấy đơn
+  giá hiện tại. ZIP dùng lifecycle chung, không bỏ phần TT trong bản dual legacy.
+- Nhân viên xác nhận đúng bản lương đã thấy qua token so trong transaction. Listener theo tháng
+  đồng bộ bản gửi/trạng thái nhận giữa nhân viên và Admin; lỗi đọc không được giả thành bản rỗng.
+- Biểu đồ nhân viên đọc đúng công của mình và lịch nhiều cơ sở; không đánh vắng lớp chưa bắt đầu.
+- 54 regression files, Rules/integration và UI lương đạt; bộ browser đăng nhập/Vào-Ra ca/Admin
+  đạt trên 8 cấu hình tài khoản/36 lượt trang. Không đổi Rules, GPS hoặc dữ liệu thật/lương đã gửi.
+- Build `20260905-payroll-sync-v3`, cache `tdt-chamcong-v153-payroll-sync-20260905`.

@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260905-payroll-schedule-integrity-v2';
+const APP_VERSION = '20260905-payroll-sync-v3';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -962,7 +962,7 @@ async function loadStaffPersonalCharts() {
 
     try {
         // Single batch fetch, then synchronous processing
-        const { allLogs, schedules } = await ChartService.loadMonthData(monthStr);
+        const { allLogs, schedules } = await ChartService.loadMonthData(monthStr, userId);
         const punctData = ChartService.getStaffPunctuality(allLogs, schedules, userId);
         const weeklyData = ChartService.getWeeklyHours(allLogs, monthStr, userId);
 
@@ -2435,6 +2435,10 @@ window.checkUpcomingMeetingsAndShifts = async function() {
 let currentPersonalSalaryDate = new Date();
 let personalSalaryLoadGeneration = 0;
 let renderedPersonalSalaryMonth = '';
+let renderedPersonalSalaryReceiptToken = null;
+let personalSalaryWatchScope = '';
+let personalSalaryWatchFingerprint = '';
+let unsubscribePersonalSalary = null;
 
 function formatNumberWithCommas(value) {
     if (value === undefined || value === null || value === '') return '';
@@ -2862,6 +2866,13 @@ async function loadStaffPersonalSalary() {
     const month = requestedDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     renderedPersonalSalaryMonth = '';
+    renderedPersonalSalaryReceiptToken = null;
+    const requestedWatchScope = `${staffId}__${monthStr}`;
+    if (personalSalaryWatchScope !== requestedWatchScope) {
+        if (unsubscribePersonalSalary) unsubscribePersonalSalary();
+        unsubscribePersonalSalary = null;
+        personalSalaryWatchScope = requestedWatchScope;
+    }
     monthTitle.innerText = `Tháng ${month + 1}, ${year}`;
     const previousConfirmButton = document.getElementById('btn-confirm-receipt');
     if (previousConfirmButton) {
@@ -2879,10 +2890,24 @@ async function loadStaffPersonalSalary() {
     contentContainer.style.display = 'none';
 
     try {
-        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr);
+        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true });
         if (loadGeneration !== personalSalaryLoadGeneration) return;
         renderedPersonalSalaryMonth = monthStr;
         const published = monthlySettings?.published;
+        renderedPersonalSalaryReceiptToken = DBService.getPayslipReceiptToken(published || {});
+        personalSalaryWatchFingerprint = JSON.stringify(published || {});
+        if (!unsubscribePersonalSalary && typeof DBService.watchPersonalPayslip === 'function') {
+            unsubscribePersonalSalary = DBService.watchPersonalPayslip(staffId, monthStr, data => {
+                if (personalSalaryWatchScope !== requestedWatchScope) return;
+                const fingerprint = JSON.stringify(data.published || {});
+                if (fingerprint !== personalSalaryWatchFingerprint) {
+                    personalSalaryWatchFingerprint = fingerprint;
+                    loadStaffPersonalSalary();
+                }
+            }, error => {
+                console.warn('[PersonalSalary] Live update unavailable:', error.code);
+            });
+        }
 
         if (!published || published.status === 'uncalculated' || published.status === 'draft') {
             statusContainer.innerHTML = `
@@ -3034,6 +3059,7 @@ async function confirmPersonalSalaryReceipt() {
     const staffId = localStorage.getItem('currentUserId');
     const btn = document.getElementById('btn-confirm-receipt');
     const monthStr = btn?.dataset.salaryMonth || renderedPersonalSalaryMonth;
+    const receiptToken = renderedPersonalSalaryReceiptToken;
     if (!staffId || !/^\d{4}-\d{2}$/.test(monthStr)) {
         alert('Bảng lương đang tải hoặc đã đổi tháng. Vui lòng chờ dữ liệu hiển thị đầy đủ.');
         return;
@@ -3043,11 +3069,16 @@ async function confirmPersonalSalaryReceipt() {
     try {
         if (btn) btn.disabled = true;
         
-        await DBService.confirmSalaryReceived(staffId, monthStr, 'employee');
+        await DBService.confirmSalaryReceived(staffId, monthStr, 'employee', 'all', receiptToken);
         alert("Xác nhận nhận lương thành công!");
         await loadStaffPersonalSalary();
     } catch (e) {
         console.error("Error confirming salary receipt:", e);
+        if (e.code === 'payslip/view-changed') {
+            UIService.toast(e.message, 'warning');
+            await loadStaffPersonalSalary();
+            return;
+        }
         alert("Có lỗi xảy ra: " + e.message);
         const currentButton = document.getElementById('btn-confirm-receipt');
         if (currentButton?.dataset.salaryMonth === monthStr) currentButton.disabled = false;

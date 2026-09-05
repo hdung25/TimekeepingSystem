@@ -380,13 +380,13 @@ assert.doesNotMatch(dayAttendance, /catch \(e\)[\s\S]*return new Map\(\)/);
     );
 }
 
-const earlyIndex = html.indexOf('js/early10.js?v=20260905-payroll-schedule-integrity-v2');
-const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260905-payroll-schedule-integrity-v2');
-const dbIndex = html.indexOf('js/db-service.js?v=20260905-payroll-schedule-integrity-v2');
-const scheduleIndex = html.indexOf('js/schedule.js?v=20260905-payroll-schedule-integrity-v2');
+const earlyIndex = html.indexOf('js/early10.js?v=20260905-payroll-sync-v3');
+const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260905-payroll-sync-v3');
+const dbIndex = html.indexOf('js/db-service.js?v=20260905-payroll-sync-v3');
+const scheduleIndex = html.indexOf('js/schedule.js?v=20260905-payroll-sync-v3');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v152-payroll-schedule-integrity-20260905/);
-assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260905-payroll-schedule-integrity-v2/);
+assert.match(serviceWorker, /tdt-chamcong-v153-payroll-sync-20260905/);
+assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260905-payroll-sync-v3/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');

@@ -126,7 +126,7 @@ function exportSalaryPDF(overrides) {
     calculateSalary();
 
 
-    const chips = window.currentMonthChips || [];
+    const chips = (window.unfilteredAllMonthChips || window.currentMonthChips || []).filter(c => c.paidMinutes > 0);
     let normalMinutes = 0;
     let fixedMinutes = 0;
     let normalSalary = 0;
@@ -369,13 +369,13 @@ function exportSalaryPDF(overrides) {
     const unfilteredChips = window.unfilteredAllMonthChips || [];
     const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
     unfilteredChips.forEach(chip => {
-        if (chip.class === 'chip-future') return;
+        if (chip.class === 'chip-future' || chip.isCenterOff) return;
         
         const isTT = chip.isReceptionist || (chip.sessionData && ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(chip.sessionData.role));
         if (filterType === 'tiep-tan' && !isTT) return;
         if (filterType === 'giao-vien' && isTT) return;
         
-        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+        if (chip.isAbsence || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
             const type = classifyAbsentChip(chip, notesMap);
             if (type === 'VP') vpShifts++;
             else if (type === 'VDX') vdxShifts++;

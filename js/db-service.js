@@ -6790,6 +6790,27 @@ const DBService = {
         return _getPayslipPaymentBreakdown(published);
     },
 
+    getPayslipReceiptToken(published = {}) {
+        return _getPayslipReceiptToken(published);
+    },
+
+    watchPersonalPayslip(staffId, monthStr, onData, onError) {
+        return db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`).onSnapshot(
+            snapshot => { if (!snapshot.metadata?.fromCache) onData(snapshot.exists ? snapshot.data() : {}); },
+            onError
+        );
+    },
+
+    watchMonthlyPayslips(monthStr, onData, onError) {
+        const id = firebase.firestore.FieldPath.documentId();
+        return db.collection('salary_settings_monthly')
+            .where(id, '>=', monthStr + '_').where(id, '<=', monthStr + '_\uf8ff')
+            .onSnapshot(snapshot => {
+                if (snapshot.metadata?.fromCache) return;
+                onData(Object.fromEntries(snapshot.docs.map(doc => [doc.id.slice(monthStr.length + 1), doc.data()])));
+            }, onError);
+    },
+
     getPayslipDraftLockState(published = {}, component = 'gv') {
         return _getPayslipDraftLockState(published, component);
     },
@@ -6963,7 +6984,7 @@ const DBService = {
 
     // Confirm only components that are actually published. A dual-role payslip
     // reaches aggregate `received` only after both relevant components do.
-    async confirmSalaryReceived(staffId, monthStr, confirmedBy = 'employee', component = 'all') {
+    async confirmSalaryReceived(staffId, monthStr, confirmedBy = 'employee', component = 'all', expectedReceiptToken = null) {
         if (!staffId || !monthStr) {
             throw new Error('[ConfirmSalary] staffId and monthStr are required.');
         }
@@ -6976,6 +6997,11 @@ const DBService = {
             await db.runTransaction(async transaction => {
                 const docSnap = await transaction.get(docRef);
                 const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                if (expectedReceiptToken !== null && expectedReceiptToken !== _getPayslipReceiptToken(currentPublished)) {
+                    const error = new Error('Bảng lương vừa được cập nhật. Vui lòng xem lại số tiền mới rồi xác nhận.');
+                    error.code = 'payslip/view-changed';
+                    throw error;
+                }
                 transition = _preparePayslipConfirmation(currentPublished, confirmedBy, nowIso, component);
 
                 const receiptRequest = _getPayslipReceiptRequestState(currentPublished, component);
@@ -9119,5 +9145,20 @@ function _preparePayslipDraftUpdate(currentPublished = {}, calculatedPublished =
         preservedPublishedSnapshot: hasLockedSnapshot,
         lifecycle
     };
+}
+// Bind a receipt to precisely the published components and amounts the viewer saw.
+// Receipt status/timestamps are excluded so a repeated confirmation stays idempotent.
+function _getPayslipReceiptToken(published = {}) {
+    const state = _getPayslipLifecycleState(published);
+    const canonical = value => {
+        if (Array.isArray(value)) return value.map(canonical);
+        if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])]));
+        return value;
+    };
+    return JSON.stringify(['gv', 'tt'].filter(key => state[`has_${key}`] && ['published', 'received'].includes(state[`status_${key}`])).map(key => [
+        key,
+        published[`publishedAt_${key}`] || published.publishedAt || null,
+        canonical(published[`details_${key}`] || published.details || { netPay: published.netPay, baseSalary: published.baseSalary, totalBonus: published.totalBonus, advance: published.advance, penalties: published.penalties })
+    ]));
 }
 // PAYSLIP LIFECYCLE HELPERS END

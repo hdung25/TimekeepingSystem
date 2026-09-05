@@ -2821,7 +2821,9 @@ function renderEvaluationTable(savedData = []) {
         hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-    const isRecep = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching);
+    const isRecep = window.currentLoadedRoleKey
+        ? window.currentLoadedRoleKey === 'tiep_tan'
+        : (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching);
     const criteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
 
     const thead = document.getElementById('eval-thead');
@@ -2856,7 +2858,7 @@ function renderEvaluationTable(savedData = []) {
         trAmount += `
             <td style="padding: 0.25rem; border: 1px solid #e5e7eb;">
                 <input type="text" class="table-input eval-amount money-input" 
-                    value="${formatNumberWithCommas(amount)}" data-index="${criteriaIndex}" oninput="calculateSalary()"
+                    value="${formatNumberWithCommas(amount)}" data-index="${criteriaIndex}" oninput="this.dataset.manualEdited='true'; calculateSalary()"
                     ${isReadOnlyAttr}>
             </td>`;
 
@@ -2995,7 +2997,8 @@ function calculateSalary() {
 
     let filteredMinutes = 0;
     let filteredSalary = 0; // Accumulate salary based on role rates
-    const allChips = window.currentMonthChips || [];
+    // Class/day display filters must never change the monthly payroll source.
+    const allChips = (window.unfilteredAllMonthChips || window.currentMonthChips || []).filter(c => c.paidMinutes > 0);
 
     // Breakdown: teaching vs receptionist (for Item 7 — Tách giờ Trợ giảng)
     let teachingMinutes = 0;
@@ -3034,7 +3037,7 @@ function calculateSalary() {
     let normalAbsentCount = 0;   // Vắng ca thường
 
     // Dùng allMonthChips để bao gồm cả chip-gray (vắng, paidMinutes=0)
-    const allChipsForStats = window.allMonthChips || allChips;
+    const allChipsForStats = window.unfilteredAllMonthChips || window.allMonthChips || allChips;
     allChipsForStats.forEach(chip => {
         if (chip.class === 'chip-future' || chip.isCenterOff) return; // Bỏ ca tương lai và ca nghỉ trung tâm
         const isTiepTan = chip.isReceptionist || (chip.sessionData &&
@@ -3495,9 +3498,13 @@ function calculateSalary() {
     // --- AUTO-CALCULATE ATTENDANCE BONUS (Criteria I) ---
     const cfg = window.currentUserContext?.salary_config || {};
     const attRate = Number(cfg.attendance_rate || 0);
-    if (attRate > 0 && evalAmounts.length > 0) {
+    const activeAttendanceSettings = window.currentLoadedSalarySettings || {};
+    const savedAttendance = (activeAttendanceSettings.evaluation || []).find(e => Number(e.id) === 0);
+    const automaticAttendance = savedAttendance?.manual !== true && (!savedAttendance || savedAttendance.amount === undefined || String(savedAttendance.note || '').startsWith('Thưởng chuyên cần:'));
+    if (attRate > 0 && evalAmounts.length > 0 && automaticAttendance && evalAmounts[0].dataset.manualEdited !== 'true' && document.activeElement !== evalAmounts[0]) {
         const attInp = evalAmounts[0];
-        const calculatedBonus = Math.round((filteredMinutes / 60) * attRate);
+        const activeAttendanceMinutes = window.currentLoadedRoleKey === 'tiep_tan' ? receptionistMinutes : teachingMinutes;
+        const calculatedBonus = Math.round((activeAttendanceMinutes / 60) * attRate);
 
         // Update input value
         attInp.value = calculatedBonus;
@@ -3506,7 +3513,7 @@ function calculateSalary() {
         const attNote = evalNotes[0];
         const autoNotePrefix = "Thưởng chuyên cần:";
         if (attNote && (!attNote.value || attNote.value.startsWith(autoNotePrefix))) {
-            attNote.value = `${autoNotePrefix} ${attRate.toLocaleString()}đ/h x ${(filteredMinutes / 60).toFixed(1)}h`;
+            attNote.value = `${autoNotePrefix} ${attRate.toLocaleString()}đ/h x ${(activeAttendanceMinutes / 60).toFixed(1)}h`;
         }
     }
 
@@ -3686,9 +3693,20 @@ function calculateSalary() {
         }
     }
 
-    updateBonusDisplay(totalBonus);
-
-    const totalSalary = filteredSalary + totalBonus - adjustVDX - adjustVKP - adjustLate - advance;
+    // The header and the saved/sent document use the same per-role calculation.
+    // In particular, do not mix receptionist fees into a teaching-only preview.
+    const employmentRoles = window.currentUserContext?.roles || [window.currentUserContext?.role || ''];
+    const payrollParts = [];
+    if (roleFilter !== 'tiep-tan' && (hasTeachingEmploymentRole(employmentRoles) || teachingMinutes > 0)) {
+        payrollParts.push(getCurrentCalculationPayload('giao-vien'));
+    }
+    if (roleFilter !== 'giao-vien' && (hasReceptionistEmploymentRole(employmentRoles) || receptionistMinutes > 0)) {
+        payrollParts.push(getCurrentCalculationPayload('tiep-tan'));
+    }
+    const canonicalBonus = payrollParts.reduce((sum, p) => sum + p.totalBonus, 0);
+    updateBonusDisplay(canonicalBonus);
+    window.currentMonthSalary = payrollParts.reduce((sum, p) => sum + p.baseSalary, 0);
+    const totalSalary = payrollParts.reduce((sum, p) => sum + p.netPay, 0);
 
     const finalDisplay = document.getElementById('final-salary-display');
     if (finalDisplay) {
@@ -3913,7 +3931,7 @@ async function saveSalarySettings() {
         hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    const activeFilter = window.currentLoadedRoleKey === 'tiep_tan' ? 'tiep-tan' : 'giao-vien';
     const roleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
 
     const rate = 0; // Legacy
@@ -3927,7 +3945,8 @@ async function saveSalarySettings() {
         evaluationData.push({
             id: criteriaIndex,
             note: noteInp.value,
-            amount: amountInp ? (parseFormattedNumber(amountInp.value) || 0) : 0
+            amount: amountInp ? (parseFormattedNumber(amountInp.value) || 0) : 0,
+            manual: amountInp?.dataset.manualEdited === 'true' || (window.currentLoadedSalarySettings?.evaluation || []).some(e => Number(e.id) === criteriaIndex && e.manual === true)
         });
     });
 
@@ -3976,7 +3995,8 @@ async function saveSalarySettings() {
         if (!window.currentMonthlySalarySettingsAll) {
             window.currentMonthlySalarySettingsAll = {};
         }
-        window.currentMonthlySalarySettingsAll[roleKey] = settingsObj;
+        window.currentMonthlySalarySettingsAll[roleKey] = { ...loadedSettings, ...settingsObj };
+        window.currentLoadedSalarySettings = window.currentMonthlySalarySettingsAll[roleKey];
         
         // Save revenues to recep_revenue_${monthStr} if tiep-tan
         if (activeFilter === 'tiep-tan') {
@@ -7025,7 +7045,7 @@ async function populateModalCurrentTab() {
         if (window.modalActiveRole === 'tiep-tan' && !isTTStrict) return;
         if (window.modalActiveRole === 'giao-vien' && isTTLoose) return;
 
-        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+        if (chip.isAbsence || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
             const type = classifyAbsentChip(chip, _cachedStaffNotes);
             if (type === 'VP') vpShifts++;
             else if (type === 'VDX') vdxShifts++;
@@ -7383,7 +7403,7 @@ async function populateModalCurrentTab() {
                     if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Vắng phép:') || noteVal.startsWith('Vắng phép: ...')) {
                         noteVal = `Vắng phép: ${vpShifts}; Vắng đột xuất: ${vdxShifts}; Vắng không phép: ${vkpShifts}`;
                     }
-                    if (saved.amount === undefined) {
+                    if (saved.manual !== true && (saved.amount === undefined || String(saved.note || '').startsWith('Thưởng chuyên cần:'))) {
                         const attRate = Number(roleSettings.attendance_rate || user.salary_config?.attendance_rate || 0);
                         if (attRate > 0) {
                             amountVal = Math.round((grandTotalMinutes / 60) * attRate);
@@ -7395,7 +7415,7 @@ async function populateModalCurrentTab() {
                     if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Vắng phép:') || noteVal.startsWith('Vắng phép: ...')) {
                         noteVal = `Vắng phép: ${vpShifts}; Vắng đột xuất: ${vdxShifts}; Vắng không phép: ${vkpShifts}`;
                     }
-                    if (saved.amount === undefined) {
+                    if (saved.manual !== true && (saved.amount === undefined || String(saved.note || '').startsWith('Thưởng chuyên cần:'))) {
                         const attRate = Number(roleSettings.attendance_rate || user.salary_config?.attendance_rate || 0);
                         if (attRate > 0) {
                             amountVal = Math.round((grandTotalMinutes / 60) * attRate);
@@ -7428,7 +7448,7 @@ async function populateModalCurrentTab() {
                         data-index="${criteriaIndex}" 
                         value="${formatNumberWithCommas(amountVal)}" 
                         style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;"
-                        oninput="recalculateSalaryModal()">
+                        oninput="this.dataset.manualEdited='true'; recalculateSalaryModal()">
                 </td>
                 <td style="padding: 0.25rem 0.5rem;">
                     <input type="text" class="modal-eval-note table-input" 
@@ -7629,7 +7649,8 @@ async function saveSalarySettingsFromModal() {
         evaluationData.push({
             id: index,
             note: noteInp.value,
-            amount: parseFormattedNumber(amountInp?.value || '0')
+            amount: parseFormattedNumber(amountInp?.value || '0'),
+            manual: amountInp?.dataset.manualEdited === 'true' || (activeRoleSettings.evaluation || []).some(e => Number(e.id) === index && e.manual === true)
         });
     });
     
@@ -7663,20 +7684,14 @@ async function saveSalarySettingsFromModal() {
         
         await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
         
-        if (window.currentUserContext) {
-            if (!window.currentUserContext.salary_config) {
-                window.currentUserContext.salary_config = {};
-            }
-            window.currentUserContext.salary_config.class_rates = classRates;
-            window.currentUserContext.salary_config.evaluation = evaluationData;
-        }
-        
         window.currentLoadedRoleKey = roleKey;
-        window.currentLoadedSalarySettings = settingsObj;
+        window.currentLoadedSalarySettings = { ...activeRoleSettings, ...settingsObj };
         if (!window.currentMonthlySalarySettingsAll) {
             window.currentMonthlySalarySettingsAll = {};
         }
-        window.currentMonthlySalarySettingsAll[roleKey] = settingsObj;
+        window.currentMonthlySalarySettingsAll[roleKey] = window.currentLoadedSalarySettings;
+        const backgroundRoleFilter = document.getElementById('salary-role-filter');
+        if (backgroundRoleFilter) backgroundRoleFilter.value = window.modalActiveRole;
         
         // Sync to background page elements
         const backgroundAdvanceInp = document.getElementById('salary-advance');
@@ -7702,7 +7717,7 @@ async function saveSalarySettingsFromModal() {
         }
         
         closeClassRateModal();
-        calculateSalary();
+        await renderMonthReport(currentDate, true);
         const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
         showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương và tính thành công!');
     } catch (e) {
@@ -7815,6 +7830,38 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         const [prevYearStr, prevMonthNumStr] = prevMonthStr.split('-');
         const prevYear = parseInt(prevYearStr, 10);
         const prevMonth = parseInt(prevMonthNumStr, 10) - 1; // 0-indexed
+
+        // History is a saved document, not a recalculation using today's rates.
+        const savedMonth = await DBService.getMonthlySalarySettings(staffId, prevMonthStr, { strict: true });
+        const savedPayslip = savedMonth?.published;
+        if (savedPayslip) {
+            const key = window.modalActiveRole === 'tiep-tan' ? 'tt' : 'gv';
+            const state = DBService.getPayslipLifecycleState(savedPayslip);
+            const details = savedPayslip[`details_${key}`] ||
+                ((key === 'tt' ? savedPayslip.role === 'tiep-tan' : savedPayslip.role !== 'tiep-tan' && savedPayslip.role !== 'dual') ? savedPayslip.details : null);
+            const title = `Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Đã Lưu)`;
+            let actorRoles;
+            try { actorRoles = JSON.parse(localStorage.getItem('currentRole') || '[]'); } catch (_) { actorRoles = [localStorage.getItem('currentRole')]; }
+            if (!Array.isArray(actorRoles)) actorRoles = [actorRoles];
+            const hiddenMoney = actorRoles.includes('senior_assistant') && !actorRoles.includes('admin');
+            if (historyContainer) {
+                historyContainer.innerHTML = `<h3>${title}</h3><p>Bản lưu của tháng này; không tính lại theo lịch hoặc đơn giá mới.</p>`;
+                if (hiddenMoney) {
+                    const summary = document.createElement('p');
+                    const stats = details?.stats || {};
+                    summary.textContent = `Đi làm: ${stats.workedShifts || 0} ca; VP: ${stats.vpShifts || 0}; VĐX: ${stats.vdxShifts || 0}; VKP: ${stats.vkpShifts || 0}; Trễ: ${stats.lateCount || 0} lần. Thông tin tiền lương chỉ dành cho quản trị viên.`;
+                    historyContainer.appendChild(summary);
+                } else if (details && typeof window.renderDetailedSalaryTable === 'function') {
+                    historyContainer.innerHTML += window.renderDetailedSalaryTable(details, state[`status_${key}`]);
+                } else {
+                    const message = document.createElement('p');
+                    message.textContent = 'Chưa có bản lương chi tiết đã lưu cho vai trò này.';
+                    historyContainer.appendChild(message);
+                }
+                historyContainer.style.display = 'block';
+            }
+            return;
+        }
         
         const prevNotes = await DBService.getDailyNotes(staffId);
         const cancelledShifts = await DBService.getCancelledShifts(prevMonthStr, staffId);
@@ -7921,7 +7968,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
             if (window.modalActiveRole === 'tiep-tan' && !isTT) return;
             if (window.modalActiveRole === 'giao-vien' && isTT) return;
             
-            if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+            if (chip.isAbsence || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
                 const type = classifyAbsentChip(chip, prevNotes);
                 if (type === 'VP') vpShifts++;
                 else if (type === 'VDX') vdxShifts++;
@@ -8110,7 +8157,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         if (historyContainer) {
             historyContainer.innerHTML = `
                 <div style="margin-bottom: 1rem; font-size: 1.1rem; font-weight: 700; color: #1E3A8A; border-bottom: 2px solid #E5E7EB; padding-bottom: 0.5rem;">
-                    Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Đã Lưu)
+                    Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Tính lại từ công — chưa có bản chốt)
                 </div>
                 
                 <div style="margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #E5E7EB; border-radius: 12px; background: #F9FAFB; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -8957,16 +9004,31 @@ async function publishSalary() {
     }
 }
 
+let salaryDashboardGeneration = 0;
+let salaryDashboardWatchMonth = '';
+let unsubscribeSalaryDashboard = null;
+
 async function loadSalaryDashboard() {
+    const generation = ++salaryDashboardGeneration;
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
     try {
         UIService.showLoading();
-        const allSettings = await DBService.getAllMonthlySalarySettings(monthStr);
+        const allSettings = await DBService.getAllMonthlySalarySettings(monthStr, { strict: true });
+        if (generation !== salaryDashboardGeneration) return;
         window.currentMonthAllSettings = allSettings || {};
         renderSalaryDashboardTable();
+        if (salaryDashboardWatchMonth !== monthStr || !unsubscribeSalaryDashboard) {
+            if (unsubscribeSalaryDashboard) unsubscribeSalaryDashboard();
+            salaryDashboardWatchMonth = monthStr;
+            unsubscribeSalaryDashboard = DBService.watchMonthlyPayslips(monthStr, settings => {
+                if (salaryDashboardWatchMonth !== monthStr) return;
+                window.currentMonthAllSettings = settings;
+                if (document.getElementById('salary-dashboard-view')?.style.display === 'block') renderSalaryDashboardTable();
+            }, error => UIService.toast('Chưa thể đồng bộ trạng thái nhận lương. Vui lòng tải lại.', 'warning'));
+        }
     } catch (e) {
         console.error("Error loading salary dashboard:", e);
         UIService.toast("Lỗi khi tải dữ liệu dashboard: " + e.message, "error");
@@ -9239,6 +9301,10 @@ function switchAdminTab(tab) {
     const isSalaryAdmin = roles.includes('admin');
     
     if (tab === 'personal') {
+        ++salaryDashboardGeneration;
+        if (unsubscribeSalaryDashboard) unsubscribeSalaryDashboard();
+        unsubscribeSalaryDashboard = null;
+        salaryDashboardWatchMonth = '';
         personalBtn.classList.add('active');
         personalBtn.style.color = 'var(--primary-color)';
         personalBtn.style.borderBottomColor = 'var(--primary-color)';
@@ -9296,7 +9362,7 @@ function getCurrentCalculationPayload(role) {
     }
     
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-    const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
+    const activeFilter = (window.currentLoadedRoleKey === 'tiep_tan') ? 'tiep-tan' : 'giao-vien';
     const isActiveRole = (role === activeFilter);
     
     const monthlyAll = window.currentMonthlySalarySettingsAll || {};
@@ -9332,7 +9398,7 @@ function getCurrentCalculationPayload(role) {
     };
 
     // First calculate hours and salaries programmatically
-    const chips = window.currentMonthChips || [];
+    const chips = (window.unfilteredAllMonthChips || window.currentMonthChips || []).filter(c => c.paidMinutes > 0);
     let normalMinutes = 0;
     let fixedMinutes = 0;
     let normalSalary = 0;
@@ -9397,7 +9463,7 @@ function getCurrentCalculationPayload(role) {
             const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
             const name = removeVietnameseTones(nameRaw);
             const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(roleId);
-            if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+            if (isReceptionistChip || (!chip.isTeaching && isReceptionID)) {
                 include = false;
             } else if (chip.isTeaching || name.includes('gv') || name.includes('giao') || name.includes('tro') || name.includes('ta')) {
                 include = true;
@@ -9410,7 +9476,7 @@ function getCurrentCalculationPayload(role) {
                 const nameRaw = chip.sessionData ? ((chip.sessionData.roleName || '').toLowerCase()) : '';
                 const name = removeVietnameseTones(nameRaw);
                 const isReceptionID = ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(roleId);
-                if (isReceptionID || name.includes('tiep') || name.includes('le') || name.includes('reception')) {
+                if (!chip.isTeaching && isReceptionID) {
                     include = true;
                 }
             }
@@ -9569,11 +9635,12 @@ function getCurrentCalculationPayload(role) {
             let note = rowData.note || '';
             
             // Special auto-calculated receptionist attendance bonus (HIỆU SUẤT / index: 0)
-            if (role === 'tiep-tan' && criteriaIndex === 0) {
-                amount = getRecepAttBonus(filteredMinutes);
+            if (criteriaIndex === 0 && rowData.manual !== true && (rowData.amount === undefined || String(rowData.note || '').startsWith('Thưởng chuyên cần:'))) {
+                const roleMinutes = role === 'tiep-tan' ? filteredMinutes : totalBaseMins + totalTinHocMins + totalPreschoolMins + totalAffiliateMins + totalTutoringMins + totalExtraMins;
+                amount = getRecepAttBonus(roleMinutes);
                 const autoNotePrefix = "Thưởng chuyên cần:";
                 if (!note || note.startsWith(autoNotePrefix)) {
-                    note = getRecepAttNote(filteredMinutes);
+                    note = getRecepAttNote(roleMinutes);
                 }
             }
             
@@ -9693,7 +9760,7 @@ function getCurrentCalculationPayload(role) {
         if (role === 'tiep-tan' && !isTT) return;
         if (role === 'giao-vien' && isTT) return;
         
-        if (chip.class === 'chip-gray' || chip.isVDX || chip.class === 'chip-red') {
+        if (chip.isAbsence || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
             const type = classifyAbsentChip(chip, notesMap);
             if (type === 'VP') vpShifts++;
             else if (type === 'VDX') vdxShifts++;
@@ -9863,10 +9930,7 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
         hasTeaching = hasTeachingEmploymentRole(staffRoles);
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-    const activeFilter = (filterVal === 'tiep-tan')
-        || (filterVal === 'all' && hasReceptionist && !hasTeaching)
-        ? 'tiep-tan'
-        : 'giao-vien';
+    const activeFilter = window.currentLoadedRoleKey === 'tiep_tan' ? 'tiep-tan' : 'giao-vien';
     const activeComponent = activeFilter === 'tiep-tan' ? 'tt' : 'gv';
     
     let payloadGV = null;
@@ -10049,7 +10113,7 @@ async function openBulkPublishModal(opts) {
         
         // Invalidate cache first
         DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
-        const allSettings = await DBService.getAllMonthlySalarySettings(monthStr);
+        const allSettings = await DBService.getAllMonthlySalarySettings(monthStr, { strict: true });
         window.bulkPublishAllSettings = allSettings;
         
         const teachersList = [];

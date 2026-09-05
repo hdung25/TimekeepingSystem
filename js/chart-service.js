@@ -11,11 +11,17 @@ const ChartService = {
     _clearCache: () => { ChartService._cache = {}; },
 
     // ===== BATCH: Get ALL attendance for a month (single WHERE query) =====
-    _getAllMonthAttendance: async (monthStr) => {
-        const cacheKey = ChartService._getCacheKey('attendance', monthStr);
+    _getAllMonthAttendance: async (monthStr, userId = null) => {
+        const cacheKey = ChartService._getCacheKey('attendance', monthStr, userId);
         if (ChartService._cache[cacheKey]) return ChartService._cache[cacheKey];
 
         try {
+            if (userId) {
+                const logs = await DBService.getMonthlyAttendance(monthStr, userId, true, { strict: true });
+                const ownLogs = logs.map(log => ({ ...log, _userId: userId }));
+                ChartService._cache[cacheKey] = ownLogs;
+                return ownLogs;
+            }
             const [year, month] = monthStr.split('-').map(Number);
             const daysInMonth = new Date(year, month, 0).getDate();
             const startDate = `${monthStr}-01`;
@@ -58,20 +64,7 @@ const ChartService = {
         if (ChartService._cache[cacheKey]) return ChartService._cache[cacheKey];
 
         try {
-            const [year, month] = monthStr.split('-').map(Number);
-            const daysInMonth = new Date(year, month, 0).getDate();
-            const schedules = {};
-
-            const promises = [];
-            for (let d = 1; d <= daysInMonth; d++) {
-                const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                promises.push(
-                    DBService.getSchedule(dateKey).then(data => {
-                        if (data && Object.keys(data).length > 0) schedules[dateKey] = data;
-                    }).catch(() => { })
-                );
-            }
-            await Promise.all(promises);
+            const schedules = await DBService.getMonthlySchedule(monthStr);
 
             ChartService._cache[cacheKey] = schedules;
             return schedules;
@@ -82,9 +75,9 @@ const ChartService = {
     },
 
     // ===== MASTER: Load all data at once for a month =====
-    loadMonthData: async (monthStr) => {
+    loadMonthData: async (monthStr, userId = null) => {
         const [allLogs, schedules, users] = await Promise.all([
-            ChartService._getAllMonthAttendance(monthStr),
+            ChartService._getAllMonthAttendance(monthStr, userId),
             ChartService._getAllMonthSchedules(monthStr),
             ChartService._getCachedUsers()
         ]);
@@ -130,13 +123,20 @@ const ChartService = {
 
             registeredClasses.forEach(cls => {
                 const schedStart = new Date(`${dateKey}T${cls.start}`);
-                const matched = sessions.find(s => {
+                if (!Number.isFinite(schedStart.getTime()) || schedStart > today) return;
+                let schedEnd = new Date(`${dateKey}T${cls.end}`);
+                if (schedEnd <= schedStart) schedEnd = new Date(schedEnd.getTime() + 86400000);
+                const candidates = sessions.filter(s => {
+                    if (s.isAbsent) return false;
+                    if (s.branch && cls._branch && s.branch !== cls._branch) return false;
                     const checkIn = new Date(s.checkIn || s.start);
-                    return Math.abs(checkIn - schedStart) < 60 * 60 * 1000;
-                });
+                    const checkOut = s.checkOut ? new Date(s.checkOut) : today;
+                    return checkIn < schedEnd && checkOut > schedStart;
+                }).sort((a,b) => new Date(a.checkIn || a.start) - new Date(b.checkIn || b.start));
+                const matched = candidates[0];
 
-                if (!matched || !matched.checkIn) {
-                    if (new Date(dateKey) < today) absent++;
+                if (!matched) {
+                    if (schedEnd <= today) absent++;
                 } else {
                     const checkIn = new Date(matched.checkIn || matched.start);
                     const diffMs = schedStart - checkIn;

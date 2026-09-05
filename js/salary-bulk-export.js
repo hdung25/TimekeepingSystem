@@ -250,7 +250,7 @@
 
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
             const [allSettings, users, sysSettings] = await Promise.all([
-                DBService.getAllMonthlySalarySettings(monthStr),
+                DBService.getAllMonthlySalarySettings(monthStr, { strict: true }),
                 DBService.getUsers(),
                 DBService.getSystemSettings().catch(() => null)
             ]);
@@ -283,8 +283,9 @@
 
                 // Hai bên vai trò tách riêng: người làm cả 2 ra 2 file, không trộn số liệu
                 const sides = [];
-                const gvStatus = pub.status_gv || (pub.role !== 'tiep-tan' ? pub.status : null);
-                const ttStatus = pub.status_tt || (pub.role === 'tiep-tan' ? pub.status : null);
+                const lifecycle = DBService.getPayslipLifecycleState(pub);
+                const gvStatus = lifecycle.has_gv ? lifecycle.status_gv : null;
+                const ttStatus = lifecycle.has_tt ? lifecycle.status_tt : null;
                 const gvDetails = pub.details_gv || (pub.role !== 'tiep-tan' && pub.role !== 'dual' ? pub.details : null);
                 const ttDetails = pub.details_tt || (pub.role === 'tiep-tan' ? pub.details : null);
 

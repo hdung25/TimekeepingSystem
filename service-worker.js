@@ -1,7 +1,7 @@
-// Service Worker v152 - complete payroll reads, transfer expiry and protected
+// Service Worker v153 - synchronized payroll, receipts and saved history; protected
 // staff clock values. Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v152-payroll-schedule-integrity-20260905';
+const CACHE_NAME = 'tdt-chamcong-v153-payroll-sync-20260905';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -23,41 +23,41 @@ const STATIC_ASSETS = Array.from(new Set([
     '/nhan-su.html',
     '/he-thong.html',
     '/mon-hoc.html',
-    '/css/style.css?v=20260905-payroll-schedule-integrity-v2',
+    '/css/style.css?v=20260905-payroll-sync-v3',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/startup-recovery.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/firebase-config.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/db-service.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/report.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/evaluation-service.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/shift-absence-state.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/admin-payroll-override.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/admin-payroll-override-ui.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/shift-oversight.js?v=20260905-payroll-schedule-integrity-v2',
+    '/js/main.js?v=20260905-payroll-sync-v3',
+    '/js/startup-recovery.js?v=20260905-payroll-sync-v3',
+    '/js/firebase-config.js?v=20260905-payroll-sync-v3',
+    '/js/db-service.js?v=20260905-payroll-sync-v3',
+    '/js/report.js?v=20260905-payroll-sync-v3',
+    '/js/evaluation-service.js?v=20260905-payroll-sync-v3',
+    '/js/shift-absence-state.js?v=20260905-payroll-sync-v3',
+    '/js/admin-payroll-override.js?v=20260905-payroll-sync-v3',
+    '/js/admin-payroll-override-ui.js?v=20260905-payroll-sync-v3',
+    '/js/shift-oversight.js?v=20260905-payroll-sync-v3',
     // Keep the legacy key for cham-cong.html while caching the current key used
     // by the scheduler and the updated staff pages. A fresh cache must support
     // both paths offline during the page-version transition.
     '/js/ui-service.js?v=20260829-location-diagnostics-v3',
-    '/js/ui-service.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/early10.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/schedule-attendance-admin.js?v=20260905-payroll-schedule-integrity-v2',
+    '/js/ui-service.js?v=20260905-payroll-sync-v3',
+    '/js/early10.js?v=20260905-payroll-sync-v3',
+    '/js/schedule-attendance-admin.js?v=20260905-payroll-sync-v3',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260809-nested-groups-v1',
-    '/js/personnel.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/auth-guard.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/auth-helper.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/chart-service.js?v=20260807-multi-gv-bulk-v1',
-    '/js/analytics.js?v=20260905-payroll-schedule-integrity-v2',
+    '/js/personnel.js?v=20260905-payroll-sync-v3',
+    '/js/auth-guard.js?v=20260905-payroll-sync-v3',
+    '/js/auth-helper.js?v=20260905-payroll-sync-v3',
+    '/js/chart-service.js?v=20260905-payroll-sync-v3',
+    '/js/analytics.js?v=20260905-payroll-sync-v3',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/teacher-shift-state.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/pdf-export.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/receptionist-schedule.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/timekeeping.js?v=20260905-payroll-schedule-integrity-v2',
-    '/js/salary-bulk-export.js?v=20260807-payslip-mobile-v1',
+    '/js/schedule.js?v=20260905-payroll-sync-v3',
+    '/js/teacher-shift-state.js?v=20260905-payroll-sync-v3',
+    '/js/pdf-export.js?v=20260905-payroll-sync-v3',
+    '/js/receptionist-schedule.js?v=20260905-payroll-sync-v3',
+    '/js/timekeeping.js?v=20260905-payroll-sync-v3',
+    '/js/salary-bulk-export.js?v=20260905-payroll-sync-v3',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'
