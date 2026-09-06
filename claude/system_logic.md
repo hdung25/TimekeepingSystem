@@ -903,6 +903,7 @@ là bảng 4 cột với nhãn dọc như cũ.
   approved/rejected), tránh xóa ngầm phụ cấp hoặc 10 HS.
 - Kiểm chứng: `npm test`; `npm run test:rules` (31/31 Rules scenarios và integration)
   đều đạt; `node --check` cho các module thay đổi. Firestore Rules đã deploy vào
-  `timekeeping-69f3f`. Build PWA sẵn sàng là `20260906-early10-recovery-v1`, cache
-  `tdt-chamcong-v154-early10-recovery-20260906`; web production chưa deploy vì
-  Vercel CLI và phiên web hiện tại không có quyền dự án `timekeeping-system`.
+  `timekeeping-69f3f`. Build PWA `20260906-early10-recovery-v1`, cache
+  `tdt-chamcong-v154-early10-recovery-20260906` đã lên production qua commit
+  `9c04b96`; kiểm tra trực tiếp `service-worker.js` và `bao-cao.html` tại
+  `https://timekeeping-system-tawny.vercel.app` đều trả đúng phiên bản mới.
