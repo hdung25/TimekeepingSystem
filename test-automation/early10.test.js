@@ -49,6 +49,30 @@ const atSecond = (clock) => new Date(`2026-08-03T${clock}`);
 }
 
 {
+    // Lịch cũ FFS01 có thể thiếu lopId. Chỉ tên/alias khớp duy nhất mới được
+    // suy ra subject; một lopId thật luôn thắng, không bị tên ghi đè.
+    const ffsSubjects = [
+        { id: 'ffs1', name: 'FFS1', early10ScheduleAliases: ['FFS01'], allowEarly10: true },
+        { id: 'mover1', name: 'Mover 1', allowEarly10: true }
+    ];
+    assert.equal(Early10.resolveScheduleSubjectIdByName('FFS01', ffsSubjects), 'ffs1');
+    assert.deepEqual(
+        Early10.getChipSubjectIds({ lop: 'FFS01', lopId: '' }, ffsSubjects),
+        ['ffs1']
+    );
+    assert.deepEqual(
+        Early10.getChipSubjectIds({ lop: 'FFS01', lopId: 'mover1' }, ffsSubjects),
+        ['mover1'],
+        'lopId thật không được alias tên lịch ghi đè'
+    );
+    const duplicateMap = Early10.buildSubjectEarly10NameMap([
+        { id: 'a', name: 'FFS1', early10ScheduleAliases: ['FFS01'] },
+        { id: 'b', name: 'Khác', early10ScheduleAliases: ['FFS01'] }
+    ]);
+    assert.equal(duplicateMap.ffs1, '', 'alias trùng phải fail-closed');
+}
+
+{
     // Phân loại chế độ giáo viên.
     assert.equal(Early10.getTeachingMode(OLD_TEACHER), 'old');
     assert.equal(Early10.getTeachingMode(NEW_TEACHER), 'new');

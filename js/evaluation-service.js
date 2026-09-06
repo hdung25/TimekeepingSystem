@@ -631,6 +631,22 @@ function buildEarly10TargetShiftKey(dateStr, cls, secKey, classIndex) {
     const scheduleKey = clean(cls?._compositeKey || `${cls?._branch || 'branch'}__${dateStr || ''}`);
     const stableShiftId = clean(cls?.shiftId || '');
     const section = clean(secKey || 'section');
+    // A projected inherited row has a generated shiftId that is stable for the
+    // browser, but Firestore Rules cannot reproduce its hash.  Use the source
+    // template + original position instead.  The target date remains in the
+    // key, so one template cannot merge awards across different days.
+    if (cls?._isInheritedSchedule === true && cls?._inheritedFromScheduleDocId) {
+        const sourceScheduleKey = clean(cls._inheritedFromScheduleDocId);
+        const sourceIndex = Number.isInteger(cls?._inheritedIndex)
+            ? cls._inheritedIndex
+            : classIndex;
+        return [
+            `teaching__${clean(dateStr || '')}__inherited__${sourceScheduleKey}`,
+            section,
+            String(sourceIndex),
+            `${String(cls?.start || '')}-${String(cls?.end || '')}`
+        ].join('__').slice(0, 240);
+    }
     const identity = stableShiftId
         ? `shift__${stableShiftId}`
         // Old rows may not have a persistent shiftId. Use the immutable payroll
@@ -657,11 +673,82 @@ function findShiftScopedBonus10Request(bonus10Map, sessionId, targetShiftKey) {
     ) || null;
 }
 
+function getExactEarlyMinutesForClass(dateStr, checkIn, classStart) {
+    const actual = safeDate(checkIn);
+    if (!actual || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(classStart || ''))) return null;
+    const scheduled = new Date(`${dateStr}T${classStart}:00+07:00`);
+    if (Number.isNaN(scheduled.getTime())) return null;
+    let value = (scheduled.getTime() - actual.getTime()) / 60000;
+    if (value > 720) value -= 1440;
+    if (value < -720) value += 1440;
+    return value;
+}
+
+function normalizeEarly10ScheduleName(value) {
+    let text = String(value == null ? '' : value).trim().toLowerCase();
+    if (!text) return '';
+    if (typeof text.normalize === 'function') {
+        text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+    return text
+        .replace(/đ/g, 'd')
+        .replace(/\s+/g, '')
+        .replace(/(^|[^0-9])0+([0-9]+)/g, '$1$2');
+}
+
+function resolveEarly10ScheduleSubjectIds(row, subjectEarly10NameMap) {
+    const explicit = String(row?.lopId || '')
+        .split('+')
+        .map(part => part.trim())
+        .filter(Boolean);
+    if (explicit.length) return Array.from(new Set(explicit));
+    const key = normalizeEarly10ScheduleName(row?.lop);
+    const resolved = subjectEarly10NameMap && typeof subjectEarly10NameMap === 'object'
+        ? subjectEarly10NameMap[key]
+        : '';
+    return typeof resolved === 'string' && resolved ? [resolved] : [];
+}
+
+// Preserve an historic click recorded on attendance.sessions[].bonus10 only
+// for the precise teaching chip that still proves the policy. This bridge does
+// not spill into reception work and never bypasses subject, mode, time, or a
+// monthly cancellation lock. It is read-only: canonical request documents win
+// whenever one exists for this target shift.
+function getLegacySessionBonus10Award(
+    session,
+    cls,
+    section,
+    classIndex,
+    dateStr,
+    currentUserContext,
+    monthFlags
+) {
+    if (!session || session.bonus10 !== true || session.isAbsent ||
+        currentUserContext?.teachingMode === 'new' ||
+        monthFlags?.early10PenaltyActive === true) return null;
+    const subjectEarly10Map = monthFlags?.subjectEarly10Map;
+    if (!subjectEarly10Map || typeof subjectEarly10Map !== 'object') return null;
+    const subjectIds = resolveEarly10ScheduleSubjectIds(cls, monthFlags?.subjectEarly10NameMap);
+    const subjectId = subjectIds.find(id => subjectEarly10Map[String(id)] === true);
+    if (!subjectId || !(getExactEarlyMinutesForClass(
+        dateStr,
+        session.checkIn || session.start,
+        cls?.start
+    ) >= 10)) return null;
+    const targetShiftKey = buildEarly10TargetShiftKey(dateStr, cls, section, classIndex);
+    return {
+        id: `legacy-session-bonus10__${String(session.id || 'session')}__${targetShiftKey}`,
+        status: 'approved',
+        awardScope: 'teaching_shift',
+        targetShiftKey,
+        subjectId,
+        compatibilitySource: 'legacy-session-bonus10'
+    };
+}
+
 // Historical approved requests were keyed only by sessionId. Preserve a real
 // award only when the old record can be proven against today's evaluation
-// inputs and resolves to exactly one eligible teaching shift. This is a
-// read-only compatibility bridge: it never treats session.bonus10 as evidence
-// and never guesses when two schedule rows are possible.
+// inputs and resolves to exactly one eligible teaching shift.
 function addDeterministicLegacyBonus10Awards(
     bonus10Map,
     schedule,
@@ -670,7 +757,8 @@ function addDeterministicLegacyBonus10Awards(
     dateStr,
     currentUserContext,
     cancelledShifts,
-    subjectEarly10Map
+    subjectEarly10Map,
+    subjectEarly10NameMap
 ) {
     const sourceMap = bonus10Map && typeof bonus10Map === 'object' ? bonus10Map : {};
     const result = {};
@@ -698,17 +786,6 @@ function addDeterministicLegacyBonus10Awards(
     const sessions = Array.isArray(attendanceSessions) ? attendanceSessions : [];
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const cancelled = Array.isArray(cancelledShifts) ? cancelledShifts.map(String) : [];
-    const splitIds = value => String(value || '').split('+').map(part => part.trim()).filter(Boolean);
-    const exactEarlyMinutes = (checkIn, classStart) => {
-        const actual = safeDate(checkIn);
-        if (!actual || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(classStart || ''))) return null;
-        const scheduled = new Date(`${dateStr}T${classStart}:00+07:00`);
-        if (Number.isNaN(scheduled.getTime())) return null;
-        let value = (scheduled.getTime() - actual.getTime()) / 60000;
-        if (value > 720) value -= 1440;
-        if (value < -720) value += 1440;
-        return value;
-    };
 
     requests.forEach(request => {
         if (request.status !== 'approved' || request.awardScope === 'teaching_shift' ||
@@ -718,7 +795,7 @@ function addDeterministicLegacyBonus10Awards(
         if (!session || session.isAbsent) return;
         const requestedStart = String(request.classStart || request.scheduledStart || '').trim();
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(requestedStart) ||
-            !(exactEarlyMinutes(session.checkIn || session.start, requestedStart) >= 10)) return;
+            !(getExactEarlyMinutesForClass(dateStr, session.checkIn || session.start, requestedStart) >= 10)) return;
 
         const candidatesByTarget = new Map();
         sections.forEach(section => {
@@ -736,7 +813,7 @@ function addDeterministicLegacyBonus10Awards(
                     (row.registeredTeachers || []).some(item => String(item?.id || '') === String(staffId))
                 ));
                 if (!isAssigned) return;
-                const subjectIds = splitIds(row.lopId);
+                const subjectIds = resolveEarly10ScheduleSubjectIds(row, subjectEarly10NameMap);
                 const allowedIds = subjectIds.filter(id => subjectEarly10Map[id] === true);
                 if (!allowedIds.length) return;
                 if (request.subjectId && !subjectIds.includes(String(request.subjectId))) return;
@@ -786,7 +863,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
         dateStr,
         currentUserContext,
         cancelledShifts,
-        monthFlags?.subjectEarly10Map
+        monthFlags?.subjectEarly10Map,
+        monthFlags?.subjectEarly10NameMap
     );
     const chips = [];
     const usedSessionIdsTeaching = new Set();
@@ -1461,11 +1539,22 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     secKey,
                     cls._originalIndex !== undefined ? cls._originalIndex : idx
                 );
-                const b10DataT = findShiftScopedBonus10Request(
+                let b10DataT = findShiftScopedBonus10Request(
                     bonus10Map,
                     matchedSession.id,
                     b10TargetShiftKeyT
                 );
+                if (!b10DataT) {
+                    b10DataT = getLegacySessionBonus10Award(
+                        matchedSession,
+                        cls,
+                        secKey,
+                        cls._originalIndex !== undefined ? cls._originalIndex : idx,
+                        dateStr,
+                        currentUserContext,
+                        monthFlags
+                    );
+                }
                 const b10StatusT = b10DataT ? b10DataT.status : null;
 
                 // Clone sessionData to prevent shared reference modifications
@@ -1691,10 +1780,10 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         tooltip += ` | Đã giới hạn theo giờ lịch (chống tính dư)`;
                     }
 
-                    // BONUS 10P: only a server/rules-approved award scoped to
-                    // this exact teaching shift may affect payroll. Historical
-                    // session.bonus10 flags are deliberately ignored: one
-                    // session can also cover other classes/reception work.
+                    // BONUS 10P: a canonical server/rules-approved award wins.
+                    // A historic session.bonus10 flag is read only through the
+                    // exact per-chip compatibility proof above, so it can never
+                    // spill into another class or receptionist work.
                     if (b10StatusT === 'approved') {
                         if (early10PenaltyActive) {
                             label += ' ★+10p (hủy)';
@@ -1877,6 +1966,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     chipFilterName: chipFilterName,
                     subjectIds: _chipSubjectIds,
                     subjectId: _chipSubjectIds.length === 1 ? _chipSubjectIds[0] : null,
+                    lop: cls.lop || '',
                     lopId: cls.lopId || null,
                     classStart: cls.start,
                     classEnd: cls.end,
@@ -1896,6 +1986,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     bonus10Id: b10DataT ? b10DataT.id : null,
                     bonus10TargetShiftKey: b10TargetShiftKeyT,
                     bonus10AwardScope: 'teaching_shift',
+                    bonus10CompatibilitySource: b10DataT?.compatibilitySource || '',
                     mergedSegments: (_mergeInfo[_mk] && _mergeInfo[_mk].chainSegments) || null,
                     systemLateMinutes,
                     manualLateMinutes,

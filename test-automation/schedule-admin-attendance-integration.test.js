@@ -108,13 +108,19 @@ assert.match(db, /auth\/role-user-missing/);
 assert.match(command, /schedule_attendance_admin_audits/,
     'transaction must include the strict-admin immutable audit boundary');
 assert.match(command, /transaction\.get\(scheduleRef\)/,
-    'the attendance transaction must read the exact materialized schedule document');
+    'the attendance transaction must read the target-day schedule document');
+assert.match(command, /sourceScheduleRef[\s\S]*transaction\.get\(sourceScheduleRef\)/,
+    'an inherited popup must transactionally verify its saved source schedule');
 assert.match(command, /transaction\.get\(settingsRef\)/,
     'the attendance transaction must re-read settings/system instead of trusting cached window closures');
 assert.match(command, /expectedScheduleSignature/);
 assert.match(command, /expectedStaffingUpdatedAt/);
-assert.match(command, /schedule\/not-materialized/,
-    'inherited schedules must fail closed until the date document is materialized');
+assert.match(command, /scheduleIsInherited[\s\S]*scheduleSourceDocId[\s\S]*schedule\/inheritance-changed/,
+    'inherited schedules must use a source-row identity and refresh if that projection changes');
+assert.match(command, /!scheduleSnapshot\.exists[\s\S]*schedule\/not-materialized/,
+    'a direct schedule still fails closed when its required day document is absent');
+assert.match(schedule, /isInherited:\s*state\.originalRow\._isInheritedSchedule === true[\s\S]*sourceDocId:[\s\S]*_inheritedFromScheduleDocId/,
+    'the popup must send inherited source metadata instead of a browser-only shift ID');
 assert.match(command, /schedule\/staff-unassigned/,
     'a stale popup must not write attendance after the teacher is removed');
 assert.match(command, /schedule\/staff-absent/,
@@ -141,8 +147,8 @@ const beforeAttendanceTransaction = command.slice(0, command.indexOf('await db.r
 assert.doesNotMatch(beforeAttendanceTransaction, /evaluateEarly10Request\(/,
     'clicked-row policy must not reject joined A+B before the transaction resolves the complete live set');
 assert.match(command, /const bonus10Dirty = command\.bonus10Dirty === true \|\|/);
-assert.match(command, /delete session\.bonus10/,
-    'admin corrections must clean the obsolete session-wide +10 flag');
+assert.match(command, /if \(bonus10Dirty\) delete session\.bonus10/,
+    'a time/count-only correction must preserve a legacy +10 flag until an explicit +10 decision');
 assert.match(command, /const requiresBonus10Policy = wantsBonus10 \|\| keepsExistingBonus10/,
     'preserved active +10 must be re-evaluated against the corrected time');
 assert.match(command, /bonus10Dirty && bonusRequestSnapshot\?\.exists/,
@@ -380,13 +386,13 @@ assert.doesNotMatch(dayAttendance, /catch \(e\)[\s\S]*return new Map\(\)/);
     );
 }
 
-const earlyIndex = html.indexOf('js/early10.js?v=20260905-payroll-sync-v3');
-const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260905-payroll-sync-v3');
-const dbIndex = html.indexOf('js/db-service.js?v=20260905-payroll-sync-v3');
-const scheduleIndex = html.indexOf('js/schedule.js?v=20260905-payroll-sync-v3');
+const earlyIndex = html.indexOf('js/early10.js?v=20260906-early10-recovery-v1');
+const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1');
+const dbIndex = html.indexOf('js/db-service.js?v=20260906-early10-recovery-v1');
+const scheduleIndex = html.indexOf('js/schedule.js?v=20260906-early10-recovery-v1');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v153-payroll-sync-20260905/);
-assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260905-payroll-sync-v3/);
+assert.match(serviceWorker, /tdt-chamcong-v154-early10-recovery-20260906/);
+assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260906-early10-recovery-v1/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');

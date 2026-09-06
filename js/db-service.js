@@ -130,9 +130,23 @@ function _cleanBonus10TargetPart(value) {
         .slice(0, 120);
 }
 
-function _bonus10TargetShiftKey(dateKey, scheduleDocId, section, rowIndex, shiftId = '', classStart = '', classEnd = '') {
+function _bonus10TargetShiftKey(
+    dateKey,
+    scheduleDocId,
+    section,
+    rowIndex,
+    shiftId = '',
+    classStart = '',
+    classEnd = '',
+    inheritedSourceDocId = ''
+) {
     const stableShiftId = _cleanBonus10TargetPart(shiftId);
-    const identity = stableShiftId
+    const sourceDocId = _cleanBonus10TargetPart(inheritedSourceDocId);
+    const identity = sourceDocId
+        // Firestore Rules can reproduce this locator from the saved template.
+        // Never use the browser-only shift_inherited_* identifier here.
+        ? `inherited__${sourceDocId}__${_cleanBonus10TargetPart(section)}__${Number(rowIndex)}__${String(classStart)}-${String(classEnd)}`
+        : stableShiftId
         ? `shift__${stableShiftId}`
         : `${_cleanBonus10TargetPart(scheduleDocId)}__${_cleanBonus10TargetPart(section)}__${String(classStart)}-${String(classEnd)}`;
     return `teaching__${_cleanBonus10TargetPart(dateKey)}__${identity}`.slice(0, 240);
@@ -140,6 +154,10 @@ function _bonus10TargetShiftKey(dateKey, scheduleDocId, section, rowIndex, shift
 
 function _normalizeBonus10ClaimMeta(meta = {}) {
     const scheduleDocId = String(meta.scheduleDocId || '').trim();
+    const scheduleIsInherited = meta.scheduleIsInherited === true;
+    const scheduleSourceDocId = String(
+        meta.scheduleSourceDocId || (scheduleIsInherited ? '' : scheduleDocId)
+    ).trim();
     const scheduleSection = String(meta.scheduleSection || '').trim();
     const scheduleIndex = Number(meta.scheduleIndex);
     const scheduleShiftId = String(meta.scheduleShiftId || '').trim();
@@ -160,9 +178,13 @@ function _normalizeBonus10ClaimMeta(meta = {}) {
         String(scheduleAssignmentEntry.id || '') === String(meta.staffId || '')
     );
     const valid = /^[A-Za-z0-9_-]{1,160}$/.test(scheduleDocId) &&
+        /^[A-Za-z0-9_-]{1,160}$/.test(scheduleSourceDocId) &&
         BONUS10_SCHEDULE_SECTIONS.includes(scheduleSection) &&
         Number.isInteger(scheduleIndex) && scheduleIndex >= 0 && scheduleIndex <= 500 &&
         (!scheduleShiftId || /^[A-Za-z0-9_-]{1,160}$/.test(scheduleShiftId)) &&
+        (scheduleIsInherited
+            ? (scheduleShiftId === '' && scheduleSourceDocId !== scheduleDocId)
+            : scheduleSourceDocId === scheduleDocId) &&
         /^[A-Za-z0-9_:-]{1,240}$/.test(targetShiftKey) &&
         /^[A-Za-z0-9_-]{1,160}$/.test(subjectId) &&
         /^([01]\d|2[0-3]):[0-5]\d$/.test(classStart) &&
@@ -178,7 +200,7 @@ function _normalizeBonus10ClaimMeta(meta = {}) {
     }
     const expectedTarget = _bonus10TargetShiftKey(
         String(meta.dateKey || ''), scheduleDocId, scheduleSection, scheduleIndex, scheduleShiftId,
-        classStart, classEnd
+        classStart, classEnd, scheduleIsInherited ? scheduleSourceDocId : ''
     );
     if (!meta.dateKey || targetShiftKey !== expectedTarget) {
         const error = new Error('Ca dạy đã thay đổi hoặc định danh +10 phút không còn khớp lịch.');
@@ -187,7 +209,8 @@ function _normalizeBonus10ClaimMeta(meta = {}) {
     }
     return {
         awardScope: 'teaching_shift', targetShiftKey, subjectId,
-        scheduleDocId, scheduleSection, scheduleIndex, scheduleShiftId,
+        scheduleDocId, scheduleSourceDocId, scheduleIsInherited,
+        scheduleSection, scheduleIndex, scheduleShiftId,
         scheduleRegistrationId, scheduleAssignmentList, scheduleAssignmentEntry,
         classStart, classEnd, checkInAt, earlyMinutes
     };
@@ -282,6 +305,48 @@ function _normalizeScheduleSubjectIds(value) {
         .map(item => item.trim())
         .filter(Boolean)))
         .sort();
+}
+
+// A missing lopId is a legacy data condition, not permission to fuzzy-match a
+// class name.  The saved name must match the catalogue subject exactly or one
+// of that subject's admin-configured aliases (for example FFS01 for FFS1).
+function _isBonus10RowSubjectBound(row, subject) {
+    const subjectId = String(subject?.id || '').trim();
+    if (!subjectId) return false;
+    const rowSubjectIds = _normalizeScheduleSubjectIds(row?.lopId);
+    if (rowSubjectIds.length) return rowSubjectIds.includes(subjectId);
+    const scheduleName = String(row?.lop || '').trim();
+    if (!scheduleName) return false;
+    if (scheduleName === String(subject?.name || '').trim()) return true;
+    const aliases = Array.isArray(subject?.early10ScheduleAliases)
+        ? subject.early10ScheduleAliases
+        : [];
+    return aliases.some(alias => String(alias || '').trim() === scheduleName);
+}
+
+// getSchedule() deliberately turns a weekly template into a target-date
+// projection. Rebuild the same read-only shape inside the claim transaction,
+// so an inherited row is verified against the same roster the report showed.
+function _projectInheritedBonus10Row(row, targetDateKey) {
+    const roster = typeof TeacherShiftState !== 'undefined' &&
+        typeof TeacherShiftState.projectInheritedRoster === 'function'
+        ? TeacherShiftState.projectInheritedRoster(row, targetDateKey)
+        : { ...(row || {}) };
+    const projected = { ...roster, registeredTeachers: [] };
+    delete projected.isClosed;
+    projected.gvThayThe = '';
+    projected.gvThayTheId = '';
+    projected.gvThayTheList = [];
+    projected.gvThayTe = '';
+    projected.gvThayTeId = '';
+    projected.gvThayTeList = [];
+    delete projected.gvThayTheAt;
+    delete projected.teacherAbsences;
+    delete projected.teacherAbsenceHistory;
+    delete projected.staffingUpdatedAt;
+    delete projected.staffingUpdatedById;
+    delete projected.staffingUpdatedByName;
+    return projected;
 }
 
 function _sameScheduleSubjectIdSet(left, right) {
@@ -424,17 +489,28 @@ function _resolveConcurrentTeachingSubjectSet(rows, staffId, scheduledStart, sch
         }
 
         const subjectName = String(row.lop || '').trim();
+        const resolvedByPolicyName = typeof window !== 'undefined' &&
+            window.Early10?.resolveScheduleSubjectIdByName
+            ? window.Early10.resolveScheduleSubjectIdByName(subjectName, catalog)
+            : '';
         const exactMatches = catalog.filter(subject => String(subject?.name || '').trim() === subjectName);
-        if (!subjectName || exactMatches.length !== 1 || !String(exactMatches[0]?.id || '').trim()) {
-            const error = new Error(exactMatches.length > 1
+        const resolvedSubject = resolvedByPolicyName
+            ? catalog.find(subject => String(subject?.id || '') === String(resolvedByPolicyName))
+            : (exactMatches.length === 1 ? exactMatches[0] : null);
+        if (!subjectName || !resolvedSubject || !String(resolvedSubject?.id || '').trim()) {
+            const error = new Error(exactMatches.length > 1 && !resolvedByPolicyName
                 ? `Môn/Lớp “${subjectName || '?'}” của ca trùng giờ đang bị trùng tên dữ liệu.`
                 : `Môn/Lớp “${subjectName || '?'}” của ca trùng giờ chưa có mã dữ liệu duy nhất.`);
             error.code = 'schedule/subject-conflict';
             throw error;
         }
-        const resolvedId = String(exactMatches[0].id).trim();
+        const resolvedId = String(resolvedSubject.id).trim();
         ids.add(resolvedId);
-        resolvedByName.push({ id: resolvedId, name: subjectName });
+        resolvedByName.push({
+            id: resolvedId,
+            name: subjectName,
+            catalogName: String(resolvedSubject.name || '').trim()
+        });
     });
 
     return {
@@ -4066,13 +4142,22 @@ const DBService = {
             : (Number.isInteger(command.index)
                 ? command.index
                 : (Number.isInteger(scheduleIdentity.index) ? scheduleIdentity.index : null));
+        const scheduleIsInherited = scheduleIdentity.isInherited === true;
+        const scheduleSourceDocId = String(scheduleIdentity.sourceDocId || '').trim();
+        const scheduleSourceIndex = Number.isInteger(scheduleIdentity.sourceIndex)
+            ? scheduleIdentity.sourceIndex
+            : scheduleIndex;
         const hasPersistedShiftIdentity = Object.prototype.hasOwnProperty.call(
             scheduleIdentity,
             'persistedShiftId'
         );
-        const requestedShiftId = String(
+        const displayedShiftId = String(
             hasPersistedShiftIdentity ? scheduleIdentity.persistedShiftId : command.shiftId || ''
         ).trim();
+        // shift_inherited_* is a target-date projection, not a persisted value
+        // that can be verified against Firestore. Its source-row locator is the
+        // authoritative +10 identity instead.
+        const requestedShiftId = scheduleIsInherited ? '' : displayedShiftId;
         if (!/^[A-Za-z0-9_-]{1,80}$/.test(staffId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
             throw new Error('Nhân sự hoặc ngày chấm công không hợp lệ.');
         }
@@ -4080,6 +4165,14 @@ const DBService = {
             !/^[A-Za-z0-9_-]{1,80}$/.test(scheduleSection) ||
             !expectedScheduleSignature || !hasExpectedStaffingUpdatedAt) {
             const error = new Error('Popup lịch thiếu dấu vết phiên bản của ca. Hãy tải lại lịch trước khi chỉnh công.');
+            error.code = 'schedule/context-required';
+            throw error;
+        }
+        if (scheduleIsInherited &&
+            (!/^[A-Za-z0-9_-]{1,160}$/.test(scheduleSourceDocId) ||
+                !Number.isInteger(scheduleSourceIndex) || scheduleSourceIndex < 0 ||
+                scheduleSourceDocId === compositeKey)) {
+            const error = new Error('Popup lịch kế thừa thiếu định danh lịch nguồn. Hãy tải lại lịch trước khi chỉnh công.');
             error.code = 'schedule/context-required';
             throw error;
         }
@@ -4091,6 +4184,9 @@ const DBService = {
             throw error;
         }
         const scheduleRef = db.collection('schedules').doc(parsedScheduleKey.docId);
+        const sourceScheduleRef = scheduleIsInherited
+            ? db.collection('schedules').doc(scheduleSourceDocId)
+            : null;
         const teacherShiftState = window.TeacherShiftState;
         if (!teacherShiftState || typeof teacherShiftState.getMainTeachers !== 'function' ||
             typeof teacherShiftState.getSubstituteTeachers !== 'function' ||
@@ -4150,14 +4246,20 @@ const DBService = {
             const exactMatches = subjects.filter(subject =>
                 String(subject.name || '').trim() === requestedSubjectName
             );
-            if (exactMatches.length !== 1) {
+            const resolvedByScheduleName = window.Early10.resolveScheduleSubjectIdByName
+                ? window.Early10.resolveScheduleSubjectIdByName(requestedSubjectName, subjects)
+                : '';
+            const resolvedSubject = resolvedByScheduleName
+                ? subjects.find(subject => String(subject.id || '') === String(resolvedByScheduleName))
+                : (exactMatches.length === 1 ? exactMatches[0] : null);
+            if (!resolvedSubject) {
                 const error = new Error(exactMatches.length > 1
                     ? 'Tên Môn/Lớp đang trùng dữ liệu nên không thể tự chọn mã tính lương an toàn.'
                     : 'Môn/Lớp này chưa có mã dữ liệu. Hãy chọn lại Môn/Lớp trước khi ghi công để bảng lương không hiện “Role?”.');
                 error.code = 'schedule/subject-conflict';
                 throw error;
             }
-            subjectId = String(exactMatches[0].id || '').trim();
+            subjectId = String(resolvedSubject.id || '').trim();
             subjectIds = [subjectId];
         }
         const subjectRefs = subjectIds.map(id => db.collection('subjects').doc(id));
@@ -4168,8 +4270,8 @@ const DBService = {
             .map(doc => ({ id: doc.id, ...doc.data() }));
         // A time/count correction must not implicitly approve or cancel +10.
         // Only an explicit toggle from the Admin UI may mutate the approved
-        // request for this exact teaching shift. Session-level flags are legacy
-        // data and are never an award source.
+        // request for this exact teaching shift. A legacy session flag remains
+        // read-only evidence until such an explicit decision is made.
         const bonus10Mutation = command.bonus10Mutation && typeof command.bonus10Mutation === 'object'
             ? command.bonus10Mutation
             : {};
@@ -4199,10 +4301,11 @@ const DBService = {
             dateKey,
             compositeKey,
             scheduleSection,
-            Number.isInteger(scheduleIndex) ? scheduleIndex : 0,
+            scheduleIsInherited ? scheduleSourceIndex : (Number.isInteger(scheduleIndex) ? scheduleIndex : 0),
             requestedShiftId,
             scheduledStart,
-            scheduledEnd
+            scheduledEnd,
+            scheduleIsInherited ? scheduleSourceDocId : ''
         );
         const sameTargetRequests = monthlyRequests.filter(item =>
             String(item.dateKey || '') === dateKey &&
@@ -4253,6 +4356,7 @@ const DBService = {
                 transaction.get(attendanceRef),
                 transaction.get(monthlyRef),
                 transaction.get(scheduleRef),
+                ...(sourceScheduleRef ? [transaction.get(sourceScheduleRef)] : []),
                 transaction.get(profileRef),
                 transaction.get(settingsRef),
                 transaction.get(cancelledRef)
@@ -4264,10 +4368,14 @@ const DBService = {
             const attendanceSnapshot = snapshots[1];
             const monthlySnapshot = snapshots[2];
             const scheduleSnapshot = snapshots[3];
-            const liveProfileSnapshot = snapshots[4];
-            const settingsSnapshot = snapshots[5];
-            const cancelledSnapshot = snapshots[6];
-            const subjectSnapshotStart = 7;
+            let snapshotOffset = 4;
+            const sourceScheduleSnapshot = sourceScheduleRef
+                ? snapshots[snapshotOffset++]
+                : scheduleSnapshot;
+            const liveProfileSnapshot = snapshots[snapshotOffset++];
+            const settingsSnapshot = snapshots[snapshotOffset++];
+            const cancelledSnapshot = snapshots[snapshotOffset++];
+            const subjectSnapshotStart = snapshotOffset;
             const liveSubjectSnapshots = snapshots.slice(
                 subjectSnapshotStart,
                 subjectSnapshotStart + subjectRefs.length
@@ -4340,23 +4448,64 @@ const DBService = {
                 error.code = code;
                 return error;
             };
-            if (!scheduleSnapshot.exists) {
-                throw scheduleConflict(
-                    'Ngày này đang dùng lịch kế thừa và chưa có bản lịch riêng để khóa phiên bản. Hãy lưu/materialize lịch ngày trước khi chỉnh công.',
-                    'schedule/not-materialized'
-                );
-            }
-            const scheduleData = scheduleSnapshot.data() || {};
-            const scheduleRows = Array.isArray(scheduleData[scheduleSection])
-                ? scheduleData[scheduleSection]
-                : [];
             const signatureOf = row => [row?.start, row?.end, row?.lop, row?.phong]
                 .map(value => String(value || '').trim())
                 .join('|');
-            let scheduleRowIndex = requestedShiftId
-                ? scheduleRows.findIndex(row => String(row?.shiftId || '').trim() === requestedShiftId)
-                : -1;
-            if (scheduleRowIndex < 0 && Number.isInteger(scheduleIndex)) {
+            let scheduleData = {};
+            let scheduleRows = [];
+            if (scheduleIsInherited) {
+                if (scheduleSnapshot.exists || !sourceScheduleSnapshot?.exists) {
+                    throw scheduleConflict(
+                        'Lịch kế thừa đã thay đổi hoặc đã được lưu riêng. Hãy tải lại popup trước khi chỉnh công.',
+                        'schedule/inheritance-changed'
+                    );
+                }
+                scheduleData = sourceScheduleSnapshot.data() || {};
+                const sourceRows = Array.isArray(scheduleData[scheduleSection])
+                    ? scheduleData[scheduleSection]
+                    : [];
+                if (!sourceRows[scheduleSourceIndex] || scheduleIndex !== scheduleSourceIndex) {
+                    throw scheduleConflict(
+                        'Vị trí ca trong lịch nguồn đã thay đổi. Hãy tải lại lịch trước khi chỉnh công.',
+                        'schedule/inheritance-changed'
+                    );
+                }
+                scheduleRows = sourceRows.map((sourceRow, rowIndex) => {
+                    const projected = _projectInheritedBonus10Row(sourceRow, dateKey);
+                    const inheritedLocator = [
+                        parsedScheduleKey.docId,
+                        scheduleSection,
+                        rowIndex,
+                        _scheduleRegistrationRowSignature(projected)
+                    ].join('::');
+                    projected.shiftId = `shift_inherited_${
+                        _scheduleRegistrationHash(inheritedLocator, 2166136261)
+                    }_${_scheduleRegistrationHash(inheritedLocator, 3335557771)}`;
+                    projected._isInheritedSchedule = true;
+                    projected._inheritedFromScheduleDocId = scheduleSourceDocId;
+                    projected._inheritedTargetScheduleDocId = parsedScheduleKey.docId;
+                    projected._inheritedSection = scheduleSection;
+                    projected._inheritedIndex = rowIndex;
+                    return projected;
+                });
+            } else {
+                if (!scheduleSnapshot.exists) {
+                    throw scheduleConflict(
+                        'Không tìm thấy lịch riêng của ngày này. Hãy tải lại lịch trước khi chỉnh công.',
+                        'schedule/not-materialized'
+                    );
+                }
+                scheduleData = scheduleSnapshot.data() || {};
+                scheduleRows = Array.isArray(scheduleData[scheduleSection])
+                    ? scheduleData[scheduleSection]
+                    : [];
+            }
+            let scheduleRowIndex = scheduleIsInherited
+                ? scheduleSourceIndex
+                : (requestedShiftId
+                    ? scheduleRows.findIndex(row => String(row?.shiftId || '').trim() === requestedShiftId)
+                    : -1);
+            if (!scheduleIsInherited && scheduleRowIndex < 0 && Number.isInteger(scheduleIndex)) {
                 const legacyCandidate = scheduleRows[scheduleIndex];
                 if (legacyCandidate && !String(legacyCandidate.shiftId || '').trim() &&
                     signatureOf(legacyCandidate) === expectedScheduleSignature) {
@@ -4367,6 +4516,13 @@ const DBService = {
                 throw scheduleConflict('Ca đã bị xóa, di chuyển hoặc đổi mã. Hãy tải lại lịch trước khi chỉnh công.');
             }
             const liveScheduleRow = scheduleRows[scheduleRowIndex];
+            if (scheduleIsInherited && displayedShiftId &&
+                String(liveScheduleRow.shiftId || '') !== displayedShiftId) {
+                throw scheduleConflict(
+                    'Định danh ca kế thừa vừa thay đổi. Hãy tải lại lịch trước khi chỉnh công.',
+                    'schedule/inheritance-changed'
+                );
+            }
             if (signatureOf(liveScheduleRow) !== expectedScheduleSignature ||
                 String(liveScheduleRow.staffingUpdatedAt || '') !== expectedStaffingUpdatedAt) {
                 throw scheduleConflict(
@@ -4384,9 +4540,10 @@ const DBService = {
                 compositeKey,
                 scheduleSection,
                 scheduleRowIndex,
-                liveScheduleRow.shiftId || '',
+                scheduleIsInherited ? '' : (liveScheduleRow.shiftId || ''),
                 liveScheduleRow.start || '',
-                liveScheduleRow.end || ''
+                liveScheduleRow.end || '',
+                scheduleIsInherited ? scheduleSourceDocId : ''
             );
             if (liveTargetShiftKey !== targetShiftKey) {
                 throw scheduleConflict(
@@ -4433,9 +4590,8 @@ const DBService = {
                         'schedule/subject-conflict'
                     );
                 }
-            } else if (!liveSubjects.some(subject =>
-                String(subject.name || '').trim() === requestedSubjectName
-            )) {
+            } else if (liveSubjects.length !== 1 ||
+                !_isBonus10RowSubjectBound(liveScheduleRow, liveSubjects[0])) {
                 throw scheduleConflict(
                     'Tên Môn/Lớp của ca không còn ánh xạ duy nhất tới dữ liệu tính lương.',
                     'schedule/subject-conflict'
@@ -4495,7 +4651,7 @@ const DBService = {
                 concurrentSubjectSnapshots.map(snapshot => [String(snapshot.id), snapshot])
             );
             const renamedFallback = concurrentTeaching.resolvedByName.find(item =>
-                String(concurrentSnapshotsById.get(item.id)?.data()?.name || '').trim() !== item.name
+                String(concurrentSnapshotsById.get(item.id)?.data()?.name || '').trim() !== item.catalogName
             );
             if (renamedFallback) {
                 throw scheduleConflict(
@@ -4813,9 +4969,11 @@ const DBService = {
             session.checkOut = validation.checkOutISO || null;
             session.status = validation.checkOutISO ? 'closed' : 'open';
             delete session.isAbsent;
-            // Historical session-level flags are deliberately removed. +10 is
-            // represented only by the approved request for this exact shift.
-            delete session.bonus10;
+            // A time/count-only correction must not erase an old +10 flag.
+            // The report can still prove it per teaching chip.  An explicit
+            // +10 decision, however, replaces the legacy session-wide marker
+            // with the canonical request for this exact shift.
+            if (bonus10Dirty) delete session.bonus10;
             session.isAdminEdited = true;
             session.adminCorrectionAt = nowISO;
             session.adminCorrectionBy = actorUserId;
@@ -4914,9 +5072,11 @@ const DBService = {
                     targetShiftKey,
                     subjectId: awardedSubjectId,
                     scheduleDocId: compositeKey,
+                    scheduleSourceDocId: scheduleIsInherited ? scheduleSourceDocId : compositeKey,
+                    scheduleIsInherited,
                     scheduleSection,
                     scheduleIndex: scheduleRowIndex,
-                    scheduleShiftId: String(liveScheduleRow.shiftId || ''),
+                    scheduleShiftId: scheduleIsInherited ? '' : String(liveScheduleRow.shiftId || ''),
                     scheduleRegistrationId: '',
                     scheduleAssignmentList,
                     scheduleAssignmentEntry,
@@ -7460,12 +7620,13 @@ const DBService = {
             throw new Error('Thiếu nhân sự hoặc ngày cần đánh giá.');
         }
         const monthStr = dateKey.slice(0, 7);
-        const [cancelledShifts, observations, overtimeRequests, bonusRequests, monthlySettings] = await Promise.all([
+        const [cancelledShifts, observations, overtimeRequests, bonusRequests, monthlySettings, subjects] = await Promise.all([
             DBService.getCancelledShifts(monthStr, staffId),
             DBService.getShiftObservationsForDate(dateKey, staffId),
             DBService.getOvertimeRequestsForStaff(staffId, monthStr),
             DBService.getBonus10RequestsForStaff(staffId, monthStr),
-            DBService.getMonthlySalarySettings(staffId, monthStr)
+            DBService.getMonthlySalarySettings(staffId, monthStr),
+            DBService.getSubjects(true).catch(() => [])
         ]);
         const overtimeMap = {};
         (overtimeRequests || []).filter(item => item.dateKey === dateKey).forEach(item => {
@@ -7489,7 +7650,13 @@ const DBService = {
             overtimeMap,
             bonus10Map,
             monthFlags: {
-                early10PenaltyActive: _isBonus10PenaltyActive(monthlySettings || {}, bonusRequests || [])
+                early10PenaltyActive: _isBonus10PenaltyActive(monthlySettings || {}, bonusRequests || []),
+                subjectEarly10Map: window.Early10?.buildSubjectEarly10Map
+                    ? window.Early10.buildSubjectEarly10Map(subjects || [])
+                    : {},
+                subjectEarly10NameMap: window.Early10?.buildSubjectEarly10NameMap
+                    ? window.Early10.buildSubjectEarly10NameMap(subjects || [])
+                    : {}
             }
         };
     },
@@ -7560,6 +7727,9 @@ const DBService = {
             const profileRef = db.collection('users').doc(identity.staffId);
             const subjectRef = db.collection('subjects').doc(claim.subjectId);
             const scheduleRef = db.collection('schedules').doc(claim.scheduleDocId);
+            const sourceScheduleRef = claim.scheduleIsInherited
+                ? db.collection('schedules').doc(claim.scheduleSourceDocId)
+                : null;
             const registrationRef = claim.scheduleRegistrationId
                 ? db.collection('schedule_registrations').doc(claim.scheduleRegistrationId)
                 : null;
@@ -7580,6 +7750,7 @@ const DBService = {
                     transaction.get(profileRef),
                     transaction.get(subjectRef),
                     transaction.get(scheduleRef),
+                    ...(sourceScheduleRef ? [transaction.get(sourceScheduleRef)] : []),
                     transaction.get(checkInProofRef),
                     ...(registrationRef ? [transaction.get(registrationRef)] : []),
                     ...requestRefs.map(ref => transaction.get(ref))
@@ -7589,9 +7760,13 @@ const DBService = {
                 const profileSnapshot = snapshots[2];
                 const subjectSnapshot = snapshots[3];
                 const scheduleSnapshot = snapshots[4];
-                const checkInProofSnapshot = snapshots[5];
-                const registrationSnapshot = registrationRef ? snapshots[6] : null;
-                const requestSnapshots = snapshots.slice(registrationRef ? 7 : 6);
+                let snapshotOffset = 5;
+                const sourceScheduleSnapshot = sourceScheduleRef
+                    ? snapshots[snapshotOffset++]
+                    : scheduleSnapshot;
+                const checkInProofSnapshot = snapshots[snapshotOffset++];
+                const registrationSnapshot = registrationRef ? snapshots[snapshotOffset++] : null;
+                const requestSnapshots = snapshots.slice(snapshotOffset);
                 const monthlyRequests = requestSnapshots
                     .filter(snapshot => snapshot.exists)
                     .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }))
@@ -7602,8 +7777,14 @@ const DBService = {
                 )) {
                     throw new Error('Phụ cấp +10 phút của tháng này đang bị khóa; không thể gửi thêm yêu cầu.');
                 }
-                if (!scheduleSnapshot.exists) {
-                    const error = new Error('Ca này vẫn là lịch kế thừa. Admin cần lưu lịch riêng cho ngày này trước khi gửi +10 phút.');
+                if (claim.scheduleIsInherited) {
+                    if (scheduleSnapshot.exists || !sourceScheduleSnapshot?.exists) {
+                        const error = new Error('Lịch kế thừa vừa thay đổi hoặc đã được lưu riêng. Hãy tải lại bảng công trước khi gửi +10 phút.');
+                        error.code = 'bonus10/policy-conflict';
+                        throw error;
+                    }
+                } else if (!scheduleSnapshot.exists) {
+                    const error = new Error('Không tìm thấy lịch dạy riêng của ca này. Hãy tải lại bảng công trước khi gửi +10 phút.');
                     error.code = 'bonus10/schedule-not-materialized';
                     throw error;
                 }
@@ -7657,14 +7838,18 @@ const DBService = {
                     throw error;
                 }
 
-                const schedule = scheduleSnapshot.data() || {};
-                const scheduleRows = Array.isArray(schedule[claim.scheduleSection])
-                    ? schedule[claim.scheduleSection]
+                const subject = { id: subjectSnapshot.id, ...subjectSnapshot.data() };
+                const sourceSchedule = sourceScheduleSnapshot.data() || {};
+                const sourceRows = Array.isArray(sourceSchedule[claim.scheduleSection])
+                    ? sourceSchedule[claim.scheduleSection]
                     : [];
-                const row = scheduleRows[claim.scheduleIndex];
-                if (!row || String(row.start || '') !== claim.classStart ||
+                const sourceRow = sourceRows[claim.scheduleIndex];
+                const row = claim.scheduleIsInherited
+                    ? _projectInheritedBonus10Row(sourceRow, identity.dateKey)
+                    : sourceRow;
+                if (!sourceRow || !row || String(row.start || '') !== claim.classStart ||
                     String(row.end || '') !== claim.classEnd ||
-                    String(row.shiftId || '') !== claim.scheduleShiftId) {
+                    (!claim.scheduleIsInherited && String(row.shiftId || '') !== claim.scheduleShiftId)) {
                     const error = new Error('Lịch dạy đã thay đổi. Hãy tải lại bảng công trước khi gửi +10 phút.');
                     error.code = 'bonus10/policy-conflict';
                     throw error;
@@ -7674,12 +7859,13 @@ const DBService = {
                     claim.scheduleDocId,
                     claim.scheduleSection,
                     claim.scheduleIndex,
-                    row.shiftId || '',
+                    claim.scheduleIsInherited ? '' : (row.shiftId || ''),
                     row.start || '',
-                    row.end || ''
+                    row.end || '',
+                    claim.scheduleIsInherited ? claim.scheduleSourceDocId : ''
                 );
-                const rowSubjectIds = _normalizeScheduleSubjectIds(row.lopId);
-                if (liveTargetShiftKey !== claim.targetShiftKey || !rowSubjectIds.includes(claim.subjectId)) {
+                if (liveTargetShiftKey !== claim.targetShiftKey ||
+                    !_isBonus10RowSubjectBound(row, subject)) {
                     const error = new Error('Môn/Lớp hoặc định danh ca dạy vừa thay đổi. Hãy tải lại bảng công.');
                     error.code = 'bonus10/policy-conflict';
                     throw error;
@@ -7691,24 +7877,24 @@ const DBService = {
                     ? (Array.isArray(row[claimedAssignmentList]) ? row[claimedAssignmentList] : [])
                         .find(entry => String(entry?.id || '') === identity.staffId)
                     : null;
-                if (claimedAssignmentList && !liveAssignmentEntry) {
-                    throw new Error('Thông tin phân công của ca đã thay đổi. Hãy tải lại bảng công trước khi gửi +10 phút.');
-                }
-                let hasVerifiedAssignment = isAssignedToClass(row, identity.staffId);
-                if (!hasVerifiedAssignment && registrationSnapshot?.exists) {
+                let hasVerifiedRegistration = false;
+                if (registrationSnapshot?.exists) {
                     const registration = registrationSnapshot.data() || {};
-                    hasVerifiedAssignment = registration.status === 'active' &&
+                    hasVerifiedRegistration = registration.status === 'active' &&
                         String(registration.userId || '') === identity.staffId &&
                         String(registration.scheduleDocId || '') === claim.scheduleDocId &&
                         String(registration.section || '') === claim.scheduleSection &&
                         Number(registration.rowIndex) === claim.scheduleIndex &&
                         (!claim.scheduleShiftId || String(registration.shiftId || '') === claim.scheduleShiftId);
                 }
+                if (claimedAssignmentList && !liveAssignmentEntry && !hasVerifiedRegistration) {
+                    throw new Error('Thông tin phân công của ca đã thay đổi. Hãy tải lại bảng công trước khi gửi +10 phút.');
+                }
+                const hasVerifiedAssignment = isAssignedToClass(row, identity.staffId) || hasVerifiedRegistration;
                 if (!hasVerifiedAssignment) {
                     throw new Error('Nhân viên không còn được xếp hoặc đăng ký dạy ca này.');
                 }
 
-                const subject = { id: subjectSnapshot.id, ...subjectSnapshot.data() };
                 const profile = { id: profileSnapshot.id, ...profileSnapshot.data() };
                 const policyVerdict = window.Early10.evaluateEarly10Request({
                     subjectIds: [claim.subjectId],
@@ -7737,6 +7923,8 @@ const DBService = {
                     targetShiftKey: claim.targetShiftKey,
                     subjectId: claim.subjectId,
                     scheduleDocId: claim.scheduleDocId,
+                    scheduleSourceDocId: claim.scheduleSourceDocId,
+                    scheduleIsInherited: claim.scheduleIsInherited,
                     scheduleSection: claim.scheduleSection,
                     scheduleIndex: claim.scheduleIndex,
                     scheduleShiftId: claim.scheduleShiftId,

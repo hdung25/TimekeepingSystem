@@ -1802,6 +1802,11 @@ async function saveAdminAttendanceEntry() {
                 index: state.index,
                 shiftId: state.shiftId,
                 persistedShiftId: String(state.originalRow.shiftId || ''),
+                isInherited: state.originalRow._isInheritedSchedule === true,
+                sourceDocId: String(state.originalRow._inheritedFromScheduleDocId || ''),
+                sourceIndex: Number.isInteger(state.originalRow._inheritedIndex)
+                    ? state.originalRow._inheritedIndex
+                    : state.index,
                 signature: state.signature,
                 expectedStaffingUpdatedAt: state.expectedStaffingUpdatedAt,
                 staffId: entry.staffId,
@@ -2695,7 +2700,13 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             attendanceShiftClosed: row.isClosed === true || isCenterClosed(dateKey, caType, window.centerClosures),
             dateKey,
             shiftWindow,
-            subjectId: String(row.lopId || (window._subjectList || []).find(subject => subject.name === row.lop)?.id || ''),
+            subjectId: String(
+                row.lopId ||
+                (window.Early10?.resolveScheduleSubjectIdByName
+                    ? window.Early10.resolveScheduleSubjectIdByName(row.lop, window._subjectList || [])
+                    : '') ||
+                (window._subjectList || []).find(subject => subject.name === row.lop)?.id || ''
+            ),
             subjectResolutionError: '',
             triggerEl: triggerEl || document.activeElement,
             teachers,

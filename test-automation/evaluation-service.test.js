@@ -1297,6 +1297,81 @@ function observation(lateMinutes) {
 }
 
 {
+    // Cờ bonus10 đã lưu trên session cũ phải hiện lại khi và chỉ khi chip dạy
+    // hiện tại chứng minh được đúng môn, đúng giờ và không có khóa tháng.
+    const dateKey = '2026-08-16';
+    const staffId = 'legacy-raw-bonus-teacher';
+    const row = {
+        start: '07:30', end: '09:00', lop: 'E6', lopId: 'subject-e6',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+        _compositeKey: `cs1__${dateKey}`, _originalIndex: 2
+    };
+    const flags = {
+        subjectEarly10Map: { 'subject-e6': true, 'subject-mc': false },
+        subjectEarly10NameMap: { e6: 'subject-e6' }
+    };
+    const chips = context.window.calculateDailyChips(
+        { morning1: [row] },
+        [{ id: 'legacy-raw', checkIn: `${dateKey}T07:19:00+07:00`, checkOut: `${dateKey}T09:00:00+07:00`, bonus10: true }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {}, [], flags
+    );
+    const worked = chips.find(chip => chip.isTeaching);
+    assert.equal(worked.paidMinutes, 100, 'cờ +10p cũ hợp lệ phải được giữ');
+    assert.equal(worked.bonus10Status, 'approved');
+    assert.equal(worked.bonus10CompatibilitySource, 'legacy-session-bonus10');
+
+    const tooLate = context.window.calculateDailyChips(
+        { morning1: [row] },
+        [{ id: 'legacy-too-late', checkIn: `${dateKey}T07:20:01+07:00`, checkOut: `${dateKey}T09:00:00+07:00`, bonus10: true }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {}, [], flags
+    );
+    assert.equal(tooLate.find(chip => chip.isTeaching).paidMinutes, 90, 'thiếu một giây vẫn không đủ +10p');
+
+    const mcRow = { ...row, lop: 'MC', lopId: 'subject-mc' };
+    const mc = context.window.calculateDailyChips(
+        { morning1: [mcRow] },
+        [{ id: 'legacy-mc', checkIn: `${dateKey}T07:15:00+07:00`, checkOut: `${dateKey}T09:00:00+07:00`, bonus10: true }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {}, [], flags
+    );
+    assert.equal(mc.find(chip => chip.isTeaching).paidMinutes, 90, 'MC không được khôi phục +10p');
+}
+
+{
+    // FFS01 thiếu lopId vẫn hợp lệ khi tên lịch được map duy nhất tới FFS1;
+    // locator kế thừa phải dùng template + vị trí, không dùng shiftId giả.
+    const dateKey = '2026-09-05';
+    const staffId = 'ffs-legacy-teacher';
+    const inherited = {
+        start: '18:00', end: '19:30', lop: 'FFS01', lopId: '',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+        _compositeKey: `cs1__${dateKey}`, _originalIndex: 4,
+        shiftId: 'shift_inherited_browser_only', _isInheritedSchedule: true,
+        _inheritedFromScheduleDocId: 'cs1__2026-08-29', _inheritedIndex: 4
+    };
+    const target = context.window.buildEarly10TargetShiftKey(dateKey, inherited, 'evening1', 4);
+    assert.equal(
+        target,
+        'teaching__2026-09-05__inherited__cs1__2026-08-29__evening1__4__18:00-19:30'
+    );
+    const chips = context.window.calculateDailyChips(
+        { evening1: [inherited] },
+        [{ id: 'ffs-legacy-raw', checkIn: `${dateKey}T17:50:00+07:00`, checkOut: `${dateKey}T19:30:00+07:00`, bonus10: true }],
+        staffId, dateKey, { roles: ['teaching_assistant'], teachingMode: 'unset', salary_config: {} },
+        [], {}, [], {}, [], {
+            subjectEarly10Map: { 'subject-ffs1': true },
+            subjectEarly10NameMap: { ffs1: 'subject-ffs1' }
+        }
+    );
+    const worked = chips.find(chip => chip.isTeaching);
+    assert.equal(worked.paidMinutes, 100, 'FFS01 thiếu lopId vẫn nhận +10p khi map rõ ràng');
+    assert.equal(worked.bonus10TargetShiftKey, target);
+    assert.equal(worked.scheduleIsInherited, true);
+}
+
+{
     // Một session phủ hai ca dạy rời nhau: award của ca A chỉ cộng đúng ca A,
     // không được lan sang ca B dù sessionId giống hệt.
     const dateKey = '2026-08-20';

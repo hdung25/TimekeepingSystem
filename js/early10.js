@@ -59,9 +59,65 @@
         return result;
     }
 
+    // Lịch cũ đôi khi chỉ lưu tên lớp thay vì lopId.  Chỉ cho phép suy ra mã
+    // môn khi tên lịch khớp DUY NHẤT với tên hoặc alias đã cấu hình ở danh mục.
+    // Chuẩn hóa số thứ tự "FFS01" -> "FFS1" để giữ tương thích cách ghi cũ,
+    // nhưng không dùng tìm kiếm gần đúng (FFS khác FSS, MC khác Mover, ...).
+    function normalizeScheduleSubjectName(value) {
+        var text = String(value == null ? '' : value)
+            .trim()
+            .toLowerCase();
+        if (!text) return '';
+        if (typeof text.normalize === 'function') {
+            text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+        return text
+            .replace(/đ/g, 'd')
+            .replace(/\s+/g, '')
+            .replace(/(^|[^0-9])0+([0-9]+)/g, '$1$2');
+    }
+
+    function getSubjectScheduleNames(subject) {
+        if (!subject || typeof subject !== 'object') return [];
+        var aliases = Array.isArray(subject.early10ScheduleAliases)
+            ? subject.early10ScheduleAliases
+            : [];
+        return [subject.name].concat(aliases)
+            .map(function (value) { return normalizeScheduleSubjectName(value); })
+            .filter(Boolean);
+    }
+
+    function resolveScheduleSubjectIdByName(scheduleName, subjects) {
+        var key = normalizeScheduleSubjectName(scheduleName);
+        if (!key) return '';
+        var matches = (subjects || []).filter(function (subject) {
+            return subject && subject.id && getSubjectScheduleNames(subject).indexOf(key) !== -1;
+        });
+        var unique = uniqueSubjectIds(matches.map(function (subject) { return subject.id; }));
+        return unique.length === 1 ? unique[0] : '';
+    }
+
+    function buildSubjectEarly10NameMap(subjects) {
+        var map = {};
+        (subjects || []).forEach(function (subject) {
+            if (!subject || !subject.id) return;
+            getSubjectScheduleNames(subject).forEach(function (key) {
+                if (!key) return;
+                if (map[key] === undefined) {
+                    map[key] = String(subject.id);
+                } else if (map[key] !== String(subject.id)) {
+                    // A duplicate schedule label is deliberately unusable until
+                    // Admin fixes the catalog; never guess a payroll subject.
+                    map[key] = '';
+                }
+            });
+        });
+        return map;
+    }
+
     // Lấy mã môn thật gắn với chip. Không dùng session.role một mình vì role
     // có thể đã được tự gán thành mã vai trò/lương, không phải mã môn trong lịch.
-    function getChipSubjectIds(chip) {
+    function getChipSubjectIds(chip, subjects) {
         var item = chip || {};
         var session = item.sessionData || {};
         var ids = [];
@@ -76,6 +132,22 @@
         }
 
         var resolved = uniqueSubjectIds(ids);
+        // Only when the schedule carries no concrete subject id may its class
+        // name resolve one catalog subject.  This retains the safety boundary:
+        // an existing but different lopId can never be silently overridden.
+        if (resolved.length === 0 && Array.isArray(subjects)) {
+            var names = [item.lop, item.schedData && item.schedData.lop];
+            if (Array.isArray(item.mergedSegments)) {
+                item.mergedSegments.forEach(function (segment) {
+                    names.push(segment && segment.lop);
+                });
+            }
+            names.forEach(function (name) {
+                var subjectId = resolveScheduleSubjectIdByName(name, subjects);
+                if (subjectId) resolved.push(subjectId);
+            });
+            resolved = uniqueSubjectIds(resolved);
+        }
         // Compatibility với chip cũ chưa có subjectIds/lopId.
         if (resolved.length === 0) resolved = splitSubjectIds(session.role);
         return resolved;
@@ -306,6 +378,10 @@
         REQUIRED_MINUTES: EARLY10_REQUIRED_MINUTES,
         buildSubjectEarly10Map: buildSubjectEarly10Map,
         splitSubjectIds: splitSubjectIds,
+        normalizeScheduleSubjectName: normalizeScheduleSubjectName,
+        getSubjectScheduleNames: getSubjectScheduleNames,
+        resolveScheduleSubjectIdByName: resolveScheduleSubjectIdByName,
+        buildSubjectEarly10NameMap: buildSubjectEarly10NameMap,
         getChipSubjectIds: getChipSubjectIds,
         isSubjectIdsEarly10Allowed: isSubjectIdsEarly10Allowed,
         isChipEarly10Allowed: isChipEarly10Allowed,

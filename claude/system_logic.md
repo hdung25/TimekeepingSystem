@@ -873,3 +873,36 @@ là bảng 4 cột với nhãn dọc như cũ.
 - 54 regression files, Rules/integration và UI lương đạt; bộ browser đăng nhập/Vào-Ra ca/Admin
   đạt trên 8 cấu hình tài khoản/36 lượt trang. Không đổi Rules, GPS hoặc dữ liệu thật/lương đã gửi.
 - Build `20260905-payroll-sync-v3`, cache `tdt-chamcong-v153-payroll-sync-20260905`.
+
+### 06/09/2026 — Khôi phục hiển thị +10p lịch sử, lịch kế thừa và FFS01
+- Nguyên nhân ảnh “mất” +10p không phải một lệnh Admin hủy hàng loạt: dữ liệu cũ còn
+  `attendance.sessions[].bonus10`, nhưng evaluator mới chỉ đọc `bonus10_requests`
+  theo từng ca. Tương thích mới dựng **read-only** award trong bộ nhớ cho đúng chip
+  dạy khi cờ cũ có thật, môn đang bật, nhân sự không thuộc chế độ mới, giờ vào thật
+  sớm đủ 10 phút, không có khóa tháng và không có request từ chối/canonical mâu
+  thuẫn. Không lan sang tiếp tân/văn phòng hoặc MC; không tự tạo/xóa request hay
+  sửa dữ liệu công cũ.
+- Định danh +10 của lịch kế thừa dùng `scheduleSourceDocId + section + sourceIndex
+  + start/end`, thay vì `shift_inherited_*` do browser dựng. Transaction tự phục vụ
+  và popup Admin đều đọc lại lịch nguồn/đích, roster, môn, phân công, thời gian và
+  bằng chứng trước khi ghi. Ngày đã materialize riêng vẫn đi qua định danh shift
+  thực, kể cả ID cũ có tiền tố `shift_inherited_`.
+- Với lịch thiếu `lopId`, không fuzzy-match: chỉ chấp nhận đúng tên môn hoặc alias
+  do Admin cấu hình và phải duy nhất. Production bổ sung alias `FFS01` cho subject
+  `FFS1` (`UVFpoVY1jyUjNXG06A5m`), `allowEarly10: true`; một Firestore commit nguyên
+  tử đã lưu bản sao trước/sau ở `migration_backups/early10_ffs01_alias_20260906_v1`.
+- Recovery dữ liệu theo yêu cầu Owner chỉ tạo **một** request `approved` cho chip
+  gộp E6 + FFL của Nguyễn Ngọc Mỹ Sang ngày 05/09: session chip liên tục dùng
+  bằng chứng vào sớm nhất 13:49:12, đủ 10 phút tròn trước 14:00. Request được
+  gắn target E6 cụ thể, ID canonical `b10~2026-09-05~nv_1776396609428~…`, và
+  backup/audit `migration_backups/early10_sang_20260905_e6_ffl_v1`; xác minh
+  sau commit cho thấy attendance và schedule không đổi. FFS01/Mover 1 vào lúc
+  17:50:48 cho ca 18:00 (chỉ 9 phút 11 giây) nên không tạo +10; MC không tạo.
+- Popup Sửa công chỉ hủy/thay cờ +10 cũ khi Admin bấm quyết định +10 rõ ràng. Sửa
+  giờ hoặc sĩ số đơn thuần giữ nguyên cờ lịch sử và trạng thái sĩ số (pending/
+  approved/rejected), tránh xóa ngầm phụ cấp hoặc 10 HS.
+- Kiểm chứng: `npm test`; `npm run test:rules` (31/31 Rules scenarios và integration)
+  đều đạt; `node --check` cho các module thay đổi. Firestore Rules đã deploy vào
+  `timekeeping-69f3f`. Build PWA sẵn sàng là `20260906-early10-recovery-v1`, cache
+  `tdt-chamcong-v154-early10-recovery-20260906`; web production chưa deploy vì
+  Vercel CLI và phiên web hiện tại không có quyền dự án `timekeeping-system`.

@@ -1090,6 +1090,7 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
         staffId: 'staff-1', staffName: 'Staff One', dateKey: '2026-08-31',
         sessionId: 'session-early', status: 'approved', awardScope: 'teaching_shift',
         targetShiftKey, subjectId: 'subject-a1', scheduleDocId: 'cs1__2026-08-31',
+        scheduleSourceDocId: 'cs1__2026-08-31', scheduleIsInherited: false,
         scheduleSection: 'morning1', scheduleIndex: 0, scheduleShiftId: 'shift-a1',
         scheduleRegistrationId: '', scheduleAssignmentList: 'gvList',
         scheduleAssignmentEntry: assignmentEntry, classStart: '08:00', classEnd: '09:30',
@@ -1177,6 +1178,69 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
     }));
     await assertFails(updateDoc(doc(staffDb, 'overtime_requests', 'ot_2026-08-31~staff-1~session-1'), { status: 'approved' }));
     await assertSucceeds(updateDoc(doc(adminDb, 'overtime_requests', 'ot_2026-08-31~staff-1~session-1'), { status: 'approved' }));
+});
+
+test('eligible staff can self-submit +10 for an inherited FFS01 row only with an explicit subject alias', async () => {
+    const dateKey = '2026-09-05';
+    const sourceDocId = 'cs1__2026-08-29';
+    const targetDocId = `cs1__${dateKey}`;
+    const sessionId = 'inherited-ffs-session';
+    const assignmentEntry = { id: 'staff-1', name: 'Staff One' };
+    await assertSucceeds(setDoc(doc(adminDb, 'schedules', sourceDocId), {
+        evening1: [{
+            lop: 'FFS01', lopId: '', start: '18:00', end: '19:30',
+            shiftId: 'template-ffs-row', gvId: 'someone-else', gvList: [assignmentEntry]
+        }]
+    }));
+    await assertSucceeds(setDoc(doc(adminDb, 'subjects', 'subject-ffs1'), {
+        name: 'FFS1', allowEarly10: true, early10ScheduleAliases: ['FFS01']
+    }));
+    await assertSucceeds(setDoc(doc(adminDb, 'attendance_logs', `${dateKey}_staff-1`), {
+        userId: 'staff-1', name: 'Staff One', date: dateKey,
+        sessions: [{
+            id: sessionId, anchorDateKey: dateKey, status: 'closed', source: 'self',
+            start: '2026-09-05T10:50:00.000Z', checkIn: '2026-09-05T10:50:00.000Z',
+            checkOut: '2026-09-05T12:30:00.000Z'
+        }]
+    }));
+    await env.withSecurityRulesDisabled(async context => {
+        await setDoc(doc(
+            context.firestore(), 'attendance_checkin_proofs', `${dateKey}~staff-1~${sessionId}`
+        ), {
+            staffId: 'staff-1', dateKey, sessionId, authUid: 'uid-staff',
+            recordedAt: Timestamp.fromDate(new Date('2026-09-05T10:50:00.000Z')),
+            schemaVersion: 1
+        });
+    });
+
+    const targetShiftKey = `teaching__${dateKey}__inherited__${sourceDocId}__evening1__0__18:00-19:30`;
+    const approved = {
+        staffId: 'staff-1', staffName: 'Staff One', dateKey, sessionId,
+        status: 'approved', awardScope: 'teaching_shift', targetShiftKey,
+        subjectId: 'subject-ffs1', scheduleDocId: targetDocId,
+        scheduleSourceDocId: sourceDocId, scheduleIsInherited: true,
+        scheduleSection: 'evening1', scheduleIndex: 0, scheduleShiftId: '',
+        scheduleRegistrationId: '', scheduleAssignmentList: 'gvList',
+        scheduleAssignmentEntry: assignmentEntry, classStart: '18:00', classEnd: '19:30',
+        attendanceSessionIndex: 0, earlyMinutes: 10,
+        checkInAt: '2026-09-05T10:50:00.000Z', scheduledStart: '18:00',
+        requestSource: 'staff_auto_approved', authUid: 'uid-staff', schemaVersion: 2,
+        policyVersion: 'early10-shift-v2', createdAt: serverTimestamp(),
+        approvedBy: 'staff-1', approvedByName: 'staff1', approvedAt: serverTimestamp()
+    };
+    const ref = doc(staffDb, 'bonus10_requests', `b10~${dateKey}~staff-1~${targetShiftKey}`);
+    await assertSucceeds(setDoc(ref, approved));
+    await assertFails(setDoc(doc(
+        staffDb, 'bonus10_requests', `b10~${dateKey}~staff-1~forged-inherited`
+    ), {
+        ...approved, targetShiftKey: 'forged-inherited'
+    }));
+    await assertFails(setDoc(ref, {
+        ...approved, scheduleIsInherited: false, scheduleSourceDocId: targetDocId
+    }));
+    await assertFails(setDoc(ref, {
+        ...approved, subjectId: 'subject-bth'
+    }));
 });
 
 test('notification recipient can read/acknowledge but cannot alter content', async () => {

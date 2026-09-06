@@ -275,7 +275,9 @@ service cloud.firestore {
     }
     function isValidStaffAutoApprovedBonus10() {
       let data = request.resource.data;
-      let schedule = get(/databases/$(database)/documents/schedules/$(data.scheduleDocId)).data;
+      // Direct claims read the day document; inherited claims read the exact
+      // saved template from which getSchedule() projected that day.
+      let schedule = get(/databases/$(database)/documents/schedules/$(data.scheduleSourceDocId)).data;
       let row = schedule[data.scheduleSection][data.scheduleIndex];
       let attendance = get(/databases/$(database)/documents/attendance_logs/$(data.dateKey + '_' + data.staffId)).data;
       let session = attendance.sessions[data.attendanceSessionIndex];
@@ -289,7 +291,8 @@ service cloud.firestore {
       return ownsStaffId(data.staffId)
         && data.keys().hasOnly([
           'staffId', 'staffName', 'dateKey', 'sessionId', 'status', 'awardScope',
-          'targetShiftKey', 'subjectId', 'scheduleDocId', 'scheduleSection',
+          'targetShiftKey', 'subjectId', 'scheduleDocId', 'scheduleSourceDocId',
+          'scheduleIsInherited', 'scheduleSection',
           'scheduleIndex', 'scheduleShiftId', 'scheduleRegistrationId',
           'scheduleAssignmentList', 'scheduleAssignmentEntry', 'classStart',
           'classEnd', 'attendanceSessionIndex', 'earlyMinutes', 'checkInAt',
@@ -332,6 +335,9 @@ service cloud.firestore {
           data.scheduleDocId == data.dateKey
           || data.scheduleDocId.matches('[A-Za-z0-9_-]{1,80}__' + data.dateKey)
         )
+        && data.scheduleSourceDocId is string
+        && data.scheduleSourceDocId.matches('[A-Za-z0-9_-]{1,160}')
+        && data.scheduleIsInherited is bool
         && data.subjectId.matches('[A-Za-z0-9_-]{1,160}')
         && data.scheduleShiftId is string
         && data.scheduleShiftId.size() <= 160
@@ -348,21 +354,51 @@ service cloud.firestore {
           !(session.get('id', '') is string)
           || session.get('id', '') == data.sessionId
         )
+        && exists(/databases/$(database)/documents/schedules/$(data.scheduleSourceDocId))
         && row.get('start', '') == data.classStart
         && row.get('end', '') == data.classEnd
         && row.get('lopId', '') is string
-        && row.get('lopId', '').matches('(^|.*[+])' + data.subjectId + '([+].*|$)')
         && (
           (
-            row.get('shiftId', '').matches('[A-Za-z0-9_-]{1,160}')
-            && data.scheduleShiftId == row.get('shiftId', '')
-            && data.targetShiftKey == 'teaching__' + data.dateKey + '__shift__' + row.get('shiftId', '')
+            row.get('lopId', '') != ''
+            && row.get('lopId', '').matches('(^|.*[+])' + data.subjectId + '([+].*|$)')
           ) || (
-            row.get('shiftId', '') == ''
+            row.get('lopId', '') == ''
+            && (
+              row.get('lop', '') == subject.get('name', '')
+              || (
+                subject.get('early10ScheduleAliases', []) is list
+                && subject.get('early10ScheduleAliases', []).hasAny([row.get('lop', '')])
+              )
+            )
+          )
+        )
+        && (
+          (
+            data.scheduleIsInherited == false
+            && data.scheduleSourceDocId == data.scheduleDocId
+            && exists(/databases/$(database)/documents/schedules/$(data.scheduleDocId))
+            && (
+              (
+                row.get('shiftId', '').matches('[A-Za-z0-9_-]{1,160}')
+                && data.scheduleShiftId == row.get('shiftId', '')
+                && data.targetShiftKey == 'teaching__' + data.dateKey + '__shift__' + row.get('shiftId', '')
+              ) || (
+                row.get('shiftId', '') == ''
+                && data.scheduleShiftId == ''
+                && data.targetShiftKey == 'teaching__' + data.dateKey + '__'
+                  + data.scheduleDocId + '__' + data.scheduleSection + '__'
+                  + data.classStart + '-' + data.classEnd
+              )
+            )
+          ) || (
+            data.scheduleIsInherited == true
+            && data.scheduleSourceDocId != data.scheduleDocId
+            && !exists(/databases/$(database)/documents/schedules/$(data.scheduleDocId))
             && data.scheduleShiftId == ''
-            && data.targetShiftKey == 'teaching__' + data.dateKey + '__'
-              + data.scheduleDocId + '__' + data.scheduleSection + '__'
-              + data.classStart + '-' + data.classEnd
+            && data.targetShiftKey == 'teaching__' + data.dateKey + '__inherited__'
+              + data.scheduleSourceDocId + '__' + data.scheduleSection + '__'
+              + string(data.scheduleIndex) + '__' + data.classStart + '-' + data.classEnd
           )
         )
         && (

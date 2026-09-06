@@ -1326,6 +1326,11 @@ async function _renderMonthReport(date, forceServer = false) {
         // early check-in; an orphan attendance flag is never sufficient.
         subjectEarly10Map: typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10Map
             ? Early10.buildSubjectEarly10Map(currentSubjectCatalog)
+            : {},
+        // Exact normalized name/alias lookup is only used for legacy schedule
+        // rows that genuinely have no lopId (for example FFS01 → FFS1).
+        subjectEarly10NameMap: typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10NameMap
+            ? Early10.buildSubjectEarly10NameMap(currentSubjectCatalog)
             : {}
     };
     if (!commitCurrentRender(() => {
@@ -2218,7 +2223,9 @@ async function _renderMonthReport(date, forceServer = false) {
                 : {};
             const early10Eligibility = typeof Early10 !== 'undefined' && Early10.evaluatePolicyEligibility
                 ? Early10.evaluatePolicyEligibility({
-                    subjectIds: Early10.getChipSubjectIds ? Early10.getChipSubjectIds(chip) : [],
+                    subjectIds: Early10.getChipSubjectIds
+                        ? Early10.getChipSubjectIds(chip, subjectCatalogForEarly10)
+                        : [],
                     subjectMap: subjectMapForEarly10,
                     user: _targetCtx
                 })
@@ -2246,7 +2253,10 @@ async function _renderMonthReport(date, forceServer = false) {
                     b10Btn.innerHTML = window.getIconHtml('star', {width: '12', height: '12', style: 'display:inline-block; vertical-align:middle;'}) + '+10p';
                     b10Btn.style.background = '#D1FAE5';
                     b10Btn.style.color = '#059669';
-                    if (isAdminRole2) {
+                    if (chip.bonus10CompatibilitySource === 'legacy-session-bonus10') {
+                        b10Btn.disabled = true;
+                        b10Btn.title = 'Khôi phục từ cờ +10 phút đã lưu trong chấm công cũ; không phải yêu cầu có thể hủy riêng.';
+                    } else if (isAdminRole2) {
                         b10Btn.style.cursor = 'pointer';
                         b10Btn.title = 'Đã duyệt - Bấm để hủy duyệt thưởng 10p';
                         b10Btn.onclick = async (e) => {
@@ -6358,20 +6368,15 @@ async function evaluateEarly10ForChip(chip, staffId) {
     if (typeof Early10 === 'undefined') {
         return { ok: false, code: 'missing-module', message: 'Chưa tải được quy tắc sớm 10 phút. Hãy tải lại trang.' };
     }
-    if (chip?.scheduleIsInherited === true) {
-        return {
-            ok: false,
-            code: 'schedule-not-materialized',
-            message: 'Ca này đang dùng lịch kế thừa. Admin cần lưu lịch riêng cho ngày này trước khi gửi +10 phút để định danh ca không thay đổi.'
-        };
-    }
     const [subjects, users] = await Promise.all([
         DBService.getSubjects(true).catch(() => []),
         DBService.getUsers().catch(() => [])
     ]);
     const user = users.find(u => u.id === staffId) || null;
     const session = chip?.sessionData || {};
-    const subjectIds = Early10.getChipSubjectIds ? Early10.getChipSubjectIds(chip) : [];
+    const subjectIds = Early10.getChipSubjectIds
+        ? Early10.getChipSubjectIds(chip, subjects)
+        : [];
     const subjectMap = Early10.buildSubjectEarly10Map(subjects);
     const subjectId = subjectIds.find(id => subjectMap[String(id)] === true) || '';
     const verdict = Early10.evaluateEarly10Request({
@@ -6389,9 +6394,17 @@ async function evaluateEarly10ForChip(chip, staffId) {
         targetShiftKey: String(chip?.bonus10TargetShiftKey || ''),
         subjectId,
         scheduleDocId: String(chip?.classCompositeKey || ''),
+        scheduleSourceDocId: String(
+            chip?.scheduleIsInherited === true
+                ? (chip?.scheduleInheritedFrom || '')
+                : (chip?.classCompositeKey || '')
+        ),
+        scheduleIsInherited: chip?.scheduleIsInherited === true,
         scheduleSection: String(chip?.classSectionKey || ''),
         scheduleIndex: Number(chip?.classIndex),
-        scheduleShiftId: String(chip?.scheduleShiftId || ''),
+        scheduleShiftId: chip?.scheduleIsInherited === true
+            ? ''
+            : String(chip?.scheduleShiftId || ''),
         scheduleRegistrationId: String(chip?.scheduleRegistrationId || ''),
         scheduleAssignmentList: String(chip?.scheduleAssignmentList || ''),
         scheduleAssignmentEntry: chip?.scheduleAssignmentEntry &&
@@ -7911,6 +7924,11 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 : bonus10Records.some(req => req.status === 'rejected'),
             subjectEarly10Map: typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10Map
                 ? Early10.buildSubjectEarly10Map(
+                    Array.isArray(window.currentSubjectCatalog) ? window.currentSubjectCatalog : []
+                )
+                : {},
+            subjectEarly10NameMap: typeof Early10 !== 'undefined' && Early10.buildSubjectEarly10NameMap
+                ? Early10.buildSubjectEarly10NameMap(
                     Array.isArray(window.currentSubjectCatalog) ? window.currentSubjectCatalog : []
                 )
                 : {}
