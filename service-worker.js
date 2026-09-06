@@ -1,7 +1,7 @@
-// Service Worker v153 - synchronized payroll, receipts and saved history; protected
+// Service Worker v155 - synchronized payroll, receipts and saved history; protected
 // staff clock values. Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v154-early10-recovery-20260906';
+const CACHE_NAME = 'tdt-chamcong-v155-quynh-autosubject-20260906';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -29,9 +29,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260906-early10-recovery-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260906-early10-recovery-v1',
-    '/js/report.js?v=20260906-early10-recovery-v1',
-    '/js/evaluation-service.js?v=20260906-early10-recovery-v1',
+    '/js/db-service.js?v=20260906-quynh-autosubject-v1',
+    '/js/report.js?v=20260906-quynh-autosubject-v1',
+    '/js/evaluation-service.js?v=20260906-quynh-autosubject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260906-early10-recovery-v1',

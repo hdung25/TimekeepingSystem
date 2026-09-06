@@ -907,3 +907,18 @@ là bảng 4 cột với nhãn dọc như cũ.
   `tdt-chamcong-v154-early10-recovery-20260906` đã lên production qua commit
   `9c04b96`; kiểm tra trực tiếp `service-worker.js` và `bao-cao.html` tại
   `https://timekeeping-system-tawny.vercel.app` đều trả đúng phiên bản mới.
+
+### 06/09/2026 — +10p tự phục vụ cho ca đã có lịch và tự nhận môn
+- Giao dịch tạo `bonus10_requests` đọc trước document canonical để chống ghi trùng.
+  Rules vì vậy cho phép `get` duy nhất document **chưa tồn tại** mang ID canonical
+  của chính nhân sự đang đăng nhập; quyền `list` vẫn chỉ trả dữ liệu hiện hữu của
+  chính họ. Đây là quyền tối thiểu để transaction tự phục vụ có thể tạo request,
+  không mở quyền xem request của người khác.
+- Với ca dạy đã xác định được trực tiếp từ lịch ngày, môn học của lịch là nguồn
+  chuẩn kể cả attendance legacy chưa có `linkedClassStart`/role. Chip tự nhận môn
+  và bỏ modal chọn môn; chỉ ca thực sự không gắn được lịch/môn mới giữ luồng chọn
+  thủ công để tránh ghi nhầm lương.
+- Build `20260906-quynh-autosubject-v1`, cache
+  `tdt-chamcong-v155-quynh-autosubject-20260906`. Regression bao gồm lịch direct
+  có `shift_inherited_*`, session legacy không role, đọc request canonical chưa có,
+  toàn bộ `npm test` và Rules/integration đều phải đạt trước khi deploy.

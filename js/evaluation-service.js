@@ -1681,13 +1681,14 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         const lops = _workedChainSegments.map(seg => seg.lop).filter(Boolean);
                         mergedSubjectNames = [...new Set(lops)].join(' + ');
                     }
-                    // A valid schedule link identifies the class window. The
-                    // schedule then owns the display/filter subject unless an
-                    // admin explicitly marked a manual subject override. This
-                    // prevents stale roleName values (for example PRE-I1) from
-                    // changing a linked Pre-I2 class and its salary group.
-                    const hasLiveScheduleLink = !!(
-                        matchedSession.linkedClassStart && _chainStarts.has(matchedSession.linkedClassStart)
+                    // This branch already proves that the session overlaps a
+                    // concrete class assigned to this teacher. A legacy check-in
+                    // may lack linkedClassStart even though the scheduled class
+                    // is unambiguous, so the schedule must still supply the
+                    // subject/rate instead of showing the obsolete role picker.
+                    const hasMatchedScheduledTeachingClass = Boolean(
+                        cls?.start && cls?.end &&
+                        (String(cls?.lopId || '').trim() || String(cls?.lop || '').trim())
                     );
                     const scheduledSubjectIds = Array.from(new Set(
                         (_workedChainSegments && _workedChainSegments.length > 0
@@ -1709,7 +1710,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     const legacyExplicitMismatch = scheduledSubjectIds.length > 0 &&
                         sessionSubjectIds.length > 0 &&
                         !sessionSubjectIds.some(id => scheduledSubjectIds.includes(id));
-                    useScheduledSubject = hasLiveScheduleLink &&
+                    useScheduledSubject = hasMatchedScheduledTeachingClass &&
                         matchedSession.subjectOverride !== true &&
                         !legacyExplicitMismatch;
                     scheduledSubjectName = mergedSubjectNames || _schedSubjectLabel || cls.lop || '';
@@ -1730,7 +1731,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                             resolvedRoleName = _autoMatch.name || cls.lop || 'Môn học';
                             resolvedRoleRate = _autoMatch.rate;
                             
-                        } else {
+                        } else if (!useScheduledSubject) {
                             const defaultTeachingRole = _cfgAuto.find(r => r.isDefault);
                             if (defaultTeachingRole) {
                                 resolvedRole = defaultTeachingRole.id;
@@ -1746,17 +1747,28 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         }
                     }
 
+                    // Do not mutate attendance while rendering. The cloned chip
+                    // carries the exact scheduled subject so both UI and payroll
+                    // have a safe automatic answer without asking staff again.
+                    if (useScheduledSubject && scheduledSubjectIds.length > 0 && hasNoOrRecepRole && !resolvedRole) {
+                        resolvedRole = scheduledSubjectIds.join('+');
+                        resolvedRoleName = scheduledSubjectName || cls.lop || 'Môn học';
+                    }
+
                     // Apply the resolved teaching role details to the cloned session data
                     chipSessionData.role = resolvedRole;
-                    chipSessionData.roleName = useScheduledSubject && scheduledSubjectName
-                        ? scheduledSubjectName
+                    const scheduledDisplayName = scheduledSubjectIds.length > 0
+                        ? (resolvedRoleName || scheduledSubjectName)
+                        : scheduledSubjectName;
+                    chipSessionData.roleName = useScheduledSubject
+                        ? scheduledDisplayName
                         : resolvedRoleName;
                     chipSessionData.roleRate = resolvedRoleRate;
 
                     // Role Logic Display
                     if (chipSessionData.role && !receptionistRoleKeys.includes(chipSessionData.role)) {
-                        let _displayRoleName = useScheduledSubject && scheduledSubjectName
-                            ? scheduledSubjectName
+                        let _displayRoleName = useScheduledSubject
+                            ? (chipSessionData.roleName || scheduledDisplayName)
                             : (chipSessionData.roleName || chipSessionData.role);
                         if (!useScheduledSubject && mergedSubjectNames) {
                             _displayRoleName = mergedSubjectNames;

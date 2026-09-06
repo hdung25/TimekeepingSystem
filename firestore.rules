@@ -244,6 +244,16 @@ service cloud.firestore {
           + request.resource.data.get('staffId', '') + '~'
           + request.resource.data.get('targetShiftKey', '');
     }
+    // The client transaction must read the canonical document before creating
+    // it. A missing document has no resource.data to prove ownership from, so
+    // derive the owner from the deterministic ID for that one read path.
+    // Existing documents remain covered by their stored staffId below.
+    function isOwnBonus10RequestId(requestId) {
+      return getUserId().matches('[A-Za-z0-9_-]{1,80}')
+        && requestId.matches(
+          'b10~[0-9]{4}-[0-9]{2}-[0-9]{2}~' + getUserId() + '~[A-Za-z0-9_:-]{1,240}'
+        );
+    }
     function hasBonus10RegistrationAssignment(data) {
       let registration = get(/databases/$(database)/documents/schedule_registrations/$(data.scheduleRegistrationId)).data;
       return data.scheduleRegistrationId.matches('[A-Za-z0-9_-]{1,180}')
@@ -1082,7 +1092,15 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isAdmin();
     }
     match /bonus10_requests/{requestId} {
-      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      // The atomic staff transaction first gets the deterministic document.
+      // For a new document resource.data does not exist yet, so permit that
+      // exact owner-scoped get without expanding collection-list access.
+      allow get: if isAuthenticated() && (
+        isAdmin()
+        || isOwnBonus10RequestId(requestId)
+        || ownsStaffId(resource.data.get('staffId', ''))
+      );
+      allow list: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
       // New documents are singleton/canonical. Existing random-ID legacy docs
       // remain readable and Admin-updatable, but stale clients cannot create a
       // second active request beside the canonical transaction document.

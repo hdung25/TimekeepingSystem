@@ -1055,7 +1055,9 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
     const assignmentEntry = { id: 'staff-1', name: 'Staff One' };
     const scheduleRows = [{
         lop: 'A1', lopId: 'subject-a1+subject-bth', start: '08:00', end: '09:30',
-        shiftId: 'shift-a1', gvId: 'someone-else', gvList: [assignmentEntry]
+        // A materialized day may retain the deterministic ID generated while
+        // its prior weekly template was inherited. It is still a direct row.
+        shiftId: 'shift_inherited_a0w3gy_111wk2k', gvId: 'someone-else', gvList: [assignmentEntry]
     }];
     await assertSucceeds(setDoc(doc(adminDb, 'schedules', 'cs1__2026-08-31'), {
         morning1: scheduleRows
@@ -1070,7 +1072,7 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
         userId: 'staff-1', name: 'Staff One', date: '2026-08-31',
         sessions: [{
             id: 'session-early', anchorDateKey: '2026-08-31', status: 'closed', source: 'self',
-            start: '2026-08-31T00:50:00.000Z', checkIn: '2026-08-31T00:50:00.000Z',
+            start: '2026-08-31T00:38:37.307Z', checkIn: '2026-08-31T00:38:37.307Z',
             checkOut: '2026-08-31T02:30:00.000Z'
         }]
     }));
@@ -1079,23 +1081,23 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
         await setDoc(
             doc(context.firestore(), 'attendance_checkin_proofs', '2026-08-31~staff-1~session-early'), {
             staffId: 'staff-1', dateKey: '2026-08-31', sessionId: 'session-early',
-            authUid: 'uid-staff', recordedAt: Timestamp.fromDate(new Date('2026-08-31T00:50:00.000Z')),
+            authUid: 'uid-staff', recordedAt: Timestamp.fromDate(new Date('2026-08-31T00:38:37.307Z')),
             schemaVersion: 1
             }
         );
     });
 
-    const targetShiftKey = 'teaching__2026-08-31__shift__shift-a1';
+    const targetShiftKey = 'teaching__2026-08-31__shift__shift_inherited_a0w3gy_111wk2k';
     const approved = {
         staffId: 'staff-1', staffName: 'Staff One', dateKey: '2026-08-31',
         sessionId: 'session-early', status: 'approved', awardScope: 'teaching_shift',
         targetShiftKey, subjectId: 'subject-a1', scheduleDocId: 'cs1__2026-08-31',
         scheduleSourceDocId: 'cs1__2026-08-31', scheduleIsInherited: false,
-        scheduleSection: 'morning1', scheduleIndex: 0, scheduleShiftId: 'shift-a1',
+        scheduleSection: 'morning1', scheduleIndex: 0, scheduleShiftId: 'shift_inherited_a0w3gy_111wk2k',
         scheduleRegistrationId: '', scheduleAssignmentList: 'gvList',
         scheduleAssignmentEntry: assignmentEntry, classStart: '08:00', classEnd: '09:30',
-        attendanceSessionIndex: 0, earlyMinutes: 10,
-        checkInAt: '2026-08-31T00:50:00.000Z', scheduledStart: '08:00',
+        attendanceSessionIndex: 0, earlyMinutes: 21,
+        checkInAt: '2026-08-31T00:38:37.307Z', scheduledStart: '08:00',
         requestSource: 'staff_auto_approved', authUid: 'uid-staff', schemaVersion: 2,
         policyVersion: 'early10-shift-v2', createdAt: serverTimestamp(),
         approvedBy: 'staff-1', approvedByName: 'staff1', approvedAt: serverTimestamp()
@@ -1103,6 +1105,9 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
     const approvedRef = doc(
         staffDb, 'bonus10_requests', `b10~2026-08-31~staff-1~${targetShiftKey}`
     );
+    // The atomic browser transaction gets its canonical, not-yet-created
+    // document before set(). That owner-scoped read must be permitted.
+    await assertSucceeds(getDoc(approvedRef));
     // `teachingMode` is deliberately absent in the seeded profile: this is the
     // documented unclassified special case and must remain eligible.
     await assertSucceeds(setDoc(approvedRef, approved));

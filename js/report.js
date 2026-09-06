@@ -2528,6 +2528,17 @@ async function _renderMonthReport(date, forceServer = false) {
                                     chip.classIndex,
                                     chip.isOffice ? 'office' : chip.isReceptionist
                                 );
+                            } else if (chip.isTeaching && chip.usesScheduledSubject === true) {
+                                // The class schedule is already the authoritative
+                                // subject source. Never reopen the retired manual
+                                // subject picker for a normal scheduled teaching
+                                // chip merely because a legacy session lacks role.
+                                if (typeof UIService !== 'undefined') {
+                                    UIService.toast(
+                                        `Đã tự nhận môn ${chip.scheduledSubjectName || chip.lop || 'theo lịch'} cho ca này.`,
+                                        'success'
+                                    );
+                                }
                             } else {
                                 openRoleSelectModal(dateStr, chip.sessionData);
                             }

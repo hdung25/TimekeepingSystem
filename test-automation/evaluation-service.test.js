@@ -1372,6 +1372,37 @@ function observation(lateMinutes) {
 }
 
 {
+    // Quỳnh 04/09: một phiên cũ không có linkedClassStart vẫn khớp duy nhất
+    // vào lớp FFM đã phân công. Lịch phải tự chọn FFM thay vì bắt TA mở popup
+    // chọn môn thủ công.
+    const dateKey = '2026-09-04';
+    const staffId = 'teacher-quynh';
+    const chips = context.window.calculateDailyChips(
+        {
+            evening1: [{
+                start: '18:00', end: '19:30', lop: 'FFM', lopId: 'subject-ffm',
+                gvId: staffId, registeredTeachers: [], _branch: 'cs2',
+                _compositeKey: `cs2__${dateKey}`, _originalIndex: 1,
+                shiftId: 'shift_inherited_a0w3gy_111wk2k'
+            }]
+        },
+        [{
+            id: 'quynh-no-link', checkIn: `${dateKey}T17:38:36+07:00`,
+            checkOut: `${dateKey}T19:30:00+07:00`
+        }],
+        staffId,
+        dateKey,
+        { roles: ['teaching_assistant'], salary_config: {} }
+    );
+    const worked = chips.find(chip => chip.isTeaching);
+    assert.ok(worked, 'ca FFM đã phân công phải tạo chip dạy');
+    assert.equal(worked.usesScheduledSubject, true, 'môn lịch phải là nguồn tự động dù phiên cũ thiếu linkedClassStart');
+    assert.equal(worked.sessionData.role, 'subject-ffm', 'chip phải mang đúng mã môn lịch để không gọi popup chọn môn');
+    assert.match(worked.text, /\(FFM\)/, 'chip phải hiển thị môn FFM lấy từ lịch');
+    assert.doesNotMatch(worked.text, /Role\?/, 'ca đã có môn lịch không được hiện Role?');
+}
+
+{
     // Một session phủ hai ca dạy rời nhau: award của ca A chỉ cộng đúng ca A,
     // không được lan sang ca B dù sessionId giống hệt.
     const dateKey = '2026-08-20';
