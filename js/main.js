@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260906-early10-recovery-v1';
+const APP_VERSION = '20260908-incident-recovery-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -60,7 +60,7 @@ if (!window.RolePolicy) {
         const targetVersion = String(announcedVersion || APP_VERSION);
         try { if (sessionStorage.getItem(reloadKey) === targetVersion) return; } catch (_) { /* restricted storage */ }
 
-        if (formEdited || window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending) {
+        if (formEdited || window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending || window.__classClosurePending) {
             let notice = document.getElementById('app-update-ready');
             if (!notice) {
                 notice = document.createElement('button');
@@ -69,7 +69,7 @@ if (!window.RolePolicy) {
                 notice.textContent = 'Có bản mới · Lưu xong rồi bấm tải lại';
                 notice.style.cssText = 'position:fixed;bottom:12px;left:12px;z-index:9999;padding:12px;border:0;border-radius:8px;background:#047857;color:white;max-width:calc(100vw - 24px)';
                 notice.onclick = () => {
-                    if (window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending) return;
+                    if (window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending || window.__classClosurePending) return;
                     window.location.reload();
                 };
                 document.body?.appendChild(notice);

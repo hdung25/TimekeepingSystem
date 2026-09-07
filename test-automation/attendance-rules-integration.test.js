@@ -71,6 +71,45 @@ async function main() {
             row.registeredTeachers = [{id:userId,name:name.trim()}];
             assert.equal(await service.registerClass(scheduleKey,'evening1',{index:0},{id:userId,name:name.trim()}),'cancelled');
             console.log(`PASS real DBService register/cancel with trailing-name profile (${suffix})`);
+            await env.withSecurityRulesDisabled(c => c.firestore().collection('schedules').doc(scheduleKey)
+                .set({ evening1: [{ ...row, isClosed: true }] }));
+            row.registeredTeachers = [];
+            await assert.rejects(service.registerClass(scheduleKey,'evening1',{index:0},{id:userId,name}),
+                { code: 'schedule/registration-closed' });
+            // The next staff fixture shares the day; leave it open for its
+            // independent registration test, without changing any real data.
+            await env.withSecurityRulesDisabled(c => c.firestore().collection('schedules').doc(scheduleKey)
+                .set({ evening1: [{ ...row, isClosed: false }] }));
+            // Reproduce the historical +10 missing-proof path with the actual
+            // service and Rules, then verify an eligible receipt succeeds.
+            const earlyDay = '2026-08-31';
+            const earlySession = 'session-early-fixture';
+            const earlyIn = `${earlyDay}T10:49:00.000Z`;
+            await env.withSecurityRulesDisabled(async c => {
+                const adminDb = c.firestore();
+                await adminDb.collection('subjects').doc('fixture-english').set({ name: 'E5', allowEarly10: true });
+                await adminDb.collection('schedules').doc(`cs1__${earlyDay}`).set({ evening1: [{
+                    shiftId: 'shift-early-fixture', start: '18:00', end: '19:30', lop: 'E5', lopId: 'fixture-english', gvId: userId
+                }] });
+                await adminDb.collection('attendance_logs').doc(`${earlyDay}_${userId}`).set({
+                    userId, name, date: earlyDay, sessions: [{ id: earlySession, checkIn: earlyIn,
+                        start: earlyIn, checkOut: `${earlyDay}T12:30:00.000Z` }]
+                });
+            });
+            const meta = { scheduleDocId: `cs1__${earlyDay}`, scheduleSection: 'evening1', scheduleIndex: 0,
+                scheduleShiftId: 'shift-early-fixture', targetShiftKey: `teaching__${earlyDay}__shift__shift-early-fixture`,
+                subjectId: 'fixture-english', classStart: '18:00', classEnd: '19:30', checkInAt: earlyIn, earlyMinutes: 11 };
+            context.window.Early10 = require('../js/early10.js');
+            await assert.rejects(service.createBonus10Request(userId, name, earlyDay, earlySession, meta), { code: 'bonus10/proof-missing' });
+            await env.withSecurityRulesDisabled(c => c.firestore().collection('attendance_checkin_proofs')
+                .doc(`${earlyDay}~${userId}~${earlySession}`).set({ staffId: userId, dateKey: earlyDay,
+                    sessionId: earlySession, authUid: uid, recordedAt: firebase.firestore.Timestamp.fromDate(new Date(earlyIn)), schemaVersion: 1 }));
+            await service.createBonus10Request(userId, name, earlyDay, earlySession, meta);
+            await service.createBonus10Request(userId, name, earlyDay, earlySession, meta);
+            const earlyRequests = await service.getBonus10RequestsForStaff(userId, '2026-08');
+            assert.equal(earlyRequests.length, 1);
+            assert.equal(earlyRequests[0].status, 'approved');
+            console.log(`PASS missing proof gives a precise error; eligible +10 creates one award (${suffix})`);
         }
 
         await env.withSecurityRulesDisabled(async c => {

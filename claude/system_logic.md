@@ -922,3 +922,21 @@ là bảng 4 cột với nhãn dọc như cũ.
   `tdt-chamcong-v155-quynh-autosubject-20260906`. Regression bao gồm lịch direct
   có `shift_inherited_*`, session legacy không role, đọc request canonical chưa có,
   toàn bộ `npm test` và Rules/integration đều phải đạt trước khi deploy.
+
+### 08/09/2026 — Incident recovery (local đã kiểm chứng, CHƯA deploy)
+- +10 phân biệt thiếu proof/hồ sơ/công/môn; Rules chỉ cho đọc proof canonical
+  chưa tồn tại của chính chủ; không tạo bằng chứng quá khứ. Kiểm tra trùng dùng
+  đọc request phân trang theo tháng. Thông báo giờ vào thể hiện cả giây, không
+  làm tròn để cấp thưởng.
+- Chấm công đợi xác thực đúng nhân sự, bỏ render cũ khi đổi phiên. Danh bạ có
+  TTL 60 giây theo lần gọi, retry sau lỗi và nút refresh giữ dữ liệu khi lỗi.
+- Quản lý đóng/mở từng lớp quá khứ với lý do/lịch sử, đối chiếu công trong
+  transaction, giữ phân công/ghi chú; không mở quyền xóa quá khứ. Nhận lớp
+  kiểm tra trạng thái lịch trong transaction. Trạng thái/lịch sử nghỉ không
+  kế thừa sang tuần sau. Không tự sửa công/lương hoặc chính sách TV.
+- `npm test`, Rules 32/32 cùng integration, browser 8 nhóm/36 lượt trang đều
+  đạt. Môi trường demo cô lập, không phải kiểm thử tài khoản production.
+- Build dự kiến `20260908-incident-recovery-v1`, cache
+  `tdt-chamcong-v156-incident-recovery-20260908`. Deployment bị chặn bởi Vercel
+  CLI chưa xác thực; chưa push/deploy hoặc sửa dữ liệu thật. Chi tiết cổng phát
+  hành và các ca chưa đủ căn cứ: `claude/release-incident-recovery-20260908.md`.

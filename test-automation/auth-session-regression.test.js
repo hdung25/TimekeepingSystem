@@ -129,7 +129,7 @@ assert.doesNotMatch(syncUserHelper, /createUser\(/,
     'a failed identity sync must never create a replacement account');
 assert.match(syncUserHelper, /finally \{[\s\S]*?auth\.signOut\(\)/,
     'secondary staff sessions must always be cleared');
-assert.match(personnel, /Promise\.all\(\[[\s\S]*?DBService\.getUsers\(\)[\s\S]*?DBService\.getUserCredentialsMap\(\)/,
+assert.match(personnel, /Promise\.all\(\[[\s\S]*?DBService\.getUsers\(options\)[\s\S]*?DBService\.getUserCredentialsMap\(\)/,
     'the admin personnel screen must join the isolated compatibility credential store');
 assert.match(personnel, /getElementById\('ns-staff-password'\)\.value;/,
     'password edits must preserve intentional leading/trailing spaces');

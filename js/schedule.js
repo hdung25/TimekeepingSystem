@@ -97,24 +97,67 @@ window.toggleSectionClosure = async function (dateKey, shiftKey, isChecked) {
     }
 };
 
-window.toggleClassClosure = async function (compositeKey, caType, index, isChecked) {
+function requestClassClosureReason(row, dateKey, isClosed) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'custom-modal-backdrop';
+        overlay.innerHTML = `<div class="custom-modal-box" role="dialog" aria-modal="true" aria-label="Ghi nhận lớp nghỉ">
+            <h3>${isClosed ? 'Ghi nhận lớp nghỉ' : 'Mở lại lớp'}</h3>
+            <p>${scheduleEscapeHTML(dateKey)} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)} · ${scheduleEscapeHTML(row.lop)}</p>
+            <p>Chỉ thay đổi trạng thái lớp này trong ngày đã chọn. Không xóa công, phân công hoặc ghi chú. Bảng lương đã gửi không tự thay đổi.</p>
+            ${Array.isArray(row.classClosureHistory) && row.classClosureHistory.length ? `<p>Lần thay đổi gần nhất: ${scheduleEscapeHTML(row.classClosureHistory[row.classClosureHistory.length - 1].reason)}</p>` : ''}
+            <label>Lý do / thông tin báo nghỉ<textarea class="table-input" maxlength="500" rows="3" data-closure-reason></textarea></label>
+            <div class="custom-modal-actions"><button class="btn" data-cancel>Hủy bỏ</button><button class="btn btn-primary" data-save>Xác nhận</button></div>
+        </div>`;
+        const close = value => { overlay.remove(); resolve(value); };
+        overlay.querySelector('[data-cancel]').onclick = () => close(null);
+        overlay.querySelector('[data-save]').onclick = () => {
+            const reason = overlay.querySelector('[data-closure-reason]').value.trim();
+            if (!reason) { UIService.toast('Vui lòng nhập lý do để lưu lịch sử thay đổi.', 'warning'); return; }
+            close(reason);
+        };
+        overlay.onclick = event => { if (event.target === overlay) close(null); };
+        document.body.appendChild(overlay);
+        overlay.querySelector('[data-closure-reason]').focus();
+    });
+}
+
+window.toggleClassClosure = async function (compositeKey, caType, index, isChecked, renderedLocator) {
+    if (window.__classClosurePending) return;
+    window.__classClosurePending = true;
     try {
-        const dayData = await DBService.getSchedule(compositeKey);
+        const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
         if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
         const row = dayData[caType][index];
+        const locator = scheduleRowLocator(row, index);
+        if (renderedLocator) {
+            const expected = JSON.parse(renderedLocator);
+            if (expected.shiftId !== locator.shiftId || expected.signature !== locator.signature) {
+                throw new Error('Dòng lịch đã thay đổi. Hãy tải lại và chọn đúng lớp.');
+            }
+        }
+        const reason = await requestClassClosureReason(row, compositeKey.split('__').pop(), isChecked === true);
+        if (!reason) return;
+        locator.closureCommand = {
+            expectedClosed: row.isClosed === true, reason,
+            sourceDocId: row._isInheritedSchedule ? row._inheritedFromScheduleDocId : '',
+            registeredStaffIds: (row.registeredTeachers || []).map(item => item.id).filter(Boolean)
+        };
         await DBService.updateScheduleRowAtomic(
             compositeKey,
             caType,
-            scheduleRowLocator(row, index),
+            locator,
             latestRow => ({ ...latestRow, isClosed: isChecked === true }),
             dayData
         );
         
-        // Re-render table
-        await renderTable();
+        UIService.toast(isChecked ? 'Đã ghi nhận lớp nghỉ, giữ nguyên dữ liệu công.' : 'Đã mở lại lớp, giữ nguyên lịch sử.', 'success');
     } catch (e) {
         console.error("Error toggling class closure:", e);
-        alert("Có lỗi xảy ra khi tắt/mở lớp này!");
+        UIService.toast(e.message || 'Chưa lưu được trạng thái lớp. Vui lòng thử lại.', 'error');
+    } finally {
+        window.__classClosurePending = false;
+        await renderTable();
     }
 };
 
@@ -757,23 +800,23 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     // === ACTION CELL ===
     let actionCell = '';
     const isClassClosed = data.isClosed === true;
-    if (rowIsAdmin) {
+    if (isAdmin) {
         const checkedAttr = isClassClosed ? 'checked' : '';
         actionCell = `
             <td data-field="action" data-label="Thao tác" style="text-align: center; white-space: nowrap;">
                 <div style="display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;">
                     <label class="class-closure-toggle" style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.75rem; color: ${isClassClosed ? '#EF4444' : '#6B7280'}; font-weight: 600; user-select: none;" title="Tắt lớp này">
-                        <input type="checkbox" ${checkedAttr} 
-                            onchange="toggleClassClosure('${compositeKey}', '${caType}', ${index}, this.checked)"
+                        <input type="checkbox" ${checkedAttr} data-row-locator="${scheduleEscapeAttr(JSON.stringify(scheduleRowLocator(data, index)))}"
+                            onchange="toggleClassClosure('${compositeKey}', '${caType}', ${index}, this.checked, this.dataset.rowLocator)"
                             style="cursor: pointer; width: 14px; height: 14px; margin: 0;">
                         <span>${isClassClosed ? 'Tắt' : 'Bật'}</span>
                     </label>
-                    <button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})" title="Xóa lớp">
+                    ${rowIsAdmin ? `<button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})" title="Xóa lớp">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                         </svg>
-                    </button>
+                    </button>` : ''}
                 </div>
             </td>`;
     } else {
@@ -3016,7 +3059,7 @@ window.executeCopyWeek = async function () {
                             // Xoá GV thay thế theo CẢ 2 cách viết (The/Te) — trước đây chỉ xoá
                             // bản viết thiếu "h" nên gvThayThe/gvThayTheId (trường tính lương,
                             // đánh vắng) vẫn bị sao chép sang tuần sau.
-                            const { registeredTeachers, isClosed,
+                            const { registeredTeachers, isClosed, classClosureHistory,
                                 gvThayThe, gvThayTheId, gvThayTheList,
                                 gvThayTe, gvThayTeId, gvThayTeList,
                                 gvThayTheAt, teacherAbsences, teacherAbsenceHistory,

@@ -329,9 +329,12 @@
         }
 
         if (earlyMinutesExact < EARLY10_REQUIRED_MINUTES) {
-            return fail('checkin', 'Giờ vào ca của bạn là ' + checkInLabel +
+            var checkInDate = toDate(options.checkIn);
+            var preciseCheckInLabel = checkInLabel + ':' + String(checkInDate.getSeconds()).padStart(2, '0') +
+                (checkInDate.getMilliseconds() ? '.' + String(checkInDate.getMilliseconds()).padStart(3, '0') : '');
+            return fail('checkin', 'Giờ vào ca của bạn là ' + preciseCheckInLabel +
                 ', không hợp lệ để nhận sớm 10 phút. Ca bắt đầu lúc ' + startLabel +
-                ' nên bạn phải chấm công trước ' + formatMinutesOfDay(parseClockToMinutes(options.classStart) - EARLY10_REQUIRED_MINUTES) + '.');
+                ' nên bạn phải chấm công chậm nhất ' + formatMinutesOfDay(parseClockToMinutes(options.classStart) - EARLY10_REQUIRED_MINUTES) + ':00 (tính cả giây, không làm tròn lên).');
         }
 
         return {

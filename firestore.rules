@@ -829,7 +829,14 @@ service cloud.firestore {
     // Immutable server-time receipt for a self check-in. Payroll rules use this
     // receipt instead of trusting the client-authored ISO display timestamp.
     match /attendance_checkin_proofs/{proofId} {
-      allow read: if isAuthenticated()
+      // Legacy/manual attendance may have no receipt. Only allow an absent
+      // canonical owner path to be read; never broaden collection queries.
+      allow get: if isAuthenticated() && (isAdmin()
+        || (getUserId() is string && getUserId().matches('[A-Za-z0-9_-]{1,80}')
+          && proofId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}~' + getUserId() + '~[A-Za-z0-9_-]{1,160}')
+          && !exists(/databases/$(database)/documents/attendance_checkin_proofs/$(proofId)))
+        || ownsStaffId(resource.data.get('staffId', '')));
+      allow list: if isAuthenticated()
         && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
       allow create: if isAuthenticated()
         && ownsStaffId(request.resource.data.get('staffId', ''))

@@ -334,6 +334,7 @@ function _projectInheritedBonus10Row(row, targetDateKey) {
         : { ...(row || {}) };
     const projected = { ...roster, registeredTeachers: [] };
     delete projected.isClosed;
+    delete projected.classClosureHistory;
     projected.gvThayThe = '';
     projected.gvThayTheId = '';
     projected.gvThayTheList = [];
@@ -1555,17 +1556,25 @@ const DBService = {
         });
     },
 
-    getUsers: async () => {
+    getUsers: async (options = {}) => {
+        if (options.forceRefresh) DBService._invalidate('directory_authz_');
         const context = await DBService._getAuthenticatedDirectoryContext();
+        if ((window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null))?.currentUser?.uid !== context.uid) {
+            throw _attendanceAuthError('Phiên đăng nhập đã thay đổi. Vui lòng tải lại danh sách.', 'auth/session-changed');
+        }
         const collectionName = context.canReadPrivateProfiles ? 'users' : 'staff_directory';
         const cacheKey = `users_all_${context.uid || 'anonymous'}_${collectionName}`;
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+        DBService._directoryReadTimes ||= {};
+        if (!options.forceRefresh && DBService._cache[cacheKey] &&
+            Date.now() - (DBService._directoryReadTimes[cacheKey] || 0) < 60000) {
+            return DBService._cache[cacheKey];
+        }
 
         const promise = (async () => {
             try {
                 let snapshot;
                 try {
-                    snapshot = await db.collection(collectionName).get();
+                    snapshot = await db.collection(collectionName).get({ source: 'server' });
                 } catch (directoryError) {
                     // Zero-downtime rollout: the frontend may reach production a
                     // few seconds before rules start allowing staff_directory.
@@ -1579,15 +1588,24 @@ const DBService = {
                     const { password: _legacyPassword, ...profile } = doc.data() || {};
                     return { id: doc.id, ...profile };
                 });
+                const currentUid = (window.auth || (typeof firebase !== 'undefined' ? firebase.auth() : null))?.currentUser?.uid;
+                if (currentUid !== context.uid) {
+                    throw _attendanceAuthError('Phiên đăng nhập đã thay đổi. Vui lòng tải lại danh sách.', 'auth/session-changed');
+                }
                 return DBService.generateUniqueShortNames(rawUsers);
             } catch (error) {
                 console.error("Error getting users:", error);
-                return [];
+                throw error;
             }
         })();
 
         DBService._cache[cacheKey] = promise;
-        return promise;
+        DBService._directoryReadTimes[cacheKey] = Date.now();
+        try { return await promise; }
+        catch (error) {
+            if (DBService._cache[cacheKey] === promise) delete DBService._cache[cacheKey];
+            throw error;
+        }
     },
 
     getUser: async (userId) => {
@@ -2090,6 +2108,7 @@ const DBService = {
                                 ? TeacherShiftState.projectInheritedRoster(row, dateKey) : row;
                             const newRow = { ...roster, registeredTeachers: [] };
                             delete newRow.isClosed;
+                            delete newRow.classClosureHistory;
                             // GV thay thế chỉ có hiệu lực đúng ngày được gán — không kế thừa
                             // sang tuần sau (dữ liệu cũ tồn tại cả 2 cách viết The/Te).
                             newRow.gvThayThe = ''; newRow.gvThayTheId = ''; newRow.gvThayTheList = [];
@@ -2209,10 +2228,22 @@ const DBService = {
             if (!authUid) throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
 
             await db.runTransaction(async transaction => {
-                const [existingSnapshot, profileSnapshot] = await Promise.all([
+                const [existingSnapshot, profileSnapshot, scheduleSnapshot] = await Promise.all([
                     transaction.get(registrationRef),
-                    transaction.get(db.collection('users').doc(String(userId)))
+                    transaction.get(db.collection('users').doc(String(userId))),
+                    transaction.get(db.collection('schedules').doc(docId))
                 ]);
+                if (nextStatus === 'active' && scheduleSnapshot.exists) {
+                    const liveRows = scheduleSnapshot.data()?.[caType] || [];
+                    const liveRow = liveRows.find(candidate => row.shiftId
+                        ? candidate.shiftId === row.shiftId
+                        : _scheduleRegistrationRowSignature(candidate) === _scheduleRegistrationRowSignature(row));
+                    if (!liveRow || liveRow.isClosed === true) {
+                        const error = new Error('Lớp đã nghỉ hoặc lịch vừa thay đổi. Vui lòng tải lại lịch trước khi nhận lớp.');
+                        error.code = 'schedule/registration-closed';
+                        throw error;
+                    }
+                }
                 const existing = existingSnapshot.exists ? existingSnapshot.data() : null;
                 const immutable = existing || {
                     scheduleKey: compositeKey,
@@ -2901,6 +2932,14 @@ const DBService = {
             : [])
             .map(value => String(value || '').trim())
             .filter(Boolean)));
+        const closureCommand = locator?.closureCommand;
+        const closureActor = closureCommand
+            ? await DBService.getAuthenticatedAuthorizationContext(true) : null;
+        if (closureCommand && (!(closureActor.roles || []).some(role =>
+            ['admin', 'senior_assistant', 'assistant'].includes(role)) ||
+            !String(closureCommand.reason || '').trim())) {
+            throw new Error('Cần quyền quản lý lịch và lý do để ghi nhận lớp nghỉ/mở lại.');
+        }
         if (absenceGuard && (
             !/^\d{4}-\d{2}-\d{2}$/.test(String(absenceGuard.dateKey || '')) ||
             guardedStaffIds.length > 20 ||
@@ -2913,6 +2952,15 @@ const DBService = {
 
         await db.runTransaction(async transaction => {
             const snapshot = await transaction.get(ref);
+            if (closureCommand?.sourceDocId && !snapshot.exists) {
+                const template = await transaction.get(db.collection('schedules').doc(closureCommand.sourceDocId));
+                if (!template.exists || Number(template.data()?._revision || 0) !== Number(fallbackDayData?._revision || 0) ||
+                    JSON.stringify(template.data()?._updatedAt || null) !== JSON.stringify(fallbackDayData?._updatedAt || null)) {
+                    const error = new Error('Lịch nguồn đã thay đổi. Hãy tải lại trước khi ghi nhận lớp nghỉ.');
+                    error.code = 'schedule/closure-conflict';
+                    throw error;
+                }
+            }
             const source = snapshot.exists
                 ? snapshot.data()
                 : JSON.parse(JSON.stringify(fallbackDayData || {}));
@@ -2939,6 +2987,49 @@ const DBService = {
             const rowBeforeMutation = JSON.parse(JSON.stringify(latestRow));
             const nextRow = applyRow(latestRow);
             if (!nextRow || typeof nextRow !== 'object') throw new Error('Dữ liệu điều phối ca không hợp lệ.');
+
+            const closureChanged = (nextRow.isClosed === true) !== (rowBeforeMutation.isClosed === true);
+            if (closureChanged) {
+                if (!closureCommand || closureCommand.expectedClosed !== (rowBeforeMutation.isClosed === true) ||
+                    expectedSignature !== signatureOf(rowBeforeMutation) ||
+                    (wantedShiftId && wantedShiftId !== String(rowBeforeMutation.shiftId || ''))) {
+                    const error = new Error('Trạng thái lớp đã thay đổi hoặc thiếu xác nhận. Hãy tải lại lịch.');
+                    error.code = 'schedule/closure-conflict';
+                    throw error;
+                }
+                const rosterIds = Array.from(new Set([
+                    ...getScheduledMainTeacherIds(rowBeforeMutation),
+                    ...getScheduledSubstituteIds(rowBeforeMutation),
+                    ...(rowBeforeMutation.registeredTeachers || []).map(item => item.id),
+                    ...(closureCommand.registeredStaffIds || [])
+                ].filter(Boolean)));
+                if (rosterIds.length > 100 || rosterIds.some(id => !/^[A-Za-z0-9_-]{1,80}$/.test(String(id)))) {
+                    throw new Error('Danh sách nhân sự của ca chưa hợp lệ. Đã dừng thay đổi trạng thái lớp.');
+                }
+                const resolver = window.ScheduleAttendanceAdmin?.workedAttendanceConflictForShift;
+                if (nextRow.isClosed === true && rosterIds.length) {
+                    if (typeof resolver !== 'function') throw new Error('Chưa tải được bộ đối chiếu công. Đã dừng đóng lớp.');
+                    const records = await Promise.all(rosterIds.map(staffId =>
+                        transaction.get(db.collection('attendance_logs').doc(`${dateKey}_${staffId}`))));
+                    const shift = { dateKey, start: rowBeforeMutation.start, end: rowBeforeMutation.end,
+                        shiftId: rowBeforeMutation.shiftId, compositeKey, section };
+                    if (records.some(record => record.exists && resolver(record.data(), shift)?.conflict)) {
+                        const error = new Error('Ca này đã có công hoặc phiên công chưa xác định rõ. Đã dừng đóng lớp để giữ giờ làm; quản lý cần đối chiếu Bảng Công trước.');
+                        error.code = 'schedule/closure-work-conflict';
+                        throw error;
+                    }
+                }
+                if (window.auth?.currentUser?.uid !== closureActor.uid) {
+                    throw _attendanceAuthError('Phiên đăng nhập đã thay đổi.', 'auth/session-changed');
+                }
+                nextRow.classClosureHistory = [...(Array.isArray(rowBeforeMutation.classClosureHistory)
+                    ? rowBeforeMutation.classClosureHistory : []), {
+                    dateKey, section, before: rowBeforeMutation.isClosed === true,
+                    after: nextRow.isClosed === true, reason: String(closureCommand.reason).trim().slice(0, 500),
+                    actorUserId: closureActor.userId, authUid: closureActor.uid,
+                    recordedAt: new Date().toISOString()
+                }];
+            }
 
             const nextMainIds = Array.from(getScheduledMainTeacherIds(nextRow));
             const changedAbsenceIds = nextMainIds.filter(staffId => {
@@ -7733,14 +7824,11 @@ const DBService = {
             const registrationRef = claim.scheduleRegistrationId
                 ? db.collection('schedule_registrations').doc(claim.scheduleRegistrationId)
                 : null;
-            const knownSnapshot = await db.collection('bonus10_requests')
-                .where('staffId', '==', identity.staffId)
-                .limit(400)
-                .get();
+            DBService._invalidate(`bonus10_requests_staff_${identity.staffId}_`);
+            const knownRequests = await DBService.getBonus10RequestsForStaff(identity.staffId, monthStr);
             const requestRefsById = new Map([[requestId, requestRef]]);
-            knownSnapshot.docs
-                .filter(doc => String(doc.data()?.dateKey || '').startsWith(`${monthStr}-`))
-                .forEach(doc => requestRefsById.set(doc.id, doc.ref));
+            knownRequests.forEach(record => requestRefsById.set(record.id,
+                db.collection('bonus10_requests').doc(record.id)));
             const requestRefs = Array.from(requestRefsById.values());
 
             await db.runTransaction(async transaction => {
@@ -7788,9 +7876,16 @@ const DBService = {
                     error.code = 'bonus10/schedule-not-materialized';
                     throw error;
                 }
-                if (!attendanceSnapshot.exists || !profileSnapshot.exists || !subjectSnapshot.exists ||
-                    !checkInProofSnapshot.exists) {
-                    throw new Error('Không tìm thấy đủ dữ liệu nhân sự, chấm công, môn học hoặc lịch dạy để tự duyệt +10 phút.');
+                const missingEvidence = [
+                    [profileSnapshot, 'profile-missing', 'Không tìm thấy hồ sơ nhân sự. Vui lòng nhờ quản lý kiểm tra tài khoản.'],
+                    [attendanceSnapshot, 'attendance-missing', 'Không tìm thấy chấm công của ngày này. Vui lòng tải lại bảng công hoặc nhờ quản lý đối chiếu.'],
+                    [subjectSnapshot, 'subject-missing', 'Không tìm thấy môn học của ca này. Vui lòng nhờ quản lý kiểm tra môn trên lịch.'],
+                    [checkInProofSnapshot, 'proof-missing', 'Ca này chưa có bằng chứng giờ vào từ máy chủ để tự duyệt +10 phút (có thể là công cũ hoặc công nhập bù). Vui lòng nhờ quản lý đối chiếu và duyệt riêng; công hiện có vẫn được giữ nguyên.']
+                ].find(([snapshot]) => !snapshot.exists);
+                if (missingEvidence) {
+                    const error = new Error(missingEvidence[2]);
+                    error.code = `bonus10/${missingEvidence[1]}`;
+                    throw error;
                 }
                 const existingRequest = requestSnapshots.find(snapshot => snapshot.id === requestId);
                 if (existingRequest?.exists) {

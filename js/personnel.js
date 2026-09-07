@@ -142,9 +142,9 @@
         return copy;
     }
 
-    async function loadUsersWithCredentials() {
+    async function loadUsersWithCredentials(options = {}) {
         var results = await Promise.all([
-            DBService.getUsers(),
+            DBService.getUsers(options),
             DBService.getUserCredentialsMap()
         ]);
         var credentials = results[1] || {};
@@ -401,15 +401,29 @@
             render();
         } catch (e) {
             var loading = document.getElementById('ns-loading');
-            if (loading) loading.textContent = 'Lỗi tải dữ liệu: ' + e.message;
+            if (loading) {
+                loading.style.display = '';
+                loading.textContent = 'Chưa tải được danh sách nhân sự. Vui lòng kiểm tra kết nối rồi bấm Làm mới danh sách; đây không phải thông báo mất nhân sự.';
+            }
         }
     }
 
     async function reload() {
-        localStorage.removeItem('users_data');
-        DBService._invalidate('users_all');
-        state.users = await loadUsersWithCredentials();
-        render();
+        if (state.reloading) return;
+        state.reloading = true;
+        var refreshButton = document.getElementById('ns-refresh');
+        if (refreshButton) refreshButton.disabled = true;
+        try {
+            localStorage.removeItem('users_data');
+            DBService._invalidate('users_all');
+            state.users = await loadUsersWithCredentials({ forceRefresh: true });
+            render();
+        } catch (error) {
+            UIService.toast('Chưa làm mới được danh sách. Dữ liệu đang hiển thị được giữ nguyên; vui lòng thử lại.', 'error');
+        } finally {
+            state.reloading = false;
+            if (refreshButton) refreshButton.disabled = false;
+        }
     }
 
     // --- Chế độ giáo viên -------------------------------------------------

@@ -263,6 +263,26 @@ test('credential documents are unreadable to staff but support safe own rotation
     await assertSucceeds(getDoc(doc(adminDb, 'user_credentials', 'staff-1')));
 });
 
+test('missing check-in proofs remain owner-scoped and cannot fabricate legacy receipts', async () => {
+    const ownPath = '2026-08-31~staff-1~legacy-no-proof';
+    await assertSucceeds(getDoc(doc(staffDb, 'attendance_checkin_proofs', ownPath)));
+    await assertFails(getDoc(doc(otherDb, 'attendance_checkin_proofs', ownPath)));
+    await assertFails(getDoc(doc(staffDb, 'attendance_checkin_proofs', 'bad~staff-1~session')));
+    await assertFails(getDoc(doc(staffDb, 'attendance_checkin_proofs', '2026-08-31~staff-2~session')));
+    await assertFails(getDocs(collection(staffDb, 'attendance_checkin_proofs')));
+    await assertFails(getDoc(doc(guestDb, 'attendance_checkin_proofs', ownPath)));
+    await assertFails(setDoc(doc(staffDb, 'attendance_checkin_proofs', ownPath), {
+        staffId: 'staff-1', dateKey: '2026-08-31', sessionId: 'legacy-no-proof',
+        authUid: 'uid-staff', recordedAt: Timestamp.fromDate(new Date('2026-08-31T00:00:00Z')), schemaVersion: 1
+    }));
+    await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'attendance_checkin_proofs', ownPath), {
+        staffId: 'staff-2', dateKey: '2026-08-31', sessionId: 'legacy-no-proof',
+        authUid: 'uid-other', recordedAt: serverTimestamp(), schemaVersion: 1
+    }));
+    await assertFails(getDoc(doc(staffDb, 'attendance_checkin_proofs', ownPath)));
+    await assertSucceeds(getDoc(doc(otherDb, 'attendance_checkin_proofs', ownPath)));
+});
+
 test('owner can read a canonical missing attendance document before first check-in', async () => {
     const clockDay = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
     const clockBase = Date.now();

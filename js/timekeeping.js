@@ -87,9 +87,11 @@ function isCenterClosed(dateStr, shiftKey, centerClosures) {
 }
 
 // 1. Global Check-in Rendering
+let attendanceRenderGeneration = 0;
 async function renderGlobalCheckIn() {
     const container = document.getElementById('global-checkin-container');
     if (!container) return;
+    const renderGeneration = ++attendanceRenderGeneration;
 
     const currentUserId = localStorage.getItem('currentUserId');
     if (!currentUserId) {
@@ -106,12 +108,25 @@ async function renderGlobalCheckIn() {
     const previousDateKey = getLocalDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
 
     try {
+        // Rendering may also be requested by dashboard refreshes before startup
+        // has finished. Never show an enabled action for stale local identity.
+        if (typeof window.waitAuth === 'function') await window.waitAuth();
+        const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+        const isCurrentRender = () => renderGeneration === attendanceRenderGeneration &&
+            localStorage.getItem('currentUserId') === currentUserId &&
+            window.auth?.currentUser?.uid === authorization.uid;
+        if (authorization.userId !== currentUserId) {
+            const mismatch = new Error('Phiên đăng nhập không khớp hồ sơ nhân sự. Vui lòng đăng nhập lại.');
+            mismatch.code = 'auth/session-changed';
+            throw mismatch;
+        }
         const [attendanceRecord, previousAttendanceRecord] = await Promise.all([
             DBService.getPersonalAttendance(dateKey, currentUserId),
             previousDateKey === dateKey
                 ? Promise.resolve(null)
                 : DBService.getPersonalAttendance(previousDateKey, currentUserId)
         ]);
+        if (!isCurrentRender()) return;
 
         // Logic: If record exists AND has checkIn but NO checkOut -> Active Session
         let isActiveSession = false;
@@ -166,6 +181,8 @@ async function renderGlobalCheckIn() {
             `;
         }
     } catch (e) {
+        if (renderGeneration !== attendanceRenderGeneration ||
+            localStorage.getItem('currentUserId') !== currentUserId) return;
         console.error(e);
         const message = typeof getStaffAttendanceErrorMessage === 'function'
             ? getStaffAttendanceErrorMessage(e)

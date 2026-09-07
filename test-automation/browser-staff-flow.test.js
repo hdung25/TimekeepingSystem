@@ -53,6 +53,11 @@ async function main() {
             }
             await db.collection('settings').doc('system').set({gpsCS1Lat:10,gpsCS1Lng:106,gpsCS1Radius:200});
             await db.collection('subjects').doc('fixture-subject').set({name:'Fixture class',rate:100000});
+            await db.collection('schedules').doc(`cs1__${payrollDate}`).set({morning1:[{
+                shiftId:'fixture-closure',start:'07:30',end:'09:00',lop:'Fixture class',lopId:'fixture-subject',
+                phong:'P1',gvId:'fixture-staff',gv:'Fixture Staff',gvList:[{id:'fixture-staff',name:'Fixture Staff'}],
+                note:'Preserve this note',registeredTeachers:[]
+            }]});
             await db.collection('schedules').doc(`cs1__${dateKey}`).set({evening1:[{shiftId:'fixture-class',start:'18:00',end:'19:30',lop:'Fixture class',lopId:'fixture-subject',phong:'P1',gvId:'fixture-nhan',gv:'Nguyễn Phan Thanh Nhàn ',gvList:[{id:'fixture-nhan',name:'Nguyễn Phan Thanh Nhàn '}],registeredTeachers:[]}]});
         });
         server=http.createServer((req,res)=>{
@@ -85,8 +90,17 @@ async function main() {
             await page.setRequestInterception(true);
             page.on('request',req=>{
                 const url=new URL(req.url());
+                // Use the pinned SDK installed by this test project. External
+                // optional CDNs must not stall or invalidate a local flow test.
+                const sdk = /^\/firebasejs\/12\.18\.0\/(firebase-[a-z-]+-compat\.js)$/.exec(url.pathname);
+                if (url.hostname === 'www.gstatic.com' && sdk) {
+                    req.respond({status:200,contentType:'text/javascript',body:fs.readFileSync(path.join(__dirname,'node_modules/firebase',sdk[1]))});return;
+                }
                 // Never allow fixture code to touch a production Firebase API.
                 if(/googleapis\.com$/.test(url.hostname)) {req.abort();return;}
+                if(!['localhost','127.0.0.1'].includes(url.hostname)) {
+                    req.respond({status:200,contentType:req.resourceType()==='stylesheet'?'text/css':'text/javascript',body:''});return;
+                }
                 req.continue();
             });
             await page.goto(origin+'/index.html',{waitUntil:'domcontentloaded'});
@@ -169,6 +183,34 @@ async function main() {
                     let saved;
                     await env.withSecurityRulesDisabled(async c=>{saved=(await c.firestore().collection('attendance_logs').doc(`${dateKey}_${user.id}`).get()).data();});
                     assert.equal(saved.sessions.length,1);assert.equal(saved.sessions[0].status,'closed');assert.equal(saved.name,user.name);
+                }
+                if(route==='lich-lam.html' && user.roles.includes('admin')) {
+                    await page.evaluate(date=>goToDatePickerDate(date),payrollDate);
+                    const toggle='input[data-row-locator*="fixture-closure"]';
+                    await page.waitForSelector(toggle,{timeout:30000});
+                    assert.equal(await page.$eval(toggle,el=>!!el.closest('tr').querySelector('button[title="Xóa lớp"]')),false);
+                    for(const closed of [true,false]) {
+                        await page.click(toggle);
+                        await page.waitForSelector('[data-closure-reason]',{visible:true});
+                        await page.type('[data-closure-reason]',closed?'Fixture: lớp nghỉ báo trễ':'Fixture: khôi phục lớp');
+                        await page.click('[data-save]');
+                        await page.waitForFunction(()=>window.__classClosurePending===false,{timeout:30000});
+                        await page.waitForSelector(toggle);
+                        let row;
+                        await env.withSecurityRulesDisabled(async c=>{row=(await c.firestore().collection('schedules').doc(`cs1__${payrollDate}`).get()).data().morning1[0];});
+                        assert.equal(row.isClosed,closed);
+                        assert.equal(row.note,'Preserve this note');
+                        assert.equal(row.gvId,'fixture-staff');
+                        assert.equal(row.classClosureHistory.length,closed?1:2);
+                    }
+                    console.log('PASS past class closure/reopen through actual manager UI preserves notes/assignment/audit; delete stays locked');
+                }
+                if(route==='nhan-su.html') {
+                    await page.waitForSelector('#ns-refresh');
+                    await page.click('#ns-refresh');
+                    await page.waitForFunction(()=>window.NhanSu && !NhanSu._state.reloading,{timeout:30000});
+                    assert.equal(await page.$$eval('#ns-list .ns-card',rows=>rows.length),roles.length);
+                    console.log('PASS personnel explicit refresh preserves full staff list');
                 }
                 const view=await page.evaluate(()=>({title:document.title,text:document.body.innerText.slice(0,600),width:document.documentElement.scrollWidth,viewport:innerWidth}));
                 assert.ok(view.text.length>30);

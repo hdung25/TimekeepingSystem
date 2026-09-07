@@ -65,8 +65,10 @@ assert.equal(schedule.evening1[0].registeredTeachers.length, 1,
 
 const registerFlow = source.slice(source.indexOf('registerClass: async'), source.indexOf('updateAttendanceSession: async'));
 assert.match(registerFlow, /collection\('schedule_registrations'\)/);
-assert.doesNotMatch(registerFlow, /collection\('schedules'\)/,
-    'self-registration must never write a schedule document');
+assert.match(registerFlow, /transaction\.get\(db\.collection\('schedules'\)\.doc\(docId\)\)/,
+    'registration must read the latest closure state in its transaction');
+assert.deepEqual([...registerFlow.matchAll(/transaction\.(?:set|update|delete)\(([^,\)]+)/g)].map(match => match[1]), ['registrationRef'],
+    'self-registration must write only its registration, never a schedule document');
 assert.match(registerFlow, /status: nextStatus/);
 assert.match(source, /_attachScheduleRegistrations\(compositeKey, data(?:, options)?\)/);
 
