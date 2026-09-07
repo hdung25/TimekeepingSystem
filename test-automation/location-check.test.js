@@ -244,7 +244,15 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
         /prepareAttendanceLocationPermission\s*\(/,
         'trang không được tự xin vị trí khi vừa mở; phải chờ thao tác VÀO CA'
     );
-    assert.match(mainSource, /await DBService\.checkInPersonal\(currentUserId, userFullName\)/);
+    const globalCheckInSource = mainSource.slice(
+        mainSource.indexOf('window.globalCheckIn = async function'),
+        mainSource.indexOf('// Check if user registered for any class today')
+    );
+    const locationAttemptIndex = globalCheckInSource.indexOf('DBService.beginAttendanceLocationAttempt');
+    const checkInCallIndex = globalCheckInSource.indexOf('DBService.checkInPersonal');
+    assert.ok(locationAttemptIndex >= 0 && locationAttemptIndex < checkInCallIndex,
+        'lần bấm Vào ca phải khởi động định vị trước mọi await Auth/Firestore');
+    assert.match(globalCheckInSource, /await DBService\.checkInPersonal\(currentUserId, userFullName, \{ locationAttempt \}\)/);
     assert.doesNotMatch(mainSource, /withTimeout\(DBService\.checkInPersonal/,
         'không race một mutation không thể hủy với timeout giao diện');
     assert.match(mainSource, /__attendanceCheckInPending/);
@@ -256,14 +264,16 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
     assert.match(uiSource, /dataset\.toastKey/);
     assert.match(uiSource, /find\(item => item\.dataset\.toastKey === toastKey\)/,
         'cảnh báo giống nhau đang hiện phải được gộp');
-    assert.match(dbSource, /void recordAttendanceLocationFailure\([\s\S]*?locationError\?\.code/,
+    assert.match(dbSource, /void recordAttendanceCheckInFailure\(userId, error, stage\)/,
         'lỗi cổng vị trí khởi động ghi chẩn đoán nhưng không khóa nút khi mất mạng');
     const checkInSource = dbSource.slice(
         dbSource.indexOf('checkInPersonal: async'),
         dbSource.indexOf('checkOutPersonal: async')
     );
-    assert.match(checkInSource, /await assertAttendanceLocationAllowed\(settings\)/,
+    assert.match(checkInSource, /assertAttendanceLocationAllowed\(settings, options\?\.locationAttempt \|\| null\)/,
         'Rule HD: GPS phải luôn là cổng kiểm tra thật của VÀO CA');
+    assert.match(dbSource, /beginAttendanceLocationAttempt: \(\) => \{[\s\S]*?getBrowserLocation\(\{ forceFresh: true \}\)/,
+        'định vị preflight vẫn phải lấy điểm mới và không được dùng cache cũ');
     assert.doesNotMatch(
         checkInSource,
         /allowedIP|enableIPCheck|resolveDDNS|dns\.google|getAttendancePublicIP|assertAttendanceNetworkOrLocationAllowed|api4?\.ipify/,
@@ -274,7 +284,7 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
         dbSource.indexOf('createScheduleIfMissing: async')
     );
     assert.match(prepareSource, /getConfiguredGPSCampuses\(settings\)/);
-    assert.match(prepareSource, /assertAttendanceLocationAllowed\(settings\)/);
+    assert.match(prepareSource, /assertAttendanceLocationAllowed\(settings(?:, initialLocationAttempt)?\)/);
     assert.doesNotMatch(
         prepareSource,
         /allowedIP|enableIPCheck|resolveDDNS|dns\.google|ipify|AttendanceNetwork/,

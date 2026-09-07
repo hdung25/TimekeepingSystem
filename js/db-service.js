@@ -686,6 +686,10 @@ const LOCATION_CACHE_TTL_MS = 2 * 60 * 1000;
 const ATTENDANCE_LOCATION_RECOVERY_TIMEOUT_MS = 26000;
 const ATTENDANCE_LOCATION_PUBLIC_MESSAGE = "IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để chấm công.";
 const ATTENDANCE_LOCATION_DIAGNOSTIC_COLLECTION = 'attendance_location_events';
+const ATTENDANCE_DIAGNOSTIC_STAGES = new Set([
+    'auth_context', 'settings_read', 'location_gate', 'attendance_commit'
+]);
+const ATTENDANCE_DIAGNOSTIC_COOLDOWN_MS = 90 * 1000;
 const ATTENDANCE_LOCATION_ACK_KEY = 'tdt-attendance-location-ack-v1';
 let lastBrowserLocation = null;
 
@@ -757,13 +761,43 @@ function getAttendanceClientContext() {
     };
 }
 
-async function recordAttendanceLocationFailure(userId, code, stage = 'location_gate') {
+function getAttendanceDiagnosticCode(error) {
+    const explicitCode = String(error?.code || '').trim();
+    if (explicitCode) return explicitCode;
+    if (_isFirestorePermissionDenied(error)) return 'PERMISSION_DENIED';
+    const message = String(error?.message || '').toLowerCase();
+    if (/network|offline|unavailable|deadline/.test(message)) return 'NETWORK_UNAVAILABLE';
+    return 'UNKNOWN';
+}
+
+function shouldRecordAttendanceDiagnostic(userId, code, stage) {
+    try {
+        if (typeof localStorage === 'undefined') return true;
+        const key = `tdt-attendance-diagnostic-${String(userId)}-${String(stage)}-${String(code)}`;
+        const now = Date.now();
+        const previous = Number(localStorage.getItem(key));
+        if (Number.isFinite(previous) && now - previous < ATTENDANCE_DIAGNOSTIC_COOLDOWN_MS) {
+            return false;
+        }
+        localStorage.setItem(key, String(now));
+    } catch (_) {
+        // Diagnostics are best effort and must never interrupt attendance.
+    }
+    return true;
+}
+
+async function recordAttendanceCheckInFailure(userId, errorOrCode, stage = 'location_gate') {
     try {
         const authUid = firebase.auth().currentUser?.uid;
         if (!authUid || !userId || !db) return false;
         const dateKey = getLocalDateKeyFromDate(new Date());
-        const safeCode = String(code || 'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64);
+        const safeCode = getAttendanceDiagnosticCode(errorOrCode)
+            .toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 64);
         const safeStage = String(stage || 'location_gate').replace(/[^a-z0-9_]/gi, '_').slice(0, 32);
+        if (!ATTENDANCE_DIAGNOSTIC_STAGES.has(safeStage) ||
+            !shouldRecordAttendanceDiagnostic(userId, safeCode, safeStage)) {
+            return false;
+        }
         const permissionState = await getAttendanceLocationPermissionState();
         const context = getAttendanceClientContext();
         const appVersion = typeof APP_VERSION !== 'undefined' ? String(APP_VERSION) : 'unknown';
@@ -784,8 +818,24 @@ async function recordAttendanceLocationFailure(userId, code, stage = 'location_g
         });
         return true;
     } catch (diagnosticError) {
-        console.warn('[AttendanceLocation] Diagnostic write failed:', diagnosticError?.code || diagnosticError?.message || 'UNKNOWN');
+        console.warn('[Attendance] Diagnostic write failed:', diagnosticError?.code || diagnosticError?.message || 'UNKNOWN');
         return false;
+    }
+}
+
+async function runAttendanceCheckInPhase(userId, stage, operation) {
+    try {
+        return await operation();
+    } catch (error) {
+        // The diagnostic write is deliberately detached from the failed action:
+        // it must not create a second wait, retry a mutation or hide the real
+        // error from the caller.
+        // A local-profile mismatch has no trustworthy staff ID to write under;
+        // attempting its diagnostic would be rejected by Rules and add noise.
+        if (!(stage === 'auth_context' && error?.code === 'auth/session-changed')) {
+            void recordAttendanceCheckInFailure(userId, error, stage);
+        }
+        throw error;
     }
 }
 
@@ -1011,7 +1061,7 @@ function getBrowserLocationFromWatch(campuses, options = {}) {
     });
 }
 
-async function assertAttendanceLocationAllowed(settings = {}) {
+async function assertAttendanceLocationAllowed(settings = {}, initialLocationAttempt = null) {
     const campuses = getConfiguredGPSCampuses(settings);
     if (campuses.length === 0) throw createAttendanceLocationError('CONFIG_UNAVAILABLE');
 
@@ -1019,7 +1069,10 @@ async function assertAttendanceLocationAllowed(settings = {}) {
     try {
         // Each deliberate check-in needs a new fix, even if the user has
         // granted permission before or another account just used this tab.
-        firstCoords = await getBrowserLocation({ forceFresh: true });
+        const locationAttempt = initialLocationAttempt && typeof initialLocationAttempt.then === 'function'
+            ? initialLocationAttempt
+            : getBrowserLocation({ forceFresh: true });
+        firstCoords = await locationAttempt;
     } catch (e) {
         console.warn('[AttendanceLocation] Initial browser fix failed:', e?.locationCode || 'UNKNOWN');
         const initialCode = e?.locationCode || 'ACQUIRE_FAILED';
@@ -2874,10 +2927,21 @@ const DBService = {
         }
     },
 
-    prepareAttendanceLocationPermission: async () => {
+    // Called synchronously from the user's Vào ca click. Starting the browser
+    // request before any Auth/Firestore await preserves the user gesture for
+    // iOS while the later gate still validates this same fresh result.
+    beginAttendanceLocationAttempt: () => {
+        const attempt = getBrowserLocation({ forceFresh: true });
+        // If Auth fails before checkInPersonal awaits this promise, retain a
+        // handled branch so the browser never reports an unhandled rejection.
+        void attempt.catch(() => {});
+        return attempt;
+    },
+
+    prepareAttendanceLocationPermission: async (initialLocationAttempt = null) => {
         const settings = await DBService.getSystemSettings();
         if (getConfiguredGPSCampuses(settings).length === 0) return false;
-        return assertAttendanceLocationAllowed(settings);
+        return assertAttendanceLocationAllowed(settings, initialLocationAttempt);
     },
 
     // This marker is account-scoped UX state only. It records that this
@@ -3505,41 +3569,57 @@ const DBService = {
         return committedRows;
     },
 
-    checkInPersonal: async (userId, userFullName) => {
-        // Reads and the final Firestore transaction each self-recover once
-        // from a stale mobile token. The location gate remains outside the
-        // retry, so one deliberate Vào ca action performs exactly one real
-        // location check and no retry can bypass it.
-        const initialAuthUid = (await _getAttendanceAuthUser()).uid;
-        const settingsDoc = await _runAttendanceFirestoreOperation(() =>
-            db.collection('settings').doc('system').get()
+    checkInPersonal: async (userId, userFullName, options = {}) => {
+        const expectedStaffId = String(userId || '').trim();
+        if (!expectedStaffId) {
+            throw _attendanceAuthError('Không xác định được hồ sơ chấm công. Vui lòng đăng nhập lại.', 'auth/staff-missing');
+        }
+
+        // The token-bound staff mapping, settings read and final transaction
+        // each recover once from a stale mobile token. A network failure is
+        // never retried because its commit status cannot be inferred safely.
+        const authorization = await runAttendanceCheckInPhase(
+            expectedStaffId,
+            'auth_context',
+            () => _runAttendanceFirestoreOperation(async authUser => {
+                const verified = await DBService.getAuthenticatedAuthorizationContext(true);
+                if (verified.uid !== authUser.uid || verified.userId !== expectedStaffId) {
+                    throw _attendanceAuthError(
+                        'Phiên đăng nhập không khớp hồ sơ nhân sự. Vui lòng đăng nhập lại trước khi Vào ca.',
+                        'auth/session-changed'
+                    );
+                }
+                return verified;
+            })
+        );
+        const initialAuthUid = authorization.uid;
+        const settingsDoc = await runAttendanceCheckInPhase(
+            expectedStaffId,
+            'settings_read',
+            () => _runAttendanceFirestoreOperation(() =>
+                db.collection('settings').doc('system').get()
+            )
         );
         const settings = settingsDoc.exists ? settingsDoc.data() : {};
         // GPS is the real attendance gate. The exact Wifi/IP sentence
         // remains the only staff-facing explanation by policy.
-        try {
-            await assertAttendanceLocationAllowed(settings);
-        } catch (locationError) {
-            // Diagnostics must not hold the button indefinitely when
-            // Firestore is offline. This is not an attendance write.
-            void recordAttendanceLocationFailure(
-                userId,
-                locationError?.code || 'UNKNOWN',
-                'location_gate'
-            );
-            throw locationError;
-        }
-        rememberAttendanceLocationAcknowledgement(userId);
+        await runAttendanceCheckInPhase(
+            expectedStaffId,
+            'location_gate',
+            () => assertAttendanceLocationAllowed(settings, options?.locationAttempt || null)
+        );
+        rememberAttendanceLocationAcknowledgement(expectedStaffId);
 
-        const dateKey = await _runAttendanceFirestoreOperation(async authUser => {
+        const dateKey = await runAttendanceCheckInPhase(expectedStaffId, 'attendance_commit', () =>
+            _runAttendanceFirestoreOperation(async authUser => {
             if (authUser.uid !== initialAuthUid) {
                 throw _attendanceAuthError('Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại.', 'auth/session-changed');
             }
             const now = new Date();
             const currentDateKey = getLocalDateKeyFromDate(now);
             const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-            const ref = db.collection('attendance_logs').doc(`${currentDateKey}_${userId}`);
-            const previousRef = db.collection('attendance_logs').doc(`${previousDateKey}_${userId}`);
+            const ref = db.collection('attendance_logs').doc(`${currentDateKey}_${expectedStaffId}`);
+            const previousRef = db.collection('attendance_logs').doc(`${previousDateKey}_${expectedStaffId}`);
             const newSessionId = createAttendanceSessionId();
             const authUid = String(authUser.uid || '').trim();
             if (!authUid) {
@@ -3549,14 +3629,14 @@ const DBService = {
                 );
             }
             const checkInProofRef = db.collection('attendance_checkin_proofs')
-                .doc(`${currentDateKey}~${userId}~${newSessionId}`);
+                .doc(`${currentDateKey}~${expectedStaffId}~${newSessionId}`);
 
             await db.runTransaction(async (t) => {
                 const [doc, previousDoc, profileSnapshot] = await Promise.all([
-                    t.get(ref), t.get(previousRef), t.get(db.collection('users').doc(userId))
+                    t.get(ref), t.get(previousRef), t.get(db.collection('users').doc(expectedStaffId))
                 ]);
                 let data = doc.exists ? doc.data() : {
-                    userId,
+                    userId: expectedStaffId,
                     name: _canonicalStaffWriteName(profileSnapshot),
                     date: currentDateKey,
                     sessions: []
@@ -3618,7 +3698,7 @@ const DBService = {
                 // The immutable companion receipt supplies server-authored time to
                 // Firestore Rules. Client ISO timestamps remain display data only.
                 t.set(checkInProofRef, {
-                    staffId: userId,
+                    staffId: expectedStaffId,
                     dateKey: currentDateKey,
                     sessionId: newSessionId,
                     authUid,
@@ -3627,8 +3707,9 @@ const DBService = {
                 });
             });
             return currentDateKey;
-        });
-        DBService._invalidateAttendance(dateKey, userId);
+        })
+        );
+        DBService._invalidateAttendance(dateKey, expectedStaffId);
     },
 
     checkOutPersonal: async (userId, checkOutTime = null) => {

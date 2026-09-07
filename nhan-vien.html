@@ -20,7 +20,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260908-incident-recovery-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260908-attendance-reliability-v1'></script>
     <!-- Chart.js CDN -->
     <script async src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js?v=20260906-early10-recovery-v1'></script>
@@ -50,6 +50,11 @@
                     <p style="color: var(--text-muted);">Xin chào, <span id="user-display-name">Trợ giảng</span></p>
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button id="btn-enable-notifications" type="button" class="btn" hidden
+                        style="background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;"
+                        onclick="requestNotificationPermission(this)">
+                        🔔 Bật thông báo
+                    </button>
                     <button id="btn-change-password" class="btn" style="background-color: var(--primary-color); color: white;" onclick="openChangePasswordModal()">
                         <i data-lucide="key" style="margin-right: 0.5rem; width: 16px; height: 16px;"></i> Đổi mật khẩu
                     </button>
@@ -266,7 +271,7 @@
     </div>
 
     <script src="js/ui-service.js?v=20260906-early10-recovery-v1"></script>
-    <script src="js/main.js?v=20260908-incident-recovery-v1"></script>
+    <script src="js/main.js?v=20260908-attendance-reliability-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

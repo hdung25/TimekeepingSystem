@@ -13,6 +13,10 @@ const { initializeTestEnvironment } = require(path.join(deps, '@firebase/rules-u
 const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST;
 const month = '2026-09';
+// This suite deliberately mixes past shifts (03/04) and a future shift (05).
+// Keep the browser clock deterministic, otherwise the future-shift assertion
+// turns into a false payroll failure after the real calendar passes 05/09.
+const fixtureNowMs = Date.parse('2026-09-04T12:00:00+07:00');
 const password = 'LocalAuditOnly-20260905';
 const evidence = { build: 'payroll-sync-v153', environment: 'demo-timekeeping local emulators only', results: {}, errors: [] };
 const users = [
@@ -55,6 +59,19 @@ async function login(user) {
   const page = await context.newPage();
   await page.setViewport({width:user.id==='audit-admin'?1440:430,height:1000,isMobile:user.id!=='audit-admin'});
   await page.emulateTimezone('Asia/Ho_Chi_Minh');
+  await page.evaluateOnNewDocument(now => {
+    const NativeDate = Date;
+    function FixtureDate(...args) {
+      if (!new.target) return args.length ? NativeDate(...args) : new NativeDate(now).toString();
+      return new NativeDate(...(args.length ? args : [now]));
+    }
+    FixtureDate.prototype = NativeDate.prototype;
+    Object.setPrototypeOf(FixtureDate, NativeDate);
+    FixtureDate.now = () => now;
+    FixtureDate.parse = NativeDate.parse;
+    FixtureDate.UTC = NativeDate.UTC;
+    window.Date = FixtureDate;
+  }, fixtureNowMs);
   page.on('pageerror', e => evidence.errors.push({user:user.id,error:e.message}));
   page.on('dialog', d => d.accept());
   await page.setRequestInterception(true);

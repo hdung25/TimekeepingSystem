@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname,'..');
 const dbSource = fs.readFileSync(path.join(root,'js/db-service.js'),'utf8');
 const mainSource = fs.readFileSync(path.join(root,'js/main.js'),'utf8');
+const staffPageSource = fs.readFileSync(path.join(root,'nhan-vien.html'),'utf8');
 const quiet = {log(){},warn(){},error(){}};
 
 async function main() {
@@ -36,6 +37,17 @@ async function main() {
     assert.equal(alerts.some(m=>/Không thể chấm công|Phiên đăng nhập/.test(m)),false);
     assert.equal(window.__attendanceCheckInPending,false);
     assert.equal(window.__attendanceCheckOutPending,false);
+
+    const notificationInit = mainSource.slice(
+        mainSource.indexOf('window.initPWANotifications = function'),
+        mainSource.indexOf('window.requestNotificationPermission')
+    );
+    assert.doesNotMatch(notificationInit, /Notification\.requestPermission/,
+        'không được tự bật popup thông báo khi nhân viên vừa mở trang');
+    assert.match(staffPageSource, /id="btn-enable-notifications"[\s\S]*?onclick="requestNotificationPermission\(this\)"/,
+        'thông báo chỉ được bật qua thao tác chủ động, tách khỏi Vào ca');
+    assert.match(mainSource, /window\.requestNotificationPermission = async function\(button = null\)[\s\S]*?Notification\.requestPermission\(\)/,
+        'lệnh xin quyền thông báo phải nằm trong handler do người dùng bấm');
 
     const failedWindow={};
     const failedAlerts=[];

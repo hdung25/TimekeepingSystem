@@ -57,6 +57,14 @@ async function main() {
             const receipt = await db.collection('attendance_checkin_proofs')
                 .doc(`${dateKey}~${userId}~${recorded.sessions[0].id}`).get();
             assert.equal(receipt.exists,true);
+            const mismatchedStaffId = suffix === 'huy' ? 'fixture-nhan' : 'fixture-huy';
+            const fixesBeforeMismatch = fixes;
+            await assert.rejects(
+                service.checkInPersonal(mismatchedStaffId, 'stale local identity'),
+                { code: 'auth/session-changed' }
+            );
+            assert.equal(fixes, fixesBeforeMismatch,
+                'mismatched local staff identity must be rejected before the location gate or an attendance write');
             await service.checkOutPersonal(userId);
             assert.equal((await ref.get()).data().sessions[0].status,'closed');
             await service.checkInPersonal(userId,'stale display name');

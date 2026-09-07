@@ -6,9 +6,9 @@ const root = path.resolve(__dirname, '..');
 const db = fs.readFileSync(path.join(root, 'js', 'db-service.js'), 'utf8');
 const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
 
-const functionStart = db.indexOf('async function recordAttendanceLocationFailure');
+const functionStart = db.indexOf('async function recordAttendanceCheckInFailure');
 const functionEnd = db.indexOf('\nfunction getBrowserLocation', functionStart);
-assert.ok(functionStart >= 0 && functionEnd > functionStart, 'phải có hàm ghi chẩn đoán vị trí');
+assert.ok(functionStart >= 0 && functionEnd > functionStart, 'phải có hàm ghi chẩn đoán Vào ca');
 const diagnosticFunction = db.slice(functionStart, functionEnd);
 const payloadStart = diagnosticFunction.indexOf('.set({');
 const payloadEnd = diagnosticFunction.indexOf('\n        });', payloadStart);
@@ -39,6 +39,8 @@ assert.match(rules, /match \/attendance_location_events\/\{eventId\}/);
 assert.match(rules, /request\.resource\.data\.authUid == request\.auth\.uid/);
 assert.match(rules, /request\.resource\.data\.staffId == getUserId\(\)/,
     'nhân viên chỉ được ghi chẩn đoán cho chính hồ sơ của mình');
+assert.match(rules, /request\.resource\.data\.stage in \[\s*'auth_context', 'settings_read', 'location_gate', 'attendance_commit'\s*\]/,
+    'Rules chỉ cho phép các pha lỗi Vào ca đã định nghĩa');
 assert.match(rules, /request\.resource\.data\.keys\(\)\.hasOnly/);
 assert.match(rules, /allow read, delete: if isAuthenticated\(\) && isAdmin\(\)/);
 assert.match(rules, /allow update: if false/);
@@ -47,5 +49,9 @@ assert.doesNotMatch(
     /latitude|longitude|accuracy|distance|coords|userAgent/i,
     'rules không được chấp nhận dữ liệu vị trí chi tiết'
 );
+assert.match(db, /ATTENDANCE_DIAGNOSTIC_COOLDOWN_MS/,
+    'lỗi lặp lại phải được gộp để không tạo hàng loạt ghi chẩn đoán');
+assert.match(db, /runAttendanceCheckInPhase\(userId, stage, operation\)/,
+    'mọi pha thất bại cần ghi chẩn đoán best-effort mà không chặn thao tác');
 
 console.log('attendance-location-diagnostics.test.js: all assertions passed');

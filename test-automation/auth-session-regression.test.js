@@ -65,14 +65,16 @@ const attendanceCheckIn = db.slice(
     db.indexOf('checkInPersonal: async'),
     db.indexOf('checkOutPersonal: async')
 );
-assert.match(attendanceCheckIn, /const settingsDoc = await _runAttendanceFirestoreOperation\(\(\) =>/,
+assert.match(attendanceCheckIn, /getAuthenticatedAuthorizationContext\(true\)/,
+    'check-in must verify the token-bound staff mapping before requesting attendance');
+assert.match(attendanceCheckIn, /const settingsDoc = await runAttendanceCheckInPhase\(/,
     'the settings read must recover from one stale Firestore credential');
-assert.match(attendanceCheckIn, /const dateKey = await _runAttendanceFirestoreOperation\(async authUser =>/,
+assert.match(attendanceCheckIn, /const dateKey = await runAttendanceCheckInPhase\(expectedStaffId, 'attendance_commit'/,
     'the write transaction must recover from one stale Firestore credential');
 assert.equal(
     (attendanceCheckIn.match(/_runAttendanceFirestoreOperation\(/g) || []).length,
-    2,
-    'check-in must keep exactly two bounded recovery boundaries: read then transaction'
+    3,
+    'check-in must keep three bounded recovery boundaries: identity, read then transaction'
 );
 assert.match(db, /function _isFirestorePermissionDenied\(error\)/);
 assert.match(db, /return code\.includes\('permission-denied'\)[\s\S]*?missing or insufficient permissions/);

@@ -1,7 +1,8 @@
-// Service Worker v156 - scoped evidence errors, directory refresh and class closure audit;
+// Service Worker v157 - preserves the mobile check-in permission gesture and
+// records safe, throttled diagnostics for every failed check-in phase.
 // staff clock values. Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v156-incident-recovery-20260908';
+const CACHE_NAME = 'tdt-chamcong-v157-attendance-reliability-20260908';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -26,10 +27,10 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260908-incident-recovery-v1',
+    '/js/main.js?v=20260908-attendance-reliability-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260908-incident-recovery-v1',
+    '/js/db-service.js?v=20260908-attendance-reliability-v1',
     '/js/report.js?v=20260906-quynh-autosubject-v1',
     '/js/evaluation-service.js?v=20260906-quynh-autosubject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',

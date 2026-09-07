@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260908-incident-recovery-v1';
+const APP_VERSION = '20260908-attendance-reliability-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -1457,10 +1457,20 @@ window.globalCheckIn = async function (btn) {
     }
 
     try {
+        // iOS can discard the user gesture after a network await. Begin the
+        // browser location request synchronously from this deliberate tap;
+        // checkInPersonal still waits for, validates and gates the same fresh
+        // location before any attendance transaction is allowed.
+        const canBeginLocationAttempt = !!window.auth?.currentUser?.uid &&
+            typeof DBService !== 'undefined' &&
+            typeof DBService.beginAttendanceLocationAttempt === 'function';
+        const locationAttempt = canBeginLocationAttempt
+            ? DBService.beginAttendanceLocationAttempt()
+            : null;
         // Do not race a Firestore mutation against a UI timeout: the underlying
         // write cannot be cancelled and could otherwise succeed after a false
         // timeout message. Location acquisition already has bounded timeouts.
-        await DBService.checkInPersonal(currentUserId, userFullName);
+        await DBService.checkInPersonal(currentUserId, userFullName, { locationAttempt });
         await refreshAttendanceAfterCommit();
 
         // Check if user has registered for any class today → alert Admin if not
@@ -2181,19 +2191,38 @@ window.handleChangePassword = async function(event) {
 
 // ================= PWA SYSTEM NOTIFICATIONS =================
 
+function syncNotificationPermissionButton() {
+    const button = document.getElementById('btn-enable-notifications');
+    if (!button) return;
+    if (!('Notification' in window)) {
+        button.hidden = true;
+        return;
+    }
+    if (Notification.permission === 'granted') {
+        button.hidden = true;
+        return;
+    }
+    button.hidden = false;
+    if (Notification.permission === 'denied') {
+        button.disabled = true;
+        button.textContent = 'Thông báo đã bị chặn';
+        button.title = 'Thông báo đang bị chặn trong cài đặt trình duyệt.';
+        return;
+    }
+    button.disabled = false;
+    button.textContent = '🔔 Bật thông báo';
+    button.title = 'Bật thông báo hệ thống khi bạn chủ động chọn.';
+}
+
 window.initPWANotifications = function() {
     const currentUser = localStorage.getItem('currentUser');
     const currentUserId = localStorage.getItem('currentUserId');
     if (!currentUser || !currentUserId) return;
 
-    // Request notification permission if not yet decided
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted' && typeof UIService !== 'undefined' && UIService.toast) {
-                UIService.toast("Đã bật nhận thông báo hệ thống!", "success");
-            }
-        });
-    }
+    // Notification permission must be a separate, explicit user choice. An
+    // automatic prompt on page load can be mistaken for attendance permission
+    // and competes with a mobile browser's check-in location prompt.
+    syncNotificationPermissionButton();
 
     // Set up real-time listener for new meetings
     window.setupMeetingsNotificationListener();
@@ -2205,19 +2234,34 @@ window.initPWANotifications = function() {
     console.log('[Notification] System initialized');
 };
 
-window.requestNotificationPermission = async function() {
+window.requestNotificationPermission = async function(button = null) {
     if (!('Notification' in window)) {
         console.warn("Trình duyệt này không hỗ trợ thông báo.");
+        syncNotificationPermissionButton();
         return false;
     }
     if (Notification.permission === 'granted') {
+        syncNotificationPermissionButton();
         return true;
     }
-    if (Notification.permission !== 'denied') {
-        const permission = await Notification.requestPermission();
-        return permission === 'granted';
+    if (Notification.permission === 'denied') {
+        syncNotificationPermissionButton();
+        return false;
     }
-    return false;
+    if (button) button.disabled = true;
+    try {
+        const permission = await Notification.requestPermission();
+        const enabled = permission === 'granted';
+        if (enabled && typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast("Đã bật nhận thông báo hệ thống!", "success");
+        }
+        return enabled;
+    } catch (error) {
+        console.warn('[Notification] Permission request failed:', error?.name || 'unknown');
+        return false;
+    } finally {
+        syncNotificationPermissionButton();
+    }
 };
 
 window.isUserMatchingMeeting = function(user, meeting) {

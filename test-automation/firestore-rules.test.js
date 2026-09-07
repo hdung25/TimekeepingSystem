@@ -517,6 +517,42 @@ test('attendance cross-read/write is available only to operational auditors/mana
     }));
 });
 
+test('check-in diagnostics are self-owned, phase-scoped and append-only', async () => {
+    const base = {
+        authUid: 'uid-staff',
+        staffId: 'staff-1',
+        dateKey: '2026-09-08',
+        code: 'NETWORK_UNAVAILABLE',
+        permissionState: 'prompt',
+        browserContext: 'browser',
+        platform: 'ios',
+        secureContext: true,
+        online: true,
+        appVersion: 'fixture-attendance-reliability',
+        createdAt: serverTimestamp()
+    };
+    for (const stage of ['auth_context', 'settings_read', 'location_gate', 'attendance_commit']) {
+        await assertSucceeds(setDoc(
+            doc(staffDb, 'attendance_location_events', `diagnostic-${stage}`),
+            { ...base, stage }
+        ));
+    }
+    await assertFails(setDoc(
+        doc(staffDb, 'attendance_location_events', 'diagnostic-unknown-stage'),
+        { ...base, stage: 'unrecognized_stage' }
+    ));
+    await assertFails(setDoc(
+        doc(staffDb, 'attendance_location_events', 'diagnostic-forged-owner'),
+        { ...base, staffId: 'staff-2', stage: 'location_gate' }
+    ));
+    await assertFails(getDoc(doc(staffDb, 'attendance_location_events', 'diagnostic-location_gate')));
+    await assertSucceeds(getDoc(doc(adminDb, 'attendance_location_events', 'diagnostic-location_gate')));
+    await assertFails(updateDoc(
+        doc(staffDb, 'attendance_location_events', 'diagnostic-location_gate'),
+        { code: 'FORGED_UPDATE' }
+    ));
+});
+
 test('senior attendance maintenance cannot forge or remove primary-Admin payroll overrides', async () => {
     const override = {
         version: 1,

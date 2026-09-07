@@ -809,7 +809,9 @@ service cloud.firestore {
         && request.resource.data.dateKey.size() == 10
         && request.resource.data.code is string
         && request.resource.data.code.size() <= 64
-        && request.resource.data.stage == 'location_gate'
+        && request.resource.data.stage in [
+          'auth_context', 'settings_read', 'location_gate', 'attendance_commit'
+        ]
         && request.resource.data.permissionState in ['granted', 'prompt', 'denied', 'unsupported', 'unknown']
         && request.resource.data.browserContext in ['browser', 'standalone', 'zalo', 'social_webview', 'android_webview']
         && request.resource.data.platform in ['android', 'ios', 'desktop']
