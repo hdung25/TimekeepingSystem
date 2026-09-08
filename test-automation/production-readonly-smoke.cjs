@@ -7,7 +7,8 @@ const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260908-payroll-review-v2';
+const version = '20260908-roster-refresh-v1';
+const payrollVersion = '20260908-payroll-review-v2';
 const assets = ['js/main.js', 'js/db-service.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
     'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js'];
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -26,7 +27,10 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
     const response = await fetch(origin + '/bao-cao.html', { cache: 'no-store' });
     assert.equal(response.status, 200);
     const html = await response.text();
-    assert.ok(html.includes('js/payroll-review.js?v=' + version));
+    assert.ok(html.includes('js/payroll-review.js?v=' + payrollVersion));
+    const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store' });
+    assert.equal(scheduleResponse.status, 200);
+    assert.ok((await scheduleResponse.text()).includes('js/schedule.js?v=' + version));
     evidence.reportHeaders = { status: response.status, cache: response.headers.get('cache-control'), frame: response.headers.get('x-frame-options') };
     const browser = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true,
         args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -44,11 +48,12 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         await page.waitForSelector('#login-form', { visible: true });
         await page.waitForFunction(async () => {
             const registration = await navigator.serviceWorker.getRegistration();
-            const key = (await caches.keys()).find(name => name.includes('v159-payroll-review'));
+            const key = (await caches.keys()).find(name => name.includes('v160-roster-refresh'));
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
-                !!(await cache.match('/js/db-service.js?v=20260908-payroll-review-v2'));
+                !!(await cache.match('/js/db-service.js?v=20260908-payroll-review-v2')) &&
+                !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));
         }, { timeout: 60000 });
         // A first PWA install announces APP_UPDATED and intentionally reloads
         // an untouched login page. Wait through that navigation before reading.
@@ -57,7 +62,7 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         evidence.browser = await page.evaluate(async () => ({
             title: document.title, viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
             cacheKeys: await caches.keys(), serviceWorker: (await navigator.serviceWorker.getRegistration())?.active?.scriptURL,
-            cachedAssets: (await (await caches.open('tdt-chamcong-v159-payroll-review-20260908')).keys()).length
+            cachedAssets: (await (await caches.open('tdt-chamcong-v160-roster-refresh-20260908')).keys()).length
         }));
         assert.ok(evidence.browser.pageWidth <= evidence.browser.viewport + 2, 'Mobile login must not overflow');
         assert.deepEqual(evidence.browserErrors, []);

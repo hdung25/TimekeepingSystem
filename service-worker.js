@@ -1,7 +1,7 @@
-// Service Worker v159 - payroll reconciliation and safe schedule edits.
+// Service Worker v160 - fresh teaching roster and safe schedule edits.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v159-payroll-review-20260908';
+const CACHE_NAME = 'tdt-chamcong-v160-roster-refresh-20260908';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -53,7 +53,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260906-early10-recovery-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260908-payroll-review-v2',
+    '/js/schedule.js?v=20260908-roster-refresh-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',

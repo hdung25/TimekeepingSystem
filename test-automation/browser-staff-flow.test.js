@@ -10,6 +10,7 @@ const root = path.resolve(__dirname,'..');
 const password = 'LocalFixtureOnly-20260905';
 const dateKey = new Date(Date.now()+7*3600000).toISOString().slice(0,10);
 const payrollDate = new Date(Date.now()+7*3600000-86400000).toISOString().slice(0,10);
+const futureScheduleDate = new Date(Date.now()+7*3600000+86400000).toISOString().slice(0,10);
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const roles = [
@@ -59,6 +60,18 @@ async function main() {
                 note:'Preserve this note',registeredTeachers:[]
             }]});
             await db.collection('schedules').doc(`cs1__${dateKey}`).set({evening1:[{shiftId:'fixture-class',start:'18:00',end:'19:30',lop:'Fixture class',lopId:'fixture-subject',phong:'P1',gvId:'fixture-nhan',gv:'Nguyễn Phan Thanh Nhàn ',gvList:[{id:'fixture-nhan',name:'Nguyễn Phan Thanh Nhàn '}],registeredTeachers:[]}]});
+            await db.collection('schedules').doc(`cs1__${futureScheduleDate}`).set({
+                morning1:[{
+                    shiftId:'fixture-roster-refresh',start:'07:30',end:'09:00',lop:'Fixture class',lopId:'fixture-subject',phong:'P1',
+                    gvId:'fixture-nhan',gv:'Nguyễn Phan Thanh Nhàn ',gvList:[{id:'fixture-nhan',name:'Nguyễn Phan Thanh Nhàn '}],
+                    note:'Roster target note',registeredTeachers:[]
+                }],
+                evening2:[{
+                    shiftId:'fixture-roster-neighbor',start:'19:30',end:'21:00',lop:'Fixture class',lopId:'fixture-subject',phong:'P2',
+                    gvId:'fixture-staff',gv:'Fixture Staff',gvList:[{id:'fixture-staff',name:'Fixture Staff'}],
+                    note:'Neighbor must survive',registeredTeachers:[]
+                }]
+            });
         });
         server=http.createServer((req,res)=>{
             const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
@@ -205,12 +218,86 @@ async function main() {
                         assert.equal(row.classClosureHistory.length,closed?1:2);
                     }
                     console.log('PASS past class closure/reopen through actual manager UI preserves notes/assignment/audit; delete stays locked');
+
+                    // Reproduce the production report: personnel is added after the
+                    // schedule page already cached its directory. Opening the shift
+                    // picker must re-read the server, distinguish duplicate names by
+                    // username, and preserve the adjacent shift when replacing the
+                    // sole main teacher.
+                    await page.evaluate(date=>goToDatePickerDate(date),futureScheduleDate);
+                    const rosterCell='tr[data-row-locator*="fixture-roster-refresh"] [data-field="gv"] .gv-multi-btn';
+                    await page.waitForSelector(rosterCell,{timeout:30000});
+                    await page.waitForFunction(()=>Array.isArray(window._teacherList) && !window._teacherList.some(item=>item.id==='fixture-thanh-thuy'),{timeout:30000});
+                    let neighborBefore;
+                    await env.withSecurityRulesDisabled(async c=>{
+                        neighborBefore=(await c.firestore().collection('schedules').doc(`cs1__${futureScheduleDate}`).get()).data().evening2[0];
+                    });
+                    await env.withSecurityRulesDisabled(async c=>{
+                        const freshTeacher={
+                            id:'fixture-thanh-thuy',username:'fixturethanhthuy',name:'Thanh Thủy',
+                            role:'teaching_assistant',roles:['teaching_assistant']
+                        };
+                        await c.firestore().collection('users').doc(freshTeacher.id).set(freshTeacher);
+                        await c.firestore().collection('staff_directory').doc(freshTeacher.id).set(freshTeacher);
+                    });
+                    await page.click(rosterCell);
+                    await page.waitForSelector('#gv-picker-overlay',{visible:true,timeout:30000});
+                    const freshSelector='input[data-action="toggle-main"][data-teacher-id="fixture-thanh-thuy"]';
+                    await page.waitForFunction(selector=>{
+                        const input=document.querySelector(selector);
+                        return input && !input.closest('.teacher-roster-item').hidden;
+                    },{timeout:30000},freshSelector);
+                    assert.match(await page.$eval(freshSelector,input=>input.closest('.teacher-roster-item').innerText),/@fixturethanhthuy/,
+                        'duplicate names must be distinguishable by username');
+
+                    const search='input[data-action="roster-search"][data-kind="main"]';
+                    await page.type(search,'Thanh Thuy');
+                    assert.equal(await page.$eval(freshSelector,input=>input.closest('.teacher-roster-item').hidden),false,
+                        'teacher search must work without Vietnamese tone marks');
+                    await page.$eval(search,input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));});
+
+                    const oldMain='input[data-action="toggle-main"][data-teacher-id="fixture-nhan"]';
+                    await page.click(oldMain);
+                    assert.equal(await page.$eval(oldMain,input=>input.checked),true,
+                        'the last main teacher cannot be removed before a replacement is selected');
+                    await page.click(freshSelector);
+                    await page.click(oldMain);
+                    assert.equal(await page.$eval(oldMain,input=>input.checked),false);
+                    await page.click('[data-action="save-manager"]');
+                    await page.waitForFunction(()=>!document.getElementById('gv-picker-overlay'),{timeout:30000});
+                    let rosterSaved;
+                    await env.withSecurityRulesDisabled(async c=>{
+                        rosterSaved=(await c.firestore().collection('schedules').doc(`cs1__${futureScheduleDate}`).get()).data();
+                    });
+                    assert.deepEqual(rosterSaved.morning1[0].gvList.map(item=>item.id),['fixture-thanh-thuy']);
+                    assert.equal(rosterSaved.morning1[0].note,'Roster target note');
+                    assert.deepEqual(rosterSaved.evening2[0],neighborBefore,
+                        'replacing a teacher must not rewrite another shift');
+                    console.log('PASS newly added teacher refresh -> accent-insensitive search -> safe sole-main replacement -> adjacent shift preserved');
+                }
+                if(route==='lich-lam.html' && user.roles.includes('senior_assistant')) {
+                    await page.evaluate(date=>goToDatePickerDate(date),futureScheduleDate);
+                    const rosterCell='tr[data-row-locator*="fixture-roster-refresh"] [data-field="gv"] .gv-multi-btn';
+                    await page.waitForSelector(rosterCell,{timeout:30000});
+                    await page.click(rosterCell);
+                    await page.waitForSelector('#gv-picker-overlay',{visible:true,timeout:30000});
+                    const mobileDialog = await page.$eval('.teacher-shift-dialog',dialog=>{
+                        const rect=dialog.getBoundingClientRect();
+                        return {left:rect.left,right:rect.right,viewport:innerWidth,hasRefresh:!!dialog.querySelector('[data-action="refresh-roster"]')};
+                    });
+                    assert.equal(mobileDialog.hasRefresh,true);
+                    assert.ok(mobileDialog.left>=-1 && mobileDialog.right<=mobileDialog.viewport+1,
+                        'mobile senior scheduler dialog must remain inside the viewport');
+                    await page.click('[data-action="close-manager"]');
+                    await page.waitForFunction(()=>!document.getElementById('gv-picker-overlay'));
+                    console.log('PASS senior scheduler can open refreshed teaching roster on mobile without horizontal overflow');
                 }
                 if(route==='nhan-su.html') {
                     await page.waitForSelector('#ns-refresh');
                     await page.click('#ns-refresh');
                     await page.waitForFunction(()=>window.NhanSu && !NhanSu._state.reloading,{timeout:30000});
-                    assert.equal(await page.$$eval('#ns-list .ns-card',rows=>rows.length),roles.length);
+                    assert.equal(await page.$$eval('#ns-list .ns-card',rows=>rows.length),
+                        roles.length + (user.roles.includes('admin') ? 1 : 0));
                     console.log('PASS personnel explicit refresh preserves full staff list');
                 }
                 const view=await page.evaluate(()=>({title:document.title,text:document.body.innerText.slice(0,600),width:document.documentElement.scrollWidth,viewport:innerWidth}));

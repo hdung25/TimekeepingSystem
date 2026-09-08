@@ -1520,6 +1520,45 @@
             display: flex;
         }
 
+        .roster-directory-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 9px 15px 0;
+            padding: 7px 9px;
+            border: 1px solid #DDE8E3;
+            border-radius: 10px;
+            color: #567069;
+            background: #F8FBFA;
+            font-size: 0.63rem;
+            line-height: 1.35;
+        }
+
+        .roster-directory-toolbar.has-error {
+            border-color: #FED7AA;
+            color: #9A3412;
+            background: #FFF7ED;
+        }
+
+        .roster-directory-toolbar button {
+            flex: 0 0 auto;
+            min-height: 32px;
+            padding: 5px 9px;
+            border: 1px solid #A7F3D0;
+            border-radius: 8px;
+            color: #047857;
+            background: #ECFDF5;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .roster-directory-toolbar button:disabled {
+            cursor: wait;
+            opacity: 0.65;
+        }
+
         .teacher-search {
             display: flex;
             align-items: center;
@@ -1543,7 +1582,8 @@
             font-size: 0.78rem;
         }
 
-        .roster-lock-note {
+        .roster-lock-note,
+        .roster-help-note {
             margin-top: 8px;
             padding: 8px 9px;
             border-radius: 9px;
@@ -1551,6 +1591,11 @@
             background: #FFFBEB;
             font-size: 0.66rem;
             line-height: 1.45;
+        }
+
+        .roster-help-note {
+            color: #065F46;
+            background: #ECFDF5;
         }
 
         .teacher-roster-list {
@@ -1588,6 +1633,22 @@
         }
 
         .teacher-roster-item[hidden] {
+            display: none;
+        }
+
+        .teacher-roster-empty {
+            margin: auto 2px;
+            padding: 14px 10px;
+            border: 1px dashed #CBDDD6;
+            border-radius: 10px;
+            color: #6B7E77;
+            background: #FAFCFB;
+            font-size: 0.68rem;
+            line-height: 1.5;
+            text-align: center;
+        }
+
+        .teacher-roster-empty[hidden] {
             display: none;
         }
 
@@ -2326,7 +2387,7 @@
     </div>
     <script src="js/ui-service.js?v=20260906-early10-recovery-v1"></script>
     <script src="js/main.js?v=20260908-payroll-review-v2"></script>
-    <script src="js/schedule.js?v=20260908-payroll-review-v2"></script>
+    <script src="js/schedule.js?v=20260908-roster-refresh-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

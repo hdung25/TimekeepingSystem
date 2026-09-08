@@ -1139,10 +1139,11 @@ async function loadSubjectListForSchedule() {
     }
 }
 
-async function loadTeacherListForSchedule() {
+async function loadTeacherListForSchedule(options = {}) {
     try {
-        const users = await DBService.getUsers();
-        window._teacherList = users || [];
+        const users = await DBService.getUsers({ forceRefresh: options.forceRefresh === true });
+        if (!Array.isArray(users)) throw new Error('Danh bạ nhân sự trả về không hợp lệ.');
+        window._teacherList = users.slice();
         // Inject/update datalist in DOM
         let dl = document.getElementById('gv-teacher-list');
         if (!dl) {
@@ -1150,12 +1151,15 @@ async function loadTeacherListForSchedule() {
             dl.id = 'gv-teacher-list';
             document.body.appendChild(dl);
         }
-        dl.innerHTML = users.map(u => {
+        dl.innerHTML = window._teacherList.map(u => {
             const name = scheduleEscapeAttr(u.name || u.username || '');
             return `<option value="${name}" data-id="${scheduleEscapeAttr(u.id || '')}">`;
         }).join('');
+        return window._teacherList;
     } catch (e) {
         console.warn('Could not load teacher list:', e);
+        if (options.throwOnError) throw e;
+        return Array.isArray(window._teacherList) ? window._teacherList : [];
     }
 }
 
@@ -1335,6 +1339,92 @@ function getTeachingRoleLabel(teacher) {
     return 'Nhân sự giảng dạy';
 }
 
+function normalizeTeacherRosterSearch(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D')
+        .toLocaleLowerCase('vi')
+        .trim();
+}
+
+function buildTeachingDirectory(users, assignedTeachers = []) {
+    const teachers = [];
+    const teacherById = new Map();
+    const addTeacher = (teacher, preserveAssigned = false) => {
+        const id = String(teacher?.id || '').trim();
+        if (!id) return;
+        const roles = Array.isArray(teacher?.roles) && teacher.roles.length
+            ? teacher.roles
+            : [teacher?.role || ''];
+        if (!preserveAssigned && !hasTeachingEmploymentRole(roles)) return;
+        const normalized = {
+            ...teacher,
+            id,
+            name: teacher?.name || teacher?.username || 'Chưa đặt tên',
+            roles: roles.filter(Boolean)
+        };
+        const existing = teacherById.get(id);
+        // Server directory data is authoritative. Assigned rows only fill people
+        // that were removed/changed later; they must not overwrite a fresh name,
+        // username or role with an older schedule snapshot.
+        if (existing) return;
+        teachers.push(normalized);
+        teacherById.set(id, normalized);
+    };
+
+    (Array.isArray(users) ? users : []).forEach(teacher => addTeacher(teacher, false));
+    (Array.isArray(assignedTeachers) ? assignedTeachers : []).forEach(teacher => addTeacher({
+        ...teacher,
+        roles: Array.isArray(teacher?.roles) && teacher.roles.length ? teacher.roles : ['teacher'],
+        _preservedScheduleAssignment: true
+    }, true));
+
+    return { teachers, teacherById };
+}
+
+async function refreshTeacherDirectoryForManager(state = teacherShiftManagerState, announce = true) {
+    if (!state || state.directoryRefreshing || teacherShiftManagerState !== state) return false;
+    state.directoryRefreshing = true;
+    state.directoryError = '';
+    renderTeacherShiftManager();
+    try {
+        const users = await loadTeacherListForSchedule({ forceRefresh: true, throwOnError: true });
+        if (teacherShiftManagerState !== state) return false;
+        const assignedIds = Array.from(new Set([...(state.mainIds || []), ...(state.substituteIds || [])]));
+        const assignedTeachers = assignedIds.map(id =>
+            state.teacherById.get(String(id)) || state.substituteById.get(String(id)) || { id, name: 'GV đã xếp lịch' }
+        );
+        const directory = buildTeachingDirectory(users, assignedTeachers);
+        state.teachers = directory.teachers;
+        state.teacherById = directory.teacherById;
+        state.directoryLoadedAt = Date.now();
+        state.directorySourceCount = directory.teachers.filter(teacher => !teacher._preservedScheduleAssignment).length;
+        state.substituteById.forEach((substitute, id) => {
+            const current = state.teacherById.get(String(id));
+            if (current?.name) substitute.name = current.name;
+        });
+        if (announce) {
+            UIService.toast(`Đã làm mới ${state.directorySourceCount} nhân sự giảng dạy từ máy chủ.`, 'success');
+        }
+        return true;
+    } catch (error) {
+        if (teacherShiftManagerState !== state) return false;
+        console.error('Không làm mới được danh bạ giáo viên:', error);
+        state.directoryError = error?.message || 'Không tải được danh bạ mới nhất.';
+        if (announce) {
+            UIService.toast('Chưa làm mới được danh bạ; danh sách đang mở được giữ nguyên. Vui lòng thử lại.', 'error');
+        }
+        return false;
+    } finally {
+        if (teacherShiftManagerState === state) {
+            state.directoryRefreshing = false;
+            renderTeacherShiftManager();
+        }
+    }
+}
+
 function closeTeacherShiftManager(force = false) {
     if (!force && teacherShiftManagerState?.saving) {
         window.UIService?.toast?.('Đang lưu điều phối ca. Vui lòng chờ hoàn tất.', 'warning');
@@ -1430,11 +1520,13 @@ function assignTeacherReplacement(state, substituteId, teacherId) {
 function teacherRosterItem(teacher, kind, checked, disabled) {
     const id = scheduleEscapeAttr(teacher.id);
     const name = teacher.name || teacher.username || 'Chưa đặt tên';
-    const searchable = scheduleEscapeAttr(`${name} ${teacher.username || ''}`.toLocaleLowerCase('vi'));
+    const username = String(teacher.username || '').trim();
+    const searchable = scheduleEscapeAttr(normalizeTeacherRosterSearch(`${name} ${username}`));
+    const detail = [getTeachingRoleLabel(teacher), username ? `@${username}` : ''].filter(Boolean).join(' · ');
     return `<label class="teacher-roster-item${checked ? ' is-selected' : ''}" data-search="${searchable}">
         <input type="checkbox" data-action="toggle-${kind}" data-teacher-id="${id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
         <span class="teacher-roster-avatar" aria-hidden="true">${scheduleEscapeHTML(name.charAt(0).toUpperCase())}</span>
-        <span class="teacher-roster-copy"><strong>${scheduleEscapeHTML(name)}</strong><small>${scheduleEscapeHTML(getTeachingRoleLabel(teacher))}</small></span>
+        <span class="teacher-roster-copy"><strong>${scheduleEscapeHTML(name)}</strong><small>${scheduleEscapeHTML(detail)}</small></span>
         <span class="teacher-roster-check" aria-hidden="true">✓</span>
     </label>`;
 }
@@ -2044,15 +2136,25 @@ function teacherShiftManagerMarkup() {
                 <button type="button" role="tab" data-action="roster-tab" data-tab="main" class="${state.activeTab === 'main' ? 'is-active' : ''}">GV chính <span>${state.mainIds.length}</span></button>
                 <button type="button" role="tab" data-action="roster-tab" data-tab="substitute" class="${state.activeTab === 'substitute' ? 'is-active' : ''}">GV dạy thay <span>${state.substituteIds.length}</span></button>
             </div>
+            <div class="roster-directory-toolbar${state.directoryError ? ' has-error' : ''}" role="status">
+                <span>${state.directoryRefreshing
+                    ? 'Đang tải danh bạ mới nhất từ máy chủ…'
+                    : (state.directoryError
+                        ? `Đang giữ danh sách cũ · ${scheduleEscapeHTML(state.directoryError)}`
+                        : `${Number(state.directorySourceCount || 0)} nhân sự giảng dạy · dữ liệu máy chủ`)}</span>
+                <button type="button" data-action="refresh-roster" ${state.directoryRefreshing ? 'disabled' : ''}>${state.directoryRefreshing ? 'Đang tải…' : '↻ Làm mới'}</button>
+            </div>
             <div class="roster-pane ${state.activeTab === 'main' ? 'is-active' : ''}" data-roster-pane="main">
                 <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="main" value="${scheduleEscapeAttr(state.search.main)}" placeholder="Tìm GV chính..."></label>
-                ${state.isPast ? '<div class="roster-lock-note">Ca đã bắt đầu: khóa thay đổi danh sách GV chính, nhưng vẫn cho phép cập nhật nghỉ và GV thay.</div>' : ''}
-                <div class="teacher-roster-list" data-roster-list="main">${primaryRoster}</div>
+                ${state.isPast
+                    ? '<div class="roster-lock-note">Ca đã bắt đầu: khóa thay đổi danh sách GV chính, nhưng vẫn cho phép cập nhật nghỉ và GV thay.</div>'
+                    : '<div class="roster-help-note">Đổi GV chính: tích người mới trước, sau đó bỏ người cũ. Hệ thống không cho lưu ca không có GV chính.</div>'}
+                <div class="teacher-roster-list" data-roster-list="main">${primaryRoster}<div class="teacher-roster-empty" data-roster-empty="main" hidden>Không tìm thấy nhân sự giảng dạy phù hợp. Hãy bấm “Làm mới”; nếu vẫn không có, kiểm tra vai trò Giáo viên/Trợ giảng tại trang Nhân sự.</div></div>
             </div>
             <div class="roster-pane ${state.activeTab === 'substitute' ? 'is-active' : ''}" data-roster-pane="substitute">
                 ${replacementTargetPickerMarkup()}
                 <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="substitute" value="${scheduleEscapeAttr(state.search.substitute)}" placeholder="Tìm GV dạy thay..."></label>
-                <div class="teacher-roster-list" data-roster-list="substitute">${substituteRoster}</div>
+                <div class="teacher-roster-list" data-roster-list="substitute">${substituteRoster}<div class="teacher-roster-empty" data-roster-empty="substitute" hidden>Không tìm thấy nhân sự giảng dạy phù hợp. Hãy bấm “Làm mới”; nếu vẫn không có, kiểm tra vai trò Giáo viên/Trợ giảng tại trang Nhân sự.</div></div>
             </div>
         </aside>
     </div>`;
@@ -2060,10 +2162,16 @@ function teacherShiftManagerMarkup() {
 
 function applyTeacherRosterFilter(kind) {
     const state = teacherShiftManagerState;
-    const query = String(state?.search?.[kind] || '').trim().toLocaleLowerCase('vi');
-    document.querySelectorAll(`[data-roster-list="${kind}"] .teacher-roster-item`).forEach(item => {
+    const query = normalizeTeacherRosterSearch(state?.search?.[kind] || '');
+    const list = document.querySelector(`[data-roster-list="${kind}"]`);
+    if (!list) return;
+    let visibleCount = 0;
+    list.querySelectorAll('.teacher-roster-item').forEach(item => {
         item.hidden = !!query && !String(item.dataset.search || '').includes(query);
+        if (!item.hidden) visibleCount += 1;
     });
+    const empty = list.querySelector(`[data-roster-empty="${kind}"]`);
+    if (empty) empty.hidden = visibleCount > 0;
 }
 
 function syncTeacherShiftManagerChrome() {
@@ -2559,6 +2667,9 @@ function handleTeacherShiftManagerClick(event) {
         if (state.activeTab !== 'substitute') state.replacementTargetId = '';
         return renderTeacherShiftManager();
     }
+    if (action === 'refresh-roster') {
+        return refreshTeacherDirectoryForManager(state, true);
+    }
     const teacherId = button.dataset.teacherId;
     if (action === 'set-status' && state.statuses[teacherId]) {
         const nextType = ['ACTIVE', 'VP', 'VDX'].includes(button.dataset.status) ? button.dataset.status : 'ACTIVE';
@@ -2663,7 +2774,7 @@ function handleTeacherShiftManagerChange(event) {
         } else {
             if (state.mainIds.length === 1) {
                 input.checked = true;
-                UIService.toast('Ca dạy phải còn ít nhất một GV chính.', 'warning');
+                UIService.toast('Không thể bỏ GV chính cuối cùng. Hãy tích GV mới trước, sau đó bỏ GV cũ.', 'warning');
                 return;
             }
             state.mainIds = state.mainIds.filter(value => value !== id);
@@ -2780,11 +2891,17 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
     const pickerScheduleGeneration = scheduleRenderGeneration;
     const renderedLocator = triggerEl?.closest?.('tr')?.dataset.rowLocator;
     try {
-        const [dayData, strictAuthorizationResult] = await Promise.all([
+        const [dayData, strictAuthorizationResult, teacherDirectoryResult] = await Promise.all([
             DBService.getSchedule(compositeKey, { source: 'server' }),
             DBService.getAuthenticatedAuthorizationContext(true)
                 .then(value => ({ value, error: null }))
-                .catch(error => ({ value: { roles: [] }, error }))
+                .catch(error => ({ value: { roles: [] }, error })),
+            loadTeacherListForSchedule({ forceRefresh: true, throwOnError: true })
+                .then(value => ({ value, error: null }))
+                .catch(error => ({
+                    value: Array.isArray(window._teacherList) ? window._teacherList.slice() : [],
+                    error
+                }))
         ]);
         if (pickerGeneration !== teacherPickerGeneration || pickerScheduleGeneration !== scheduleRenderGeneration) return;
         const target = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
@@ -2796,27 +2913,11 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
         }
         if (!window.TeacherShiftState) throw new Error('Không tải được mô-đun trạng thái ca dạy. Vui lòng tải lại trang.');
 
-        const teachers = (window._teacherList || []).filter(teacher => {
-            const roles = Array.isArray(teacher.roles) ? teacher.roles : [teacher.role || ''];
-            return teacher.id && hasTeachingEmploymentRole(roles);
-        }).map(teacher => ({ ...teacher, name: teacher.name || teacher.username || 'Chưa đặt tên' }));
-        const teacherById = new Map(teachers.map(teacher => [String(teacher.id), teacher]));
         const mains = TeacherShiftState.getMainTeachers(row).filter(item => item.id);
         const substitutes = TeacherShiftState.getSubstituteTeachers(row).filter(item => item.id);
-        mains.forEach(item => {
-            if (!teacherById.has(item.id)) {
-                const legacy = { id: item.id, name: item.name || 'GV không còn hoạt động', roles: ['teacher'] };
-                teachers.push(legacy);
-                teacherById.set(item.id, legacy);
-            }
-        });
-        substitutes.forEach(item => {
-            if (!teacherById.has(item.id)) {
-                const legacy = { id: item.id, name: item.name || 'GV không còn hoạt động', roles: ['teacher'] };
-                teachers.push(legacy);
-                teacherById.set(item.id, legacy);
-            }
-        });
+        const directory = buildTeachingDirectory(teacherDirectoryResult.value, [...mains, ...substitutes]);
+        const teachers = directory.teachers;
+        const teacherById = directory.teacherById;
 
         const statuses = {};
         const mainMeta = {};
@@ -2893,6 +2994,10 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             activeTab: fieldType === 'gvThayTe' ? 'substitute' : 'main',
             replacementTargetId: '',
             search: { main: '', substitute: '' },
+            directoryRefreshing: false,
+            directoryError: teacherDirectoryResult.error?.message || '',
+            directoryLoadedAt: teacherDirectoryResult.error ? 0 : Date.now(),
+            directorySourceCount: teachers.filter(teacher => !teacher._preservedScheduleAssignment).length,
             strictAuthorization,
             canEditAttendance,
             canTransfer: Array.isArray(strictAuthorization.roles) && strictAuthorization.roles.some(role =>
