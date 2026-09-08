@@ -32,12 +32,14 @@ function requirePayrollAdmin() {
 function beginPayrollWrite() {
     if (payrollWritePending) return null;
     payrollWritePending = true;
+    window.__payrollWritePending = true;
     UIService.showLoading('Đang lưu đúng nhân viên và tháng đã chọn…');
     const blockInput = event => { event.preventDefault(); event.stopImmediatePropagation(); };
     document.addEventListener('click', blockInput, true);
     document.addEventListener('keydown', blockInput, true);
     return () => {
         payrollWritePending = false;
+        window.__payrollWritePending = false;
         document.removeEventListener('click', blockInput, true);
         document.removeEventListener('keydown', blockInput, true);
         UIService.hideLoading();

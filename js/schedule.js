@@ -1275,6 +1275,7 @@ function scheduleRowContentFingerprint(row) {
 function beginScheduleMutation(key) {
     if (scheduleMutationsPending.has(key)) return false;
     scheduleMutationsPending.add(key);
+    window.__scheduleMutationPending = true;
     const tbody = document.getElementById('table-body');
     if (tbody) { tbody.inert = true; tbody.setAttribute('aria-busy', 'true'); }
     return true;
@@ -1282,6 +1283,7 @@ function beginScheduleMutation(key) {
 
 async function finishScheduleMutation(key) {
     scheduleMutationsPending.delete(key);
+    window.__scheduleMutationPending = scheduleMutationsPending.size > 0;
     await renderTable();
 }
 

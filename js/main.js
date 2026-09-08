@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260908-payroll-review-v1';
+const APP_VERSION = '20260908-payroll-review-v2';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -48,6 +48,9 @@ if (!window.RolePolicy) {
 
     let refreshing = false;
     let formEdited = false;
+    const hasPendingWrite = () => window.__attendanceCheckInPending || window.__attendanceCheckOutPending ||
+        window.__adminPayrollSavePending || window.__classClosurePending ||
+        window.__payrollWritePending || window.__scheduleMutationPending;
     // A cache update must not discard a payroll/schedule draft or interrupt
     // a check-in transaction. The new worker is installed; reload can wait.
     document.addEventListener('input', () => { formEdited = true; }, true);
@@ -60,7 +63,7 @@ if (!window.RolePolicy) {
         const targetVersion = String(announcedVersion || APP_VERSION);
         try { if (sessionStorage.getItem(reloadKey) === targetVersion) return; } catch (_) { /* restricted storage */ }
 
-        if (formEdited || window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending || window.__classClosurePending) {
+        if (formEdited || hasPendingWrite()) {
             let notice = document.getElementById('app-update-ready');
             if (!notice) {
                 notice = document.createElement('button');
@@ -69,7 +72,7 @@ if (!window.RolePolicy) {
                 notice.textContent = 'Có bản mới · Lưu xong rồi bấm tải lại';
                 notice.style.cssText = 'position:fixed;bottom:12px;left:12px;z-index:9999;padding:12px;border:0;border-radius:8px;background:#047857;color:white;max-width:calc(100vw - 24px)';
                 notice.onclick = () => {
-                    if (window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__adminPayrollSavePending || window.__classClosurePending) return;
+                    if (hasPendingWrite()) return;
                     window.location.reload();
                 };
                 document.body?.appendChild(notice);

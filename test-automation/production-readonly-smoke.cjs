@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260908-payroll-review-v1';
+const version = '20260908-payroll-review-v2';
 const assets = ['js/main.js', 'js/db-service.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
     'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js'];
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -42,10 +42,22 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         });
         await page.goto(origin + '/index.html', { waitUntil: 'domcontentloaded' });
         await page.waitForSelector('#login-form', { visible: true });
-        await page.waitForFunction(async () => (await caches.keys()).some(key => key.includes('v158-payroll-review')), { timeout: 60000 });
+        await page.waitForFunction(async () => {
+            const registration = await navigator.serviceWorker.getRegistration();
+            const key = (await caches.keys()).find(name => name.includes('v159-payroll-review'));
+            if (!registration?.active || !key) return false;
+            const cache = await caches.open(key);
+            return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
+                !!(await cache.match('/js/db-service.js?v=20260908-payroll-review-v2'));
+        }, { timeout: 60000 });
+        // A first PWA install announces APP_UPDATED and intentionally reloads
+        // an untouched login page. Wait through that navigation before reading.
+        await page.waitForNetworkIdle({ idleTime: 1000, timeout: 30000 });
+        await page.waitForSelector('#login-form', { visible: true });
         evidence.browser = await page.evaluate(async () => ({
             title: document.title, viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
-            cacheKeys: await caches.keys(), serviceWorker: (await navigator.serviceWorker.getRegistration())?.active?.scriptURL
+            cacheKeys: await caches.keys(), serviceWorker: (await navigator.serviceWorker.getRegistration())?.active?.scriptURL,
+            cachedAssets: (await (await caches.open('tdt-chamcong-v159-payroll-review-20260908')).keys()).length
         }));
         assert.ok(evidence.browser.pageWidth <= evidence.browser.viewport + 2, 'Mobile login must not overflow');
         assert.deepEqual(evidence.browserErrors, []);

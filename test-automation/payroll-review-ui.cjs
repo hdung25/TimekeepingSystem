@@ -30,10 +30,11 @@ module.exports = async ({ env, admin, employee, origin, month, record, shot, cli
     const scopeWhileSaving = await admin.evaluate(() => {
         changeReportMonth(1);
         selectStaffFromDropdownById('audit-dual');
-        return { staff: getTargetStaffId(), month: currentDate.getMonth(), busy: payrollWritePending };
+        return { staff: getTargetStaffId(), month: currentDate.getMonth(), busy: payrollWritePending, updateBlocked: window.__payrollWritePending };
     });
-    assert.deepEqual(scopeWhileSaving, { staff: id, month: 8, busy: true });
+    assert.deepEqual(scopeWhileSaving, { staff: id, month: 8, busy: true, updateBlocked: true });
     await admin.evaluate(async () => { window.__reviewReleaseSave(); await window.__reviewSavePromise; });
+    assert.equal(await admin.evaluate(() => window.__payrollWritePending), false);
     let stored = await read();
     assert.deepEqual(stored.published, before, 'calculation preserves the received employee snapshot');
     assert.ok(stored.revisionDrafts.gv, 'Admin can calculate again after publication');

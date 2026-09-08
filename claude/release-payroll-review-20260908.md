@@ -26,6 +26,7 @@ Không chạy sửa hàng loạt, không tạo chấm công thật, không đổ
 | Mở lại ca cuối cùng không xóa được trạng thái đóng do merge | Ghi cập nhật đúng ngày; giữ trạng thái/ngày và cấu hình khác. Khi mở trạng thái nghỉ cả buổi/ngày, xác nhận rõ phạm vi dùng chung. |
 | Bảng hoặc popup cũ xuất hiện khi đổi tuần/cơ sở | Chặn kết quả tải cũ; vô hiệu bảng trong lúc tải/lưu và có nút thử lại. |
 | Nút lưu báo thành công khi thực tế chưa lưu | Phân biệt tự lưu, đang lưu và lỗi. Sao chép tuần cố định tuần/cơ sở nguồn, báo rõ số ngày đã sao chép nếu gặp lỗi. |
+| PWA nhận bản cập nhật trong lúc Admin đang ghi dữ liệu | Cờ bảo vệ cập nhật nhận biết thêm lưu bảng lương và mọi thao tác sửa/xếp lịch. Không tự tải lại, kể cả khi bấm nút cập nhật trong lúc còn ghi; tải lại được sau khi hoàn tất. |
 
 ## Những quy tắc được giữ nguyên
 
@@ -37,15 +38,15 @@ Không chạy sửa hàng loạt, không tạo chấm công thật, không đổ
 
 ## Kiểm thử
 
-Kết quả trước phát hành: **PASS** cả 4 nhóm dưới đây, kiểm tra cú pháp JavaScript và `git diff --check`. Lượt trình duyệt cuối kết thúc khoảng 07:30 ngày 08/09/2026 (UTC+7).
+Kết quả kiểm thử: **PASS** cả 4 nhóm dưới đây, kiểm tra cú pháp JavaScript và `git diff --check`. Lượt trình duyệt đa vai trò kết thúc khoảng 07:29 ngày 08/09/2026 (UTC+7); bản bổ sung bảo vệ PWA tiếp tục chạy lại hồi quy và luồng lương sau đó.
 
-- `npm test`: 54 script hồi quy và 2 script pretest; gồm tính phút/giờ, trễ/vắng, qua đêm, +10 phút, đơn giá, sửa chip, quyền, đồng thời và tương thích trang/PWA.
+- `npm test`: 54 script hồi quy và 3 script pretest; gồm tính phút/giờ, trễ/vắng, qua đêm, +10 phút, đơn giá, sửa chip, quyền, đồng thời và tương thích trang/PWA. Bài PWA kiểm tra 6 cờ đang ghi, giữ ô chưa lưu, tải lại một lần khi trang sạch và hai thao tác xếp lịch cùng đang ghi.
 - Bổ sung 20 tình huống hành vi trình xếp lịch.
 - `npm run test:rules`: bộ Security Rules hiện có, thao tác DBService thật trên emulator; bổ sung hiệu chỉnh, lịch sử không sửa/xóa được, đa vai trò, xác nhận cũ, doanh thu nguyên tử, cấu hình và lịch mẫu thay đổi giữa hai lần đọc/ghi.
 - `npm run test:payroll-ui`: lưu/tính/gửi, đơn giá tháng cũ, lọc không làm thiếu công cả tháng, PDF/HTML cùng nguồn, nhân viên xác nhận và cập nhật live; bổ sung Admin tính lại bản đã nhận, gửi hiệu chỉnh, chặn đổi nhân viên/tháng khi lưu, quản lý cấp cao, mở lịch đúng ngày/cơ sở, dashboard đổi tháng và từ chối xác nhận chi trên bản cũ.
 - `npm run test:browser`: các tài khoản thử nghiệm đại diện 8 nhóm vai trò; đăng nhập, vào/ra ca, trang công/lịch, sửa công Admin, đóng/mở lớp và tải lại danh sách nhân sự.
 
-Bằng chứng cục bộ (không tải lên web production): `scratch/payroll-release-browser.log`, `scratch/payroll-ui-audit-v153.json`, `scratch/payroll-audit-review-panel.png`, `scratch/payroll-audit-senior-review.png`. Tệp audit có tên v153 là tên kế thừa của công cụ; nội dung được tạo lại bằng mã phiên bản v158 ngày 08/09/2026.
+Bằng chứng cục bộ (không tải lên web production): `scratch/payroll-release-browser.log`, `scratch/payroll-release-regression.log`, `scratch/payroll-release-ui.log`, `scratch/payroll-ui-audit-v153.json`, `scratch/payroll-audit-review-panel.png`, `scratch/payroll-audit-senior-review.png`. Tệp audit có tên v153 là tên kế thừa của công cụ; nội dung được tạo lại bằng mã hiện tại ngày 08/09/2026.
 
 ## Cách dùng sau cập nhật
 
@@ -57,12 +58,14 @@ Bằng chứng cục bộ (không tải lên web production): `scratch/payroll-r
 
 ## Phát hành
 
-- Phiên bản: `20260908-payroll-review-v1`.
-- Cache PWA: `tdt-chamcong-v158-payroll-review-20260908`.
+- Phiên bản: `20260908-payroll-review-v2`.
+- Cache PWA: `tdt-chamcong-v159-payroll-review-20260908`.
 - Dự án Vercel: `ha-huy-dungs-projects/timekeeping-system`, ID `prj_58GRPpalLQeeweIG1MYu3ji5K6ZH`.
 - Firebase: `timekeeping-69f3f`. Rules mới chỉ thêm quyền Admin tạo/đọc lịch sử hiệu chỉnh; không mở quyền tài chính cho nhân viên.
 - Production: `https://timekeeping-system-tawny.vercel.app`.
-- Kết quả deploy và kiểm tra production sẽ được ghi sau khi hoàn tất.
+- Firebase Rules đã phát hành thành công vào khoảng 07:29 (UTC+7), đúng dự án.
+- Bản v1 / commit `f5fefad` đã lên production (`dpl_ChJUveDZ287NdjT9UMZgDcpnRZLi`). Khi kiểm tra cache, PWA tải lại trang đăng nhập sạch theo thiết kế; công cụ kiểm tra được điều chỉnh chờ hết lượt tải lại. Rà tiếp cơ chế cập nhật đã bổ sung cờ bảo vệ cho thao tác lưu lương và sửa lịch ở v2.
+- Kết quả deploy cuối và kiểm tra production sẽ được ghi sau khi hoàn tất.
 
 ## Giới hạn kiểm chứng
 
