@@ -3016,6 +3016,9 @@ const DBService = {
 
         await db.runTransaction(async transaction => {
             const snapshot = await transaction.get(ref);
+            if (!snapshot.exists && !closureCommand?.sourceDocId) {
+                await DBService._verifyInheritedScheduleSource(transaction, fallbackDayData);
+            }
             if (closureCommand?.sourceDocId && !snapshot.exists) {
                 const template = await transaction.get(db.collection('schedules').doc(closureCommand.sourceDocId));
                 if (!template.exists || Number(template.data()?._revision || 0) !== Number(fallbackDayData?._revision || 0) ||
@@ -3526,6 +3529,21 @@ const DBService = {
     // Add/delete/reorder rows against the latest section in one transaction.
     // This is the section-level companion to updateScheduleRowAtomic and keeps
     // edits in unrelated rows, including staffing/absence state, intact.
+    _verifyInheritedScheduleSource: async (transaction, fallbackDayData) => {
+        const sourceIds = new Set(SCHEDULE_SECTION_KEYS.flatMap(section =>
+            (fallbackDayData?.[section] || []).map(row => row?._inheritedFromScheduleDocId).filter(Boolean)));
+        if (sourceIds.size > 1) throw new Error('Lịch kế thừa có nhiều nguồn. Tải lại lịch trước khi lưu.');
+        for (const sourceId of sourceIds) {
+            const source = await transaction.get(db.collection('schedules').doc(sourceId));
+            if (!source.exists || Number(source.data()._revision || 0) !== Number(fallbackDayData?._revision || 0) ||
+                JSON.stringify(source.data()._updatedAt || null) !== JSON.stringify(fallbackDayData?._updatedAt || null)) {
+                const error = new Error('Lịch mẫu đã thay đổi. Tải lại trước khi lưu để không ghi đè lịch mới.');
+                error.code = 'schedule/source-conflict';
+                throw error;
+            }
+        }
+    },
+
     mutateScheduleSectionAtomic: async (compositeKey, section, applyRows, fallbackDayData = null) => {
         if (!section || typeof applyRows !== 'function') {
             throw new Error('Thiếu thông tin danh sách ca cần cập nhật.');
@@ -3536,6 +3554,7 @@ const DBService = {
 
         await db.runTransaction(async transaction => {
             const snapshot = await transaction.get(ref);
+            if (!snapshot.exists) await DBService._verifyInheritedScheduleSource(transaction, fallbackDayData);
             const source = snapshot.exists
                 ? snapshot.data()
                 : JSON.parse(JSON.stringify(fallbackDayData || {}));
@@ -6629,6 +6648,7 @@ const DBService = {
                 });
             });
             DBService._invalidate(`receptionist_schedule_${compositeKey}`);
+            try { localStorage.setItem('scheduleDataVersion', JSON.stringify({ compositeKey, kind: 'receptionist', at: Date.now() })); } catch (_) { /* best effort */ }
             return { revision };
         } catch (e) {
             console.error('[ReceptionistSchedule] Error saving:', e);
@@ -6659,6 +6679,7 @@ const DBService = {
                 });
             });
             DBService._invalidate(`office_schedule_${compositeKey}`);
+            try { localStorage.setItem('scheduleDataVersion', JSON.stringify({ compositeKey, kind: 'office', at: Date.now() })); } catch (_) { /* best effort */ }
             return { revision };
         } catch (e) {
             console.error('[OfficeSchedule] Error saving:', e);
@@ -7097,13 +7118,33 @@ const DBService = {
     },
 
     // Save monthly salary settings for a staff member and specific month
-    async saveMonthlySalarySettings(staffId, monthStr, settingsObj) {
+    async saveMonthlySalarySettings(staffId, monthStr, settingsObj, options = {}) {
         if (!staffId || !monthStr) {
             throw new Error('[MonthlySalarySettings] staffId and monthStr are required.');
         }
         try {
             const docId = `${monthStr}_${staffId}`;
-            await db.collection('salary_settings_monthly').doc(docId).set(settingsObj, { merge: true });
+            const ref = db.collection('salary_settings_monthly').doc(docId);
+            if (options.revenues) {
+                const { total, cs2 } = options.revenues;
+                if (![total, cs2].every(value => Number.isFinite(value) && value >= 0)) {
+                    throw new Error('Doanh thu phải là số không âm.');
+                }
+            }
+            await db.runTransaction(async transaction => {
+                if (options.expectedRole) {
+                    const snapshot = await transaction.get(ref);
+                    const data = snapshot.exists ? snapshot.data() : {};
+                    const previous = data[options.expectedRole] || data[options.expectedRole.replace('_', '-')] || {};
+                    const canonical = value => Array.isArray(value) ? value.map(canonical) :
+                        value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+                    if (JSON.stringify(canonical(previous)) !== JSON.stringify(canonical(options.expectedSettings || {}))) {
+                        throw new Error('Cấu hình lương vừa được thay đổi ở phiên khác. Tải lại và đối chiếu trước khi lưu.');
+                    }
+                }
+                transaction.set(ref, settingsObj, { merge: true });
+                if (options.revenues) transaction.set(db.collection('settings').doc(`recep_revenue_${monthStr}`), options.revenues, { merge: true });
+            });
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
             return true;
         } catch (e) {
@@ -7158,7 +7199,7 @@ const DBService = {
     // Save a calculated draft against the latest Firestore state. This closes
     // the race where a stale report tab recalculated while another tab published
     // or confirmed the same component.
-    async savePayslipDraft(staffId, monthStr, calculatedPublished, component = 'gv') {
+    async savePayslipDraft(staffId, monthStr, calculatedPublished, component = 'gv', options = {}) {
         if (!staffId || !monthStr) {
             throw new Error('[SavePayslipDraft] staffId and monthStr are required.');
         }
@@ -7175,7 +7216,20 @@ const DBService = {
                     calculatedPublished || {},
                     component
                 );
-                if (!transition.saved) return;
+                if (!transition.saved) {
+                    if (!options.allowRevisionDraft) return;
+                    const key = component === 'tt' ? 'tt' : 'gv';
+                    const draft = {
+                        payload: calculatedPublished,
+                        sourceToken: _getPayslipReceiptToken(currentPublished),
+                        version: Number(docSnap.data()?.revisionDrafts?.[key]?.version || 0) + 1,
+                        updatedAt: new Date().toISOString(),
+                        actorUid: firebase.auth().currentUser?.uid || ''
+                    };
+                    transaction.update(docRef, { [`revisionDrafts.${key}`]: draft });
+                    transition = { ...transition, saved: true, locked: false, revisionDraft: true };
+                    return;
+                }
 
                 if (docSnap.exists) {
                     transaction.update(docRef, { published: transition.published });
@@ -7192,6 +7246,40 @@ const DBService = {
             console.error('[SavePayslipDraft] Error saving:', e);
             throw e;
         }
+    },
+
+    // An explicit correction keeps the previously delivered snapshot immutable
+    // in history. The other employment component and all attendance stay intact.
+    async publishPayslipRevision(staffId, monthStr, component, expectedToken, expectedVersion, reason) {
+        if (!staffId || !/^\d{4}-\d{2}$/.test(monthStr) || !['gv', 'tt'].includes(component) || !String(reason || '').trim()) {
+            throw new Error('Cần chọn đúng nhân viên, tháng, phần lương và nhập lý do hiệu chỉnh.');
+        }
+        const ref = db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`);
+        const archive = ref.collection('revisions').doc();
+        const now = new Date().toISOString();
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            const data = snapshot.exists ? snapshot.data() : {};
+            const before = data.published || {};
+            const draft = data.revisionDrafts?.[component];
+            if (!draft || draft.version !== expectedVersion || draft.sourceToken !== expectedToken ||
+                _getPayslipReceiptToken(before) !== expectedToken) {
+                throw new Error('Bảng lương hoặc bản tính đã thay đổi. Tải lại, tính lại và đối chiếu trước khi gửi hiệu chỉnh.');
+            }
+            const after = _preparePayslipRevision(before, draft.payload, component, now);
+            transaction.set(archive, {
+                staffId, month: monthStr, component, reason: String(reason).trim().slice(0, 2000),
+                actorUid: firebase.auth().currentUser?.uid || '', createdAt: now,
+                before, after, calculation: draft, salarySettings: data[component === 'tt' ? 'tiep_tan' : 'giao_vien'] || {}
+            });
+            transaction.update(ref, {
+                published: after,
+                [`revisionDrafts.${component}`]: firebase.firestore.FieldValue.delete(),
+                lastRevisionId: archive.id
+            });
+        });
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        return { saved: true, revisionId: archive.id };
     },
 
     // Update exactly one calendar day. This avoids read-modify-write data loss
@@ -9250,7 +9338,9 @@ function _getPayslipPaymentBreakdown(published = {}) {
         else unpaid += value;
     });
 
-    const total = Number.isFinite(aggregateValue) ? aggregateValue : knownTotal;
+    const hasCompleteAmounts = componentSpecs.length > 0 && componentSpecs.every(component =>
+        component.details?.netPay !== undefined && Number.isFinite(Number(component.details.netPay)));
+    const total = hasCompleteAmounts ? knownTotal : (Number.isFinite(aggregateValue) ? aggregateValue : knownTotal);
     const unallocated = total - knownTotal;
     if (Math.abs(unallocated) > 0.0001) {
         // Malformed/legacy partial documents may not have component amounts.
@@ -9328,7 +9418,7 @@ function _preparePayslipComponentPublish(published = {}, targets = {}, nowIso = 
 function _recalculatePayslipScalarTotals(published) {
     const details = [published.details_gv, published.details_tt]
         .filter(item => item && typeof item === 'object');
-    if (details.length < 2) return published;
+    if (details.length === 0) return published;
 
     ['netPay', 'baseSalary', 'totalBonus', 'advance'].forEach(field => {
         if (details.every(item => Number.isFinite(Number(item[field])))) {
@@ -9510,6 +9600,33 @@ function _preparePayslipDraftUpdate(currentPublished = {}, calculatedPublished =
         lifecycle
     };
 }
+function _preparePayslipRevision(current, calculated, component, nowIso) {
+    const state = _getPayslipLifecycleState(current);
+    if (!state[`locked_${component}`]) throw new Error('Phần lương chưa gửi; hãy lưu và gửi bản tính thông thường.');
+    const details = calculated?.[`details_${component}`] || calculated?.details;
+    if (!details || !Number.isFinite(Number(details.netPay))) throw new Error('Bản hiệu chỉnh chưa có số tiền hợp lệ.');
+    const next = { ...current };
+    for (const key of ['gv', 'tt']) {
+        if (state[`has_${key}`]) {
+            next[`status_${key}`] = state[`status_${key}`];
+            if (!next[`details_${key}`] && current.role !== 'dual') next[`details_${key}`] = current.details;
+        }
+    }
+    next[`details_${component}`] = details;
+    next[`status_${component}`] = 'published';
+    next[`publishedAt_${component}`] = nowIso;
+    delete next[`receivedAt_${component}`];
+    delete next[`confirmedBy_${component}`];
+    next.role = next.details_gv && next.details_tt ? 'dual' : (component === 'tt' ? 'tiep-tan' : 'giao-vien');
+    next.details = next.details_gv || next.details_tt;
+    next.message = calculated.message || current.message || '';
+    next.revision = Number(current.revision || 0) + 1;
+    next.revisedAt = nowIso;
+    _recalculatePayslipScalarTotals(next);
+    _syncPayslipAggregateStatus(next, nowIso);
+    return next;
+}
+
 // Bind a receipt to precisely the published components and amounts the viewer saw.
 // Receipt status/timestamps are excluded so a repeated confirmation stays idempotent.
 function _getPayslipReceiptToken(published = {}) {

@@ -190,6 +190,7 @@ async function main() {
                     await page.waitForSelector(toggle,{timeout:30000});
                     assert.equal(await page.$eval(toggle,el=>!!el.closest('tr').querySelector('button[title="Xóa lớp"]')),false);
                     for(const closed of [true,false]) {
+                        await page.waitForFunction(s => { const el = document.querySelector(s); return el && !el.closest('tbody').inert; }, {}, toggle);
                         await page.click(toggle);
                         await page.waitForSelector('[data-closure-reason]',{visible:true});
                         await page.type('[data-closure-reason]',closed?'Fixture: lớp nghỉ báo trễ':'Fixture: khôi phục lớp');

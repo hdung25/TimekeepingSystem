@@ -1071,6 +1071,10 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (isOwnMonthlyDocument(docId) || isAdmin());
       allow create, delete: if isAuthenticated() && isPrimaryAdmin();
       allow update: if isAuthenticated() && (isPrimaryAdmin() || isSafePayslipReceipt(docId));
+      match /revisions/{revisionId} {
+        allow read, create: if isAuthenticated() && isPrimaryAdmin();
+        allow update, delete: if false;
+      }
     }
     match /staff_payroll_profiles/{staffId} {
       allow read: if isAuthenticated() && isAdmin();

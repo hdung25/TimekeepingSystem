@@ -54,6 +54,10 @@ function togglePdfTieptanInputs() {
 }
 window.togglePdfTieptanInputs = togglePdfTieptanInputs;
 function exportSalaryPDF(overrides) {
+    if (window.PayrollReview) {
+        const role = overrides?.customFilterType || (window.currentLoadedRoleKey === 'tiep_tan' ? 'tiep-tan' : 'giao-vien');
+        return window.PayrollReview.printSaved(role === 'tiep-tan' ? 'tt' : 'gv');
+    }
     // 1. Get Data
     const staffSelect = document.getElementById('staff-select');
     const staffId = staffSelect.value;

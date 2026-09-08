@@ -14,13 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     // Only initialize if we are on the page with schedule elements
     if (document.getElementById('schedule-table')) {
-        try {
-            const settings = await DBService.getSystemSettings();
-            window.centerClosures = settings?.centerClosures || {};
-        } catch (e) {
-            console.warn("Error loading system settings:", e);
-            window.centerClosures = {};
-        }
         initSchedule();
     }
 });
@@ -66,34 +59,63 @@ function isPastShift(dateKey, section) {
     return currentMinutes >= (sh * 60 + sm);
 }
 
+// Read failures must not become an apparently open centre. Keep this adapter
+// local to the schedule page; settings used by other flows retain their API.
+async function readScheduleClosureSettings() {
+    const snapshot = await window.db.collection('settings').doc('system').get({ source: 'server' });
+    if (!snapshot.exists) throw new Error('Chưa có cấu hình đóng/mở ca. Vui lòng kiểm tra Cài đặt hệ thống.');
+    return snapshot.data();
+}
+
+function scheduleCoveringClosureKeys(keys, shiftKey) {
+    const parent = shiftKey.replace(/[12]$/, '');
+    return (Array.isArray(keys) ? keys : []).filter(key => ['all', parent, shiftKey].includes(key)).sort();
+}
+
 window.toggleSectionClosure = async function (dateKey, shiftKey, isChecked) {
+    const mutationKey = `closure:${dateKey}:${shiftKey}`;
+    if (!beginScheduleMutation(mutationKey)) return;
     try {
-        const settings = await DBService.getSystemSettings();
-        if (!settings.centerClosures) {
-            settings.centerClosures = {};
-        }
-        if (!settings.centerClosures[dateKey]) {
-            settings.centerClosures[dateKey] = [];
-        }
-        
-        if (isChecked) {
-            if (!settings.centerClosures[dateKey].includes(shiftKey)) {
-                settings.centerClosures[dateKey].push(shiftKey);
+        const section = SECTIONS.find(item => item.key === shiftKey);
+        if (!section || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) throw scheduleRowConflictError();
+        if (isPastShift(dateKey, section)) throw new Error('Không thể chỉnh sửa buổi đã bắt đầu hoặc đã qua.');
+        const settings = await readScheduleClosureSettings();
+        const expectedKeys = scheduleCoveringClosureKeys(settings.centerClosures?.[dateKey], shiftKey);
+        const scope = expectedKeys.includes('all') ? 'cả ngày' :
+            (expectedKeys.some(key => ['morning', 'afternoon', 'evening'].includes(key)) ? 'cả buổi' : section.label);
+        const confirmed = await UIService.confirm(isChecked
+            ? `Tắt ${section.label} ngày ${dateKey} cho tất cả cơ sở? Trạng thái nghỉ trung tâm dùng chung cho các cơ sở.`
+            : `Mở lại ${scope} ngày ${dateKey} cho tất cả cơ sở? Bỏ trạng thái nghỉ ${scope} sẽ áp dụng cho các lịch dùng chung, gồm lịch dạy, lễ tân và văn phòng. Các lớp/ca được tắt riêng vẫn giữ nguyên.`);
+        if (!confirmed) return;
+        const ref = window.db.collection('settings').doc('system');
+        const closures = await window.db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            if (!snapshot.exists) throw new Error('Không tìm thấy cấu hình đóng/mở ca.');
+            if (isPastShift(dateKey, section)) throw new Error('Buổi đã bắt đầu. Hãy kiểm tra từng lớp trước khi thay đổi.');
+            const current = snapshot.data().centerClosures || {};
+            const currentKeys = Array.isArray(current[dateKey]) ? current[dateKey] : [];
+            if (!isChecked && JSON.stringify(scheduleCoveringClosureKeys(currentKeys, shiftKey)) !== JSON.stringify(expectedKeys)) {
+                throw new Error('Phạm vi nghỉ đã được thay đổi. Hãy tải lại lịch và xác nhận lại.');
             }
-        } else {
-            settings.centerClosures[dateKey] = settings.centerClosures[dateKey].filter(s => s !== shiftKey);
-            if (settings.centerClosures[dateKey].length === 0) {
-                delete settings.centerClosures[dateKey];
-            }
-        }
-        
-        await DBService.saveSystemSettings(settings);
-        window.centerClosures = settings.centerClosures || {};
-        
-        await renderTable();
-    } catch (e) {
-        console.error("Error toggling section closure:", e);
-        alert("Có lỗi xảy ra khi tắt/mở lớp!");
+            // Keep legacy parent keys intact: receptionist/office consumers use
+            // morning/afternoon/evening. Reopening a parent needs explicit consent
+            // above; never convert it silently into teaching-only leaf keys.
+            const nextKeys = isChecked ? [...new Set([...currentKeys, shiftKey])] :
+                currentKeys.filter(key => !expectedKeys.includes(key));
+            // An explicit empty array reopens the last closure. A merge of an
+            // object with the date omitted would retain its old Firestore value.
+            transaction.update(ref, { [`centerClosures.${dateKey}`]: nextKeys });
+            return { ...current, [dateKey]: nextKeys };
+        });
+        DBService._invalidate('system_settings');
+        window.centerClosures = closures;
+        scheduleLastMutationFailed = false;
+        renderDayTabs();
+        UIService.toast(isChecked ? 'Đã tắt ca cho tất cả cơ sở.' : 'Đã mở lại ca cho tất cả cơ sở.', 'success');
+    } catch (error) {
+        showScheduleMutationError(error);
+    } finally {
+        await finishScheduleMutation(mutationKey);
     }
 };
 
@@ -124,17 +146,18 @@ function requestClassClosureReason(row, dateKey, isClosed) {
 
 window.toggleClassClosure = async function (compositeKey, caType, index, isChecked, renderedLocator) {
     if (window.__classClosurePending) return;
+    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    if (!beginScheduleMutation(mutationKey)) return;
     window.__classClosurePending = true;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-        const row = dayData[caType][index];
-        const locator = scheduleRowLocator(row, index);
+        let locator = renderedLocator ? JSON.parse(renderedLocator) : null;
+        const resolvedIndex = locator ? resolveScheduleRowIndex(dayData?.[caType], locator) : index;
+        const row = dayData?.[caType]?.[resolvedIndex];
+        if (!row) throw scheduleRowConflictError();
+        if (!locator) locator = scheduleRowLocator(row, resolvedIndex);
         if (renderedLocator) {
-            const expected = JSON.parse(renderedLocator);
-            if (expected.shiftId !== locator.shiftId || expected.signature !== locator.signature) {
-                throw new Error('Dòng lịch đã thay đổi. Hãy tải lại và chọn đúng lớp.');
-            }
+            assertScheduleRowIdentity(row, locator);
         }
         const reason = await requestClassClosureReason(row, compositeKey.split('__').pop(), isChecked === true);
         if (!reason) return;
@@ -147,17 +170,20 @@ window.toggleClassClosure = async function (compositeKey, caType, index, isCheck
             compositeKey,
             caType,
             locator,
-            latestRow => ({ ...latestRow, isClosed: isChecked === true }),
+            latestRow => {
+                assertScheduleRowIdentity(latestRow, locator);
+                return { ...latestRow, isClosed: isChecked === true };
+            },
             dayData
         );
         
+        scheduleLastMutationFailed = false;
         UIService.toast(isChecked ? 'Đã ghi nhận lớp nghỉ, giữ nguyên dữ liệu công.' : 'Đã mở lại lớp, giữ nguyên lịch sử.', 'success');
     } catch (e) {
-        console.error("Error toggling class closure:", e);
-        UIService.toast(e.message || 'Chưa lưu được trạng thái lớp. Vui lòng thử lại.', 'error');
+        showScheduleMutationError(e);
     } finally {
-        window.__classClosurePending = false;
-        await renderTable();
+        try { await finishScheduleMutation(mutationKey); }
+        finally { window.__classClosurePending = false; }
     }
 };
 
@@ -167,6 +193,8 @@ let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
 let currentBranch = 'cs1'; // Multi-branch support
 let scheduleRenderGeneration = 0;
 let scheduleAttendanceEvidenceWarningKey = '';
+const scheduleMutationsPending = new Set();
+let scheduleLastMutationFailed = false;
 let currentShiftFilter = 'all'; // Filter for shifts (all, morning, afternoon, evening)
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 
@@ -194,6 +222,17 @@ window.switchBranch = function (branchId) {
 };
 
 function initSchedule() {
+    // Payroll review links open the same schedule page on the date being checked.
+    const reviewParams = new URLSearchParams(window.location.search);
+    const reviewDate = reviewParams.get('date');
+    const reviewBranch = reviewParams.get('branch');
+    if (['cs1', 'cs2', 'cs3'].includes(reviewBranch)) currentBranch = reviewBranch;
+    document.querySelectorAll('.branch-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.branch === currentBranch);
+    });
+    const parsedReviewDate = scheduleShiftDateTime(reviewDate, '00:00');
+    if (parsedReviewDate && getLocalDateKey(parsedReviewDate) === reviewDate) currentWeekStart = parsedReviewDate;
+    const activeDay = currentWeekStart.getDay();
     // 1. Align currentWeekStart to the previous Monday
     const day = currentWeekStart.getDay();
     const diff = currentWeekStart.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
@@ -201,8 +240,7 @@ function initSchedule() {
     currentWeekStart.setHours(0, 0, 0, 0);
 
     // 2. Set today's tab as active initially
-    const today = new Date().getDay(); // 0 is Sunday
-    selectedDayIndex = today === 0 ? 6 : today - 1;
+    selectedDayIndex = activeDay === 0 ? 6 : activeDay - 1;
 
     // 3. Render initial views
     renderWeekPicker();
@@ -338,7 +376,9 @@ async function renderTable() {
 
     // Branch label in header
     const branchLabel = { cs1: 'Cơ Sở 1', cs2: 'Cơ Sở 2', cs3: 'Cơ Sở 3' }[currentBranch] || currentBranch.toUpperCase();
-    document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)} — ${branchLabel}`;
+    const reviewScope = new URLSearchParams(window.location.search).get('staffId')
+        ? ' · Đang xem toàn bộ lịch của cơ sở, chưa lọc theo nhân viên.' : '';
+    document.getElementById('current-day-label').innerText = `${DAYS[selectedDayIndex]}, ${formatDateFull(todayDate)} — ${branchLabel}${reviewScope}`;
 
     // Giữ nguyên bảng cũ trong lúc tải (chỉ làm mờ) — nếu xoá bảng để hiện "Đang tải..."
     // thì trang co ngắn lại, trình duyệt tuột cuộn lên đầu, admin đang xếp lịch bị mất chỗ.
@@ -348,11 +388,21 @@ async function renderTable() {
     } else {
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
     }
+    tbody.inert = true;
+    tbody.setAttribute('aria-busy', 'true');
 
+    try {
     // Load Data from Cloud (branch-prefixed)
-    const dayData = await DBService.getSchedule(compositeKey) || {};
+    const [dayData, settings] = await Promise.all([
+        DBService.getSchedule(compositeKey, { source: 'server' }),
+        readScheduleClosureSettings()
+    ]);
     if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
-    const timesheetData = JSON.parse(localStorage.getItem('timesheet_data')) || {};
+    window.centerClosures = settings.centerClosures || {};
+    renderDayTabs();
+    let timesheetData = {};
+    try { timesheetData = JSON.parse(localStorage.getItem('timesheet_data')) || {}; }
+    catch (_error) { /* Old local display data must not prevent a server schedule from loading. */ }
 
     // Fetch attendance for GV absent highlight (past/today only)
     let attendanceEvidence = new Map();
@@ -426,7 +476,7 @@ async function renderTable() {
                             onchange="toggleSectionClosure('${dateKey}', '${section.key}', this.checked)"
                             style="cursor: ${isPast ? 'not-allowed' : 'pointer'}; width: 15px; height: 15px;">
                         <span style="${isClosed ? 'color: #DC2626; font-weight: bold;' : 'color: #047857; font-weight: bold;'}">
-                            <span class="shift-state-dot">${isClosed ? '🔴' : '🟢'}</span> ${isClosed ? 'Đã tắt ca' : 'Ca hoạt động'}
+                            <span class="shift-state-dot">${isClosed ? '🔴' : '🟢'}</span> ${isClosed ? 'Đã tắt ca' : 'Ca hoạt động'} · Tất cả cơ sở
                         </span>
                     </label>
                 </div>
@@ -455,7 +505,7 @@ async function renderTable() {
             return;
         }
 
-        const rows = dayData[section.key] || [];
+        const rows = dayData?.[section.key] || [];
 
         if (rows.length === 0 && !isAdmin) {
             html += `<tr><td colspan="${totalCols}" style="text-align:center; color: var(--text-muted); font-size: 0.875rem; padding: 0.5rem;">không có lớp</td></tr>`;
@@ -483,6 +533,18 @@ async function renderTable() {
     tbody.dataset.rendered = '1';
     window.scrollTo(0, scrollYBefore);
     syncDatePickerValue();
+    } catch (error) {
+        if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
+        console.error('Không tải được lịch:', error);
+        tbody.dataset.rendered = '0';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;">Chưa tải được lịch hoặc trạng thái đóng/mở ca. <button type="button" class="btn" onclick="renderTable()">Tải lại lịch</button></td></tr>';
+    } finally {
+        if (isScheduleRenderCurrent(renderGeneration, compositeKey)) {
+            tbody.style.opacity = '';
+            tbody.inert = scheduleMutationsPending.size > 0;
+            tbody.setAttribute('aria-busy', scheduleMutationsPending.size > 0 ? 'true' : 'false');
+        }
+    }
 }
 
 // Helper: get array of {id,name} from row data (backward compat)
@@ -770,7 +832,7 @@ function renderTimeCell(label, value, canEdit, compositeKey, caType, index, fiel
         return `<td data-field="${fieldKey}" data-label="${label}"><span class="time-text">${scheduleEscapeHTML(value || '—')}</span></td>`;
     }
     return `<td data-field="${fieldKey}" data-label="${label}"><input type="time" lang="vi" class="table-input time-input" value="${safeValue}"
-        onchange="updateRow('${compositeKey}', '${caType}', ${index}, '${field}', this.value)"></td>`;
+        onchange="updateRow('${compositeKey}', '${caType}', ${index}, '${field}', this.value, this.closest('tr').dataset.rowLocator)"></td>`;
 }
 
 function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, sessionData, isTeacherOrStaff = false, attendanceEvidence = new Map(), dateKey = '', todayRealKey = '', cancelledShiftsMap = {}) {
@@ -790,7 +852,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     if (rowIsAdmin) {
         soHSCell = `<td data-field="hs" data-label="Số HS"><input type="number" class="table-input" value="${scheduleEscapeAttr(data.soHS || '')}" placeholder="HS" min="0"
             style="width:60px;text-align:center;"
-            onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', parseInt(this.value)||0)"></td>`;
+            onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'soHS', this.value === '' ? 0 : Number(this.value), this.closest('tr').dataset.rowLocator)"></td>`;
     } else {
         const hs = data.soHS || '';
         const hsStyle = hs > 10 ? 'color:var(--primary-color);font-weight:700;' : 'color:var(--text-muted);';
@@ -811,7 +873,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
                             style="cursor: pointer; width: 14px; height: 14px; margin: 0;">
                         <span>${isClassClosed ? 'Tắt' : 'Bật'}</span>
                     </label>
-                    ${rowIsAdmin ? `<button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index})" title="Xóa lớp">
+                    ${rowIsAdmin ? `<button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index}, this.closest('tr').dataset.rowLocator)" title="Xóa lớp">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -842,7 +904,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     if (rowIsAdmin) {
         lopCell = `<td data-field="subject" data-label="Môn / Lớp"><input type="text" class="table-input" value="${lopVal}" placeholder="Môn học"
             list="subject-list" style="${_missingSubject ? 'border:1.5px solid #EF4444;background:#FEF2F2;' : ''}"
-            onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value)">${_missingBadge}</td>`;
+            onchange="updateSubjectRow('${compositeKey}', '${caType}', ${index}, this.value, this.closest('tr').dataset.rowLocator)">${_missingBadge}</td>`;
     } else {
         const rawSubjectColor = (window._subjectList || []).find(s => s.name === data.lop)?.color || '';
         const subjectColor = /^#[0-9a-f]{6}$/i.test(rawSubjectColor) ? rawSubjectColor : '';
@@ -856,16 +918,16 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
     const rowBg = isClassClosed ? 'background: #F3F4F6; opacity: 0.75;' : '';
 
     return `
-        <tr style="${rowBg}">
+        <tr style="${rowBg}" data-row-locator="${scheduleEscapeAttr(JSON.stringify(scheduleEditLocator(data, index)))}">
             <td data-field="ss" data-label="SS" style="text-align: center;">${index + 1}</td>
             ${renderTimeCell('Bắt đầu', data.start, rowIsAdmin, compositeKey, caType, index, 'start')}
             ${renderTimeCell('Kết thúc', data.end, rowIsAdmin, compositeKey, caType, index, 'end')}
             ${lopCell}
-            <td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.phong || '')}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value)"></td>
+            <td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.phong || '')}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value, this.closest('tr').dataset.rowLocator)"></td>
             ${gvCell}
             ${gvTTCell}
             ${soHSCell}
-            <td data-field="note" data-label="Ghi chú"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.note || '')}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value)"></td>
+            <td data-field="note" data-label="Ghi chú"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.note || '')}" placeholder="Ghi chú" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'note', this.value, this.closest('tr').dataset.rowLocator)"></td>
             ${actionCell}
         </tr>
     `;
@@ -877,6 +939,8 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
         return;
     }
 
+    const mutationKey = `add:${compositeKey}:${caType}`;
+    if (!beginScheduleMutation(mutationKey)) return;
     const newRow = {
         shiftId: window.TeacherShiftState ? TeacherShiftState.stableShiftId({}) : `shift_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         staffingSchemaVersion: 2,
@@ -890,65 +954,74 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
     };
 
     try {
-        await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => [...rows, newRow]);
-        await renderTable();
+        const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
+        await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => {
+            if (isScheduleTimePast(compositeKey, defaultStart)) throw new Error('Ca đã bắt đầu. Không thể thêm lớp.');
+            return [...rows, newRow];
+        }, dayData);
+        scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
+    } finally {
+        await finishScheduleMutation(mutationKey);
     }
 };
 
-window.updateRow = async function (compositeKey, caType, index, field, value) {
+window.updateRow = async function (compositeKey, caType, index, field, value, renderedLocator) {
     const editableFields = new Set(['start', 'end', 'phong', 'note', 'soHS']);
     if (!editableFields.has(field)) return;
-    const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-
-    const row = dayData[caType][index];
-    if (isScheduleTimePast(compositeKey, row.start)) {
-        alert("Không thể chỉnh sửa lớp học cho thời gian đã qua trong quá khứ!");
-        renderTable();
-        return;
-    }
-
+    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    if (!beginScheduleMutation(mutationKey)) return;
     try {
+        const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
+        const expectedValue = locator.values?.[field] ?? row[field] ?? '';
         await DBService.updateScheduleRowAtomic(
             compositeKey,
             caType,
-            scheduleRowLocator(row, index),
+            locator,
             latestRow => {
+                assertScheduleRowIdentity(latestRow, locator);
+                if (String(latestRow[field] ?? '') !== String(expectedValue)) throw scheduleRowConflictError();
                 if (isScheduleTimePast(compositeKey, latestRow.start)) {
                     const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể chỉnh sửa.');
                     error.code = 'schedule/past';
                     throw error;
                 }
-                return { ...latestRow, [field]: value };
+                const nextRow = { ...latestRow, [field]: value };
+                if (field === 'start' || field === 'end') {
+                    const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+                    if (!timePattern.test(nextRow.start) || !timePattern.test(nextRow.end) || nextRow.start >= nextRow.end) {
+                        throw new Error('Giờ kết thúc phải sau giờ bắt đầu, trong cùng ngày.');
+                    }
+                    if (isScheduleTimePast(compositeKey, nextRow.start)) throw new Error('Không thể chuyển lớp về thời gian đã qua.');
+                }
+                if (field === 'soHS' && (!Number.isInteger(value) || value < 0)) throw new Error('Số học sinh phải là số nguyên không âm.');
+                return nextRow;
             },
             dayData
         );
-        await renderTable();
+        scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
-        await renderTable();
+    } finally {
+        await finishScheduleMutation(mutationKey);
     }
 };
 
-window.deleteRow = async function (compositeKey, caType, index) {
-    const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-
-    const row = dayData[caType][index];
-    if (isScheduleTimePast(compositeKey, row.start)) {
-        alert("Không thể xóa lớp học cho thời gian đã qua trong quá khứ!");
-        return;
-    }
-
-    if (!await UIService.confirm('Bạn có chắc muốn xóa lớp học này?')) return;
-
-    const locator = scheduleRowLocator(row, index);
+window.deleteRow = async function (compositeKey, caType, index, renderedLocator) {
+    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    if (!beginScheduleMutation(mutationKey)) return;
     try {
+        const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
+        if (isScheduleTimePast(compositeKey, row.start)) throw new Error('Ca đã bắt đầu hoặc đã qua và không thể xóa.');
+        if (!await UIService.confirm(`Xóa lớp ${scheduleEscapeHTML(row.lop || '(chưa chọn môn)')} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)} ngày ${scheduleEscapeHTML(compositeKey.split('__').pop())}?`)) return;
         await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => {
             const latestIndex = resolveScheduleRowIndex(rows, locator);
             if (latestIndex < 0) throw scheduleRowConflictError();
+            assertScheduleRowIdentity(rows[latestIndex], locator);
+            if (scheduleRowContentFingerprint(rows[latestIndex]) !== scheduleRowContentFingerprint(row)) throw scheduleRowConflictError();
             if (isScheduleTimePast(compositeKey, rows[latestIndex].start)) {
                 const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể xóa.');
                 error.code = 'schedule/past';
@@ -956,17 +1029,21 @@ window.deleteRow = async function (compositeKey, caType, index) {
             }
             return rows.filter((_, rowIndex) => rowIndex !== latestIndex);
         }, dayData);
-        await renderTable();
+        scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
-        await renderTable();
+    } finally {
+        await finishScheduleMutation(mutationKey);
     }
 };
 
 window.saveScheduleManual = function () {
-    const btn = document.querySelector('#admin-actions button');
-    if (btn) {
-        alert('Dữ liệu đã được lưu thành công! Lịch làm này sẽ được dùng làm mẫu cho các ngày tương lai chưa có lịch.');
+    if (scheduleMutationsPending.size || teacherShiftManagerState?.saving) {
+        UIService.toast('Đang lưu thay đổi. Vui lòng chờ hoàn tất.', 'warning');
+    } else if (scheduleLastMutationFailed) {
+        UIService.toast('Có thay đổi chưa lưu được. Hãy tải lại lịch và thực hiện lại thao tác bị lỗi.', 'error');
+    } else {
+        UIService.toast('Lịch tự lưu sau mỗi thay đổi. Nút này không gửi thêm dữ liệu.', 'info');
     }
 }
 
@@ -1082,26 +1159,22 @@ async function loadTeacherListForSchedule() {
     }
 }
 
-window.updateSubjectRow = async function (compositeKey, caType, index, subjectName) {
+window.updateSubjectRow = async function (compositeKey, caType, index, subjectName, renderedLocator) {
     const subjects = window._subjectList || [];
     const match = subjects.find(s => s.name === subjectName);
     const lopId = match ? match.id : '';
-    const dayData = await DBService.getSchedule(compositeKey);
-    if (!dayData || !dayData[caType] || !dayData[caType][index]) return;
-    
-    const row = dayData[caType][index];
-    if (isScheduleTimePast(compositeKey, row.start)) {
-        alert("Không thể chỉnh sửa môn học cho thời gian đã qua trong quá khứ!");
-        renderTable();
-        return;
-    }
-
+    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    if (!beginScheduleMutation(mutationKey)) return;
     try {
+        const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
+        const { locator } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
         await DBService.updateScheduleRowAtomic(
             compositeKey,
             caType,
-            scheduleRowLocator(row, index),
+            locator,
             latestRow => {
+                assertScheduleRowIdentity(latestRow, locator);
+                if (locator.values && String(latestRow.lopId || '') !== String(locator.values.lopId || '')) throw scheduleRowConflictError();
                 if (isScheduleTimePast(compositeKey, latestRow.start)) {
                     const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể đổi môn học.');
                     error.code = 'schedule/past';
@@ -1111,10 +1184,11 @@ window.updateSubjectRow = async function (compositeKey, caType, index, subjectNa
             },
             dayData
         );
-        await renderTable();
+        scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
-        await renderTable();
+    } finally {
+        await finishScheduleMutation(mutationKey);
     }
 };
 
@@ -1167,12 +1241,56 @@ function scheduleRowLocator(row, index) {
     };
 }
 
+function scheduleEditLocator(row, index) {
+    return {
+        ...scheduleRowLocator(row, index),
+        values: Object.fromEntries(['start', 'end', 'phong', 'note', 'soHS', 'lopId'].map(field => [field, row[field] ?? '']))
+    };
+}
+
+function assertScheduleRowIdentity(row, locator) {
+    if (!row || (locator.shiftId && String(row.shiftId || '') !== locator.shiftId) ||
+        scheduleRowSignature(row) !== locator.signature) throw scheduleRowConflictError();
+}
+
+function resolveScheduleEditTarget(dayData, section, index, renderedLocator) {
+    const locator = renderedLocator ? JSON.parse(renderedLocator) : scheduleRowLocator(dayData?.[section]?.[index], index);
+    const resolvedIndex = resolveScheduleRowIndex(dayData?.[section], locator);
+    const row = dayData?.[section]?.[resolvedIndex];
+    assertScheduleRowIdentity(row, locator);
+    return { row, locator: { ...locator, index: resolvedIndex } };
+}
+
+function scheduleRowContentFingerprint(row) {
+    // These fields are read-only projections, absent from persisted schedule rows.
+    const projectionFields = new Set(['_isInheritedSchedule', '_inheritedFromScheduleDocId',
+        '_inheritedTargetScheduleDocId', '_inheritedSection', '_inheritedIndex']);
+    const stored = Object.fromEntries(Object.keys(row).sort()
+        .filter(key => !projectionFields.has(key) && key !== 'registeredTeachers')
+        .map(key => [key, row[key]]));
+    stored.registeredTeachers = (row.registeredTeachers || []).filter(item => item.registrationSource !== 'schedule_registrations');
+    return JSON.stringify(stored);
+}
+
+function beginScheduleMutation(key) {
+    if (scheduleMutationsPending.has(key)) return false;
+    scheduleMutationsPending.add(key);
+    const tbody = document.getElementById('table-body');
+    if (tbody) { tbody.inert = true; tbody.setAttribute('aria-busy', 'true'); }
+    return true;
+}
+
+async function finishScheduleMutation(key) {
+    scheduleMutationsPending.delete(key);
+    await renderTable();
+}
+
 function resolveScheduleRowIndex(rows, locator) {
     const list = Array.isArray(rows) ? rows : [];
     const shiftId = String(locator?.shiftId || '');
     if (shiftId) {
-        const byId = list.findIndex(row => String(row?.shiftId || '') === shiftId);
-        if (byId >= 0) return byId;
+        const matches = list.map((row, index) => String(row?.shiftId || '') === shiftId ? index : -1).filter(index => index >= 0);
+        return matches.length === 1 ? matches[0] : -1;
     }
     if (Number.isInteger(locator?.index)) {
         const candidate = list[locator.index];
@@ -1190,6 +1308,7 @@ function scheduleRowConflictError() {
 }
 
 function showScheduleMutationError(error) {
+    scheduleLastMutationFailed = true;
     console.error('Schedule mutation failed:', error);
     const message = error?.message || 'Không thể cập nhật lịch.';
     if (typeof UIService !== 'undefined' && typeof UIService.toast === 'function') {
@@ -1215,6 +1334,10 @@ function getTeachingRoleLabel(teacher) {
 }
 
 function closeTeacherShiftManager(force = false) {
+    if (!force && teacherShiftManagerState?.saving) {
+        window.UIService?.toast?.('Đang lưu điều phối ca. Vui lòng chờ hoàn tất.', 'warning');
+        return false;
+    }
     if (!force && isAttendanceSaveInFlight()) {
         window.UIService?.toast?.('Đang lưu công nguyên tử. Vui lòng chờ hoàn tất trước khi đóng popup.', 'warning');
         return false;
@@ -2652,15 +2775,19 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
     }
     if (closeTeacherShiftManager() === false) return;
     const pickerGeneration = teacherPickerGeneration;
+    const pickerScheduleGeneration = scheduleRenderGeneration;
+    const renderedLocator = triggerEl?.closest?.('tr')?.dataset.rowLocator;
     try {
         const [dayData, strictAuthorizationResult] = await Promise.all([
-            DBService.getSchedule(compositeKey),
+            DBService.getSchedule(compositeKey, { source: 'server' }),
             DBService.getAuthenticatedAuthorizationContext(true)
                 .then(value => ({ value, error: null }))
                 .catch(error => ({ value: { roles: [] }, error }))
         ]);
-        if (pickerGeneration !== teacherPickerGeneration) return;
-        const row = dayData?.[caType]?.[index];
+        if (pickerGeneration !== teacherPickerGeneration || pickerScheduleGeneration !== scheduleRenderGeneration) return;
+        const target = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
+        const row = target.row;
+        index = target.locator.index;
         if (!row) throw new Error('Ca dạy không còn tồn tại. Hãy tải lại lịch.');
         if (!String(row.lop || '').trim()) {
             throw new Error('Vui lòng chọn Môn / Lớp trước khi điều phối giáo viên để hệ thống tính lương đúng.');
@@ -2729,7 +2856,7 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
         const shiftWindow = window.ScheduleAttendanceAdmin?.buildShiftWindow(dateKey, row.start, row.end);
         if (canEditAttendance && !shiftWindow) throw new Error('Khung giờ ca dạy không hợp lệ nên không thể mở trình chỉnh công.');
 
-        if (pickerGeneration !== teacherPickerGeneration) return;
+        if (pickerGeneration !== teacherPickerGeneration || pickerScheduleGeneration !== scheduleRenderGeneration) return;
         teacherShiftManagerState = {
             compositeKey,
             caType,
@@ -2923,11 +3050,14 @@ window.saveTeacherShiftCommand = async function () {
             },
             state.dayData
         );
-        closeTeacherShiftManager();
+        state.saving = false;
+        if (teacherShiftManagerState === state) closeTeacherShiftManager();
+        scheduleLastMutationFailed = false;
         UIService.toast('Đã lưu điều phối ca và đồng bộ trạng thái GV.', 'success');
         await renderTable();
     } catch (error) {
         console.error('Lỗi lưu điều phối ca:', error);
+        scheduleLastMutationFailed = true;
         state.saving = false;
         if (saveButton) {
             saveButton.disabled = false;
@@ -2978,6 +3108,7 @@ window.showGVPopup = function (triggerEl, encodedList) {
 // ================= COPY SCHEDULE =================
 
 window.openCopyWeekModal = function () {
+    if (scheduleMutationsPending.has('copy-week')) return;
     const existing = document.getElementById('copy-week-modal');
     if (existing) existing.remove();
 
@@ -2995,6 +3126,8 @@ window.openCopyWeekModal = function () {
 
     const modal = document.createElement('div');
     modal.id = 'copy-week-modal';
+    modal.dataset.sourceMonday = getLocalDateKey(currentWeekStart);
+    modal.dataset.sourceBranch = currentBranch;
     modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
     modal.innerHTML = `
         <div style="background:white;border-radius:16px;padding:2rem;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
@@ -3016,16 +3149,21 @@ window.openCopyWeekModal = function () {
 };
 
 window.executeCopyWeek = async function () {
-    const targetMondayKey = document.getElementById('copy-target-week').value;
-    if (!targetMondayKey) return;
-    const sourceWeekStart = new Date(currentWeekStart);
-    const sourceBranch = currentBranch;
-
-    const btn = document.querySelector('#copy-week-modal .btn-primary');
-    if (btn) { btn.disabled = true; btn.innerText = 'Đang sao chép...'; }
-
+    const modal = document.getElementById('copy-week-modal');
+    const targetMondayKey = document.getElementById('copy-target-week')?.value;
+    if (!modal || !targetMondayKey || !beginScheduleMutation('copy-week')) return;
+    const sourceWeekStart = scheduleShiftDateTime(modal.dataset.sourceMonday, '00:00');
+    const sourceBranch = modal.dataset.sourceBranch;
+    const buttons = modal.querySelectorAll('button');
+    buttons.forEach(button => { button.disabled = true; });
+    const btn = modal.querySelector('.btn-primary');
+    if (btn) btn.innerText = 'Đang sao chép...';
+    let copied = 0;
     try {
-        let copied = 0;
+        const targetDate = scheduleShiftDateTime(targetMondayKey, '00:00');
+        if (!sourceWeekStart || !sourceBranch || !targetDate || getLocalDateKey(targetDate) !== targetMondayKey || targetDate.getDay() !== 1) {
+            throw new Error('Tuần sao chép không hợp lệ. Hãy mở lại hộp sao chép.');
+        }
         let skippedPastDays = 0;
         let skippedExistingDays = 0;
         for (let i = 0; i < 7; i++) {
@@ -3048,7 +3186,7 @@ window.executeCopyWeek = async function () {
                 continue;
             }
 
-            const srcData = await DBService.getSchedule(srcComposite);
+            const srcData = await DBService.getSchedule(srcComposite, { source: 'server' });
             if (srcData && Object.keys(srcData).length > 0) {
                 // Strip registeredTeachers and substitute teachers to avoid copying support/temp schedules
                 const cleanData = {};
@@ -3081,16 +3219,19 @@ window.executeCopyWeek = async function () {
                 else skippedExistingDays++;
             }
         }
-        document.getElementById('copy-week-modal').remove();
+        modal.remove();
+        scheduleLastMutationFailed = false;
         if (skippedPastDays > 0 || skippedExistingDays > 0) {
             alert(`Đã sao chép ${copied} ngày. Giữ nguyên ${skippedExistingDays} ngày đã có lịch và bỏ qua ${skippedPastDays} ngày trong quá khứ.`);
         } else {
             alert(`Đã sao chép lịch ${copied}/7 ngày sang tuần đã chọn!`);
         }
     } catch (e) {
-        alert('Lỗi sao chép: ' + e.message);
-        const btn2 = document.querySelector('#copy-week-modal .btn-primary');
-        if (btn2) { btn2.disabled = false; btn2.innerText = 'Sao Chép'; }
+        showScheduleMutationError(new Error(`Đã sao chép ${copied} ngày trước khi dừng. ${e.message} Có thể thử lại; ngày đã có lịch sẽ được giữ nguyên.`));
+    } finally {
+        buttons.forEach(button => { button.disabled = false; });
+        if (btn) btn.innerText = 'Sao Chép';
+        await finishScheduleMutation('copy-week');
     }
 };
 

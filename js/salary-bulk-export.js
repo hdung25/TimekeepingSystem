@@ -150,7 +150,7 @@
         const [y, m] = String(monthStr).split('-');
         // Chính hàm mà trang nhân viên dùng → mẫu và số liệu y hệt bản đã gửi
         const card = window.renderDetailedSalaryTable(details, status);
-        const statusText = status === 'received' ? 'Nhân viên đã xác nhận nhận lương' : 'Đã gửi cho nhân viên';
+        const statusText = status === 'received' ? 'Nhân viên đã xác nhận nhận lương' : status === 'published' ? 'Đã gửi cho nhân viên' : 'BẢN TÍNH ĐÃ LƯU — CHƯA GỬI';
 
         return `<!DOCTYPE html>
 <html lang="vi">
@@ -217,13 +217,15 @@
   ${card}
   ${message ? `<div class="msg"><b>Nhắn gửi:</b> ${esc(message)}</div>` : ''}
   <div class="ft">
-    File xuất từ Hệ Thống Chấm Công — nội dung lấy nguyên bản bảng lương đã gửi cho nhân viên tháng ${Number(m)}/${y}.<br>
+    File xuất từ Hệ Thống Chấm Công — nội dung lấy nguyên bản bảng lương đã lưu${status === 'draft' ? ' (chưa gửi cho nhân viên)' : ' và gửi cho nhân viên'} tháng ${Number(m)}/${y}.<br>
     Muốn lưu thành PDF: mở file này rồi bấm Ctrl+P (điện thoại: Chia sẻ → In) → chọn "Save as PDF".
   </div>
 </div>
 </body>
 </html>`;
     }
+
+    window.buildSavedPayslipHtml = buildPayslipHtml;
 
     // ---------- Hàm chính ----------
     window.exportAllPayslips = async function exportAllPayslips() {

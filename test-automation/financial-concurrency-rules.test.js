@@ -22,7 +22,7 @@ const rules = fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
         const staffDb = env.authenticatedContext('clock-user').firestore();
         const adminDb = env.authenticatedContext('clock-admin').firestore();
         const service = db => new Function('db','window','firebase','localStorage','console',source+'\nreturn DBService;')(
-            db,{}, {firestore:firebase.firestore},{getItem:()=> 'Admin'},{log(){},error(){},warn(){}});
+            db,{}, {firestore:firebase.firestore,auth:()=>({currentUser:{uid:'clock-admin'}})},{getItem:()=> 'Admin'},{log(){},error(){},warn(){}});
         const staff = service(staffDb), otherTab = service(staffDb), admin = service(adminDb);
         const args = ['clock-staff','clock-staff','2026-09-05','concurrent-session','00:15'];
         const outcome = await Promise.allSettled([staff.createOvertimeRequest(...args),otherTab.createOvertimeRequest(...args)]);
@@ -93,5 +93,6 @@ const rules = fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
         // Admin authority is evaluated before employee constraints, even for own records.
         await adminDb.collection('attendance_logs').doc('2020-01-01_admin').set({userId:'admin',name:'admin',date:'2020-01-01',sessions:[{checkIn:'2020-01-01T01:00:00.000Z',checkOut:'2020-01-01T03:00:00.000Z',bonus10:true,roleRate:100000}]});
         console.log('PASS forged past/future/checkOut/header-only writes denied; normal clocks and Admin historical corrections allowed');
+        await require('./payroll-revision-rules.cjs')({ admin, adminDb, staffDb });
     } finally { await env.cleanup(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

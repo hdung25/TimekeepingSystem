@@ -29,6 +29,16 @@ const getCancelledShiftKey = (branch, monday, shift, day) => {
 // ==================== STATE ====================
 let currentBranch = localStorage.getItem('currentBranch') || 'cs1';
 let currentWeekStart = getMonday(new Date());
+// Payroll reconciliation links preserve the selected week/campus, without
+// altering either the receptionist or office roster.
+const scheduleReviewParams = new URLSearchParams(window.location.search);
+const scheduleReviewDate = scheduleReviewParams.get('date');
+if (/^\d{4}-\d{2}-\d{2}$/.test(scheduleReviewDate || '')) {
+    const parsedReviewDate = new Date(scheduleReviewDate + 'T12:00:00');
+    if (!Number.isNaN(parsedReviewDate.getTime())) currentWeekStart = getMonday(parsedReviewDate);
+}
+const scheduleReviewBranch = scheduleReviewParams.get('branch');
+if (['cs1', 'cs2', 'cs3'].includes(scheduleReviewBranch)) currentBranch = scheduleReviewBranch;
 let weekData = {};
 let loadedWeekSnapshot = null;
 let loadedScheduleRevision = 0;

@@ -17,6 +17,33 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 let currentDate = new Date(); // Global View Date
+let payrollWritePending = false;
+
+function requirePayrollAdmin() {
+    const raw = localStorage.getItem('currentRole') || 'staff';
+    let roles;
+    try { const parsed = JSON.parse(raw); roles = Array.isArray(parsed) ? parsed : [parsed]; }
+    catch (_) { roles = [raw]; }
+    if (roles.includes('admin')) return true;
+    UIService.toast('Chỉ Admin được lưu đơn giá, tính và gửi bảng lương. Quản lý cấp cao có thể đối chiếu và duyệt công.', 'warning');
+    return false;
+}
+
+function beginPayrollWrite() {
+    if (payrollWritePending) return null;
+    payrollWritePending = true;
+    UIService.showLoading('Đang lưu đúng nhân viên và tháng đã chọn…');
+    const blockInput = event => { event.preventDefault(); event.stopImmediatePropagation(); };
+    document.addEventListener('click', blockInput, true);
+    document.addEventListener('keydown', blockInput, true);
+    return () => {
+        payrollWritePending = false;
+        document.removeEventListener('click', blockInput, true);
+        document.removeEventListener('keydown', blockInput, true);
+        UIService.hideLoading();
+        window.PayrollReview?.refresh();
+    };
+}
 
 function escapeReportHtml(value) {
     return String(value ?? '')
@@ -96,7 +123,9 @@ async function initReport() {
     try {
     // Reset role filter select to default 'all'
     const roleFilterEl = document.getElementById('salary-role-filter');
-    if (roleFilterEl) roleFilterEl.value = 'all';
+    const initialRoleView = new URLSearchParams(window.location.search).get('roleView');
+    if (roleFilterEl) roleFilterEl.value = ['giao-vien', 'tiep-tan'].includes(initialRoleView) ? initialRoleView : 'all';
+    if (['giao-vien', 'tiep-tan'].includes(initialRoleView)) window._forcedRoleView = initialRoleView;
 
     // Restore saved month if available
     const savedMonthStr = localStorage.getItem('lastSelectedMonthStr');
@@ -157,7 +186,7 @@ async function initReport() {
         const controls = document.getElementById('admin-controls');
         if (controls) controls.style.display = 'flex';
         const headerRevs = document.getElementById('admin-header-revenues');
-        if (headerRevs) headerRevs.style.display = 'flex';
+        if (headerRevs) headerRevs.style.display = isSalaryAdmin ? 'flex' : 'none';
         document.getElementById('page-title').innerText = isSalaryAdmin ? 'Tính Lương & Duyệt Công' : 'Duyệt Công Nhân Viên';
         await populateStaffSelect();
 
@@ -237,12 +266,13 @@ async function initReport() {
     }
     signalReportBootstrapReady();
 
-    // Cross-tab update: refresh report if another tab changes class registration
+    // Preserve unsaved payroll inputs. A roster edit invalidates this calculation;
+    // the reviewer explicitly reloads before saving or publishing it.
     window.addEventListener('storage', (event) => {
-        if (event.key === 'schedule_registration_updated' && event.storageArea === localStorage) {
-            if (typeof renderMonthReport === 'function') {
-                renderMonthReport(currentDate, true);
-            }
+        if (['schedule_registration_updated', 'scheduleDataVersion'].includes(event.key) && event.storageArea === localStorage) {
+            window.payrollSourceChanged = true;
+            window.PayrollReview?.refresh();
+            UIService.toast('Lịch/công đã thay đổi ở tab khác. Tải lại công/lương trước khi tính hoặc gửi; dữ liệu đang nhập chưa bị xóa.', 'warning');
         }
     });
     } catch (error) {
@@ -443,6 +473,7 @@ window.selectStaffFromDropdownById = function(id) {
 };
 
 function selectStaffFromDropdown(user) {
+    if (payrollWritePending) return;
     // 1. Set hidden select value (giữ compat với getTargetStaffId)
     const select = document.getElementById('staff-select');
     if (select) select.value = user.id;
@@ -549,9 +580,16 @@ window.filterStaffListByRole = function() {
 };
 
 function changeReportMonth(offset) {
+    if (payrollWritePending) return;
+    currentDate.setDate(1);
     currentDate.setMonth(currentDate.getMonth() + offset);
     localStorage.setItem('lastSelectedMonthStr', currentDate.toISOString());
-    renderMonthReport(currentDate);
+    closeBulkPublishModal();
+    window.payrollReadyScope = null;
+    const title = document.getElementById('report-month-title');
+    if (title) title.innerText = `Tháng ${currentDate.getMonth() + 1}, ${currentDate.getFullYear()}`;
+    if (document.getElementById('salary-dashboard-view')?.style.display === 'block') loadSalaryDashboard();
+    else renderMonthReport(currentDate);
 }
 
 window.isBonusSelectMode = false;
@@ -1009,7 +1047,7 @@ function renderReportLoadFailure(error) {
 function requireCompletePayrollReport() {
     const month = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
     const scope = `${getTargetStaffId() || 'none'}__${month}`;
-    if (window.payrollReadyScope === scope && window.currentReportScope === scope) return true;
+    if (!window.payrollSourceChanged && window.payrollReadyScope === scope && window.currentReportScope === scope) return true;
     UIService.toast('Bảng công/lương chưa tải đủ dữ liệu. Chị bấm Tải lại rồi lưu hoặc gửi bảng lương nhé.', 'warning');
     return false;
 }
@@ -1033,6 +1071,7 @@ async function _renderMonthReport(date, forceServer = false) {
     const grid = document.getElementById('calendar-grid');
     if (!grid) return;
     const renderEpoch = ++_reportRenderEpoch;
+    window.payrollSourceChanged = false;
 
     // Loading State
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Đang tải dữ liệu chấm công từ hệ thống...</div>';
@@ -2758,6 +2797,7 @@ async function _renderMonthReport(date, forceServer = false) {
         await loadSalarySettings(isCurrentRender);
     }
     if (!commitCurrentRender(() => { window.payrollReadyScope = reportScope; })) return;
+    window.PayrollReview?.refresh();
 
     // Highlight and scroll to focus date if parameter exists
     const urlParamsFocus = new URLSearchParams(window.location.search);
@@ -3935,6 +3975,7 @@ function applySalaryVisibility() {
 }
 
 async function saveSalarySettings() {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (staffId === 'all') return;
@@ -4006,12 +4047,20 @@ async function saveSalarySettings() {
         adjust_vkp: loadedSettings.adjust_vkp !== undefined ? loadedSettings.adjust_vkp : 0,
         adjust_late: loadedSettings.adjust_late !== undefined ? loadedSettings.adjust_late : 0
     };
-
+    const revenues = activeFilter === 'tiep-tan' ? {
+        total: parseFormattedNumber(document.getElementById('pdf-actual-revenue-total')?.value || '0'),
+        cs2: parseFormattedNumber(document.getElementById('pdf-actual-revenue-cs2')?.value || '0')
+    } : null;
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     try {
         // Save to Monthly Settings
         const firestorePayload = {};
         firestorePayload[roleKey] = settingsObj;
-        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
+        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload, {
+            revenues, expectedRole: roleKey,
+            expectedSettings: window.currentMonthlySalarySettingsAll?.[roleKey] || window.currentMonthlySalarySettingsAll?.[roleKey.replace('_', '-')] || {}
+        });
         
         if (!window.currentMonthlySalarySettingsAll) {
             window.currentMonthlySalarySettingsAll = {};
@@ -4019,20 +4068,6 @@ async function saveSalarySettings() {
         window.currentMonthlySalarySettingsAll[roleKey] = { ...loadedSettings, ...settingsObj };
         window.currentLoadedSalarySettings = window.currentMonthlySalarySettingsAll[roleKey];
         
-        // Save revenues to recep_revenue_${monthStr} if tiep-tan
-        if (activeFilter === 'tiep-tan') {
-            const totalRev = parseFloat(document.getElementById('pdf-actual-revenue-total')?.value) || 0;
-            const cs2Rev = parseFloat(document.getElementById('pdf-actual-revenue-cs2')?.value) || 0;
-            try {
-                await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).set({
-                    total: totalRev,
-                    cs2: cs2Rev
-                }, { merge: true });
-            } catch (e) {
-                console.error('Error saving receptionist revenues:', e);
-            }
-        }
-
         // Proactively update user context class rates if needed
         if (window.currentUserContext && window.currentUserContext.salary_config) {
             window.currentUserContext.salary_config.evaluation = evaluationData;
@@ -4042,9 +4077,12 @@ async function saveSalarySettings() {
         // are immutable and require a separate revision workflow.
         const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
         showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương thành công!');
+        await loadSalarySettings();
     } catch (e) {
         console.error('Error saving salary settings:', e);
         UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
+    } finally {
+        finishWrite();
     }
 }
 
@@ -4238,13 +4276,18 @@ async function loadSalarySettings(isCurrent = null) {
 }
 
 async function saveHeaderRevenues() {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
 
     const totalRev = parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0');
     const cs2Rev = parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0');
-
+    if (![totalRev, cs2Rev].every(value => Number.isFinite(value) && value >= 0)) {
+        UIService.toast('Doanh thu phải là số không âm.', 'warning'); return;
+    }
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     try {
         await window.db.collection('settings').doc(`recep_revenue_${monthStr}`).set({
             total: totalRev,
@@ -4258,6 +4301,8 @@ async function saveHeaderRevenues() {
     } catch (e) {
         console.error('Error saving header revenues:', e);
         UIService.toast('Loi khi luu doanh thu: ' + e.message, 'error');
+    } finally {
+        finishWrite();
     }
 }
 window.saveHeaderRevenues = saveHeaderRevenues;
@@ -6915,6 +6960,8 @@ function getRecepDynamicFixedFactor(chips) {
 }
 
 async function openClassRateModal() {
+    if (payrollWritePending || !requireCompletePayrollReport()) return;
+    window.PayrollReview?.addModalLink();
     const staffId = getTargetStaffId();
     if (!staffId || staffId === 'all') {
         alert("Vui lòng chọn nhân viên để tính lương!");
@@ -7646,6 +7693,7 @@ function recalculateSalaryModal() {
 }
 
 async function saveSalarySettingsFromModal() {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     if (!requireCompletePayrollReport()) return;
     const staffId = getTargetStaffId();
     if (!staffId || staffId === 'all') return;
@@ -7693,20 +7741,27 @@ async function saveSalarySettingsFromModal() {
     };
     
     if (window.modalActiveRole === 'tiep-tan') {
-        settingsObj.fixed_shift_factor = parseFloat(document.getElementById('modal-recep-fixed-factor')?.value) || 1.5;
-        settingsObj.attendance_factor = parseFloat(document.getElementById('modal-recep-attendance-factor')?.value) || 1.0;
-        settingsObj.responsibility_factor = parseFloat(document.getElementById('modal-recep-responsibility-factor')?.value) || 1.0;
+        const readFactor = (id, fallback) => {
+            const value = document.getElementById(id)?.value;
+            return value !== undefined && value !== '' && Number.isFinite(Number(value)) ? Number(value) : fallback;
+        };
+        settingsObj.fixed_shift_factor = readFactor('modal-recep-fixed-factor', 1.5);
+        settingsObj.attendance_factor = readFactor('modal-recep-attendance-factor', 1);
+        settingsObj.responsibility_factor = readFactor('modal-recep-responsibility-factor', 1);
         
         const scoreEl = document.getElementById('modal-recep-personal-score');
         settingsObj.personal_score = scoreEl ? parseFloat(scoreEl.innerText) : 0;
     }
     
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     try {
         const firestorePayload = {};
         const roleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
         firestorePayload[roleKey] = settingsObj;
-        
-        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
+        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload, {
+            expectedRole: roleKey, expectedSettings: activeRoleSettings
+        });
         
         window.currentLoadedRoleKey = roleKey;
         window.currentLoadedSalarySettings = { ...activeRoleSettings, ...settingsObj };
@@ -7744,13 +7799,17 @@ async function saveSalarySettingsFromModal() {
         await renderMonthReport(currentDate, true);
         const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
         showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương và tính thành công!');
+        await loadSalarySettings();
     } catch (e) {
         console.error('Error saving salary settings:', e);
         UIService.toast('Lỗi khi lưu bảng lương: ' + e.message, 'error');
+    } finally {
+        finishWrite();
     }
 }
 
 async function toggleModalCalculationRole(role) {
+    if (payrollWritePending) return;
     window.modalActiveRole = role;
     
     const btnGv = document.getElementById('btn-modal-role-gv');
@@ -8754,6 +8813,7 @@ window.removeRecepCs2Tier = removeRecepCs2Tier;
 window.loadAndComputeAllReceptionists = loadAndComputeAllReceptionists;
 
 async function saveRecepExtras() {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (!staffId || staffId === 'all') {
@@ -8766,6 +8826,10 @@ async function saveRecepExtras() {
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
     const roleKey = 'tiep_tan';
+    const phiTuVanVal = parseFormattedNumber(document.getElementById('pdf-phi-tu-van')?.value || '0');
+    const doanhThuCs3Val = parseFormattedNumber(document.getElementById('pdf-doanh-thu-cs3')?.value || '0');
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     
     const btn = document.querySelector('#pdf-tieptan-inputs button');
     let btnOriginalHtml = '';
@@ -8778,6 +8842,7 @@ async function saveRecepExtras() {
     try {
         // 1. Get the current monthly settings from DB to prevent wiping other data
         const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true }) || {};
+        const expectedSettings = JSON.parse(JSON.stringify(monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {}));
         let settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {};
         if (Object.keys(settings).length === 0) {
             // Check if they are a pure receptionist
@@ -8798,8 +8863,6 @@ async function saveRecepExtras() {
         }
         
         // 2. Read new values from inputs
-        const phiTuVanVal = parseFormattedNumber(document.getElementById('pdf-phi-tu-van')?.value || '0');
-        const doanhThuCs3Val = parseFormattedNumber(document.getElementById('pdf-doanh-thu-cs3')?.value || '0');
         
         // 3. Update or initialize the evaluation array
         if (!settings.evaluation) {
@@ -8825,7 +8888,7 @@ async function saveRecepExtras() {
         // 4. Save back to Firestore
         const firestorePayload = {};
         firestorePayload[roleKey] = settings;
-        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload);
+        await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload, { expectedRole: roleKey, expectedSettings });
         
         // 5. Update local cache/state
         monthlySettings[roleKey] = settings;
@@ -8858,10 +8921,12 @@ async function saveRecepExtras() {
         calculateSalary();
         const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
         showDraftSaveOutcome(draftResult, 'Đã lưu thông tin bổ sung thành công!');
+        await loadSalarySettings();
     } catch (e) {
         console.error('Error saving receptionist extras:', e);
         UIService.toast('Lỗi khi lưu thông tin: ' + e.message, 'error');
     } finally {
+        finishWrite();
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = btnOriginalHtml || '<i data-lucide="save" style="width: 14px; height: 14px;"></i> Lưu Thông Tin';
@@ -8876,6 +8941,7 @@ window.saveRecepExtras = saveRecepExtras;
 // ==========================================
 
 async function publishSalary() {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (!staffId || staffId === 'all') return;
@@ -8883,6 +8949,12 @@ async function publishSalary() {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const priorState = DBService.getPayslipLifecycleState(window.currentMonthlySalarySettingsAll?.published || {});
+    if (priorState.locked_gv || priorState.locked_tt) {
+        UIService.toast('Phần đã gửi được giữ nguyên. Lưu & Tính để tạo bản hiệu chỉnh, rồi chọn “Đối chiếu & gửi hiệu chỉnh”. Phần chưa gửi có thể gửi riêng trong danh sách Gửi bảng lương.', 'info');
+        window.PayrollReview?.refresh();
+        return;
+    }
     
     // Get netPay, advance, baseSalary, etc.
     const netPayText = document.getElementById('final-salary-display')?.innerText || '0';
@@ -9012,6 +9084,8 @@ async function publishSalary() {
         payload.message = message;
     }
     
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     try {
         UIService.showLoading();
         const publishResult = await DBService.publishSalary(staffId, monthStr, payload);
@@ -9029,7 +9103,7 @@ async function publishSalary() {
         console.error('Error publishing salary:', e);
         UIService.toast('Gửi bảng lương thất bại: ' + e.message, 'error');
     } finally {
-        UIService.hideLoading();
+        finishWrite();
     }
 }
 
@@ -9042,24 +9116,37 @@ async function loadSalaryDashboard() {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    window.currentMonthAllSettingsMonth = null;
+    if (unsubscribeSalaryDashboard) unsubscribeSalaryDashboard();
+    unsubscribeSalaryDashboard = null;
+    salaryDashboardWatchMonth = '';
+    const body = document.getElementById('dash-table-body');
+    if (body) body.innerHTML = '<tr><td colspan="8">Đang tải bảng lương đúng tháng…</td></tr>';
+    ['dash-total-payroll', 'dash-total-paid', 'dash-total-unpaid'].forEach(id => {
+        const element = document.getElementById(id); if (element) element.innerText = '…';
+    });
     
     try {
         UIService.showLoading();
         const allSettings = await DBService.getAllMonthlySalarySettings(monthStr, { strict: true });
         if (generation !== salaryDashboardGeneration) return;
+        if (monthStr !== `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`) return;
         window.currentMonthAllSettings = allSettings || {};
+        window.currentMonthAllSettingsMonth = monthStr;
         renderSalaryDashboardTable();
         if (salaryDashboardWatchMonth !== monthStr || !unsubscribeSalaryDashboard) {
             if (unsubscribeSalaryDashboard) unsubscribeSalaryDashboard();
             salaryDashboardWatchMonth = monthStr;
             unsubscribeSalaryDashboard = DBService.watchMonthlyPayslips(monthStr, settings => {
-                if (salaryDashboardWatchMonth !== monthStr) return;
+                if (salaryDashboardWatchMonth !== monthStr || generation !== salaryDashboardGeneration) return;
                 window.currentMonthAllSettings = settings;
                 if (document.getElementById('salary-dashboard-view')?.style.display === 'block') renderSalaryDashboardTable();
             }, error => UIService.toast('Chưa thể đồng bộ trạng thái nhận lương. Vui lòng tải lại.', 'warning'));
         }
     } catch (e) {
+        if (generation !== salaryDashboardGeneration) return;
         console.error("Error loading salary dashboard:", e);
+        if (body) body.innerHTML = '<tr><td colspan="8">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
         UIService.toast("Lỗi khi tải dữ liệu dashboard: " + e.message, "error");
     } finally {
         UIService.hideLoading();
@@ -9069,6 +9156,7 @@ async function loadSalaryDashboard() {
 function renderSalaryDashboardTable() {
     const tableBody = document.getElementById('dash-table-body');
     if (!tableBody) return;
+    if (window.currentMonthAllSettingsMonth !== `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`) return;
     
     tableBody.innerHTML = '';
     const staffList = window._allStaffList || [];
@@ -9150,6 +9238,15 @@ function renderSalaryDashboardTable() {
                     unpaid: status === 'received' ? 0 : netPay
                 };
             totalPayroll += paymentBreakdown.total;
+            netPay = paymentBreakdown.total;
+            const detailedComponents = [pub.details_gv, pub.details_tt].filter(Boolean);
+            if (detailedComponents.length) {
+                const sumField = (field, fallback) => detailedComponents.every(item => Number.isFinite(Number(item[field])))
+                    ? detailedComponents.reduce((sum, item) => sum + Number(item[field]), 0) : fallback;
+                baseSalary = sumField('baseSalary', baseSalary);
+                totalBonus = sumField('totalBonus', totalBonus);
+                advance = sumField('advance', advance);
+            }
             totalPaid += paymentBreakdown.paid;
             totalUnpaid += paymentBreakdown.unpaid;
             
@@ -9277,14 +9374,21 @@ function renderSalaryDashboardTable() {
 }
 
 async function adminConfirmPaid(staffId) {
-    if (!confirm("Xác nhận chi tiền mặt cho nhân viên này?")) return;
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-    
+    const shown = window.currentMonthAllSettings?.[staffId]?.published;
+    if (window.currentMonthAllSettingsMonth !== monthStr || !shown) {
+        UIService.toast('Tải lại bảng lương đúng tháng trước khi xác nhận chi.', 'warning'); return;
+    }
+    const receiptToken = DBService.getPayslipReceiptToken(shown);
+    if (!confirm(`Xác nhận chi lương tháng ${monthStr} cho nhân viên đang chọn?`)) return;
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     try {
         UIService.showLoading();
-        const result = await DBService.confirmSalaryReceived(staffId, monthStr, 'admin');
+        const result = await DBService.confirmSalaryReceived(staffId, monthStr, 'admin', 'all', receiptToken);
         if (!result.changed) {
             UIService.toast('Bảng lương này đã được xác nhận trước đó.', 'info');
         } else if (result.status === 'received') {
@@ -9297,11 +9401,12 @@ async function adminConfirmPaid(staffId) {
         console.error("Error confirming paid:", e);
         UIService.toast("Lỗi khi xác nhận chi: " + e.message, "error");
     } finally {
-        UIService.hideLoading();
+        finishWrite();
     }
 }
 
 function viewPersonalReportFromDash(staffId) {
+    if (payrollWritePending) return;
     const select = document.getElementById('staff-select');
     if (select) {
         select.value = staffId;
@@ -9314,6 +9419,7 @@ function viewPersonalReportFromDash(staffId) {
 }
 
 function switchAdminTab(tab) {
+    if (payrollWritePending) return;
     const personalBtn = document.getElementById('tab-personal-report');
     const dashBtn = document.getElementById('tab-salary-dashboard');
     const personalView = document.getElementById('personal-report-view');
@@ -9348,6 +9454,8 @@ function switchAdminTab(tab) {
         if (personalHeaderControls) personalHeaderControls.style.display = 'inline-flex';
         if (totalHoursDisplay) totalHoursDisplay.style.display = 'block';
         if (pageTitle) pageTitle.innerText = isSalaryAdmin ? 'Tính Lương & Duyệt Công' : 'Duyệt Công Nhân Viên';
+        const wantedScope = `${getTargetStaffId()}__${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        if (window.payrollReadyScope !== wantedScope) renderMonthReport(currentDate);
     } else {
         dashBtn.classList.add('active');
         dashBtn.style.color = 'var(--primary-color)';
@@ -9928,6 +10036,10 @@ function getCurrentCalculationPayload(role) {
 }
 
 function showDraftSaveOutcome(result, successMessage) {
+    if (result?.revisionDraft) {
+        UIService.toast('Đã lưu bản tính hiệu chỉnh. Bản nhân viên đang xem vẫn được giữ nguyên; bấm “Gửi hiệu chỉnh” sau khi đối chiếu.', 'success');
+        return;
+    }
     if (result?.locked) {
         const componentLabel = result.component === 'tt' ? 'Tiếp Tân' : 'Giáo Viên';
         const statusLabel = result.componentStatus === 'received' ? 'đã xác nhận' : 'đã gửi';
@@ -9996,17 +10108,6 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
         }
 
         const lockState = DBService.getPayslipDraftLockState(existingPublished, activeComponent);
-        if (lockState.locked) {
-            return {
-                saved: false,
-                locked: true,
-                status: 'locked',
-                component: activeComponent,
-                componentStatus: lockState.status,
-                requiresRevision: true,
-                lifecycle: lockState.lifecycle
-            };
-        }
         
         // Build updatedPublished payload
         const updatedPublished = {
@@ -10101,7 +10202,8 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
             staffId,
             monthStr,
             updatedPublished,
-            activeComponent
+            activeComponent,
+            { allowRevisionDraft: true }
         );
         if (!draftTransition.saved) {
             return {
@@ -10118,6 +10220,7 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
             saved: true,
             locked: false,
             status: 'draft_saved',
+            revisionDraft: draftTransition.revisionDraft === true,
             component: activeComponent,
             preservedPublishedSnapshot: draftTransition.preservedPublishedSnapshot,
             lifecycle: draftTransition.lifecycle
@@ -10128,7 +10231,9 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
     }
 }
 
+let bulkPublishLoadGeneration = 0;
 async function openBulkPublishModal(opts) {
+    const generation = ++bulkPublishLoadGeneration;
     const modal = document.getElementById('bulk-publish-modal');
     if (!modal) return;
     const keepMessage = !!(opts && opts.keepMessage);
@@ -10143,7 +10248,9 @@ async function openBulkPublishModal(opts) {
         // Invalidate cache first
         DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
         const allSettings = await DBService.getAllMonthlySalarySettings(monthStr, { strict: true });
+        if (generation !== bulkPublishLoadGeneration || monthStr !== `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`) return;
         window.bulkPublishAllSettings = allSettings;
+        window.bulkPublishMonth = monthStr;
         
         const teachersList = [];
         const recepsList = [];
@@ -10242,6 +10349,7 @@ async function openBulkPublishModal(opts) {
 }
 
 function closeBulkPublishModal() {
+    ++bulkPublishLoadGeneration;
     const modal = document.getElementById('bulk-publish-modal');
     if (modal) modal.style.display = 'none';
 }
@@ -10457,9 +10565,14 @@ function updateBulkSelectedCount() {
 
 // scope: 'teachers' | 'receps' | 'all' — gửi riêng từng bên để đang tính dở vẫn gửi được
 async function submitBulkPublish(scope) {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
     const sc = scope === 'teachers' || scope === 'receps' ? scope : 'all';
     const selector = sc === 'all' ? '.bulk-staff-checkbox:checked' : `.bulk-staff-checkbox.bulk-group-${sc}:checked`;
     const checkedBoxes = document.querySelectorAll(selector);
+    const selectedMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    if (window.bulkPublishMonth !== selectedMonth) {
+        UIService.toast('Danh sách gửi không thuộc tháng hiện tại. Vui lòng mở lại danh sách.', 'warning'); return;
+    }
     if (checkedBoxes.length === 0) {
         const what = sc === 'teachers' ? 'giáo viên' : (sc === 'receps' ? 'tiếp tân' : 'nhân viên');
         UIService.toast(`Vui lòng chọn ít nhất 1 ${what} để gửi!`, 'warning');
@@ -10472,13 +10585,18 @@ async function submitBulkPublish(scope) {
         `Nhân viên sẽ thấy ngay bảng lương trên máy của họ. Bên còn lại không bị ảnh hưởng.`
     );
     if (!ok) return;
+    if (selectedMonth !== `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`) {
+        UIService.toast('Tháng đã thay đổi. Vui lòng chọn lại danh sách gửi của tháng hiện tại.', 'warning');
+        return;
+    }
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
     const commonMessage = document.getElementById('bulk-message-input')?.value || '';
-    
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
     try {
         UIService.showLoading();
         
@@ -10546,7 +10664,7 @@ async function submitBulkPublish(scope) {
         console.error('Error in bulk publishing:', e);
         UIService.toast('Gửi bảng lương thất bại: ' + e.message, 'error');
     } finally {
-        UIService.hideLoading();
+        finishWrite();
     }
 }
 

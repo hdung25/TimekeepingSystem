@@ -216,18 +216,18 @@ async function main() {
   await record('dual-receipt-still-showing-old-view',await dualEmployee.$eval('#personal-salary-content',e=>e.innerText));
   await click(admin,'button[onclick="closeBulkPublishModal()"]');
   await click(admin,'#tab-salary-dashboard');
-  await admin.waitForSelector('#dash-table-body tr',{visible:true});
+  await admin.waitForFunction(m => window.currentMonthAllSettingsMonth === m, {timeout:30000}, month);
   await record('dashboard-before-receipt',await admin.$eval('#dash-table-body',e=>e.innerText));
   await click(dualEmployee,'#btn-confirm-receipt');
   await record('dual-receipt-written',await waitPublished('audit-dual','received'));
   await click(admin,'#tab-personal-report');
   await click(admin,'#tab-salary-dashboard');
-  await admin.waitForSelector('#dash-table-body tr',{visible:true});
+  await admin.waitForFunction(m => window.currentMonthAllSettingsMonth === m, {timeout:30000}, month);
   await record('dashboard-after-employee-receipt',{text:await admin.$eval('#dash-table-body',e=>e.innerText),screenshot:await shot(admin,'stale-dashboard')});
   await admin.reload({waitUntil:'domcontentloaded'});
   await admin.waitForFunction(()=>window.__TDT_REPORT_BOOTSTRAP_READY__,{timeout:30000});
   await click(admin,'#tab-salary-dashboard');
-  await admin.waitForSelector('#dash-table-body tr',{visible:true});
+  await admin.waitForFunction(m => window.currentMonthAllSettingsMonth === m, {timeout:30000}, month);
   await record('dashboard-after-page-reload',await admin.$eval('#dash-table-body',e=>e.innerText));
   await employee.evaluate(async()=>{
     const proto=Object.getPrototypeOf(db.collection('salary_settings_monthly').doc('fixture'));
@@ -238,6 +238,7 @@ async function main() {
   await employee.$eval('#personal-salary-status-container',e=>e.scrollIntoView({block:'center'}));
   await record('employee-read-failure',{text:await employee.$eval('#personal-salary-status-container',e=>e.innerText),retryButton:!!await employee.$('#btn-retry-personal-salary'),screenshot:await shot(employee,'read-failure')});
   await require('./payroll-ui-extensions.cjs')({env,admin,employee,dualEmployee,origin,month,record,shot,click,report,snapshot});
+  await require('./payroll-review-ui.cjs')({env,admin,employee,origin,month,record,shot,click,report,login,authHost,password});
   const results=evidence.results;
   assert.equal(results['teacher-filtered-with-popup'].gv.netPay,420000);
   assert.equal(results['teacher-saved-filtered'].published.netPay,420000);

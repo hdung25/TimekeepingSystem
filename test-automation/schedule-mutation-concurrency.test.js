@@ -8,6 +8,12 @@ const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 const schedule = read('js/schedule.js');
 const db = read('js/db-service.js');
+const scheduleAsset = read('lich-lam.html').match(/<script\b[^>]*\bsrc=["'](\/?js\/schedule\.js\?v=[^"'\s]+)["']/)?.[1];
+assert.ok(scheduleAsset, 'The schedule page must load a versioned schedule asset');
+const cachedScheduleAssets = [...read('service-worker.js').matchAll(/["'](\/js\/schedule\.js\?v=[^"'\s]+)["']/g)]
+    .map(match => match[1]);
+assert.deepEqual(cachedScheduleAssets, [`/${scheduleAsset.replace(/^\//, '')}`],
+    'The PWA must pre-cache the exact schedule asset used by the page, independently of release version');
 const renderStart = schedule.indexOf('async function renderTable');
 const renderEnd = schedule.indexOf('// Helper: get array', renderStart);
 const renderBody = schedule.slice(renderStart, renderEnd);
@@ -79,7 +85,7 @@ assert.doesNotMatch(popup, /innerHTML\s*=\s*gvList\.map/,
 const picker = sliceFunction('window.openGVPicker', 'window.saveTeacherShiftCommand');
 assert.match(schedule, /let teacherPickerGeneration = 0/);
 assert.match(picker, /const pickerGeneration = teacherPickerGeneration/);
-assert.match(picker, /await Promise\.all\([\s\S]*?DBService\.getSchedule\(compositeKey\)[\s\S]*?pickerGeneration !== teacherPickerGeneration/,
+assert.match(picker, /await Promise\.all\([\s\S]*?DBService\.getSchedule\(compositeKey, \{ source: 'server' \}\)[\s\S]*?pickerGeneration !== teacherPickerGeneration/,
     'A stale picker request must stop immediately after its async schedule read');
 assert.match(picker, /pickerGeneration !== teacherPickerGeneration[\s\S]*?document\.body\.appendChild\(overlay\)/,
     'Only the latest picker request may commit modal state and DOM');

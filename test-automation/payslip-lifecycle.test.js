@@ -40,6 +40,13 @@ const {
     assert.equal(split.total, 150);
     assert.equal(split.paid, 100, 'received teacher component belongs in paid KPI');
     assert.equal(split.unpaid, 50, 'published receptionist component belongs in unpaid KPI');
+    const changedDraft = _getPayslipPaymentBreakdown({
+        role: 'dual', status: 'published', status_gv: 'received', status_tt: 'draft',
+        details_gv: { netPay: 100 }, details_tt: { netPay: 60 }, netPay: 140
+    });
+    assert.equal(changedDraft.total, 160, 'dashboard totals use complete component amounts, not the preserved legacy aggregate');
+    assert.equal(changedDraft.paid, 100);
+    assert.equal(changedDraft.unpaid, 60);
 
     const legacy = _getPayslipPaymentBreakdown({
         role: 'giao-vien', status: 'received', details: { netPay: 80 }, netPay: 80
