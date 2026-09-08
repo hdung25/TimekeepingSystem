@@ -8386,9 +8386,10 @@ const DBService = {
 
     // Admin approval upgrades an old pending request into the same exact
     // teaching-shift schema used by self auto-approval. It may resolve an old
-    // session-only request, but only when current server data yields one and
-    // only one eligible schedule row; ambiguity is never guessed.
-    approveBonus10Request: async (requestId, adminName, staffId, dateKey, sessionId) => {
+    // session-only request. A unique eligible row is resolved automatically;
+    // when several rows remain, Admin must explicitly choose the exact target
+    // returned by the server-data preflight. Ambiguity is never guessed.
+    approveBonus10Request: async (requestId, adminName, staffId, dateKey, sessionId, selectedTargetShiftKey = '') => {
         try {
             if (!window.Early10 || typeof window.Early10.evaluateEarly10Request !== 'function') {
                 throw new Error('Mô-đun quy định +10 phút chưa được tải. Vui lòng tải lại trang.');
@@ -8400,8 +8401,12 @@ const DBService = {
             ).trim().slice(0, 120);
             const identity = _normalizeBonus10Identity({ staffId, dateKey, sessionId });
             const normalizedRequestId = String(requestId || '').trim();
+            const normalizedSelectedTarget = String(selectedTargetShiftKey || '').trim();
             if (!normalizedRequestId || normalizedRequestId.includes('/')) {
                 throw new Error('Mã yêu cầu +10 phút không hợp lệ.');
+            }
+            if (normalizedSelectedTarget && !/^[A-Za-z0-9_:-]{1,240}$/.test(normalizedSelectedTarget)) {
+                throw new Error('Mã ca được chọn để duyệt +10 phút không hợp lệ.');
             }
 
             const monthStr = identity.dateKey.slice(0, 7);
@@ -8452,6 +8457,7 @@ const DBService = {
                 throw new Error('Nhân viên chế độ mới không áp dụng chính sách sớm 10 phút.');
             }
             const subjects = preSubjectSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const subjectsById = new Map(subjects.map(subject => [String(subject.id), subject]));
             const subjectMap = window.Early10.buildSubjectEarly10Map(subjects);
             const cancelled = preCancelledSnapshot.exists && Array.isArray(preCancelledSnapshot.data()?.shifts)
                 ? preCancelledSnapshot.data().shifts.map(String) : [];
@@ -8498,6 +8504,7 @@ const DBService = {
                             identity.dateKey, compositeKey, section, originalIndex,
                             row.shiftId || '', row.start, row.end
                         );
+                        if (normalizedSelectedTarget && targetShiftKey !== normalizedSelectedTarget) return;
                         if (preRequest.awardScope === 'teaching_shift' &&
                             String(preRequest.targetShiftKey || '') !== targetShiftKey) return;
                         let scheduleAssignmentList = '';
@@ -8523,16 +8530,30 @@ const DBService = {
                             scheduleRegistrationId: String(scheduleAssignmentEntry.registrationId || ''),
                             sourceScheduleDocId, sourceScheduleIndex,
                             sourceSignature: _scheduleRegistrationRowSignature(row),
-                            isInherited: row._isInheritedSchedule === true
+                            isInherited: row._isInheritedSchedule === true,
+                            className: String(row.lop || ''),
+                            subjectName: String(subjectsById.get(String(subjectId))?.name || ''),
+                            branch: String(row._branch || compositeKey.split('__')[0] || '')
                         });
                     });
                 });
             });
             if (candidates.size !== 1) {
                 const error = new Error(candidates.size
-                    ? 'Yêu cầu cũ khớp nhiều ca dạy. Hãy mở đúng chip trên lịch để duyệt +10 phút.'
-                    : 'Yêu cầu cũ không còn khớp duy nhất một ca dạy/môn hợp lệ.');
+                    ? 'Yêu cầu cũ khớp nhiều ca dạy. Vui lòng chọn đúng ca/môn để duyệt +10 phút.'
+                    : (normalizedSelectedTarget
+                        ? 'Ca vừa chọn không còn đủ điều kiện +10 phút. Hãy tải lại dữ liệu.'
+                        : 'Yêu cầu cũ không còn khớp ca dạy/môn nào đủ điều kiện +10 phút.'));
                 error.code = 'bonus10/ambiguous-legacy-target';
+                error.candidates = Array.from(candidates.values()).map(candidate => ({
+                    targetShiftKey: candidate.targetShiftKey,
+                    classStart: candidate.classStart,
+                    classEnd: candidate.classEnd,
+                    className: candidate.className,
+                    subjectName: candidate.subjectName,
+                    branch: candidate.branch,
+                    section: candidate.section
+                }));
                 throw error;
             }
             const resolved = candidates.values().next().value;
@@ -8901,7 +8922,8 @@ const DBService = {
                 return meetings;
             } catch (error) {
                 console.error("[Meetings] Error getting for month:", error);
-                return [];
+                DBService._invalidate(`meetings_month_${monthStr}`);
+                throw error;
             }
         })();
 

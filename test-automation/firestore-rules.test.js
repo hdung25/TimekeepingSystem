@@ -1169,6 +1169,16 @@ test('eligible staff can self-submit one authenticated, shift-scoped approved +1
     await assertSucceeds(setDoc(approvedRef, approved));
     await assertSucceeds(deleteDoc(doc(adminDb, 'bonus10_requests', approvedRef.id)));
 
+    // Defense in depth: even if an Admin accidentally leaves allowEarly10=true,
+    // a Toán/Tiếng Việt family cannot be self-approved by a direct API write.
+    await assertSucceeds(updateDoc(doc(adminDb, 'subjects', 'subject-a1'), {
+        subjectFamily: 'math_vietnamese'
+    }));
+    await assertFails(setDoc(approvedRef, approved));
+    await assertSucceeds(updateDoc(doc(adminDb, 'subjects', 'subject-a1'), {
+        subjectFamily: 'english'
+    }));
+
     await assertFails(setDoc(
         doc(staffDb, 'bonus10_requests', `b10~2026-08-31~staff-2~${targetShiftKey}`),
         { ...approved, staffId: 'staff-2', staffName: 'Staff Two' }

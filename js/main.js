@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260908-payroll-review-v2';
+const APP_VERSION = '20260908-feedback-repair-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -368,6 +368,49 @@ window.approveOvertimeFromDashboard = async function(requestId, btn) {
     }
 };
 
+function chooseBonus10ApprovalCandidate(candidates) {
+    return new Promise(resolve => {
+        const items = Array.isArray(candidates) ? candidates : [];
+        if (items.length === 0) return resolve('');
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'custom-modal-backdrop';
+        backdrop.innerHTML = `
+            <div class="custom-modal-box" style="max-width:520px;">
+                <h3 style="margin-bottom:0.5rem;color:var(--primary-color);">Chọn đúng ca để duyệt +10 phút</h3>
+                <p style="color:var(--text-muted);margin-bottom:0.9rem;line-height:1.45;">
+                    Yêu cầu cũ chưa lưu mã ca. Hãy đối chiếu giờ và môn trước khi cộng vào lương.
+                </p>
+                <select id="bonus10-legacy-target-select" class="table-select" style="width:100%;margin-bottom:1rem;"></select>
+                <div class="custom-modal-actions">
+                    <button type="button" class="btn bonus10-cancel" style="background:#E5E7EB;color:#374151;">Hủy bỏ</button>
+                    <button type="button" class="btn btn-primary bonus10-confirm">Duyệt ca đã chọn</button>
+                </div>
+            </div>`;
+        const select = backdrop.querySelector('#bonus10-legacy-target-select');
+        items.forEach(candidate => {
+            const option = document.createElement('option');
+            option.value = String(candidate.targetShiftKey || '');
+            const subject = candidate.className || candidate.subjectName || 'Chưa rõ môn';
+            const branch = String(candidate.branch || '').toUpperCase();
+            option.textContent = `${candidate.classStart || '??:??'}–${candidate.classEnd || '??:??'} · ${subject}` +
+                (branch ? ` · ${branch}` : '');
+            select.appendChild(option);
+        });
+        document.body.appendChild(backdrop);
+
+        const close = value => {
+            backdrop.remove();
+            resolve(value || '');
+        };
+        backdrop.querySelector('.bonus10-confirm').onclick = () => close(select.value);
+        backdrop.querySelector('.bonus10-cancel').onclick = () => close('');
+        backdrop.onclick = event => {
+            if (event.target === backdrop) close('');
+        };
+    });
+}
+
 window.approveBonus10FromDashboard = async function(requestId, staffId, dateKey, sessionId, btn) {
     if (btn) btn.disabled = true;
     const adminName = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin';
@@ -376,6 +419,23 @@ window.approveBonus10FromDashboard = async function(requestId, staffId, dateKey,
         await loadUnregisteredAlerts();
         if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt yêu cầu sớm 10p.', 'success');
     } catch(e) {
+        if (e?.code === 'bonus10/ambiguous-legacy-target' && Array.isArray(e.candidates) && e.candidates.length > 1) {
+            const selectedTarget = await chooseBonus10ApprovalCandidate(e.candidates);
+            if (!selectedTarget) {
+                if (btn) btn.disabled = false;
+                return;
+            }
+            try {
+                await DBService.approveBonus10Request(
+                    requestId, adminName, staffId, dateKey, sessionId, selectedTarget
+                );
+                await loadUnregisteredAlerts();
+                if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt đúng ca sớm 10p đã chọn.', 'success');
+                return;
+            } catch (selectedError) {
+                e = selectedError;
+            }
+        }
         if (btn) btn.disabled = false;
         if (typeof UIService !== 'undefined') UIService.toast('Lỗi: ' + e.message, 'error');
     }

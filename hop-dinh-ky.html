@@ -271,7 +271,7 @@
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260908-payroll-review-v2'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260908-feedback-repair-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -686,7 +686,7 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js?v=20260906-early10-recovery-v1"></script>
-    <script src="js/main.js?v=20260908-payroll-review-v2"></script>
+    <script src="js/main.js?v=20260908-feedback-repair-v1"></script>
     <script src="js/auth-helper.js?v=20260906-early10-recovery-v1"></script>
     
     <script>
@@ -878,6 +878,14 @@
             return parts.length > 0 ? parts.join(' / ') : 'TG TA';
         }
 
+        function getInvitedDepartmentMeetings(userId, department) {
+            return monthlyMeetingsList.filter(meeting =>
+                meeting.department === department &&
+                (!Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
+                    meeting.attendees.includes(userId))
+            );
+        }
+
         function updateRowMeetingSelectStates(row) {
             const btn = row.querySelector('.btn-chuyenmon-setup');
             const specLabel = btn ? btn.innerText.trim() : '';
@@ -892,8 +900,9 @@
 
             if (selectTa) {
                 const hasRole = specLabel.includes('TG TA');
-                selectTa.disabled = !hasRole;
-                if (!hasRole) {
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG TA').length > 0;
+                selectTa.disabled = !hasRole || !hasMeeting;
+                if (!hasRole || !hasMeeting) {
                     selectTa.value = 'Không họp';
                     selectTa.style.cssText = styleDisabled;
                 } else {
@@ -903,8 +912,9 @@
             
             if (selectTtv) {
                 const hasRole = specLabel.includes('TG T-TV');
-                selectTtv.disabled = !hasRole;
-                if (!hasRole) {
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG T-TV').length > 0;
+                selectTtv.disabled = !hasRole || !hasMeeting;
+                if (!hasRole || !hasMeeting) {
                     selectTtv.value = 'Không họp';
                     selectTtv.style.cssText = styleDisabled;
                 } else {
@@ -914,8 +924,9 @@
 
             if (selectTtd) {
                 const hasRole = specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD');
-                selectTtd.disabled = !hasRole;
-                if (!hasRole) {
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TOÁN TƯ DUY').length > 0;
+                selectTtd.disabled = !hasRole || !hasMeeting;
+                if (!hasRole || !hasMeeting) {
                     selectTtd.value = 'Không họp';
                     selectTtd.style.cssText = styleDisabled;
                 } else {
@@ -925,8 +936,9 @@
             
             if (selectTt) {
                 const hasRole = specLabel.includes('TIẾP TÂN') || specLabel.includes('TT');
-                selectTt.disabled = !hasRole;
-                if (!hasRole) {
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TIẾP TÂN').length > 0;
+                selectTt.disabled = !hasRole || !hasMeeting;
+                if (!hasRole || !hasMeeting) {
                     selectTt.value = 'Không họp';
                     selectTt.style.cssText = styleDisabled;
                 } else {
@@ -943,9 +955,10 @@
             const month = currentDate.getMonth();
             const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
             
+            monthlyMeetingsList = [];
+            monthlyAttendanceMap = {};
             try {
                 monthlyMeetingsList = await DBService.getMeetingsForMonth(monthStr);
-                monthlyAttendanceMap = {};
                 
                 if (monthlyMeetingsList.length > 0) {
                     const promises = monthlyMeetingsList.map(async (m) => {
@@ -954,8 +967,12 @@
                     });
                     await Promise.all(promises);
                 }
+                return true;
             } catch(e) {
                 console.error("Error loading monthly auto meetings data:", e);
+                monthlyMeetingsList = [];
+                monthlyAttendanceMap = {};
+                return false;
             }
         }
 
@@ -971,11 +988,18 @@
                 console.error("Could not fetch meetings logs:", e);
             }
 
-            // Load automated attendance data first
-            await loadMonthlyAutoMeetingsData();
+            // Load automated attendance data first. A read failure is not the
+            // same thing as a month with no meeting; never turn an outage into
+            // a false "Không họp" payroll status.
+            const autoMeetingsLoaded = await loadMonthlyAutoMeetingsData();
 
             const tbody = document.getElementById('meetings-tbody');
             tbody.innerHTML = '';
+
+            if (!autoMeetingsLoaded) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:#B91C1C;font-weight:600;">Không tải được lịch họp thật. Dữ liệu chưa được suy thành “Không họp”; vui lòng tải lại.</td></tr>';
+                return;
+            }
 
             if (employeesList.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Không tìm thấy nhân viên nào trong danh sách.</td></tr>';
@@ -1001,13 +1025,10 @@
                 // Helper to resolve auto attendance status
                 // Xét TẤT CẢ cuộc họp đúng bộ phận mà user này được mời (attendees) —
                 // ưu tiên trạng thái đã điểm danh; nếu có họp đã kết thúc mà chưa điểm danh → Vắng không phép.
-                function resolveAutoStatus(dept, defaultVal) {
-                    const deptMeetings = monthlyMeetingsList.filter(m =>
-                        m.department === dept &&
-                        (!Array.isArray(m.attendees) || m.attendees.length === 0 || m.attendees.includes(userId))
-                    );
+                function resolveAutoStatus(dept, savedValue) {
+                    const deptMeetings = getInvitedDepartmentMeetings(userId, dept);
                     if (deptMeetings.length === 0) {
-                        return defaultVal;
+                        return "Không họp";
                     }
 
                     const now = new Date();
@@ -1029,22 +1050,25 @@
                         if (now > mEnd) sawEndedWithoutCheckIn = true;
                     }
 
+                    // Admin may have recorded an excused/manual status. Keep it
+                    // only when a real meeting exists; a saved value can never
+                    // manufacture a meeting for an empty department/month.
+                    if (savedValue !== undefined &&
+                        savedValue !== 'Không họp' && savedValue !== 'Chưa điểm danh') {
+                        return savedValue;
+                    }
                     if (sawEndedWithoutCheckIn) {
                         return "Vắng không phép";
                     }
-                    return defaultVal;
+                    return "Chưa điểm danh";
                 }
 
-                // Smart default for meetings attendance based on active specialty + auto attendance logs
-                const default_hop_ta = resolveAutoStatus('TG TA', specLabel.includes('TG TA') ? "Có" : "Không họp");
-                const default_hop_ttv = resolveAutoStatus('TG T-TV', specLabel.includes('TG T-TV') ? "Có" : "Không họp");
-                const default_hop_ttd = resolveAutoStatus('TOÁN TƯ DUY', (specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD')) ? "Có" : "Không họp");
-                const default_hop_tt = resolveAutoStatus('TIẾP TÂN', (specLabel.includes('TIẾP TÂN') || specLabel.includes('TT')) ? "Có" : "Không họp");
-
-                const hop_ta_selected = savedRecord.hop_tg_tieng_anh !== undefined ? savedRecord.hop_tg_tieng_anh : default_hop_ta;
-                const hop_ttv_selected = savedRecord.hop_tg_t_tv !== undefined ? savedRecord.hop_tg_t_tv : default_hop_ttv;
-                const hop_ttd_selected = savedRecord.hop_toan_tu_duy !== undefined ? savedRecord.hop_toan_tu_duy : default_hop_ttd;
-                const hop_tt_selected = savedRecord.hop_tiep_tan !== undefined ? savedRecord.hop_tiep_tan : default_hop_tt;
+                // Chuyên môn chỉ quyết định cột nào người đó phụ trách; không bao
+                // giờ được dùng làm bằng chứng rằng tháng đó thật sự có họp.
+                const hop_ta_selected = resolveAutoStatus('TG TA', savedRecord.hop_tg_tieng_anh);
+                const hop_ttv_selected = resolveAutoStatus('TG T-TV', savedRecord.hop_tg_t_tv);
+                const hop_ttd_selected = resolveAutoStatus('TOÁN TƯ DUY', savedRecord.hop_toan_tu_duy);
+                const hop_tt_selected = resolveAutoStatus('TIẾP TÂN', savedRecord.hop_tiep_tan);
 
                 const tr = document.createElement('tr');
                 tr.dataset.userId = userId;
@@ -1070,6 +1094,7 @@
                     </td>
                     <td>
                         <select class="table-select hop-ta-select">
+                            <option value="Chưa điểm danh" ${hop_ta_selected === 'Chưa điểm danh' ? 'selected' : ''}>Chưa điểm danh</option>
                             <option value="Có" ${hop_ta_selected === 'Có' ? 'selected' : ''}>Có</option>
                             <option value="Trễ" ${hop_ta_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_ta_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
@@ -1080,6 +1105,7 @@
                     </td>
                     <td>
                         <select class="table-select hop-ttv-select">
+                            <option value="Chưa điểm danh" ${hop_ttv_selected === 'Chưa điểm danh' ? 'selected' : ''}>Chưa điểm danh</option>
                             <option value="Có" ${hop_ttv_selected === 'Có' ? 'selected' : ''}>Có</option>
                             <option value="Trễ" ${hop_ttv_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_ttv_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
@@ -1090,6 +1116,7 @@
                     </td>
                     <td>
                         <select class="table-select hop-ttd-select">
+                            <option value="Chưa điểm danh" ${hop_ttd_selected === 'Chưa điểm danh' ? 'selected' : ''}>Chưa điểm danh</option>
                             <option value="Có" ${hop_ttd_selected === 'Có' ? 'selected' : ''}>Có</option>
                             <option value="Trễ" ${hop_ttd_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_ttd_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
@@ -1100,6 +1127,7 @@
                     </td>
                     <td>
                         <select class="table-select hop-tt-select">
+                            <option value="Chưa điểm danh" ${hop_tt_selected === 'Chưa điểm danh' ? 'selected' : ''}>Chưa điểm danh</option>
                             <option value="Có" ${hop_tt_selected === 'Có' ? 'selected' : ''}>Có</option>
                             <option value="Trễ" ${hop_tt_selected === 'Trễ' ? 'selected' : ''}>Trễ</option>
                             <option value="Vắng phép" ${hop_tt_selected === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>

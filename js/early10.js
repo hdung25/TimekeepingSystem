@@ -14,7 +14,42 @@
 
     // --- Môn học ---------------------------------------------------------
 
-    // subjects: [{ id, parentId, isGroup, allowEarly10 }]
+    // Tên viết tắt của khối Toán/Tiếng Việt từng bị Admin xếp nhầm vào nhóm
+    // Tiếng Anh.  Cờ allowEarly10 là cấu hình chính, nhưng nhóm môn sai không
+    // được phép biến TV/NV/Toán thành môn Tiếng Anh có thưởng. Đây là chốt
+    // fail-closed độc lập với parentId để một thao tác kéo/thả sai không làm sai
+    // công/lương lần nữa.
+    function classifySubjectFamily(subjectOrName) {
+        var subject = subjectOrName && typeof subjectOrName === 'object'
+            ? subjectOrName
+            : { name: subjectOrName };
+        var normalized = normalizeScheduleSubjectName(subject.name || '');
+        var compact = normalized.replace(/[^a-z0-9]/g, '');
+
+        if (/^toan(?:\d+|duthinh|tv|$)/.test(compact) ||
+            /^tv\d+$/.test(compact) ||
+            /^nv\d+$/.test(compact) ||
+            compact === 'renchudep' || compact === 'tdrc' ||
+            compact === 'tapdocrenchu') {
+            return 'math_vietnamese';
+        }
+        if (compact === 'ttd' || /^toantuduy/.test(compact)) {
+            return 'math_reasoning';
+        }
+
+        var explicit = String(subject.subjectFamily || '').trim();
+        if (['english', 'math_vietnamese', 'math_reasoning', 'other'].indexOf(explicit) !== -1) {
+            return explicit;
+        }
+        return 'other';
+    }
+
+    function isEarly10RestrictedSubject(subjectOrName) {
+        var family = classifySubjectFamily(subjectOrName);
+        return family === 'math_vietnamese' || family === 'math_reasoning';
+    }
+
+    // subjects: [{ id, name, subjectFamily, parentId, isGroup, allowEarly10 }]
     // Trả về Map id -> true/false. Môn con KHÔNG tự kế thừa nhóm cha lúc chạy;
     // giá trị kế thừa được ghi thẳng vào môn con lúc admin bật ở nhóm cha,
     // nên ở đây đọc đúng cờ của từng môn — dễ đoán, không có luật ngầm.
@@ -22,7 +57,8 @@
         var map = {};
         (subjects || []).forEach(function (subject) {
             if (!subject || !subject.id) return;
-            map[String(subject.id)] = subject.allowEarly10 === true;
+            map[String(subject.id)] = subject.allowEarly10 === true &&
+                !isEarly10RestrictedSubject(subject);
         });
         return map;
     }
@@ -171,8 +207,9 @@
 
     function getAllowingSubjectNames(sessionRole, subjects) {
         var ids = splitSubjectIds(sessionRole);
+        var subjectMap = buildSubjectEarly10Map(subjects);
         return (subjects || [])
-            .filter(function (s) { return s && ids.indexOf(String(s.id)) !== -1 && s.allowEarly10 === true; })
+            .filter(function (s) { return s && ids.indexOf(String(s.id)) !== -1 && subjectMap[String(s.id)] === true; })
             .map(function (s) { return s.name; });
     }
 
@@ -379,6 +416,8 @@
     var Early10 = {
         BONUS_MINUTES: EARLY10_BONUS_MINUTES,
         REQUIRED_MINUTES: EARLY10_REQUIRED_MINUTES,
+        classifySubjectFamily: classifySubjectFamily,
+        isEarly10RestrictedSubject: isEarly10RestrictedSubject,
         buildSubjectEarly10Map: buildSubjectEarly10Map,
         splitSubjectIds: splitSubjectIds,
         normalizeScheduleSubjectName: normalizeScheduleSubjectName,

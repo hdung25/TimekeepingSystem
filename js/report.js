@@ -7056,10 +7056,16 @@ async function populateModalCurrentTab() {
     
     let monthlySettingsAll = window.currentMonthlySalarySettingsAll || {};
     let meetingsLog = null;
+    let scheduledMeetings = null;
     try {
         meetingsLog = await DBService.getMonthlyMeetings(monthStr);
     } catch (err) {
-        console.error("Error fetching monthly meetings:", err);
+        console.error("Error fetching monthly meeting log:", err);
+    }
+    try {
+        scheduledMeetings = await DBService.getMeetingsForMonth(monthStr);
+    } catch (err) {
+        console.error("Error fetching scheduled meetings:", err);
     }
 
     if (!monthlySettingsAll || Object.keys(monthlySettingsAll).length === 0) {
@@ -7501,10 +7507,26 @@ async function populateModalCurrentTab() {
                 } else if (index === 9) {
                     if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Tiếng Anh:') || noteVal.startsWith('Tiếng Anh: ...')) {
                         const rec = (meetingsLog && meetingsLog.records) ? meetingsLog.records[staffId] : null;
-                        const status_ta = (rec && rec.hop_tg_tieng_anh) ? rec.hop_tg_tieng_anh : 'x';
-                        const status_ttv = (rec && rec.hop_tg_t_tv) ? rec.hop_tg_t_tv : 'x';
-                        const status_ttd = (rec && rec.hop_toan_tu_duy) ? rec.hop_toan_tu_duy : 'x';
-                        const status_receptionist = (rec && rec.hop_tiep_tan) ? rec.hop_tiep_tan : 'x';
+                        const meetingStatus = (department, field) => {
+                            // Only a successfully loaded schedule can prove that
+                            // a department had no meeting. On read failure keep a
+                            // neutral value instead of silently changing payroll.
+                            if (Array.isArray(scheduledMeetings)) {
+                                const invited = scheduledMeetings.some(meeting =>
+                                    meeting.department === department &&
+                                    (!Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
+                                        meeting.attendees.includes(staffId))
+                                );
+                                if (!invited) return 'Không họp';
+                            }
+                            return (rec && rec[field])
+                                ? rec[field]
+                                : (Array.isArray(scheduledMeetings) ? 'Chưa ghi nhận' : 'Không xác định');
+                        };
+                        const status_ta = meetingStatus('TG TA', 'hop_tg_tieng_anh');
+                        const status_ttv = meetingStatus('TG T-TV', 'hop_tg_t_tv');
+                        const status_ttd = meetingStatus('TOÁN TƯ DUY', 'hop_toan_tu_duy');
+                        const status_receptionist = meetingStatus('TIẾP TÂN', 'hop_tiep_tan');
                         noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; TTD: ${status_ttd}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
                     }
                 }

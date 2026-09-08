@@ -49,6 +49,29 @@ const atSecond = (clock) => new Date(`2026-08-03T${clock}`);
 }
 
 {
+    // Chốt an toàn theo tên/viết tắt: dù Admin xếp nhầm vào nhóm Tiếng Anh và
+    // cờ allowEarly10 bị bật, Toán/Tiếng Việt/Ngữ Văn vẫn không được cộng 10p.
+    const misplaced = [
+        { id: 'tv3', name: 'TV3', parentId: 'en-talk', allowEarly10: true },
+        { id: 'nv8', name: 'NV8', parentId: 'en-talk', allowEarly10: true },
+        { id: 'toan5', name: 'Toán 5', parentId: 'en-talk', allowEarly10: true },
+        { id: 'renchu', name: 'Rèn chữ đẹp', parentId: 'en-talk', allowEarly10: true },
+        { id: 'tdrc', name: 'TĐ - RC', parentId: 'en-talk', allowEarly10: true },
+        { id: 'ttd', name: 'TTD', parentId: 'en-talk', allowEarly10: true },
+        { id: 'english', name: 'E3', parentId: 'en-talk', allowEarly10: true }
+    ];
+    const map = Early10.buildSubjectEarly10Map(misplaced);
+    ['tv3', 'nv8', 'toan5', 'renchu', 'tdrc', 'ttd'].forEach(id => {
+        assert.equal(map[id], false, `${id} phải bị chặn dù cờ dữ liệu đang bật`);
+    });
+    assert.equal(map.english, true);
+    assert.equal(Early10.classifySubjectFamily('Toán -TV'), 'math_vietnamese');
+    assert.equal(Early10.classifySubjectFamily('TV4'), 'math_vietnamese');
+    assert.equal(Early10.classifySubjectFamily('NV9'), 'math_vietnamese');
+    assert.equal(Early10.classifySubjectFamily('GTNL'), 'other', 'GTNL không được đoán nhầm thành Ngữ Văn');
+}
+
+{
     // Lịch cũ FFS01 có thể thiếu lopId. Chỉ tên/alias khớp duy nhất mới được
     // suy ra subject; một lopId thật luôn thắng, không bị tên ghi đè.
     const ffsSubjects = [

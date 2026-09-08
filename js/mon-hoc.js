@@ -49,7 +49,44 @@
     }
 
     function isGroup(subject) { return subject.isGroup === true; }
-    function allowsEarly10(subject) { return subject.allowEarly10 === true; }
+    function isRestrictedEarly10Subject(subject) {
+        return !!(window.Early10 && Early10.isEarly10RestrictedSubject &&
+            Early10.isEarly10RestrictedSubject(subject));
+    }
+    function allowsEarly10(subject) {
+        return subject.allowEarly10 === true && !isRestrictedEarly10Subject(subject);
+    }
+
+    function getSubjectFamily(subject, seen) {
+        if (!subject) return 'other';
+        var visited = seen || {};
+        var key = String(subject.id || subject.name || '');
+        if (visited[key]) return 'other';
+        visited[key] = true;
+
+        var ownFamily = window.Early10 && Early10.classifySubjectFamily
+            ? Early10.classifySubjectFamily(subject)
+            : String(subject.subjectFamily || 'other');
+        if (ownFamily !== 'other' || subject.subjectFamily === 'other') return ownFamily;
+        var parent = state.subjects.find(function (candidate) {
+            return String(candidate.id) === String(subject.parentId || '');
+        });
+        return parent ? getSubjectFamily(parent, visited) : 'other';
+    }
+
+    function requestedEarly10Value(subject, next) {
+        return next === true && !isRestrictedEarly10Subject(subject);
+    }
+
+    function incompatiblePlacement(subject, group) {
+        if (!subject || !group) return false;
+        var subjectFamily = getSubjectFamily(subject);
+        var groupFamily = getSubjectFamily(group);
+        var subjectIsMath = subjectFamily === 'math_vietnamese' || subjectFamily === 'math_reasoning';
+        var groupIsMath = groupFamily === 'math_vietnamese' || groupFamily === 'math_reasoning';
+        return (subjectIsMath && groupFamily === 'english') ||
+            (subjectFamily === 'english' && groupIsMath);
+    }
 
     function byName(a, b) {
         return String(a.name || '').localeCompare(String(b.name || ''), 'vi');
@@ -138,6 +175,11 @@
         return '<span class="mh-badge mh-badge-10p">' + icon('star', 11) + ' Sớm 10p</span>';
     }
 
+    function early10BlockedBadge() {
+        return '<span class="mh-badge" title="Toán/Tiếng Việt không áp dụng sớm 10 phút">' +
+            icon('shield-x', 11) + ' Không áp dụng 10p</span>';
+    }
+
     // --- Chọn nhiều ---------------------------------------------------------
 
     function isSelected(id) { return state.selected[String(id)] === true; }
@@ -172,14 +214,18 @@
                 '<div class="mh-item-main">' +
                     '<div class="mh-item-name">' +
                         '<span class="mh-item-label">' + esc(subject.name) + '</span>' +
-                        (allowsEarly10(subject) ? early10Badge() : '') +
+                        (allowsEarly10(subject) ? early10Badge() :
+                            (isRestrictedEarly10Subject(subject) ? early10BlockedBadge() : '')) +
                     '</div>' +
                     (subject.note ? '<div class="mh-item-note">' + esc(subject.note) + '</div>' : '') +
                 '</div>' +
                 '<div class="mh-row-actions" onclick="event.stopPropagation()">' +
                     '<button class="mh-icon-btn ' + (allowsEarly10(subject) ? 'on' : '') + '" title="' +
-                        (allowsEarly10(subject) ? 'Đang cho phép sớm 10p — bấm để tắt' : 'Bấm để cho phép sớm 10p') +
-                        '" onclick="MonHoc.quickToggleEarly10(\'' + esc(subject.id) + '\')">' + icon('star') + '</button>' +
+                        (isRestrictedEarly10Subject(subject)
+                            ? 'Toán/Tiếng Việt bị khóa chính sách sớm 10p'
+                            : (allowsEarly10(subject) ? 'Đang cho phép sớm 10p — bấm để tắt' : 'Bấm để cho phép sớm 10p')) +
+                        '" ' + (isRestrictedEarly10Subject(subject) ? 'disabled ' : '') +
+                        'onclick="MonHoc.quickToggleEarly10(\'' + esc(subject.id) + '\')">' + icon('star') + '</button>' +
                     '<button class="mh-icon-btn" title="Chuyển nhóm" onclick="MonHoc.openMove(\'' + esc(subject.id) + '\')">' + icon('folder-input') + '</button>' +
                     '<button class="mh-icon-btn" title="Sửa" onclick="MonHoc.edit(\'' + esc(subject.id) + '\')">' + icon('pencil') + '</button>' +
                     '<button class="mh-icon-btn danger" title="Xóa" onclick="MonHoc.remove(\'' + esc(subject.id) + '\')">' + icon('trash-2') + '</button>' +
@@ -217,14 +263,15 @@
 
         var color = group.color || '#3B82F6';
         var collapsed = state.collapsed[group.id] ? ' collapsed' : '';
-        var early10Count = allChildren.filter(allowsEarly10).length;
+        var policyChildren = allChildren.filter(function (child) { return !isRestrictedEarly10Subject(child); });
+        var early10Count = policyChildren.filter(allowsEarly10).length;
         var sub = allChildren.length + ' môn' + (early10Count > 0 ? ' · ' + early10Count + ' môn có sớm 10p' : '');
 
         // CẢNH BÁO LỆCH CHÍNH SÁCH: cờ "sớm 10p" tính lương đọc ở TỪNG MÔN, nhóm cha chỉ
         // là chỗ bật cho nhanh. Bật ở nhóm rồi mới chuyển môn vào (hoặc bỏ qua câu hỏi áp
         // dụng) là nhóm ghi "có 10p" mà môn con thì không → giáo viên bấm sớm 10p bị từ
         // chối và không ai hiểu vì sao. Nói thẳng ra đây kèm nút áp dụng một lần.
-        var mismatch = allowsEarly10(group) ? (allChildren.length - early10Count) : 0;
+        var mismatch = allowsEarly10(group) ? (policyChildren.length - early10Count) : 0;
         var warn = mismatch > 0
             ? '<div class="mh-group-warn">' + icon('alert-triangle', 14) +
               '<span>Nhóm đang bật <b>sớm 10p</b> nhưng <b>' + mismatch + ' môn</b> bên trong chưa được bật — ' +
@@ -276,9 +323,10 @@
 
         var color = group.color || '#3B82F6';
         var collapsed = state.collapsed[group.id] ? ' collapsed' : '';
-        var early10Count = allLeaves.filter(allowsEarly10).length;
+        var policyLeaves = allLeaves.filter(function (leaf) { return !isRestrictedEarly10Subject(leaf); });
+        var early10Count = policyLeaves.filter(allowsEarly10).length;
         var sub = allLeaves.length + ' môn' + (early10Count > 0 ? ' · ' + early10Count + ' môn có sớm 10p' : '');
-        var mismatch = allowsEarly10(group) ? (allLeaves.length - early10Count) : 0;
+        var mismatch = allowsEarly10(group) ? (policyLeaves.length - early10Count) : 0;
         var warn = mismatch > 0
             ? '<div class="mh-group-warn">' + icon('alert-triangle', 14) +
               '<span>Nhóm đang bật <b>sớm 10p</b> nhưng <b>' + mismatch + ' môn</b> bên trong chưa được bật.</span>' +
@@ -581,13 +629,30 @@
         var type = existing ? (isGroup(existing) ? 'group' : 'subject') : state.sheetType;
 
         var parentValue = document.getElementById('mh-parent').value;
+        var parentId = parentValue === NO_GROUP ? null : parentValue;
+        var parentGroup = state.subjects.find(function (subject) {
+            return isGroup(subject) && String(subject.id) === String(parentId || '');
+        });
+        var draftSubject = {
+            id: editId || '',
+            name: name,
+            parentId: parentId,
+            subjectFamily: existing ? existing.subjectFamily : ''
+        };
+        if (incompatiblePlacement(draftSubject, parentGroup)) {
+            UIService.toast('Không thể xếp môn Toán/Tiếng Việt vào nhóm Tiếng Anh (hoặc ngược lại).', 'error');
+            return;
+        }
+        var inferredFamily = getSubjectFamily(draftSubject);
+        if (inferredFamily === 'other' && parentGroup) inferredFamily = getSubjectFamily(parentGroup);
         var payload = {
             name: name,
             color: document.getElementById('mh-color').value,
             note: (document.getElementById('mh-note').value || '').trim(),
             isGroup: type === 'group',
-            parentId: parentValue === NO_GROUP ? null : parentValue,
-            allowEarly10: state.early10
+            parentId: parentId,
+            subjectFamily: inferredFamily,
+            allowEarly10: requestedEarly10Value(draftSubject, state.early10)
         };
         if (editId) payload.id = editId;
 
@@ -598,7 +663,9 @@
             // Bật 10p ở nhóm → hỏi có áp cho toàn bộ môn con không.
             if (type === 'group' && editId) {
                 var children = getDescendantLeaves(editId);
-                var mismatched = children.filter(function (c) { return allowsEarly10(c) !== state.early10; });
+                var mismatched = children.filter(function (c) {
+                    return !isRestrictedEarly10Subject(c) && allowsEarly10(c) !== state.early10;
+                });
                 if (mismatched.length > 0) {
                     UIService.hideLoading();
                     var apply = await UIService.confirm(
@@ -608,7 +675,7 @@
                     if (apply) {
                         UIService.showLoading('Đang áp dụng...');
                         await DBService.saveSubjectsBatch(mismatched.map(function (c) {
-                            return { id: c.id, allowEarly10: state.early10 };
+                            return { id: c.id, allowEarly10: requestedEarly10Value(c, state.early10) };
                         }));
                     }
                 }
@@ -683,6 +750,10 @@
     async function quickToggleEarly10(id) {
         var subject = state.subjects.find(function (s) { return s.id === id; });
         if (!subject) return;
+        if (isRestrictedEarly10Subject(subject)) {
+            UIService.toast('Toán/Tiếng Việt không áp dụng chính sách sớm 10 phút.', 'warning');
+            return;
+        }
         var next = !allowsEarly10(subject);
         try {
             await DBService.saveSubject({ id: id, allowEarly10: next });
@@ -699,8 +770,14 @@
     async function applyGroupEarly10(groupId) {
         var group = state.subjects.find(function (s) { return s.id === groupId; });
         if (!group) return;
+        if (isRestrictedEarly10Subject(group)) {
+            UIService.toast('Nhóm Toán/Tiếng Việt không áp dụng chính sách sớm 10 phút.', 'warning');
+            return;
+        }
         var next = allowsEarly10(group);
-        var mismatched = getDescendantLeaves(groupId).filter(function (c) { return allowsEarly10(c) !== next; });
+        var mismatched = getDescendantLeaves(groupId).filter(function (c) {
+            return !isRestrictedEarly10Subject(c) && allowsEarly10(c) !== next;
+        });
         if (mismatched.length === 0) {
             UIService.toast('Các môn trong nhóm đã đồng bộ rồi.', 'info');
             return;
@@ -711,7 +788,7 @@
         try {
             UIService.showLoading('Đang áp dụng...');
             await DBService.saveSubjectsBatch(mismatched.map(function (c) {
-                return { id: c.id, allowEarly10: next };
+                return { id: c.id, allowEarly10: requestedEarly10Value(c, next) };
             }));
             UIService.hideLoading();
             UIService.toast('Đã ' + (next ? 'bật' : 'tắt') + ' sớm 10p cho ' + mismatched.length + ' môn.', 'success');
@@ -725,23 +802,30 @@
     async function toggleGroupEarly10(groupId) {
         var group = state.subjects.find(function (s) { return s.id === groupId; });
         if (!group) return;
+        if (isRestrictedEarly10Subject(group)) {
+            UIService.toast('Nhóm Toán/Tiếng Việt bị khóa sớm 10 phút để tránh tính sai lương.', 'warning');
+            return;
+        }
         var children = getDescendantLeaves(groupId);
-        if (children.length === 0) {
+        var eligibleChildren = children.filter(function (child) { return !isRestrictedEarly10Subject(child); });
+        if (eligibleChildren.length === 0) {
             UIService.toast('Nhóm này chưa có môn nào.', 'info');
             return;
         }
-        var next = !children.every(allowsEarly10);
+        var next = !eligibleChildren.every(allowsEarly10);
         if (!await UIService.confirm(
-            (next ? 'Bật' : 'Tắt') + ' sớm 10p cho tất cả ' + children.length + ' môn trong "' + group.name + '"?'
+            (next ? 'Bật' : 'Tắt') + ' sớm 10p cho tất cả ' + eligibleChildren.length + ' môn trong "' + group.name + '"?'
         )) return;
 
         try {
             UIService.showLoading('Đang áp dụng...');
-            var updates = children.map(function (c) { return { id: c.id, allowEarly10: next }; });
+            var updates = eligibleChildren.map(function (c) {
+                return { id: c.id, allowEarly10: requestedEarly10Value(c, next) };
+            });
             updates.push({ id: groupId, allowEarly10: next });
             await DBService.saveSubjectsBatch(updates);
             UIService.hideLoading();
-            UIService.toast('Đã ' + (next ? 'bật' : 'tắt') + ' sớm 10p cho ' + children.length + ' môn.', 'success');
+            UIService.toast('Đã ' + (next ? 'bật' : 'tắt') + ' sớm 10p cho ' + eligibleChildren.length + ' môn.', 'success');
             await reload();
         } catch (e) {
             UIService.hideLoading();
@@ -781,13 +865,20 @@
     async function bulkEarly10(next) {
         var picked = selectedSubjects();
         if (picked.length === 0) return;
+        if (next) {
+            var blocked = picked.filter(isRestrictedEarly10Subject);
+            if (blocked.length > 0) {
+                UIService.toast('Không thể bật sớm 10p cho: ' + blocked.map(function (s) { return s.name; }).join(', '), 'error');
+                return;
+            }
+        }
         if (!await UIService.confirm(
             (next ? 'Bật' : 'Tắt') + ' sớm 10p cho ' + picked.length + ' môn đã chọn?'
         )) return;
         try {
             UIService.showLoading('Đang áp dụng...');
             await DBService.saveSubjectsBatch(picked.map(function (s) {
-                return { id: s.id, allowEarly10: !!next };
+                return { id: s.id, allowEarly10: requestedEarly10Value(s, !!next) };
             }));
             UIService.hideLoading();
             UIService.toast('Đã ' + (next ? 'bật' : 'tắt') + ' sớm 10p cho ' + picked.length + ' môn.', 'success');
@@ -855,8 +946,10 @@
     // môn giữ nguyên, nên nhóm "Tiếng anh" bật 10p mà 33 môn bên trong vẫn không được cộng.
     async function applyGroupPolicyToMoved(group, moved) {
         if (!group || moved.length === 0) return;
-        var next = allowsEarly10(group);
-        var mismatched = moved.filter(function (s) { return allowsEarly10(s) !== next; });
+        var next = allowsEarly10(group) && !isRestrictedEarly10Subject(group);
+        var mismatched = moved.filter(function (s) {
+            return (s.allowEarly10 === true) !== requestedEarly10Value(s, next);
+        });
         if (mismatched.length === 0) return;
         if (!await UIService.confirm(
             'Nhóm "' + group.name + '" đang ' + (next ? 'BẬT' : 'TẮT') + ' chính sách sớm 10 phút.\n\n' +
@@ -864,8 +957,20 @@
             'Lương chỉ đọc cờ ở TỪNG MÔN, nên không áp dụng thì các môn này vẫn không được cộng 10p.'
         )) return;
         await DBService.saveSubjectsBatch(mismatched.map(function (s) {
-            return { id: s.id, allowEarly10: next };
+            return { id: s.id, allowEarly10: requestedEarly10Value(s, next) };
         }));
+    }
+
+    function buildMoveUpdate(subject, parentId, group) {
+        var draft = { ...subject, parentId: parentId };
+        var family = getSubjectFamily(draft);
+        if (family === 'other' && group) family = getSubjectFamily(group);
+        var update = { id: subject.id, parentId: parentId, subjectFamily: family };
+        if (isRestrictedEarly10Subject(draft) ||
+            family === 'math_vietnamese' || family === 'math_reasoning') {
+            update.allowEarly10 = false;
+        }
+        return update;
     }
 
     async function confirmMove() {
@@ -877,10 +982,17 @@
         if (state.moveIsBulk) {
             var picked = selectedSubjects();
             if (picked.length === 0) { closeMove(); return; }
+            var incompatible = picked.filter(function (subject) {
+                return incompatiblePlacement(subject, group);
+            });
+            if (incompatible.length > 0) {
+                UIService.toast('Không thể xếp sai nhóm: ' + incompatible.map(function (s) { return s.name; }).join(', '), 'error');
+                return;
+            }
             try {
                 UIService.showLoading('Đang chuyển...');
                 await DBService.saveSubjectsBatch(picked.map(function (s) {
-                    return { id: s.id, parentId: parentId };
+                    return buildMoveUpdate(s, parentId, group);
                 }));
                 UIService.hideLoading();
                 UIService.toast('Đã xếp ' + picked.length + ' môn vào "' + groupName + '".', 'success');
@@ -897,9 +1009,13 @@
 
         var id = document.getElementById('mh-move-id').value;
         var movedOne = state.subjects.find(function (s) { return String(s.id) === String(id); });
+        if (incompatiblePlacement(movedOne, group)) {
+            UIService.toast('Không thể xếp môn Toán/Tiếng Việt vào nhóm Tiếng Anh hoặc ngược lại.', 'error');
+            return;
+        }
         try {
             UIService.showLoading('Đang chuyển...');
-            await DBService.saveSubject({ id: id, parentId: parentId });
+            await DBService.saveSubject(buildMoveUpdate(movedOne, parentId, group));
             UIService.hideLoading();
             UIService.toast('Đã chuyển nhóm.', 'success');
             closeMove();

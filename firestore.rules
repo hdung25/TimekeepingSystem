@@ -359,6 +359,7 @@ service cloud.firestore {
         && (data.approvedByName == profile.get('name', '') || data.approvedByName == profile.get('username', ''))
         && profile.get('teachingMode', 'unset') != 'new'
         && subject.get('allowEarly10', false) == true
+        && !(subject.get('subjectFamily', 'other') in ['math_vietnamese', 'math_reasoning'])
         && session.get('checkIn', session.get('start', '')) == data.checkInAt
         && (
           !(session.get('id', '') is string)

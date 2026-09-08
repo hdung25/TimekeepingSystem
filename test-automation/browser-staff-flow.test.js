@@ -257,11 +257,14 @@ async function main() {
                     await page.$eval(search,input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));});
 
                     const oldMain='input[data-action="toggle-main"][data-teacher-id="fixture-nhan"]';
-                    await page.click(oldMain);
+                    // The roster may replace its own DOM while a live directory
+                    // refresh settles. Query and click in one browser task so a
+                    // stale Puppeteer handle cannot make this flow flaky.
+                    await page.$eval(oldMain,input=>input.click());
                     assert.equal(await page.$eval(oldMain,input=>input.checked),true,
                         'the last main teacher cannot be removed before a replacement is selected');
-                    await page.click(freshSelector);
-                    await page.click(oldMain);
+                    await page.$eval(freshSelector,input=>input.click());
+                    await page.$eval(oldMain,input=>input.click());
                     assert.equal(await page.$eval(oldMain,input=>input.checked),false);
                     await page.click('[data-action="save-manager"]');
                     await page.waitForFunction(()=>!document.getElementById('gv-picker-overlay'),{timeout:30000});
