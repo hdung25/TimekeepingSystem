@@ -56,8 +56,8 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
             return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
                 !!(await cache.match('/js/db-service.js?v=20260909-scheduled-overtime-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1')) &&
-                !!(await cache.match('/js/teacher-attendance-policy.js?v=20260909-auto-attendance-v2')) &&
-                !!(await cache.match('/js/teacher-attendance-editor.js?v=20260909-auto-attendance-v2'));
+                !!(await cache.match('/js/teacher-attendance-policy.js?v=20260910-hours-bonus-v1')) &&
+                !!(await cache.match('/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1'));
         }, { timeout: 60000 });
         // A first PWA install announces APP_UPDATED and intentionally reloads
         // an untouched login page. Wait through that navigation before reading.
