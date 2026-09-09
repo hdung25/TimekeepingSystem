@@ -1539,21 +1539,59 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     secKey,
                     cls._originalIndex !== undefined ? cls._originalIndex : idx
                 );
-                let b10DataT = findShiftScopedBonus10Request(
-                    bonus10Map,
-                    matchedSession.id,
-                    b10TargetShiftKeyT
-                );
+                // A scheduled chip can be covered by more than one attendance
+                // session (for example an automatic check-in followed by an
+                // Admin-added payroll session). `matchedSession` is then a
+                // display aggregate and its id/bonus10 flag may come from a
+                // different session than the one that proves the early check-in.
+                // Resolve awards against every underlying session so a historic
+                // `session.bonus10` record is not lost when the display window
+                // is combined, and so a new request uses the proof-bearing id.
+                const b10EvidenceSessions = _matchedTeachingSessions.length > 0
+                    ? _matchedTeachingSessions
+                    : [matchedSession];
+                let b10DataT = b10EvidenceSessions
+                    .map(session => findShiftScopedBonus10Request(
+                        bonus10Map,
+                        session?.id,
+                        b10TargetShiftKeyT
+                    ))
+                    .find(Boolean) || null;
+                let b10EvidenceSessionT = b10DataT
+                    ? b10EvidenceSessions.find(session => String(session?.id || '') === String(b10DataT.sessionId || ''))
+                    : null;
                 if (!b10DataT) {
-                    b10DataT = getLegacySessionBonus10Award(
-                        matchedSession,
-                        cls,
-                        secKey,
-                        cls._originalIndex !== undefined ? cls._originalIndex : idx,
-                        dateStr,
-                        currentUserContext,
-                        monthFlags
-                    );
+                    b10EvidenceSessionT = b10EvidenceSessions.find(session =>
+                        !!getLegacySessionBonus10Award(
+                            session,
+                            cls,
+                            secKey,
+                            cls._originalIndex !== undefined ? cls._originalIndex : idx,
+                            dateStr,
+                            currentUserContext,
+                            monthFlags
+                        )
+                    ) || null;
+                    if (b10EvidenceSessionT) {
+                        b10DataT = getLegacySessionBonus10Award(
+                            b10EvidenceSessionT,
+                            cls,
+                            secKey,
+                            cls._originalIndex !== undefined ? cls._originalIndex : idx,
+                            dateStr,
+                            currentUserContext,
+                            monthFlags
+                        );
+                    }
+                }
+                // If no award exists yet, use the session whose check-in is
+                // represented by the aggregate's earliest check-in. This keeps
+                // the server proof lookup aligned with the displayed time.
+                if (!b10EvidenceSessionT) {
+                    const aggregateCheckIn = String(matchedSession.checkIn || matchedSession.start || '');
+                    b10EvidenceSessionT = b10EvidenceSessions.find(session =>
+                        String(session?.checkIn || session?.start || '') === aggregateCheckIn
+                    ) || b10EvidenceSessions[0] || matchedSession;
                 }
                 const b10StatusT = b10DataT ? b10DataT.status : null;
 
@@ -1996,6 +2034,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     overtimeMinutes: otMinutes,
                     bonus10Status: b10StatusT,
                     bonus10Id: b10DataT ? b10DataT.id : null,
+                    bonus10EvidenceSessionId: b10EvidenceSessionT?.id || matchedSession.id,
                     bonus10TargetShiftKey: b10TargetShiftKeyT,
                     bonus10AwardScope: 'teaching_shift',
                     bonus10CompatibilitySource: b10DataT?.compatibilitySource || '',

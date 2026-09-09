@@ -34,6 +34,23 @@ module.exports=async function({env,admin,employee,dualEmployee,origin,month,reco
   await admin.waitForSelector('#class-rate-modal',{visible:true});
   assert.equal(await admin.$eval('.class-rate-input',e=>e.value),'210,000','saved class rate must be restored after reload');
   await click(admin,'button[onclick="closeClassRateModal()"]');
+  // Legacy consultation-fee-only records may have evaluation as one object.
+  // Saving the teaching role must still calculate the dual-role draft safely.
+  await env.withSecurityRulesDisabled(async c=>{
+    const ref=c.firestore().collection('salary_settings_monthly').doc(`${month}_audit-dual`);
+    await ref.set({
+      giao_vien:{class_rates:{'Toán 5':100000,'Ngữ Văn 7':100000},advance:0,evaluation:[]},
+      tiep_tan:{class_rates:{'Tiếp Tân (Ca Bình Thường)':50000},advance:0,evaluation:{id:1,amount:123,note:''}}
+    },{merge:true});
+    await ref.set({published:{}},{merge:true});
+  });
+  await report(admin,'audit-dual');
+  await click(admin,'#btn-class-rates-setup');
+  await admin.waitForSelector('#class-rate-modal',{visible:true});
+  await click(admin,'#btn-modal-role-gv');
+  await click(admin,'button[onclick="saveSalarySettingsFromModal()"]');
+  const malformedLegacyDraft=await admin.waitForFunction(async m=>!!(await db.collection('salary_settings_monthly').doc(m+'_audit-dual').get()).data()?.published?.details_gv,{timeout:30000},month);
+  assert.ok(malformedLegacyDraft,'legacy object-shaped evaluation must not block teaching payroll save');
   // Historical snapshot 200k, later current configuration 200k/hour.
   await env.withSecurityRulesDisabled(async c=>{
     const db=c.firestore();

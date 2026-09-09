@@ -1,6 +1,19 @@
 // Database Service - Lớp trung gian xử lý dữ liệu
 // Mục đích: Tách biệt logic gọi database khỏi giao diện (UI)
 
+// A legacy consultation-fee write could store one evaluation row as an object
+// instead of the canonical array. Normalize only in memory so old documents
+// remain untouched while all subsequent writes use the array shape.
+function normalizeSalaryEvaluationEntries(value) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') {
+        if (Object.prototype.hasOwnProperty.call(value, 'id')) return [value];
+        return Object.values(value).filter(item => item && typeof item === 'object' &&
+            Object.prototype.hasOwnProperty.call(item, 'id'));
+    }
+    return [];
+}
+
 // Global helper: Generate YYYY-MM-DD using Vietnam timezone (UTC+7)
 function getLocalDateKeyFromDate(date) {
     if (!(date instanceof Date)) return '';
@@ -7150,7 +7163,7 @@ const DBService = {
                 const defaults = await transaction.get(db.collection('salary_settings').doc(staffId));
                 inherited = defaults.exists ? defaults.data() : {};
             }
-            const evaluation = JSON.parse(JSON.stringify(inherited.evaluation || []));
+            const evaluation = JSON.parse(JSON.stringify(normalizeSalaryEvaluationEntries(inherited.evaluation)));
             const matches = evaluation.filter(item => Number(item.id) === 1);
             if (matches.length > 1) throw new Error('Dữ liệu có nhiều dòng phí tư vấn. Admin cần đối chiếu trước khi lưu.');
             if (matches.length) matches[0].amount = amount;
@@ -7267,7 +7280,7 @@ const DBService = {
                 const source = docSnap.exists ? docSnap.data() : {};
                 const feePending = source.consultationFeePending && component === 'tt';
                 if (feePending) {
-                    const evaluation = (source.tiep_tan || source['tiep-tan'] || {}).evaluation || [];
+                    const evaluation = normalizeSalaryEvaluationEntries((source.tiep_tan || source['tiep-tan'] || {}).evaluation);
                     const fee = Number(evaluation.find(item => Number(item.id) === 1)?.amount || 0);
                     const calculatedFee = calculatedPublished?.details_tt?.phiTuVan ?? calculatedPublished?.details?.phiTuVan;
                     if (fee !== calculatedFee) throw new Error('Phí tư vấn vừa thay đổi. Tải lại và tính lại trước khi lưu.');

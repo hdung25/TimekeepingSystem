@@ -50,11 +50,11 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         await page.waitForSelector('#login-form', { visible: true });
         await page.waitForFunction(async () => {
             const registration = await navigator.serviceWorker.getRegistration();
-            const key = (await caches.keys()).find(name => name.includes('v169-payroll-rate-persistence'));
+            const key = (await caches.keys()).find(name => name.includes('v170-early10-legacy-merge'));
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
-                !!(await cache.match('/js/db-service.js?v=20260909-scheduled-overtime-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20260910-payroll-rate-persistence-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-policy.js?v=20260910-hours-bonus-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1'));
@@ -66,7 +66,7 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         evidence.browser = await page.evaluate(async () => ({
             title: document.title, viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
             cacheKeys: await caches.keys(), serviceWorker: (await navigator.serviceWorker.getRegistration())?.active?.scriptURL,
-            cachedAssets: (await (await caches.open('tdt-chamcong-v169-payroll-rate-persistence-20260910')).keys()).length
+            cachedAssets: (await (await caches.open('tdt-chamcong-v170-early10-legacy-merge-20260910')).keys()).length
         }));
         assert.ok(evidence.browser.pageWidth <= evidence.browser.viewport + 2, 'Mobile login must not overflow');
         assert.deepEqual(evidence.browserErrors, []);

@@ -1372,6 +1372,48 @@ function observation(lateMinutes) {
 }
 
 {
+    // Một ca có thể được phủ bởi phiên tự động (có cờ +10 cũ) và phiên Admin
+    // nhập bù. Chip hiển thị dùng khoảng gộp nhưng vẫn phải giữ bằng chứng +10
+    // từ phiên tự động, không hiện lại nút yêu cầu rồi gửi sang phiên nhập bù.
+    const dateKey = '2026-08-02';
+    const staffId = 'legacy-combined-bonus-teacher';
+    const row = {
+        start: '15:30', end: '17:00', lop: 'FFL', lopId: 'subject-ffl',
+        gvId: staffId, registeredTeachers: [], _branch: 'cs1',
+        _compositeKey: `cs1__${dateKey}`, _originalIndex: 8
+    };
+    const chips = context.window.calculateDailyChips(
+        { afternoon2: [row] },
+        [
+            {
+                id: 'auto-early-session',
+                checkIn: `${dateKey}T15:19:00+07:00`,
+                checkOut: `${dateKey}T17:07:00+07:00`,
+                bonus10: true
+            },
+            {
+                id: 'admin-added-session', type: 'admin_add', isAdminEdited: true,
+                role: 'subject-ffl', roleName: 'FFL',
+                checkIn: `${dateKey}T15:30:00+07:00`,
+                checkOut: `${dateKey}T17:15:00+07:00`
+            }
+        ],
+        staffId, dateKey,
+        { roles: ['teaching_assistant'], teachingMode: 'old', salary_config: {} },
+        [], {}, [], {}, [], {
+            subjectEarly10Map: { 'subject-ffl': true },
+            subjectEarly10NameMap: { ffl: 'subject-ffl' }
+        }
+    );
+    const worked = chips.find(chip => chip.isTeaching);
+    assert.equal(worked.paidMinutes, 100, 'ca gộp vẫn cộng đúng 10 phút cũ');
+    assert.equal(worked.bonus10Status, 'approved');
+    assert.equal(worked.bonus10CompatibilitySource, 'legacy-session-bonus10');
+    assert.equal(worked.bonus10EvidenceSessionId, 'auto-early-session');
+    assert.equal(worked.sessionId, 'admin-added-session', 'id hiển thị vẫn là phiên gộp đang mở');
+}
+
+{
     // Quỳnh 04/09: một phiên cũ không có linkedClassStart vẫn khớp duy nhất
     // vào lớp FFM đã phân công. Lịch phải tự chọn FFM thay vì bắt TA mở popup
     // chọn môn thủ công.

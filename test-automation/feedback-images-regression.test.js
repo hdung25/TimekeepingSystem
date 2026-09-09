@@ -14,7 +14,7 @@ const subjects = read('js/mon-hoc.js');
 const migration = read('scripts/repair-feedback-images-20260908.js');
 
 const earlyIndex = admin.indexOf('js/early10.js?v=20260908-feedback-repair-v1');
-const dbIndex = admin.indexOf('js/db-service.js?v=20260909-scheduled-overtime-v1');
+const dbIndex = admin.indexOf('js/db-service.js?v=20260910-payroll-rate-persistence-v1');
 assert.ok(earlyIndex >= 0 && dbIndex > earlyIndex,
     'Admin phải nạp early10.js trước db-service.js để nút Duyệt hoạt động');
 

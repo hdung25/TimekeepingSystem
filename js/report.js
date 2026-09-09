@@ -20,6 +20,18 @@ let currentDate = new Date(); // Global View Date
 let payrollWritePending = false;
 // Server snapshot stays separate from editable inputs and legacy defaults.
 let payrollSettingsBaseline = null;
+// Older monthly documents may contain one evaluation row as an object (the
+// consultation-fee-only writer used that shape). Keep reads tolerant while
+// every new write stores the canonical array shape.
+function normalizeEvaluationEntries(value) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') {
+        if (Object.prototype.hasOwnProperty.call(value, 'id')) return [value];
+        return Object.values(value).filter(item => item && typeof item === 'object' &&
+            Object.prototype.hasOwnProperty.call(item, 'id'));
+    }
+    return [];
+}
 function capturePayrollSettingsBaseline(staffId, monthStr, settings) {
     payrollSettingsBaseline = { scope: `${staffId}__${monthStr}`, settings: JSON.parse(JSON.stringify(settings)) };
 }
@@ -2882,6 +2894,7 @@ const RECEP_EVALUATION_CRITERIA = [
 let currentEvalIndex = null;
 
 function renderEvaluationTable(savedData = []) {
+    savedData = normalizeEvaluationEntries(savedData);
     const section = document.getElementById('evaluation-section');
     if (!section) return;
 
@@ -3585,7 +3598,7 @@ function calculateSalary() {
     const cfg = window.currentUserContext?.salary_config || {};
     const attRate = Number(cfg.attendance_rate || 0);
     const activeAttendanceSettings = window.currentLoadedSalarySettings || {};
-    const savedAttendance = (activeAttendanceSettings.evaluation || []).find(e => Number(e.id) === 0);
+    const savedAttendance = normalizeEvaluationEntries(activeAttendanceSettings.evaluation).find(e => Number(e.id) === 0);
     const teacherAutoRow = window.currentLoadedRoleKey !== 'tiep_tan'
         ? window.TeacherAttendanceEditor?.getRow(activeAttendanceSettings, 'main') : null;
     const teacherHoursBonusRow = window.currentLoadedRoleKey !== 'tiep_tan'
@@ -3672,7 +3685,7 @@ function calculateSalary() {
             ? (window.currentLoadedSalarySettings || {})
             : (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {});
         
-        const evaluation = recepSettings.evaluation || [];
+        const evaluation = normalizeEvaluationEntries(recepSettings.evaluation);
         const phiTuVanObj = evaluation.find(e => Number(e.id) === 1);
         const doanhThuCs3Obj = evaluation.find(e => Number(e.id) === 6);
         const phiTuVan = phiTuVanObj ? (Number(phiTuVanObj.amount) || 0) : 0;
@@ -3762,7 +3775,7 @@ function calculateSalary() {
             // Nếu otherRole là tiep_tan: phí tư vấn (id=1) và DT CS3 (id=6) đã được cộng
             // trong block isRecep ở trên → loại chúng ra để tránh double-count
             const evalIdsAlreadyCounted = otherRole === 'tiep_tan' ? [1, 6] : [];
-            const otherBonus = (otherSettings.evaluation || []).reduce((sum, e) => {
+            const otherBonus = normalizeEvaluationEntries(otherSettings.evaluation).reduce((sum, e) => {
                 if (evalIdsAlreadyCounted.includes(e.id)) return sum; // đã tính trong isRecep block
                 return sum + (Number(e.amount) || 0);
             }, 0);
@@ -4041,7 +4054,7 @@ async function saveSalarySettings() {
             id: criteriaIndex,
             note: noteInp.value,
             amount: amountInp ? (parseFormattedNumber(amountInp.value) || 0) : 0,
-            manual: amountInp?.dataset.manualEdited === 'true' || (window.currentLoadedSalarySettings?.evaluation || []).some(e => Number(e.id) === criteriaIndex && e.manual === true)
+            manual: amountInp?.dataset.manualEdited === 'true' || normalizeEvaluationEntries(window.currentLoadedSalarySettings?.evaluation).some(e => Number(e.id) === criteriaIndex && e.manual === true)
         });
     });
 
@@ -4206,9 +4219,7 @@ async function loadSalarySettings(isCurrent = null) {
         if (hasReceptionist && !ttSettings) {
             ttSettings = await DBService.getSalarySettings(staffId, { strict: true }) || {};
             if (!canCommit()) return;
-            if (!ttSettings.evaluation) {
-                ttSettings.evaluation = [];
-            }
+            ttSettings.evaluation = normalizeEvaluationEntries(ttSettings.evaluation);
             window.currentMonthlySalarySettingsAll['tiep_tan'] = ttSettings;
         }
         
@@ -4238,7 +4249,7 @@ async function loadSalarySettings(isCurrent = null) {
     if (phiTuVanInput || doanhThuCs3Input) {
         const monthlyAll = window.currentMonthlySalarySettingsAll || {};
         const ttSettings = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
-        const ttEvaluation = ttSettings.evaluation || [];
+        const ttEvaluation = normalizeEvaluationEntries(ttSettings.evaluation);
         const dbPhiTuVan = ttEvaluation.find(e => Number(e.id) === 1)?.amount || 0;
         const dbDoanhThuCs3 = ttEvaluation.find(e => Number(e.id) === 6)?.amount || 0;
 
@@ -4280,7 +4291,7 @@ async function loadSalarySettings(isCurrent = null) {
         }
     }
     
-    renderEvaluationTable(settings.evaluation || []);
+    renderEvaluationTable(normalizeEvaluationEntries(settings.evaluation));
     calculateSalary();
     bindMoneyInputFormatters();
 
@@ -5559,14 +5570,20 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                         <span style="display:block;font-size:.78rem;color:#475569;margin-top:4px;">Mở phần “Quyền Admin · nguồn tính chip”, bỏ chọn “Cộng +10 phút theo quyết định Admin” rồi lưu nếu cần hủy.</span>
                     `;
                 } else if (b10Status === 'approved') {
-                    b10Actions.innerHTML = `
-                        <span style="color: #059669; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ Đã duyệt</span>
-                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedBonus10('${chip.bonus10Id || ''}', '${staffId}', '${dateKey}', '${sessionId}')">Hủy thưởng</button>
-                    `;
+                    const isLegacyBonus10 = chip.bonus10CompatibilitySource === 'legacy-session-bonus10';
+                    b10Actions.innerHTML = isLegacyBonus10
+                        ? `
+                            <span style="color: #059669; font-weight: 600; font-size: 0.9rem;">★ Đã ghi nhận +10p từ dữ liệu chấm công cũ</span>
+                            <span style="display:block;font-size:.78rem;color:#475569;margin-top:4px;">Ca lịch sử đã đủ điều kiện và được giữ nguyên; không gửi lại yêu cầu.</span>
+                        `
+                        : `
+                            <span style="color: #059669; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ Đã duyệt</span>
+                            <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedBonus10('${chip.bonus10Id || ''}', '${staffId}', '${dateKey}', '${chip.bonus10EvidenceSessionId || sessionId}')">Hủy thưởng</button>
+                        `;
                 } else if (b10Status === 'pending') {
                     b10Actions.innerHTML = `
                         <span style="color: #D97706; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">⏱️ Chờ duyệt</span>
-                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveBonus10('${chip.bonus10Id}', '${sessionId}', '${dateKey}', '${staffId}')">Duyệt</button>
+                        <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveBonus10('${chip.bonus10Id}', '${chip.bonus10EvidenceSessionId || sessionId}', '${dateKey}', '${staffId}')">Duyệt</button>
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalRejectBonus10('${chip.bonus10Id}')">Từ chối</button>
                     `;
                 } else if (b10Status === 'rejected') {
@@ -6613,7 +6630,8 @@ async function submitBonus10Request(sessionId, dateKey, staffId, chip) {
         // Transaction re-reads the exact session, schedule row, subject and
         // personnel mode. Rules bind the approved award to the authenticated
         // owner and shift metadata, so no Admin wait is necessary.
-        await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, sessionId, verdict);
+        const proofSessionId = String(chip?.bonus10EvidenceSessionId || sessionId || '');
+        await DBService.createApprovedBonus10Request(staffId, staffName, dateKey, proofSessionId, verdict);
         if (typeof UIService !== 'undefined') UIService.hideLoading();
         UIService.toast(`Đã tự duyệt +10p cho đúng ca dạy (vào sớm ${verdict.earlyMinutes} phút).`, 'success');
         _cachedStaffId = null;
@@ -7114,9 +7132,7 @@ async function populateModalCurrentTab() {
     }
     if (hasReceptionist && !ttSettings) {
         ttSettings = await DBService.getSalarySettings(staffId) || {};
-        if (!ttSettings.evaluation) {
-            ttSettings.evaluation = [];
-        }
+        ttSettings.evaluation = normalizeEvaluationEntries(ttSettings.evaluation);
         monthlySettingsAll['tiep_tan'] = ttSettings;
     }
 
@@ -7494,7 +7510,7 @@ async function populateModalCurrentTab() {
         
         activeCriteriaList.forEach((item, index) => {
             const criteriaIndex = isRecep ? item.index : index;
-            const saved = (roleSettings.evaluation || []).find(e => Number(e.id) === criteriaIndex) || {};
+            const saved = normalizeEvaluationEntries(roleSettings.evaluation).find(e => Number(e.id) === criteriaIndex) || {};
             let amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             let noteVal = saved.note || '';
 
@@ -7770,7 +7786,7 @@ async function saveSalarySettingsFromModal() {
             id: index,
             note: noteInp.value,
             amount: parseFormattedNumber(amountInp?.value || '0'),
-            manual: amountInp?.dataset.manualEdited === 'true' || (activeRoleSettings.evaluation || []).some(e => Number(e.id) === index && e.manual === true)
+            manual: amountInp?.dataset.manualEdited === 'true' || normalizeEvaluationEntries(activeRoleSettings.evaluation).some(e => Number(e.id) === index && e.manual === true)
         });
     });
     
@@ -7847,7 +7863,7 @@ async function saveSalarySettingsFromModal() {
         }
         
         if (typeof renderEvaluationTable === 'function') {
-            renderEvaluationTable(settingsObj.evaluation || []);
+            renderEvaluationTable(normalizeEvaluationEntries(settingsObj.evaluation));
         }
         
         closeClassRateModal();
@@ -8293,7 +8309,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         
         activeCriteriaList.forEach((item, index) => {
             const criteriaIndex = isRecep ? item.index : index;
-            const saved = (prevRoleSettings.evaluation || []).find(e => Number(e.id) === criteriaIndex) || {};
+            const saved = normalizeEvaluationEntries(prevRoleSettings.evaluation).find(e => Number(e.id) === criteriaIndex) || {};
             const amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             const noteVal = saved.note || '';
             criteriaPay += amountVal;
@@ -8933,9 +8949,7 @@ async function saveRecepExtras() {
         const settings = JSON.parse(JSON.stringify(monthlySettings[roleKey] || monthlySettings['tiep-tan'] || { evaluation: [] }));
 
         // Update the two manual extras, preserving all other monthly fields.
-        if (!settings.evaluation) {
-            settings.evaluation = [];
-        }
+        settings.evaluation = normalizeEvaluationEntries(settings.evaluation);
         
         // Find or create Phí tư vấn (id: 1)
         let phiTuVanObj = settings.evaluation.find(e => Number(e.id) === 1);
@@ -9805,7 +9819,7 @@ function getCurrentCalculationPayload(role) {
         });
     } else {
         // Programmatic calculation from roleSettings (from DB)
-        const savedEval = roleSettings.evaluation || [];
+        const savedEval = normalizeEvaluationEntries(roleSettings.evaluation);
         activeCriteria.forEach((item, index) => {
             const criteriaIndex = role === 'tiep-tan' ? item.index : index;
             const rowData = savedEval.find(e => Number(e.id) === criteriaIndex) || {};
