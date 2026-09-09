@@ -32,3 +32,14 @@
 - PASS: npm test; npm run test:payroll-ui; npm run test:rules (exit 0).
 - PASS: kiểm tra cú pháp report/service worker/test và git diff --check.
 - Quyền và trạng thái tài chính kiểm tra bằng Rules thật trên emulator. Không phát hành lại Rules vì không có thay đổi Rules.
+
+## Production đã phát hành
+
+- Commit đã push `origin/main`: `854f3edab8367badde8483dc8d95fdd7cd463d3d`.
+- Vercel deployment: `dpl_H7B7c77p5uijQwLu1WQGbqb21KGG`; READY, target production, lúc 09:06 ngày 09/09/2026 (UTC+7).
+- `vercel inspect` xác nhận alias `https://timekeeping-system-tawny.vercel.app` trỏ đúng deployment mới.
+- Rules production giữ nguyên; không thử gửi/nhận lương hoặc sửa dữ liệu nhân viên thật.
+- PASS kiểm tra sau deploy: 9 tài nguyên JS/service worker HTTP 200, SHA-256 khớp mã local đã test; HTML bảng công tham chiếu phiên bản report mới.
+- Chrome mobile 430×932: trang đăng nhập hiển thị, không tràn ngang, không uncaught JavaScript error; service worker active, cache v162 có 52 tài nguyên. Không phát sinh thao tác ghi Firestore.
+- Script smoke đầu bị chờ quá lâu; dừng và chạy lại với timeout HTTP hữu hạn và log từng bước, đạt exit 0. Bằng chứng: `scratch/consultation-production-smoke.log`, `scratch/production-consultation-payroll.json`, `scratch/production-consultation-payroll.png`.
+- Giới hạn: nghiệp vụ ghi được kiểm tra trên emulator; production chỉ kiểm tra đọc tài nguyên/trang/PWA, không gửi bảng lương thử cho nhân viên thật.

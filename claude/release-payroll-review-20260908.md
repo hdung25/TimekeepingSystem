@@ -65,7 +65,16 @@ Bằng chứng cục bộ (không tải lên web production): `scratch/payroll-r
 - Production: `https://timekeeping-system-tawny.vercel.app`.
 - Firebase Rules đã phát hành thành công vào khoảng 07:29 (UTC+7), đúng dự án.
 - Bản v1 / commit `f5fefad` đã lên production (`dpl_ChJUveDZ287NdjT9UMZgDcpnRZLi`). Khi kiểm tra cache, PWA tải lại trang đăng nhập sạch theo thiết kế; công cụ kiểm tra được điều chỉnh chờ hết lượt tải lại. Rà tiếp cơ chế cập nhật đã bổ sung cờ bảo vệ cho thao tác lưu lương và sửa lịch ở v2.
-- Kết quả deploy cuối và kiểm tra production sẽ được ghi sau khi hoàn tất.
+- Deploy cuối: **READY / production**, lúc **07:34 ngày 08/09/2026 (UTC+7)**.
+- Commit mã phát hành: `f7e9e8a` (đã push `origin/main`; sau push Git không còn ahead/behind). Commit tính năng chính: `f5fefad`.
+- Deployment ID: `dpl_9gWm2UaHmibze5haaCHaCDjx3zRN`.
+- URL bản deploy: `https://timekeeping-system-fjppv7e3a-ha-huy-dungs-projects.vercel.app`; `vercel inspect` xác nhận alias **`https://timekeeping-system-tawny.vercel.app`** trỏ đúng bản này. Dự án static, framework Other; CLI hoàn tất khoảng 11 giây.
+- Sau deploy, `production-readonly-smoke.cjs`: **PASS**. HTTP 200 và SHA-256 của 9 tệp JS/Service Worker khớp chính xác mã cục bộ đã test; HTML bảng công có script đối chiếu mới và header không cache cứng.
+- Chrome mobile 430×932: trang đăng nhập hiển thị, chiều rộng trang = 430, không tràn ngang; Service Worker active, cache v159 chứa 52 tài nguyên; không có uncaught JavaScript error trong lượt kiểm tra, không phát sinh yêu cầu ghi Firestore.
+- Bằng chứng: `scratch/production-payroll-review.json` và `scratch/production-payroll-review.png` (không tải lên production).
+- Vercel error-log scan cho đúng deployment: `No logs found`. Đây là giới hạn quan sát của lượt quét, **không** phải bằng chứng mọi điện thoại đều không lỗi. Không thiết lập thêm monitoring/notification định kỳ hoặc dịch vụ trả phí.
+
+Phương án quay lại mã trước thay đổi nếu cần: deployment `dpl_G8vT6qqL4yTco8LLPrAXbNQQP1TX` / commit `8d64932`. Chưa thực hiện rollback. Không có migration hoặc chỉnh dữ liệu nhân viên thật trong đợt này; Rules thêm lịch sử hiệu chỉnh tương thích với mã cũ. Nếu đã gửi hiệu chỉnh sau phát hành thì cần đối chiếu lịch sử riêng, không tự xóa bản ghi khi rollback giao diện.
 
 ## Giới hạn kiểm chứng
 

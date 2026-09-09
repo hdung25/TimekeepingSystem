@@ -1,5 +1,20 @@
 # Kết quả xử lý lỗi chấm công — 08/09/2026
 
+## Cập nhật production — 08/09/2026, sau xác thực
+
+**Bản sửa code chung đã deploy; các trạng thái “chưa deploy” phía dưới là nhật ký trước phát hành, không còn là trạng thái hiện tại. Các mục dữ liệu/nghiệp vụ chưa hoàn tất vẫn giữ nguyên.**
+
+- Commit đã push lên `origin/main`: `a635ddb`.
+- Firebase CLI biên dịch và phát hành Rules thành công vào `timekeeping-69f3f`.
+- Vercel: đúng team `ha-huy-dungs-projects`, project `timekeeping-system`, deployment `dpl_GxVrowoXPjmBemmhHGLdStVH2GSF`, target **production**, trạng thái **Ready**.
+- Alias đã kiểm tra bằng `vercel inspect`: https://timekeeping-system-tawny.vercel.app.
+- Kiểm tra HTTP sau deploy: service worker, bốn trang chấm công/bảng công/nhân sự/lịch làm và sáu module JS thay đổi đều trả 200, nội dung khớp local sau chuẩn hóa CRLF/LF (11 file).
+- Browser Chrome headless trên website thật: trang đăng nhập tải được đúng tiêu đề, trường tài khoản/mật khẩu và nút đăng nhập, không có lỗi JavaScript chưa xử lý trong lượt kiểm tra.
+- Quét log Vercel của deployment mới với mức error, khoảng 1 giờ: không tìm thấy log. Đây không chứng minh không có lỗi client/Firestore; chưa cấu hình thêm monitoring/drains trong đợt này.
+- Chưa kiểm thử thao tác ghi bằng tài khoản thật sau deploy; không tạo công giả hoặc sửa lịch sử để test. Kiểm thử đầy đủ Vào/Ra/+10/đóng-mở lớp trước phát hành là trên emulator.
+- Dữ liệu attendance, thưởng, cấu hình môn và payslip production không bị hiệu chỉnh trong đợt phát hành này. Chỉ Rules và frontend được phát hành.
+- Deployment tốt trước phát hành: `dpl_8YaZWHuagMxv2cPbtN37MyUhrZUZ` (đã xác minh thuộc đúng alias trước deploy).
+
 ## Trạng thái bàn giao
 
 - Đã sửa code dùng chung, không ràng buộc tên hoặc ID của Quỳnh, Sang, Nhàn hay Thủy.

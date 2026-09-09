@@ -18,6 +18,22 @@ module.exports=async function({env,admin,employee,dualEmployee,origin,month,reco
   await click(admin,'button[onclick="saveSalarySettingsFromModal()"]');
   await admin.waitForFunction(async m=>(await db.collection('salary_settings_monthly').doc(m+'_audit-teacher').get()).data()?.published?.netPay===800000,{timeout:30000},month);
   await record('admin-manual-zero-bonus',await snapshot(admin));
+  // A typed hourly rate must be persisted in the month/role settings and be
+  // restored after the report is loaded again.
+  await click(admin,'#btn-class-rates-setup');
+  await admin.waitForSelector('#class-rate-modal',{visible:true});
+  const editedRateName=await admin.$eval('.class-rate-input',e=>e.dataset.name);
+  await admin.$eval('.class-rate-input',e=>{e.value='210000';e.dispatchEvent(new Event('input',{bubbles:true}));});
+  await click(admin,'button[onclick="saveSalarySettingsFromModal()"]');
+  await admin.waitForFunction(async m=>(await db.collection('salary_settings_monthly').doc(m+'_audit-teacher').get()).data()?.published?.netPay===820000,{timeout:30000},month);
+  let rateSaved;
+  await env.withSecurityRulesDisabled(async c=>{rateSaved=(await c.firestore().collection('salary_settings_monthly').doc(`${month}_audit-teacher`).get()).data();});
+  assert.equal(rateSaved.giao_vien.class_rates[editedRateName],210000,'typed class rate must be saved to the monthly role settings');
+  await report(admin,'audit-teacher');
+  await click(admin,'#btn-class-rates-setup');
+  await admin.waitForSelector('#class-rate-modal',{visible:true});
+  assert.equal(await admin.$eval('.class-rate-input',e=>e.value),'210,000','saved class rate must be restored after reload');
+  await click(admin,'button[onclick="closeClassRateModal()"]');
   // Historical snapshot 200k, later current configuration 200k/hour.
   await env.withSecurityRulesDisabled(async c=>{
     const db=c.firestore();

@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const {calculate, sourceFromChips, automaticAttendance} = require('../js/teacher-attendance-policy.js');
+const {calculate, sourceFromChips, automaticAttendance, automaticHoursBonus} = require('../js/teacher-attendance-policy.js');
 const stats = (hours, vp=0, vdx=0, vkp=0, unreported=0) => ({minutes:hours*60,vp,vdx,vkp,unreported});
 // Independent evaluation of the supplied Excel formula, across every absence
 // priority and both sides of the 50/64.99/65-hour boundaries.
@@ -34,6 +34,12 @@ assert.throws(()=>calculate({...old,fixed:false},stats(60)),/cố định/);
 assert.throws(()=>calculate({mode:''},stats(60)),/Phân loại/);
 const hoursPolicy={...old,attendance:false,hoursBonus:true,hoursCondition:true};
 for(const [h,a] of [[49.99,0],[50,50000],[64,64000],[65,130000],[80,160000],[81,243000]]) assert.equal(amount(hoursPolicy,stats(h),8),a);
+for(const [h,a] of [[49.99,0],[50,50000],[50.5,50500],[64.99,64990],[65,130000],[80,160000],[80.01,240030]]) {
+    assert.equal(automaticHoursBonus('old',stats(h)).amount,a,'automatic IX at ' + h + ' hours');
+}
+assert.equal(automaticHoursBonus('new',stats(80)),null,'new mode does not receive old-mode total-hours tiers');
+assert.equal(automaticHoursBonus('old',stats(80),{hoursBonusPolicy:{enabled:false}}),null,'explicitly disabled IX stays disabled');
+assert.equal(automaticHoursBonus('old',stats(55),{hoursBonusPolicy:{tiers:[{minHours:50,rate:1500}]}}).amount,82500,'monthly IX tiers can override defaults');
 const meeting={...old,attendance:false,meetingEnabled:true};
 for(const [status,h,a] of [['present',0,30000],['present',60,60000],['permitted',1,-30000],['unpermitted',1,-50000],['unpermitted',60,-120000],['none',60,0]]) assert.equal(amount({...meeting,meeting:status},stats(h),9),a);
 assert.equal(amount({mode:'new',rate:0},stats(65)),0);

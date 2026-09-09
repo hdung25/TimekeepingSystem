@@ -3588,7 +3588,9 @@ function calculateSalary() {
     const savedAttendance = (activeAttendanceSettings.evaluation || []).find(e => Number(e.id) === 0);
     const teacherAutoRow = window.currentLoadedRoleKey !== 'tiep_tan'
         ? window.TeacherAttendanceEditor?.getRow(activeAttendanceSettings, 'main') : null;
-    if (teacherAutoRow) window.TeacherAttendanceEditor?.sync('main');
+    const teacherHoursBonusRow = window.currentLoadedRoleKey !== 'tiep_tan'
+        ? window.TeacherAttendanceEditor?.getHoursBonusRow(activeAttendanceSettings) : null;
+    if (teacherAutoRow || teacherHoursBonusRow) window.TeacherAttendanceEditor?.sync('main');
     const automaticAttendance = savedAttendance?.manual !== true && (!savedAttendance || savedAttendance.amount === undefined || String(savedAttendance.note || '').startsWith('Thưởng chuyên cần:'));
     if (!teacherAutoRow && attRate > 0 && evalAmounts.length > 0 && automaticAttendance && evalAmounts[0].dataset.manualEdited !== 'true' && document.activeElement !== evalAmounts[0]) {
         const attInp = evalAmounts[0];
@@ -4109,7 +4111,11 @@ async function saveSalarySettings() {
 
         // Auto-save calculated payroll as a draft. Published/received snapshots
         // are immutable and require a separate revision workflow.
-        const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
+        // Keep the draft lifecycle scoped to the role the admin just saved.
+        // Re-rendering the report may choose another default role for a dual-role
+        // employee; deriving the component after that render can otherwise put
+        // the draft/revision on the wrong salary component.
+        const draftResult = await saveCalculationDraftToDb(staffId, monthStr, roleKey === 'tiep_tan' ? 'tt' : 'gv');
         showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương thành công!');
         await loadSalarySettings();
     } catch (e) {
@@ -7846,7 +7852,9 @@ async function saveSalarySettingsFromModal() {
         
         closeClassRateModal();
         await renderMonthReport(currentDate, true);
-        const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
+        // The modal save is role-scoped.  Do not let the post-save report
+        // re-render switch the component that receives the draft transition.
+        const draftResult = await saveCalculationDraftToDb(staffId, monthStr, roleKey === 'tiep_tan' ? 'tt' : 'gv');
         showDraftSaveOutcome(draftResult, 'Đã lưu bảng lương và tính thành công!');
         await loadSalarySettings();
     } catch (e) {
@@ -9830,6 +9838,18 @@ function getCurrentCalculationPayload(role) {
             const attendanceItem = evalItems.find(item => Number(item.id) === 0);
             if (attendanceItem) attendanceItem.amount = teacherRow.amount;
             else evalItems.push({...teacherRow, label:'I', title:'CHUYÊN CẦN'});
+        }
+        const hoursBonusRow = window.TeacherAttendanceEditor?.getHoursBonusRow(roleSettings);
+        if (hoursBonusRow) {
+            const hoursBonusItem = evalItems.find(item => Number(item.id) === 8);
+            if (hoursBonusItem) {
+                hoursBonusItem.amount = hoursBonusRow.amount;
+                if (!hoursBonusItem.note || hoursBonusItem.note.startsWith('Thưởng tổng giờ tự động:')) {
+                    hoursBonusItem.note = hoursBonusRow.note;
+                }
+            } else {
+                evalItems.push({...hoursBonusRow, label:'IX', title:'SỐ GIỜ LÀM'});
+            }
         }
     }
     totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);

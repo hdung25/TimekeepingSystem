@@ -19,6 +19,12 @@
         try { return api.automaticAttendance(mode(), source(), rate); }
         catch (error) { if (strict) throw error; return null; }
     }
+    function getHoursBonusRow(settings = {}) {
+        if (mode() !== 'old') return null;
+        const saved = (settings.evaluation || []).find(item => Number(item.id) === 8);
+        if (saved?.manual === true) return null;
+        return api.automaticHoursBonus(mode(), source(), settings);
+    }
     function sync(context) {
         const editor = currentEditor(context);
         if (!editor) return;
@@ -29,6 +35,24 @@
             input.readOnly = !!row;
             if (row) { input.value = formatNumberWithCommas(row.amount); input.dataset.manualEdited = 'false'; }
         }
+        const hoursRow = getHoursBonusRow(editor.settings);
+        const savedHours = (editor.settings.evaluation || []).find(item => Number(item.id) === 8);
+        const hoursInput = document.querySelector('.' + prefix + 'eval-amount[data-index="8"]');
+        if (hoursInput) {
+            hoursInput.readOnly = !!hoursRow;
+            if (hoursRow) {
+                hoursInput.value = formatNumberWithCommas(hoursRow.amount);
+                hoursInput.dataset.manualEdited = 'false';
+            } else if (mode() === 'old' && savedHours?.manual !== true && savedHours) {
+                // An explicitly disabled automatic policy must not leave a stale IX amount.
+                hoursInput.value = '0';
+                hoursInput.dataset.manualEdited = 'false';
+            }
+        }
+        const hoursNote = document.querySelector('.' + prefix + 'eval-note[data-index="8"]');
+        if (hoursNote && hoursRow && (!hoursNote.value || hoursNote.value.startsWith('Thưởng tổng giờ tự động:'))) {
+            hoursNote.value = hoursRow.note;
+        }
         const panel = document.getElementById(context === 'modal' ? 'teacher-policy-editor' : 'teacher-policy-main');
         if (!panel) return;
         const stats = source();
@@ -36,6 +60,14 @@
         display.textContent = row ? row.note + ' Thành tiền: ' + formatNumberWithCommas(row.amount) + 'đ.'
             : mode() === 'new' ? 'Nhập đơn giá để tự tính chuyên cần theo tổng giờ dạy.' : 'Phân loại chế độ giáo viên tại Nhân sự.';
         panel.querySelector('[data-attendance-hours]').textContent = (stats.minutes / 60).toLocaleString('vi-VN', {maximumFractionDigits:4}) + ' giờ dạy; VP ' + stats.vp + ', VĐX ' + stats.vdx + ', VKP ' + stats.vkp + ', chưa cập nhật ' + stats.unreported + '.';
+        const hoursDisplay = panel.querySelector('[data-hours-bonus-result]');
+        if (hoursDisplay) {
+            hoursDisplay.textContent = hoursRow
+                ? hoursRow.note + ' Thành tiền: ' + formatNumberWithCommas(hoursRow.amount) + 'đ.'
+                : savedHours?.manual === true
+                    ? 'Tiêu chí IX đang giữ số tiền Admin nhập thủ công.'
+                    : 'Tiêu chí IX không áp dụng theo cấu hình tháng này.';
+        }
     }
     function mountFor(context, settings = {}) {
         const id = context === 'modal' ? 'teacher-policy-editor' : 'teacher-policy-main';
@@ -53,7 +85,9 @@
         panel.style.cssText='padding:12px 16px;margin:12px 0;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc';
         panel.innerHTML='<strong>Chuyên cần '+(mode()==='old'?'chế độ cũ — tự động':'chế độ mới')+'</strong><p data-attendance-hours></p>' +
             (mode()==='new'?'<label>Đơn giá chuyên cần (đ/giờ) <input id="'+(context==='modal'?'teacher-policy-rate':'teacher-policy-main-rate')+'" type="number" min="0" step="1" value="'+esc(rate)+'" '+(admin?'':'disabled')+' style="width:130px;padding:5px"></label>':'') +
-            '<p data-attendance-result></p><small>Tự cập nhật theo công và lịch của tháng. Lưu cùng bảng lương khi bấm Lưu & Tính. Bảng đã gửi được giữ nguyên đến khi gửi hiệu chỉnh.</small>';
+            '<p data-attendance-result></p>' +
+            (mode()==='old'?'<p data-hours-bonus-result style="margin:.5rem 0 0;padding:.5rem;background:#ecfdf5;border-radius:6px"></p>':'') +
+            '<small>Tự cập nhật theo công và lịch của tháng. Mốc IX: từ 50 giờ 1.000đ/giờ, từ 65 giờ 2.000đ/giờ, trên 80 giờ 3.000đ/giờ. Lưu cùng bảng lương khi bấm Lưu & Tính. Bảng đã gửi được giữ nguyên đến khi gửi hiệu chỉnh.</small>';
         target.before(panel);
         panel.querySelector('input')?.addEventListener('input', event => {
             const editor=currentEditor(context); if(!admin || !editor || global.__payrollWritePending)return;
@@ -85,5 +119,5 @@
         return {...patch,teacherAttendancePolicy:snapshot,teacherAttendanceHistory:[...(settings.teacherAttendanceHistory||[]),snapshot]};
     }
     global.TeacherAttendanceEditor={mount:settings=>mountFor('modal',settings),mountMain:settings=>mountFor('main',settings),
-        sync,getRow,savePatch,assertFresh:settings=>getRow(settings,'main',true)};
+        sync,getRow,getHoursBonusRow,savePatch,assertFresh:settings=>getRow(settings,'main',true)};
 })(window);

@@ -923,7 +923,7 @@ là bảng 4 cột với nhãn dọc như cũ.
   có `shift_inherited_*`, session legacy không role, đọc request canonical chưa có,
   toàn bộ `npm test` và Rules/integration đều phải đạt trước khi deploy.
 
-### 08/09/2026 — Incident recovery (local đã kiểm chứng, CHƯA deploy)
+### 08/09/2026 — Incident recovery (đã deploy bản code chung)
 - +10 phân biệt thiếu proof/hồ sơ/công/môn; Rules chỉ cho đọc proof canonical
   chưa tồn tại của chính chủ; không tạo bằng chứng quá khứ. Kiểm tra trùng dùng
   đọc request phân trang theo tháng. Thông báo giờ vào thể hiện cả giây, không
@@ -937,6 +937,9 @@ là bảng 4 cột với nhãn dọc như cũ.
 - `npm test`, Rules 32/32 cùng integration, browser 8 nhóm/36 lượt trang đều
   đạt. Môi trường demo cô lập, không phải kiểm thử tài khoản production.
 - Build dự kiến `20260908-incident-recovery-v1`, cache
-  `tdt-chamcong-v156-incident-recovery-20260908`. Deployment bị chặn bởi Vercel
-  CLI chưa xác thực; chưa push/deploy hoặc sửa dữ liệu thật. Chi tiết cổng phát
-  hành và các ca chưa đủ căn cứ: `claude/release-incident-recovery-20260908.md`.
+  `tdt-chamcong-v156-incident-recovery-20260908`. Sau xác thực, commit `a635ddb`
+  đã push; Rules phát hành vào `timekeeping-69f3f`; Vercel deployment
+  `dpl_GxVrowoXPjmBemmhHGLdStVH2GSF` production Ready, đúng alias chính.
+  HTTP 11 file khớp local; trang đăng nhập live không có unhandled JS error.
+  Chưa nghiệm thu ghi bằng nhân viên thật, không sửa dữ liệu công/lương.
+  Các mục đối chiếu còn lại: `claude/release-incident-recovery-20260908.md`.

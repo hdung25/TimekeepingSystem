@@ -29,3 +29,11 @@ Hồ sơ `teachingMode` → công theo ca → cửa sổ tính lương → tiêu
 - Browser xác minh 4 giờ GV × 1.234đ = 4.936đ; giữ 2 giờ TT riêng; tổng GV 384.936đ, hiệu chỉnh đơn giá 0 về 380.000đ; họp đủ dưới 30 giờ nhận tối thiểu 30.000đ.
 - Kiểm tra thêm ngăn cộng lại phạt vắng/trễ khi ô khấu trừ đã có tiền, cả lúc áp dụng và trước lưu. Không tự xóa khoản phạt đã nhập.
 - Đã xem ảnh giao diện hai chế độ; bộ tính dùng vùng cuộn chính, không nằm trong bảng tiêu chí cao 250px. Ảnh và log nằm trong scratch, không deploy.
+
+## Production đã xác minh
+
+- Commit `ebde33d` đã push `origin/main`.
+- Deployment `dpl_MSoUbc6Dej1ABJEdiBJ81Nqjio1b`, target production, Ready; alias `https://timekeeping-system-tawny.vercel.app` trỏ đúng bản này, phát hành 21:21 ngày 09/09/2026 (UTC+7).
+- PASS smoke production: 11 tài nguyên HTTP 200, SHA-256 khớp mã local; HTML tham chiếu report mới; Chrome mobile 430px không lỗi JS hoặc tràn ngang trang đăng nhập; service worker active với cache v164 và 54 tài nguyên, gồm cả hai module chuyên cần.
+- Không đăng nhập thử/gửi lương/ghi Firestore production. Nghiệp vụ ghi được kiểm chứng trên emulator.
+- Bằng chứng: `scratch/teacher-attendance-production.log`, `scratch/production-teacher-attendance.json`, `scratch/production-teacher-attendance.png`.

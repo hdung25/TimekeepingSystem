@@ -23,3 +23,11 @@ Theo xác nhận của chủ hệ thống trong phiên này, quản lý cấp ca
 - PASS npm test, npm run test:rules, npm run test:payroll-ui (exit 0).
 - Rules kiểm chứng lưu phí, sửa 0, tháng mới giữ mặc định, key/ID legacy; chặn sửa khoản khác và bảng lương, chặn gửi bản tính/hiệu chỉnh cũ. Browser kiểm chứng senior lưu/tải lại 81.675đ và Admin tính lại đúng.
 - Kiểm tra cú pháp JavaScript và git diff --check đạt. Log: scratch/senior-fee-regression.log, scratch/senior-fee-rules.log, scratch/senior-fee-ui.log.
+
+## Production
+
+- Commit đã push origin/main: a846787.
+- Firebase CLI biên dịch và phát hành Rules thành công vào timekeeping-69f3f.
+- Vercel dpl_6VBm7BtTqbtoHG5anVGs22AVKvoV: READY, production, 10:01 ngày 09/09/2026 UTC+7. Alias chính đã xác minh trỏ đúng deployment.
+- PASS production-readonly-smoke.cjs: 9 tài nguyên HTTP 200 và SHA-256 khớp mã local; HTML đúng phiên bản; Chrome mobile không tràn ngang/uncaught JS error, service worker active và cache v163 có 52 tài nguyên. Không ghi Firestore production để test.
+- Bằng chứng: scratch/senior-fee-production.log; scratch/production-senior-consultation.json/png. Nghiệp vụ ghi dữ liệu kiểm chứng trên emulator, không phải tài khoản nhân viên production.

@@ -2,6 +2,66 @@
 (function (global) {
     'use strict';
     const version = 'teacher-attendance-excel-20260909-v2';
+    const hoursBonusVersion = 'teacher-hours-bonus-20260910-v1';
+    const DEFAULT_HOURS_BONUS_TIERS = [
+        { minHours: 50, rate: 1000 },
+        { minHours: 65, rate: 2000 },
+        { minHours: 80, rate: 3000, strictlyAbove: true }
+    ];
+
+    function normalizeHoursBonusTiers(settings = {}) {
+        const policyInput = settings?.teacherAttendancePolicy?.input || settings?.input || {};
+        const configured = settings?.hoursBonusPolicy || settings?.hours_bonus || policyInput.hoursBonusPolicy;
+        const rawTiers = Array.isArray(configured?.tiers) ? configured.tiers : DEFAULT_HOURS_BONUS_TIERS;
+        const tiers = rawTiers.map(tier => ({
+            minHours: Number(tier?.minHours ?? tier?.hours ?? tier?.threshold),
+            rate: Number(tier?.rate ?? tier?.amount ?? tier?.bonusRate),
+            strictlyAbove: tier?.strictlyAbove === true
+        })).filter(tier => Number.isFinite(tier.minHours) && tier.minHours >= 0 &&
+            Number.isFinite(tier.rate) && tier.rate >= 0)
+            .sort((a, b) => a.minHours - b.minHours);
+        return tiers.length ? tiers : DEFAULT_HOURS_BONUS_TIERS;
+    }
+
+    // Criterion IX is a monthly teaching-hours bonus, separate from criterion I.
+    // It is automatic for old-mode teachers unless an already-saved policy explicitly
+    // disables it. A manually entered criterion IX row remains authoritative in UI.
+    function automaticHoursBonus(mode, source, settings = {}) {
+        if (mode !== 'old') return null;
+        const policyInput = settings?.teacherAttendancePolicy?.input || settings?.input || {};
+        const configured = settings?.hoursBonusPolicy || settings?.hours_bonus || policyInput.hoursBonusPolicy;
+        // Legacy teacherAttendancePolicy.input.hoursBonus/hourCondition belonged to
+        // the removed manual apply gate. Only the explicit monthly policy switch can
+        // disable the now-automatic criterion IX.
+        if (configured?.enabled === false) return null;
+
+        const minutes = number(source?.minutes, 'Số phút');
+        const hours = minutes / 60;
+        const tiers = normalizeHoursBonusTiers(settings);
+        let selected = null;
+        tiers.forEach(tier => {
+            const reached = tier.strictlyAbove ? hours > tier.minHours : hours >= tier.minHours;
+            if (reached) selected = tier;
+        });
+        const rate = selected?.rate || 0;
+        const amount = Math.round(hours * rate) || 0;
+        if (!Number.isSafeInteger(amount)) throw new Error('Số tiền vượt giới hạn hợp lệ.');
+        const tierText = tiers.map(tier =>
+            (tier.strictlyAbove ? '>' : '≥') + tier.minHours + 'h: ' +
+            tier.rate.toLocaleString('vi-VN') + 'đ/h'
+        ).join(' · ');
+        return {
+            id: 8,
+            amount,
+            rate,
+            hours,
+            manual: false,
+            automatic: hoursBonusVersion,
+            note: 'Thưởng tổng giờ tự động: ' +
+                hours.toLocaleString('vi-VN', { maximumFractionDigits: 4 }) +
+                ' giờ × ' + rate.toLocaleString('vi-VN') + 'đ/giờ; ' + tierText + '.'
+        };
+    }
     // Owner-approved BẢNG LƯƠNG TG!AR4 formula. Keep the exact Excel
     // priorities and boundaries, including >64.99 for two permitted absences.
     function automaticAttendance(mode, source, rate) {
@@ -98,6 +158,15 @@
         });
         return source;
     }
-    global.TeacherAttendancePolicy = { version, calculate, sourceFromChips, automaticAttendance };
+    global.TeacherAttendancePolicy = {
+        version,
+        hoursBonusVersion,
+        DEFAULT_HOURS_BONUS_TIERS,
+        calculate,
+        sourceFromChips,
+        automaticAttendance,
+        automaticHoursBonus,
+        normalizeHoursBonusTiers
+    };
     if (typeof module !== 'undefined' && module.exports) module.exports = global.TeacherAttendancePolicy;
 })(typeof window !== 'undefined' ? window : globalThis);
