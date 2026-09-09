@@ -75,7 +75,21 @@ async function login(user) {
   page.on('pageerror', e => evidence.errors.push({user:user.id,error:e.message}));
   page.on('dialog', d => d.accept());
   await page.setRequestInterception(true);
-  page.on('request', req => /googleapis\.com$/.test(new URL(req.url()).hostname) ? req.abort() : req.continue());
+  page.on('request', req => {
+    const url = new URL(req.url());
+    const sdk = /^\/firebasejs\/12\.18\.0\/(firebase-[a-z-]+-compat\.js)$/.exec(url.pathname);
+    if (url.hostname === 'www.gstatic.com' && sdk) {
+      req.respond({status:200, contentType:'text/javascript', body:fs.readFileSync(path.join(__dirname,'node_modules/firebase',sdk[1]))}); return;
+    }
+    if (url.hostname === 'cdn.jsdelivr.net' && url.pathname === '/npm/chart.js@4.4.1/dist/chart.umd.min.js') {
+      req.respond({status:200,contentType:'text/javascript',body:fs.readFileSync(path.join(__dirname,'node_modules/chart.js/dist/chart.umd.js'))}); return;
+    }
+    if (/googleapis\.com$/.test(url.hostname)) { req.abort(); return; }
+    if (!['localhost','127.0.0.1'].includes(url.hostname)) {
+      req.respond({status:200,contentType:req.resourceType()==='stylesheet'?'text/css':'text/javascript',body:''}); return;
+    }
+    req.continue();
+  });
   await page.goto(origin+'/index.html', {waitUntil:'domcontentloaded'});
   await page.type('#username', user.username);
   await page.type('#password', password);
@@ -190,6 +204,7 @@ async function main() {
   assert.equal(popupSaved.published.details_tt.netPay,170000);
   assert.equal(popupSaved.published.details_gv.netPay,390000);
   await record('dual-receptionist-popup-save',popupSaved);
+  await require('./consultation-payroll-ui.cjs')({env,admin,month,record,click,report,snapshot});
   // Independent race fixture: employee sees GV while TT is still a draft.
   const gv={role:'giao-vien',netPay:400000,baseSalary:400000,totalBonus:0,advance:0,totalBaseMins:240,totalBaseSalary:400000};
   const tt={role:'tiep-tan',netPay:100000,baseSalary:100000,totalBonus:0,advance:0,filteredMinutes:120,normalMinutes:120,normalSalary:100000};

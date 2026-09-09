@@ -18,6 +18,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let currentDate = new Date(); // Global View Date
 let payrollWritePending = false;
+// Server snapshot stays separate from editable inputs and legacy defaults.
+let payrollSettingsBaseline = null;
+function capturePayrollSettingsBaseline(staffId, monthStr, settings) {
+    payrollSettingsBaseline = { scope: `${staffId}__${monthStr}`, settings: JSON.parse(JSON.stringify(settings)) };
+}
+function getPayrollSettingsBaseline(staffId, monthStr, roleKey) {
+    if (payrollSettingsBaseline?.scope !== `${staffId}__${monthStr}`) {
+        throw new Error('Vui lòng tải lại đúng nhân viên và tháng trước khi lưu.');
+    }
+    const settings = payrollSettingsBaseline.settings;
+    return settings[roleKey] || settings[roleKey.replace('_', '-')] || {};
+}
 
 function requirePayrollAdmin() {
     const raw = localStorage.getItem('currentRole') || 'staff';
@@ -219,6 +231,16 @@ async function initReport() {
             if (bonusPenalty) bonusPenalty.closest('.modern-form-group').style.display = 'none';
             const controlFooter = document.querySelector('.control-footer');
             if (controlFooter) controlFooter.style.display = 'none';
+            const extras = document.getElementById('pdf-tieptan-inputs');
+            if (extras) {
+                extras.querySelectorAll('input').forEach(input => { input.readOnly = true; });
+                extras.querySelectorAll('button').forEach(button => { button.hidden = true; button.disabled = true; button.style.display = 'none'; });
+                const notice = document.createElement('p');
+                notice.id = 'recep-extras-permission-note';
+                notice.textContent = 'Chỉ Admin được chỉnh và lưu phí tư vấn, thưởng doanh thu. Quản lý cấp cao xem để đối chiếu và duyệt công.';
+                notice.style.cssText = 'font-size:.8rem;margin:.75rem 0 0';
+                extras.appendChild(notice);
+            }
         }
 
         const bonusBtn = document.getElementById('btn-manual-bonus');
@@ -2908,7 +2930,7 @@ function renderEvaluationTable(savedData = []) {
 
     criteriaList.forEach((item, index) => {
         const criteriaIndex = isRecep ? item.index : index;
-        const rowData = savedData.find(e => e.id === criteriaIndex) || {};
+        const rowData = savedData.find(e => Number(e.id) === criteriaIndex) || {};
         const note = rowData.note || '';
         const amount = rowData.amount !== undefined ? rowData.amount : item.default;
 
@@ -3645,8 +3667,8 @@ function calculateSalary() {
             : (monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {});
         
         const evaluation = recepSettings.evaluation || [];
-        const phiTuVanObj = evaluation.find(e => e.id === 1);
-        const doanhThuCs3Obj = evaluation.find(e => e.id === 6);
+        const phiTuVanObj = evaluation.find(e => Number(e.id) === 1);
+        const doanhThuCs3Obj = evaluation.find(e => Number(e.id) === 6);
         const phiTuVan = phiTuVanObj ? (Number(phiTuVanObj.amount) || 0) : 0;
         const doanhThuCs3 = doanhThuCs3Obj ? (Number(doanhThuCs3Obj.amount) || 0) : 0;
 
@@ -4022,7 +4044,7 @@ async function saveSalarySettings() {
         
         if (phiTuVanInput) {
             const phiTuVanVal = parseFormattedNumber(phiTuVanInput.value) || 0;
-            const existing = evaluationData.find(e => e.id === 1);
+            const existing = evaluationData.find(e => Number(e.id) === 1);
             if (existing) {
                 existing.amount = phiTuVanVal;
             } else {
@@ -4031,7 +4053,7 @@ async function saveSalarySettings() {
         }
         if (doanhThuCs3Input) {
             const doanhThuCs3Val = parseFormattedNumber(doanhThuCs3Input.value) || 0;
-            const existingCs3 = evaluationData.find(e => e.id === 6);
+            const existingCs3 = evaluationData.find(e => Number(e.id) === 6);
             if (existingCs3) {
                 existingCs3.amount = doanhThuCs3Val;
             } else {
@@ -4050,8 +4072,8 @@ async function saveSalarySettings() {
         adjust_late: loadedSettings.adjust_late !== undefined ? loadedSettings.adjust_late : 0
     };
     const revenues = activeFilter === 'tiep-tan' ? {
-        total: parseFormattedNumber(document.getElementById('pdf-actual-revenue-total')?.value || '0'),
-        cs2: parseFormattedNumber(document.getElementById('pdf-actual-revenue-cs2')?.value || '0')
+        total: parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0'),
+        cs2: parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0')
     } : null;
     const finishWrite = beginPayrollWrite();
     if (!finishWrite) return;
@@ -4061,7 +4083,7 @@ async function saveSalarySettings() {
         firestorePayload[roleKey] = settingsObj;
         await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload, {
             revenues, expectedRole: roleKey,
-            expectedSettings: window.currentMonthlySalarySettingsAll?.[roleKey] || window.currentMonthlySalarySettingsAll?.[roleKey.replace('_', '-')] || {}
+            expectedSettings: getPayrollSettingsBaseline(staffId, monthStr, roleKey)
         });
         
         if (!window.currentMonthlySalarySettingsAll) {
@@ -4151,6 +4173,7 @@ async function loadSalarySettings(isCurrent = null) {
         // Load monthly settings first
         const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true }) || {};
         if (!canCommit()) return;
+        capturePayrollSettingsBaseline(staffId, monthStr, monthlySettings);
         window.currentMonthlySalarySettingsAll = monthlySettings;
         
         let gvSettings = monthlySettings['giao_vien'] || monthlySettings['giao-vien'];
@@ -4191,8 +4214,8 @@ async function loadSalarySettings(isCurrent = null) {
         const monthlyAll = window.currentMonthlySalarySettingsAll || {};
         const ttSettings = monthlyAll['tiep_tan'] || monthlyAll['tiep-tan'] || {};
         const ttEvaluation = ttSettings.evaluation || [];
-        const dbPhiTuVan = ttEvaluation.find(e => e.id === 1)?.amount || 0;
-        const dbDoanhThuCs3 = ttEvaluation.find(e => e.id === 6)?.amount || 0;
+        const dbPhiTuVan = ttEvaluation.find(e => Number(e.id) === 1)?.amount || 0;
+        const dbDoanhThuCs3 = ttEvaluation.find(e => Number(e.id) === 6)?.amount || 0;
 
         if (phiTuVanInput) {
             phiTuVanInput.value = formatNumberWithCommas(dbPhiTuVan);
@@ -6849,50 +6872,6 @@ function handleMoneyInput(e) {
     if (isInModal) {
         recalculateSalaryModal();
     } else {
-        const user = window.currentUserContext;
-        let hasReceptionist = false;
-        let hasTeaching = false;
-        if (user) {
-            const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
-            hasTeaching = hasTeachingEmploymentRole(staffRoles);
-        }
-        const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-        const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
-
-        if (!window.currentMonthlySalarySettingsAll) window.currentMonthlySalarySettingsAll = {};
-        let ttSettings = window.currentMonthlySalarySettingsAll['tiep_tan'] || window.currentMonthlySalarySettingsAll['tiep-tan'];
-        if (!ttSettings) {
-            ttSettings = { evaluation: [] };
-            window.currentMonthlySalarySettingsAll['tiep_tan'] = ttSettings;
-        }
-        if (!ttSettings.evaluation) ttSettings.evaluation = [];
-
-        if (this.id === 'pdf-phi-tu-van' || this.id === 'pdf-doanh-thu-cs3') {
-            const val = parseFormattedNumber(formatted);
-            const critId = this.id === 'pdf-phi-tu-van' ? 1 : 6;
-            
-            // Only update DOM if receptionist table is active
-            if (activeFilter === 'tiep-tan') {
-                const evalAmt = document.querySelector(`.eval-amount[data-index="${critId}"]`);
-                if (evalAmt) {
-                    evalAmt.value = formatted;
-                }
-            }
-            
-            let found = ttSettings.evaluation.find(e => e.id === critId);
-            if (found) {
-                found.amount = val;
-            } else {
-                ttSettings.evaluation.push({ id: critId, amount: val, note: '' });
-            }
-            
-            // Sync with window.currentLoadedSalarySettings if tiep-tan is active
-            if (activeFilter === 'tiep-tan') {
-                window.currentLoadedSalarySettings = ttSettings;
-            }
-        }
-        
         calculateSalary();
     }
 }
@@ -7472,7 +7451,7 @@ async function populateModalCurrentTab() {
         
         activeCriteriaList.forEach((item, index) => {
             const criteriaIndex = isRecep ? item.index : index;
-            const saved = (roleSettings.evaluation || []).find(e => e.id === criteriaIndex) || {};
+            const saved = (roleSettings.evaluation || []).find(e => Number(e.id) === criteriaIndex) || {};
             let amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             let noteVal = saved.note || '';
 
@@ -7784,7 +7763,7 @@ async function saveSalarySettingsFromModal() {
         const roleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
         firestorePayload[roleKey] = settingsObj;
         await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload, {
-            expectedRole: roleKey, expectedSettings: activeRoleSettings
+            expectedRole: roleKey, expectedSettings: getPayrollSettingsBaseline(staffId, monthStr, roleKey)
         });
         
         window.currentLoadedRoleKey = roleKey;
@@ -7803,8 +7782,8 @@ async function saveSalarySettingsFromModal() {
         }
         
         if (roleKey === 'tiep_tan') {
-            const phiTuVanObj = evaluationData.find(e => e.id === 1);
-            const doanhThuCs3Obj = evaluationData.find(e => e.id === 6);
+            const phiTuVanObj = evaluationData.find(e => Number(e.id) === 1);
+            const doanhThuCs3Obj = evaluationData.find(e => Number(e.id) === 6);
             const backgroundPhiTuVanInp = document.getElementById('pdf-phi-tu-van');
             const backgroundDoanhThuCs3Inp = document.getElementById('pdf-doanh-thu-cs3');
             if (backgroundPhiTuVanInp && phiTuVanObj) {
@@ -8245,7 +8224,7 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         
         activeCriteriaList.forEach((item, index) => {
             const criteriaIndex = isRecep ? item.index : index;
-            const saved = (prevRoleSettings.evaluation || []).find(e => e.id === criteriaIndex) || {};
+            const saved = (prevRoleSettings.evaluation || []).find(e => Number(e.id) === criteriaIndex) || {};
             const amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             const noteVal = saved.note || '';
             criteriaPay += amountVal;
@@ -8864,37 +8843,17 @@ async function saveRecepExtras() {
     }
     
     try {
-        // 1. Get the current monthly settings from DB to prevent wiping other data
-        const monthlySettings = await DBService.getMonthlySalarySettings(staffId, monthStr, { strict: true }) || {};
-        const expectedSettings = JSON.parse(JSON.stringify(monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {}));
-        let settings = monthlySettings[roleKey] || monthlySettings[roleKey.replace('_', '-')] || {};
-        if (Object.keys(settings).length === 0) {
-            // Check if they are a pure receptionist
-            const user = window.currentUserContext;
-            let hasReceptionist = false;
-            let hasTeaching = false;
-            if (user) {
-                const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-                hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
-                hasTeaching = hasTeachingEmploymentRole(staffRoles);
-            }
-            const isPureRecep = hasReceptionist && !hasTeaching;
-            if (isPureRecep) {
-                settings = await DBService.getSalarySettings(staffId, { strict: true }) || {};
-            } else {
-                settings = { evaluation: [] };
-            }
-        }
-        
-        // 2. Read new values from inputs
-        
-        // 3. Update or initialize the evaluation array
+        const expectedSettings = getPayrollSettingsBaseline(staffId, monthStr, roleKey);
+        const monthlySettings = window.currentMonthlySalarySettingsAll || {};
+        const settings = JSON.parse(JSON.stringify(monthlySettings[roleKey] || monthlySettings['tiep-tan'] || { evaluation: [] }));
+
+        // Update the two manual extras, preserving all other monthly fields.
         if (!settings.evaluation) {
             settings.evaluation = [];
         }
         
         // Find or create Phí tư vấn (id: 1)
-        let phiTuVanObj = settings.evaluation.find(e => e.id === 1);
+        let phiTuVanObj = settings.evaluation.find(e => Number(e.id) === 1);
         if (phiTuVanObj) {
             phiTuVanObj.amount = phiTuVanVal;
         } else {
@@ -8902,7 +8861,7 @@ async function saveRecepExtras() {
         }
         
         // Find or create Thưởng DT CS3 (id: 6)
-        let doanhThuCs3Obj = settings.evaluation.find(e => e.id === 6);
+        let doanhThuCs3Obj = settings.evaluation.find(e => Number(e.id) === 6);
         if (doanhThuCs3Obj) {
             doanhThuCs3Obj.amount = doanhThuCs3Val;
         } else {
@@ -8914,36 +8873,9 @@ async function saveRecepExtras() {
         firestorePayload[roleKey] = settings;
         await DBService.saveMonthlySalarySettings(staffId, monthStr, firestorePayload, { expectedRole: roleKey, expectedSettings });
         
-        // 5. Update local cache/state
-        monthlySettings[roleKey] = settings;
-        monthlySettings[roleKey.replace('_', '-')] = settings;
-        window.currentMonthlySalarySettingsAll = monthlySettings;
-        
-        const user = window.currentUserContext;
-        let hasReceptionist = false;
-        let hasTeaching = false;
-        if (user) {
-            const staffRoles = (user.roles && user.roles.length > 0) ? user.roles : [user.role || ''];
-            hasReceptionist = hasReceptionistEmploymentRole(staffRoles) || (window.unfilteredAllMonthChips || []).some(c => c.isReceptionist || (c.sessionData && ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(c.sessionData.role)));
-            hasTeaching = hasTeachingEmploymentRole(staffRoles);
-        }
-        const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
-        const activeFilter = (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching) ? 'tiep-tan' : 'giao-vien';
-        const loadedRoleKey = activeFilter === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
-        
-        if (loadedRoleKey === 'tiep_tan') {
-            window.currentLoadedSalarySettings = settings;
-            
-            // Update DOM inputs if they exist (in case admin is viewing and has the table rendered)
-            const phiTuVanEvalAmt = document.querySelector(`.eval-amount[data-index="1"]`);
-            if (phiTuVanEvalAmt) phiTuVanEvalAmt.value = formatNumberWithCommas(phiTuVanVal);
-            
-            const doanhThuCs3EvalAmt = document.querySelector(`.eval-amount[data-index="6"]`);
-            if (doanhThuCs3EvalAmt) doanhThuCs3EvalAmt.value = formatNumberWithCommas(doanhThuCs3Val);
-        }
-        
-        calculateSalary();
-        const draftResult = await saveCalculationDraftToDb(staffId, monthStr);
+        // Rebuild from saved settings so unrelated unsaved fields cannot leak into the payslip.
+        await loadSalarySettings();
+        const draftResult = await saveCalculationDraftToDb(staffId, monthStr, 'tt');
         showDraftSaveOutcome(draftResult, 'Đã lưu thông tin bổ sung thành công!');
         await loadSalarySettings();
     } catch (e) {
@@ -9791,7 +9723,7 @@ function getCurrentCalculationPayload(role) {
         const savedEval = roleSettings.evaluation || [];
         activeCriteria.forEach((item, index) => {
             const criteriaIndex = role === 'tiep-tan' ? item.index : index;
-            const rowData = savedEval.find(e => e.id === criteriaIndex) || {};
+            const rowData = savedEval.find(e => Number(e.id) === criteriaIndex) || {};
             let amount = rowData.amount !== undefined ? rowData.amount : (item.default || 0);
             let note = rowData.note || '';
             
@@ -9825,7 +9757,7 @@ function getCurrentCalculationPayload(role) {
         
         if (phiTuVanInput) {
             const actualPhiTuVan = parseFormattedNumber(phiTuVanInput.value) || 0;
-            const existingItem = evalItems.find(e => e.id === 1);
+            const existingItem = evalItems.find(e => Number(e.id) === 1);
             if (existingItem) {
                 totalBonus += (actualPhiTuVan - existingItem.amount);
                 existingItem.amount = actualPhiTuVan;
@@ -9836,7 +9768,7 @@ function getCurrentCalculationPayload(role) {
         }
         if (doanhThuCs3Input) {
             const actualDoanhThuCs3 = parseFormattedNumber(doanhThuCs3Input.value) || 0;
-            const existingCs3 = evalItems.find(e => e.id === 6);
+            const existingCs3 = evalItems.find(e => Number(e.id) === 6);
             if (existingCs3) {
                 totalBonus += (actualDoanhThuCs3 - existingCs3.amount);
                 existingCs3.amount = actualDoanhThuCs3;
@@ -10080,7 +10012,7 @@ function showDraftSaveOutcome(result, successMessage) {
     UIService.toast(successMessage, 'success');
 }
 
-async function saveCalculationDraftToDb(staffId, monthStr) {
+async function saveCalculationDraftToDb(staffId, monthStr, requestedComponent) {
     if (!staffId || !monthStr) return;
     if (!requireCompletePayrollReport() || window.payrollReadyScope !== `${staffId}__${monthStr}`) {
         throw new Error('Chưa thể lưu bản tính: dữ liệu nhân sự/tháng chưa tải đủ.');
@@ -10096,7 +10028,7 @@ async function saveCalculationDraftToDb(staffId, monthStr) {
     }
     const filterVal = document.getElementById('salary-role-filter')?.value || 'all';
     const activeFilter = window.currentLoadedRoleKey === 'tiep_tan' ? 'tiep-tan' : 'giao-vien';
-    const activeComponent = activeFilter === 'tiep-tan' ? 'tt' : 'gv';
+    const activeComponent = requestedComponent || (activeFilter === 'tiep-tan' ? 'tt' : 'gv');
     
     let payloadGV = null;
     let payloadTT = null;

@@ -119,5 +119,11 @@ module.exports = async ({ env, admin, employee, origin, month, record, shot, cli
         catch (e) { return e.code; }
     }, month);
     assert.equal(permission, 'permission-denied');
+    await report(manager, 'audit-dual');
+    await manager.select('#salary-role-filter', 'tiep-tan');
+    await manager.waitForFunction(() => window.payrollReadyScope && window.payrollReadyScope === window.currentReportScope && window.currentLoadedRoleKey === 'tiep_tan');
+    assert.equal(await manager.$eval('#pdf-phi-tu-van', el => el.readOnly), true);
+    assert.equal(await manager.$eval('#pdf-tieptan-inputs button', el => el.hidden && el.disabled && getComputedStyle(el).display === 'none'), true);
+    assert.match(await manager.$eval('#recep-extras-permission-note', el => el.textContent), /Chỉ Admin/);
     await record('senior-review-and-schedule-deep-links', { permission, screenshot: await shot(manager, 'senior-review') });
 };
