@@ -1,7 +1,7 @@
-// Service Worker v163 - senior consultation fee permission.
+// Service Worker v164 - teacher attendance preview and monthly policy.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v163-senior-consultation-20260909';
+const CACHE_NAME = 'tdt-chamcong-v164-teacher-attendance-20260909';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -30,7 +30,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
     '/js/db-service.js?v=20260909-senior-consultation-v1',
-    '/js/report.js?v=20260909-senior-consultation-v1',
+    '/js/report.js?v=20260909-teacher-attendance-v1',
+    '/js/teacher-attendance-policy.js?v=20260909-teacher-attendance-v1',
+    '/js/teacher-attendance-editor.js?v=20260909-teacher-attendance-v1',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',
     '/js/evaluation-service.js?v=20260906-quynh-autosubject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',

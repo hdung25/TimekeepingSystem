@@ -4000,6 +4000,9 @@ function applySalaryVisibility() {
 
 async function saveSalarySettings() {
     if (!requirePayrollAdmin() || payrollWritePending) return;
+    try {
+        if (window.currentLoadedRoleKey !== 'tiep_tan') window.TeacherAttendanceEditor?.assertFresh(window.currentLoadedSalarySettings);
+    } catch (error) { UIService.toast(error.message, 'warning'); return; }
     if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (staffId === 'all') return;
@@ -7545,6 +7548,7 @@ async function populateModalCurrentTab() {
         });
     }
     
+    window.TeacherAttendanceEditor?.mount(roleSettings);
     bindMoneyInputFormatters();
     recalculateSalaryModal();
 
@@ -7752,6 +7756,13 @@ async function saveSalarySettingsFromModal() {
         advance: advance
     };
     
+    try {
+        Object.assign(settingsObj, window.TeacherAttendanceEditor?.savePatch() || {});
+    } catch (error) {
+        UIService.toast(error.message, 'warning');
+        return;
+    }
+
     if (window.modalActiveRole === 'tiep-tan') {
         const readFactor = (id, fallback) => {
             const value = document.getElementById(id)?.value;

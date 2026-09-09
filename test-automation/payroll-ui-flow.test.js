@@ -205,6 +205,7 @@ async function main() {
   assert.equal(popupSaved.published.details_gv.netPay,390000);
   await record('dual-receptionist-popup-save',popupSaved);
   await require('./consultation-payroll-ui.cjs')({env,admin,month,record,click,report,snapshot});
+  await require('./teacher-attendance-ui.cjs')({env,admin,month,record,click,report,snapshot});
   // Independent race fixture: employee sees GV while TT is still a draft.
   const gv={role:'giao-vien',netPay:400000,baseSalary:400000,totalBonus:0,advance:0,totalBaseMins:240,totalBaseSalary:400000};
   const tt={role:'tiep-tan',netPay:100000,baseSalary:100000,totalBonus:0,advance:0,filteredMinutes:120,normalMinutes:120,normalSalary:100000};
