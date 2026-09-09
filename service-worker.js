@@ -1,7 +1,7 @@
-// Service Worker v164 - teacher attendance preview and monthly policy.
+// Service Worker v165 - scheduled payroll edits and stable concurrency.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v164-teacher-attendance-20260909';
+const CACHE_NAME = 'tdt-chamcong-v165-scheduled-overtime-20260909';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -29,15 +29,15 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260908-feedback-repair-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260909-senior-consultation-v1',
-    '/js/report.js?v=20260909-teacher-attendance-v1',
+    '/js/db-service.js?v=20260909-scheduled-overtime-v1',
+    '/js/report.js?v=20260909-scheduled-overtime-v1',
     '/js/teacher-attendance-policy.js?v=20260909-teacher-attendance-v1',
     '/js/teacher-attendance-editor.js?v=20260909-teacher-attendance-v1',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',
     '/js/evaluation-service.js?v=20260906-quynh-autosubject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
-    '/js/admin-payroll-override-ui.js?v=20260906-early10-recovery-v1',
+    '/js/admin-payroll-override-ui.js?v=20260909-scheduled-overtime-v1',
     '/js/shift-oversight.js?v=20260906-early10-recovery-v1',
     // Keep the legacy key for cham-cong.html while caching the current key used
     // by the scheduler and the updated staff pages. A fresh cache must support

@@ -5382,7 +5382,13 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             dateKey,
             sessionId: String(sessionId),
             expectedFingerprint: DBService.getAdminPayrollSessionFingerprint(rawSession),
-            expectedRevision: Number(rawSession?.adminPayrollOverride?.revision || 0)
+            expectedRevision: Number(rawSession?.adminPayrollOverride?.revision || 0),
+            originalClock: {
+                checkIn: rawSession.checkIn || rawSession.start || null,
+                checkOut: rawSession.checkOut || null,
+                displayedIn: inIso,
+                displayedOut: outIso
+            }
         };
         window.AdminPayrollOverrideUI.open({
             isPrimaryAdmin: true,
@@ -5751,6 +5757,18 @@ async function saveEditedTimeOperation() {
         ...(classSectionKey && classIsOffice ? { linkedOfficeShift: classSectionKey } : {}),
         ...(absentSubShifts !== null ? { absentSubShifts } : {})
     };
+    // The time inputs show minutes only. An overtime/role-only edit must keep
+    // the original seconds instead of rewriting the recorded clock evidence.
+    const clockContext = window.currentAdminPayrollEditContext;
+    if (clockContext?.staffId === staffId && clockContext.dateKey === dateKey &&
+        clockContext.sessionId === String(sessionIdRaw) && clockContext.originalClock) {
+        const clock = clockContext.originalClock;
+        if (checkIn === clock.displayedIn && clock.checkIn) {
+            newData.checkIn = clock.checkIn;
+            newData.start = clock.checkIn;
+        }
+        if (checkOut === clock.displayedOut) newData.checkOut = clock.checkOut;
+    }
     let selectedSubjectsForSave = [];
     let isFixedForSave = false;
 

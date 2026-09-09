@@ -1,0 +1,20 @@
+'use strict';
+const fs=require('node:fs'); const {execFileSync}=require('node:child_process');
+const PROJECT='timekeeping-69f3f', STAFF='nv_1781780302340', DATE='2026-08-13';
+const root=`https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const decode=v=>!v?null:'nullValue'in v?null:'stringValue'in v?v.stringValue:'booleanValue'in v?v.booleanValue:'integerValue'in v?Number(v.integerValue):'doubleValue'in v?v.doubleValue:'timestampValue'in v?v.timestampValue:'arrayValue'in v?(v.arrayValue.values||[]).map(decode):'mapValue'in v?Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,x])=>[k,decode(x)])):v;
+(async()=>{
+const token=execFileSync('powershell.exe',['-NoProfile','-File','C:/Users/Admin/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.ps1','auth','print-access-token'],{encoding:'utf8',windowsHide:true}).trim();
+const get=async path=>{const r=await fetch(root+'/'+path,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(25000)});if(r.status===404)return null;if(!r.ok)throw new Error(path+': '+r.status);const raw=await r.json();return {path,updateTime:raw.updateTime,raw,data:Object.fromEntries(Object.entries(raw.fields||{}).map(([k,v])=>[k,decode(v)]))};};
+const user=await get('users/'+STAFF);if(user.data.name!=='Nguyễn Huỳnh Uyên Vy') throw new Error('Staff name mismatch: '+user.data.name);
+const paths=['attendance_logs/'+DATE+'_'+STAFF,'salary_settings_monthly/2026-08_'+STAFF,...['cs1','cs2','cs3'].map(b=>'schedules/'+b+'__'+DATE)];
+const docs=await Promise.all(paths.map(get));
+const response=await fetch(root+':runQuery',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({structuredQuery:{from:[{collectionId:'overtime_requests'}],where:{compositeFilter:{op:'AND',filters:[{fieldFilter:{field:{fieldPath:'staffId'},op:'EQUAL',value:{stringValue:STAFF}}},{fieldFilter:{field:{fieldPath:'dateKey'},op:'EQUAL',value:{stringValue:DATE}}}]}},limit:20}})});
+if(!response.ok)throw Error('overtime query '+response.status);
+const overtime=(await response.json()).filter(r=>r.document).map(r=>({raw:r.document,data:Object.fromEntries(Object.entries(r.document.fields||{}).map(([k,v])=>[k,decode(v)]))}));
+const assigned=r=>['gvId','gvThayTeId','gvThayTheId'].some(k=>r[k]===STAFF)||['gvList','gvThayTeList','gvThayTheList','registeredTeachers'].some(k=>(r[k]||[]).some(u=>u.id===STAFF));
+const result={project:PROJECT,staff:{id:STAFF,name:user.data.name,teachingMode:user.data.teachingMode,roles:user.data.roles,salary_config:user.data.salary_config},docs,overtime};
+fs.writeFileSync('scratch/uyen-vy-20260813-inspection.json',JSON.stringify(result,null,2));
+console.log(JSON.stringify({overtime:overtime.map(o=>o.data)},null,2));
+console.log(JSON.stringify({staff:result.staff,attendance:docs[0]?.data,salaryState:{status:docs[1]?.data.published?.status,status_gv:docs[1]?.data.published?.status_gv,netPay:docs[1]?.data.published?.netPay},schedule:docs.slice(2).flatMap(d=>d?Object.entries(d.data).flatMap(([section,rows])=>Array.isArray(rows)?rows.map((r,index)=>({index,...r})).filter(assigned).map(r=>({path:d.path,section,...r})):[]):[])},null,2));
+})();

@@ -12,6 +12,25 @@ const ui = read('js/admin-payroll-override-ui.js');
 const html = read('bao-cao.html');
 const serviceWorker = read('service-worker.js');
 
+// Firestore map order is not a change to payroll. Clock values, nested money,
+// allocation order and revisions remain protected by the same lock.
+{
+    const source = db.match(/function _adminPayrollSessionFingerprint\(session\) \{[\s\S]*?\n\}/)[0];
+    const context = {}; vm.createContext(context); vm.runInContext(source, context);
+    const fingerprint = context._adminPayrollSessionFingerprint;
+    const original = {id:1786618060233,checkIn:'2026-08-13T10:47:00.000Z',roleRate:0,
+        adminPayrollOverride:{mode:'actual',revision:1,allocations:[{id:'a',manualRate:0,scheduleRef:{start:'18:00',end:'19:30'}},{id:'b',manualRate:1000}]}};
+    const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
+        ? Object.fromEntries(Object.entries(value).reverse().map(([k,v])=>[k,reorder(v)])) : value;
+    assert.equal(fingerprint(original),fingerprint(reorder(original)));
+    for (const mutate of [s=>s.checkIn='2026-08-13T11:00:00.000Z',s=>s.roleRate=1,
+        s=>s.adminPayrollOverride.revision++,s=>s.adminPayrollOverride.allocations[0].manualRate=1,
+        s=>s.adminPayrollOverride.allocations.reverse()]) {
+        const changed=structuredClone(original); mutate(changed);
+        assert.notEqual(fingerprint(original),fingerprint(changed),'real concurrent changes must still block');
+    }
+}
+
 const pureTag = html.indexOf('js/admin-payroll-override.js');
 const evaluatorTag = html.indexOf('js/evaluation-service.js');
 const uiTag = html.indexOf('js/admin-payroll-override-ui.js');

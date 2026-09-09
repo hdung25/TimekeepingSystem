@@ -104,7 +104,7 @@ async function click(page, selector) {
   await page.waitForSelector(selector,{visible:true,timeout:30000});
   await page.$eval(selector,e=>e.scrollIntoView({block:'center',behavior:'instant'}));
   await new Promise(r=>setTimeout(r,300));
-  await page.waitForFunction(s=>{const e=document.querySelector(s);const r=e.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return !e.disabled && (hit===e||e.contains(hit));},{timeout:10000},selector);
+  await page.waitForFunction(s=>{const e=document.querySelector(s);if(!e)return false;let r=e.getBoundingClientRect();if(r.top<0||r.bottom>innerHeight){e.scrollIntoView({block:'center',behavior:'instant'});r=e.getBoundingClientRect();}const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return !e.disabled && (hit===e||e.contains(hit));},{timeout:10000},selector);
   // Native keyboard activation avoids moving targets while the calendar scrolls.
   await page.focus(selector);
   const key=await page.$eval(selector,e=>e.type==='checkbox'?'Space':'Enter');
@@ -164,6 +164,8 @@ async function main() {
   await new Promise(r=>server.listen(0,'127.0.0.1',r)); origin=`http://127.0.0.1:${server.address().port}`;
   browser=await puppeteer.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--no-sandbox']});
   const admin=await login(users[0]);
+  await require('./scheduled-overtime-ui.cjs')({env,admin,origin,record,click});
+  if (process.env.PAYROLL_UI_ONLY === 'scheduled-overtime') return;
   await report(admin,'audit-teacher');
   await record('teacher-full-month',await snapshot(admin));
   const filterOptions=await admin.$eval('#display-role-filter',e=>[...e.options].map(o=>o.value));

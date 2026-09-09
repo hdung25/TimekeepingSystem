@@ -583,7 +583,7 @@
         const saved = context.session.adminPayrollOverride || {};
         panel.querySelector('#apo-mode').value = ['schedule', 'actual', 'manual'].includes(saved.mode)
             ? saved.mode
-            : 'actual';
+            : 'schedule';
         panel.querySelector('#apo-reason').value = saved.reason || '';
         panel.querySelector('#apo-clear-links').checked = false;
         panel.querySelector('#apo-allow-overlap').checked = false;

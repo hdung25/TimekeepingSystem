@@ -392,11 +392,11 @@ assert.match(report,
 
 const earlyIndex = html.indexOf('js/early10.js?v=20260908-feedback-repair-v1');
 const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1');
-const dbIndex = html.indexOf('js/db-service.js?v=20260909-senior-consultation-v1');
+const dbIndex = html.indexOf('js/db-service.js?v=20260909-scheduled-overtime-v1');
 const scheduleIndex = html.indexOf('js/schedule.js?v=20260908-roster-refresh-v1');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v164-teacher-attendance-20260909/);
+assert.match(serviceWorker, /tdt-chamcong-v165-scheduled-overtime-20260909/);
 assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260906-early10-recovery-v1/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');

@@ -411,7 +411,19 @@ function _adminPayrollSessionFingerprint(session) {
         linkedScheduleSection: source.linkedScheduleSection || null,
         adminPayrollOverride: source.adminPayrollOverride || null
     };
-    return JSON.stringify(snapshot);
+    // Firestore maps have no key order. Query snapshots and transaction reads
+    // can materialize the same nested override/link in a different order.
+    // Preserve array order and every value so real concurrent edits still fail.
+    const canonicalize = value => {
+        if (Array.isArray(value)) return value.map(canonicalize);
+        if (value && typeof value === 'object') {
+            if (typeof value.toDate === 'function') return value.toDate().toISOString();
+            if (value instanceof Date) return value.toISOString();
+            return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalize(value[key])]));
+        }
+        return value;
+    };
+    return JSON.stringify(canonicalize(snapshot));
 }
 
 function _serializedAdminPayrollOverride(normalized, revision, actor, reason) {

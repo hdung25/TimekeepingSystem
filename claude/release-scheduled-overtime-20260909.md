@@ -1,0 +1,11 @@
+# Scheduled overtime correction — 09 September 2026
+
+Incident: Nguyễn Huỳnh Uyên Vy (`nv_1781780302340`), 13 August, E5 scheduled 18:00–19:30. Source check-in is 17:47, and 15 minutes overtime is already approved. A first ordinary edit defaulted to an actual-time override; this bypassed schedule clipping and the legacy overtime calculation. Preserve deliberate existing actual/manual overrides; new ordinary edits default to schedule. The explicitly requested incident restoration uses an audited, guarded single-session repair.
+
+The payroll concurrency token now sorts nested Firestore map keys before comparison. Array order and changed values/revisions still conflict. The report also retains source timestamp seconds when time inputs are unchanged. No change to GPS, role permissions, roster assignment, salary rates, or payslip publishing.
+
+Validation: full npm regression suite passed. Chrome + Auth/Firestore emulator payroll suite passed, including 18:00–19:30 + 15 = 105 minutes, reversal to 90 minutes, preserving source seconds/notes, map-order round trip, and refusing a genuine concurrent edit. Existing report/filter/salary/history/export/receipt/revision scenarios passed. A test scroll helper was made resilient to a refreshed element moving outside the viewport; it still uses actual keyboard activation and hit testing.
+
+Production target verified: Vercel account hdung25, scope ha-huy-dungs-projects, project timekeeping-system, project ID prj_58GRPpalLQeeweIG1MYu3ji5K6ZH, alias timekeeping-system-tawny.vercel.app. Prior deployment dpl_MSoUbc6Dej1ABJEdiBJ81Nqjio1b. Cache v165 and versioned DB/report/editor assets updated on every consuming page.
+
+Repair script defaults to preview, checks the exact reviewed attendance updateTime, employee, schedule and approved overtime, and commits backup/audit/source correction atomically in a transaction. Only that session's override mode/history changes; raw check-in/out and approved overtime remain. No salary monthly document currently exists for this employee/month. Backup is retained in migration_backups/uyen-vy-scheduled-overtime-20260909-v1 and ignored local scratch. Original override can be restored from the backup through an audited Admin edit; never restore the whole document over newer work.
