@@ -7966,11 +7966,24 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         // History is a saved document, not a recalculation using today's rates.
         const savedMonth = await DBService.getMonthlySalarySettings(staffId, prevMonthStr, { strict: true });
         const savedPayslip = savedMonth?.published;
-        if (savedPayslip) {
-            const key = window.modalActiveRole === 'tiep-tan' ? 'tt' : 'gv';
-            const state = DBService.getPayslipLifecycleState(savedPayslip);
-            const details = savedPayslip[`details_${key}`] ||
-                ((key === 'tt' ? savedPayslip.role === 'tiep-tan' : savedPayslip.role !== 'tiep-tan' && savedPayslip.role !== 'dual') ? savedPayslip.details : null);
+        const historyRoleKey = window.modalActiveRole === 'tiep-tan' ? 'tt' : 'gv';
+        const historyRoleLabel = historyRoleKey === 'tt' ? 'Tiếp Tân' : 'Giáo Viên / Trợ Giảng';
+        const savedPayslipState = savedPayslip
+            ? DBService.getPayslipLifecycleState(savedPayslip)
+            : null;
+        const savedDetails = savedPayslip
+            ? savedPayslip[`details_${historyRoleKey}`] ||
+                ((historyRoleKey === 'tt'
+                    ? ['tiep-tan', 'tiep_tan', 'receptionist'].includes(String(savedPayslip.role || '').trim().toLowerCase())
+                    : ['giao-vien', 'giao_vien', 'teacher'].includes(String(savedPayslip.role || '').trim().toLowerCase()))
+                    ? savedPayslip.details
+                    : null)
+            : null;
+        const hasSavedRoleDetails = !!savedDetails && typeof window.renderDetailedSalaryTable === 'function';
+        if (savedPayslip && hasSavedRoleDetails) {
+            const key = historyRoleKey;
+            const state = savedPayslipState;
+            const details = savedDetails;
             const title = `Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Đã Lưu)`;
             let actorRoles;
             try { actorRoles = JSON.parse(localStorage.getItem('currentRole') || '[]'); } catch (_) { actorRoles = [localStorage.getItem('currentRole')]; }
@@ -7992,6 +8005,8 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                 }
                 historyContainer.style.display = 'block';
             }
+            if (loadingEl) loadingEl.style.display = 'none';
+            applySalaryVisibility();
             return;
         }
         
@@ -8291,10 +8306,18 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         
         const netPay = basePay + criteriaPay - pVDX - pVKP - pLate - adv;
         
+        const fallbackTitle = `Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Tính lại từ công — chưa có bản chốt)`;
+        const fallbackNotice = savedPayslip
+            ? `Bản lương đã chốt tháng ${prevMonth + 1}/${prevYear} chưa có chi tiết vai trò ${historyRoleLabel}. Hệ thống đang tính lại từ công để đối chiếu; số tiền này không thay thế bản chốt.`
+            : `Tháng ${prevMonth + 1}/${prevYear} chưa có bản lương đã chốt cho nhân viên này. Hệ thống đang tính lại từ công để đối chiếu; số tiền này không thay thế bản chốt.`;
+
         if (historyContainer) {
             historyContainer.innerHTML = `
                 <div style="margin-bottom: 1rem; font-size: 1.1rem; font-weight: 700; color: #1E3A8A; border-bottom: 2px solid #E5E7EB; padding-bottom: 0.5rem;">
-                    Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Tính lại từ công — chưa có bản chốt)
+                    ${fallbackTitle}
+                </div>
+                <div role="status" style="margin-bottom: 1rem; padding: 0.75rem 1rem; border: 1px solid #FCD34D; border-radius: 8px; background: #FFFBEB; color: #92400E; font-size: 0.85rem; line-height: 1.45;">
+                    ${fallbackNotice}
                 </div>
                 
                 <div style="margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #E5E7EB; border-radius: 12px; background: #F9FAFB; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">

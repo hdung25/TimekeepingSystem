@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260909-auto-attendance-v2';
+const version = '20260910-payroll-history-v1';
 const scheduleVersion = '20260908-roster-refresh-v1';
 const payrollVersion = '20260908-payroll-review-v2';
 const assets = ['js/main.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/report.js', 'js/teacher-attendance-policy.js', 'js/teacher-attendance-editor.js', 'js/payroll-review.js', 'js/schedule.js',
@@ -50,7 +50,7 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         await page.waitForSelector('#login-form', { visible: true });
         await page.waitForFunction(async () => {
             const registration = await navigator.serviceWorker.getRegistration();
-            const key = (await caches.keys()).find(name => name.includes('v166-auto-attendance'));
+            const key = (await caches.keys()).find(name => name.includes('v167-payroll-history'));
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
@@ -66,7 +66,7 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         evidence.browser = await page.evaluate(async () => ({
             title: document.title, viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
             cacheKeys: await caches.keys(), serviceWorker: (await navigator.serviceWorker.getRegistration())?.active?.scriptURL,
-            cachedAssets: (await (await caches.open('tdt-chamcong-v166-auto-attendance-20260909')).keys()).length
+            cachedAssets: (await (await caches.open('tdt-chamcong-v167-payroll-history-20260910')).keys()).length
         }));
         assert.ok(evidence.browser.pageWidth <= evidence.browser.viewport + 2, 'Mobile login must not overflow');
         assert.deepEqual(evidence.browserErrors, []);

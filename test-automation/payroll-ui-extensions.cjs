@@ -32,12 +32,35 @@ module.exports=async function({env,admin,employee,dualEmployee,origin,month,reco
   await click(admin,'#btn-salary-tab-history');
   await admin.waitForFunction(()=>document.getElementById('modal-history-content')?.innerText.includes('Đã Lưu'),{timeout:30000});
   await record('previous-month-history-popup',{text:await admin.$eval('#modal-history-content',e=>e.innerText),screenshot:await shot(admin,'previous-month-history')});
+  // When a previous month has no published snapshot, the history tab must
+  // show an explicit recalculation notice instead of looking like lost data.
+  await env.withSecurityRulesDisabled(c=>c.firestore().collection('salary_settings_monthly').doc('2026-08_audit-dual').set({
+    giao_vien:{class_rates:{'Toán 5':100000},advance:0,evaluation:[]}
+  }));
+  await report(admin,'audit-dual');
+  await click(admin,'#btn-class-rates-setup');
+  await click(admin,'#btn-salary-tab-history');
+  await admin.waitForFunction(()=>document.getElementById('modal-history-content')?.innerText.includes('chưa có bản lương đã chốt'),{timeout:30000});
+  await record('unpublished-previous-month-history-fallback',{text:await admin.$eval('#modal-history-content',e=>e.innerText),screenshot:await shot(admin,'unpublished-previous-month-history')});
+  await click(admin,'button[onclick="closeClassRateModal()"]');
+  // A dual-role month may have a saved component for only one role. The
+  // history tab must keep the saved data intact and explain that the active
+  // role is being recalculated instead of stopping on an empty panel.
+  await env.withSecurityRulesDisabled(c=>c.firestore().collection('salary_settings_monthly').doc('2026-08_audit-dual').set({
+    giao_vien:{class_rates:{'Toán 5':100000},advance:0,evaluation:[]},
+    published:{role:'dual',status:'published',status_tt:'published',details_tt:{role:'tiep-tan',staffName:'Audit Dual',netPay:100000,baseSalary:100000,totalBonus:0,advance:0,filteredMinutes:120,normalMinutes:120,normalSalary:100000}}
+  }));
+  await report(admin,'audit-dual');
+  await click(admin,'#btn-class-rates-setup');
+  await click(admin,'#btn-salary-tab-history');
+  await admin.waitForFunction(()=>document.getElementById('modal-history-content')?.innerText.includes('chưa có chi tiết vai trò Giáo Viên'),{timeout:30000});
+  await record('partial-previous-month-history-fallback',{text:await admin.$eval('#modal-history-content',e=>e.innerText),screenshot:await shot(admin,'partial-previous-month-history')});
+  await click(admin,'button[onclick="closeClassRateModal()"]');
   await employee.reload({waitUntil:'domcontentloaded'});
   await employee.waitForFunction(()=>window.__TDT_CORE_BOOTSTRAP_READY__,{timeout:30000});
   await click(employee,'button[onclick="changePersonalSalaryMonth(-1)"]');
   await employee.waitForFunction(()=>document.getElementById('personal-salary-month-title')?.innerText.includes('8, 2026') && document.getElementById('personal-salary-content').style.display==='block',{timeout:30000});
   await record('previous-month-employee-published',await employee.$eval('#personal-salary-content',e=>e.innerText));
-  await click(admin,'button[onclick="closeClassRateModal()"]');
   // Legacy dual-role records are supported by the receipt adapters and employee UI.
   const gv={role:'giao-vien',staffName:'Audit Dual',netPay:400000,baseSalary:400000,totalBonus:0,advance:0,totalBaseMins:240,totalBaseSalary:400000};
   const tt={role:'tiep-tan',staffName:'Audit Dual',netPay:100000,baseSalary:100000,totalBonus:0,advance:0,filteredMinutes:120,normalMinutes:120,normalSalary:100000};
