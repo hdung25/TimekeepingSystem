@@ -1,7 +1,27 @@
-/* Pure monthly teacher policy. Only explicit Admin application creates a draft. */
+/* Pure monthly teacher calculations. No database writes or payslip publication. */
 (function (global) {
     'use strict';
-    const version = 'teacher-attendance-20260909-v1';
+    const version = 'teacher-attendance-excel-20260909-v2';
+    // Owner-approved BẢNG LƯƠNG TG!AR4 formula. Keep the exact Excel
+    // priorities and boundaries, including >64.99 for two permitted absences.
+    function automaticAttendance(mode, source, rate) {
+        const hours = number(source.minutes, 'Số phút') / 60;
+        const vp = number(source.vp, 'Vắng phép');
+        const vdx = number(source.vdx, 'Vắng đột xuất') + number(source.unreported, 'Chưa cập nhật');
+        const vkp = number(source.vkp, 'Vắng không phép');
+        let appliedRate;
+        if (mode === 'new') appliedRate = number(rate, 'Đơn giá chuyên cần');
+        else if (mode === 'old') {
+            appliedRate = vkp > 0 ? -3000 : vdx > 0 ? -2000 : vp > 0 && hours < 50 ? -1000
+                : vp === 0 ? (hours < 65 ? 1000 : 2000)
+                : vp === 1 ? (hours < 50 ? 0 : hours < 65 ? 1000 : 2000)
+                : vp === 2 ? (hours > 64.99 ? 2000 : 0) : 0;
+        } else return null;
+        const amount = Math.round(hours * appliedRate) || 0;
+        if (!Number.isSafeInteger(amount)) throw new Error('Số tiền vượt giới hạn hợp lệ.');
+        return {id:0, amount, rate:appliedRate, hours, manual:false, automatic:version,
+            note:`Chuyên cần tự động: ${hours.toLocaleString('vi-VN', {maximumFractionDigits:4})} giờ × ${appliedRate.toLocaleString('vi-VN')}đ/giờ; VP ${vp}, VĐX ${vdx}, VKP ${vkp}${source.unreported ? ` (gồm ${source.unreported} ca chưa cập nhật)` : ''}.`};
+    }
     function number(value, label) {
         if (value === '' || value == null || !Number.isFinite(Number(value)) || Number(value) < 0)
             throw new Error(`${label}: nhập số không âm.`);
@@ -67,8 +87,8 @@
         const source = { minutes: 0, vp: 0, vdx: 0, vkp: 0, unreported: 0, lateMinutes: 0 };
         chips.forEach(chip => {
             if (chip.isCenterOff || chip.isCancelled || chip.absenceStateSource === 'cancellation' || /(?:^|\s)chip-future(?:\s|$)/.test(chip.class || '')) return;
-            if (chip.isReceptionist || ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'office_staff'].includes(chip.sessionData?.role)) return;
-            if (chip.isAbsence || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
+            if (chip.isReceptionist || chip.isOffice || ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'office_staff', 'van-phong', 'van_phong'].includes(chip.sessionData?.role)) return;
+            if (chip.isAbsence || chip.isAbsent || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
                 const type = classify(chip);
                 // An unrecorded grey absence is distinct from an explicit unauthorized absence.
                 const explicit = chip.absenceType || chip.absenceState === 'VKP' || chip.absenceStateSource === 'teacher-absence' || chip.absenceEvidence;
@@ -78,6 +98,6 @@
         });
         return source;
     }
-    global.TeacherAttendancePolicy = { version, calculate, sourceFromChips };
+    global.TeacherAttendancePolicy = { version, calculate, sourceFromChips, automaticAttendance };
     if (typeof module !== 'undefined' && module.exports) module.exports = global.TeacherAttendancePolicy;
 })(typeof window !== 'undefined' ? window : globalThis);

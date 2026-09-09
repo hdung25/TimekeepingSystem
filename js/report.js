@@ -2971,6 +2971,7 @@ function renderEvaluationTable(savedData = []) {
 
     updateBonusDisplay(totalBonus);
     bindMoneyInputFormatters();
+    window.TeacherAttendanceEditor?.mountMain(window.currentLoadedSalarySettings || {});
 }
 
 function updateBonusDisplay(amount) {
@@ -3585,8 +3586,11 @@ function calculateSalary() {
     const attRate = Number(cfg.attendance_rate || 0);
     const activeAttendanceSettings = window.currentLoadedSalarySettings || {};
     const savedAttendance = (activeAttendanceSettings.evaluation || []).find(e => Number(e.id) === 0);
+    const teacherAutoRow = window.currentLoadedRoleKey !== 'tiep_tan'
+        ? window.TeacherAttendanceEditor?.getRow(activeAttendanceSettings, 'main') : null;
+    if (teacherAutoRow) window.TeacherAttendanceEditor?.sync('main');
     const automaticAttendance = savedAttendance?.manual !== true && (!savedAttendance || savedAttendance.amount === undefined || String(savedAttendance.note || '').startsWith('Thưởng chuyên cần:'));
-    if (attRate > 0 && evalAmounts.length > 0 && automaticAttendance && evalAmounts[0].dataset.manualEdited !== 'true' && document.activeElement !== evalAmounts[0]) {
+    if (!teacherAutoRow && attRate > 0 && evalAmounts.length > 0 && automaticAttendance && evalAmounts[0].dataset.manualEdited !== 'true' && document.activeElement !== evalAmounts[0]) {
         const attInp = evalAmounts[0];
         const activeAttendanceMinutes = window.currentLoadedRoleKey === 'tiep_tan' ? receptionistMinutes : teachingMinutes;
         const calculatedBonus = Math.round((activeAttendanceMinutes / 60) * attRate);
@@ -4074,6 +4078,9 @@ async function saveSalarySettings() {
         adjust_vkp: loadedSettings.adjust_vkp !== undefined ? loadedSettings.adjust_vkp : 0,
         adjust_late: loadedSettings.adjust_late !== undefined ? loadedSettings.adjust_late : 0
     };
+    try {
+        Object.assign(settingsObj, window.TeacherAttendanceEditor?.savePatch(loadedSettings, evaluationData, 'main') || {});
+    } catch (error) { UIService.toast(error.message, 'warning'); return; }
     const revenues = activeFilter === 'tiep-tan' ? {
         total: parseFormattedNumber(document.getElementById('header-actual-revenue-total')?.value || '0'),
         cs2: parseFormattedNumber(document.getElementById('header-actual-revenue-cs2')?.value || '0')
@@ -7697,6 +7704,7 @@ function recalculateSalaryModal() {
         classRateTotalCell.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(basePay);
     }
     
+    window.TeacherAttendanceEditor?.sync('modal');
     let criteriaPay = 0;
     const evalAmountInputs = document.querySelectorAll('.modal-eval-amount');
     evalAmountInputs.forEach(input => {
@@ -7775,7 +7783,7 @@ async function saveSalarySettingsFromModal() {
     };
     
     try {
-        Object.assign(settingsObj, window.TeacherAttendanceEditor?.savePatch() || {});
+        Object.assign(settingsObj, window.TeacherAttendanceEditor?.savePatch(activeRoleSettings, evaluationData, 'modal') || {});
     } catch (error) {
         UIService.toast(error.message, 'warning');
         return;
@@ -9793,6 +9801,14 @@ function getCurrentCalculationPayload(role) {
         });
     }
     
+    if (role !== 'tiep-tan') {
+        const teacherRow = window.TeacherAttendanceEditor?.getRow(roleSettings, isActiveRole ? 'main' : '');
+        if (teacherRow) {
+            const attendanceItem = evalItems.find(item => Number(item.id) === 0);
+            if (attendanceItem) attendanceItem.amount = teacherRow.amount;
+            else evalItems.push({...teacherRow, label:'I', title:'CHUYÊN CẦN'});
+        }
+    }
     totalBonus = evalItems.reduce((acc, i) => acc + i.amount, 0);
     
     // Với tiếp tân (active role): đảm bảo phí tư vấn và DT CS3 dùng giá trị từ DOM inputs

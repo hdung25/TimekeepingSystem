@@ -1,7 +1,7 @@
-// Service Worker v165 - scheduled payroll edits and stable concurrency.
+// Service Worker v166 - automatic teacher attendance from approved Excel formula.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v165-scheduled-overtime-20260909';
+const CACHE_NAME = 'tdt-chamcong-v166-auto-attendance-20260909';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -30,9 +30,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
     '/js/db-service.js?v=20260909-scheduled-overtime-v1',
-    '/js/report.js?v=20260909-scheduled-overtime-v1',
-    '/js/teacher-attendance-policy.js?v=20260909-teacher-attendance-v1',
-    '/js/teacher-attendance-editor.js?v=20260909-teacher-attendance-v1',
+    '/js/report.js?v=20260909-auto-attendance-v2',
+    '/js/teacher-attendance-policy.js?v=20260909-auto-attendance-v2',
+    '/js/teacher-attendance-editor.js?v=20260909-auto-attendance-v2',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',
     '/js/evaluation-service.js?v=20260906-quynh-autosubject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',

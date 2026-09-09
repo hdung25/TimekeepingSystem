@@ -164,6 +164,10 @@ async function main() {
   await new Promise(r=>server.listen(0,'127.0.0.1',r)); origin=`http://127.0.0.1:${server.address().port}`;
   browser=await puppeteer.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--no-sandbox']});
   const admin=await login(users[0]);
+  if (process.env.PAYROLL_UI_ONLY === 'automatic-attendance') {
+    await require('./teacher-attendance-ui.cjs')({env,admin,month,record,click,report,snapshot});
+    return;
+  }
   await require('./scheduled-overtime-ui.cjs')({env,admin,origin,record,click});
   if (process.env.PAYROLL_UI_ONLY === 'scheduled-overtime') return;
   await report(admin,'audit-teacher');

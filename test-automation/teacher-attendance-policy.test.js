@@ -1,7 +1,21 @@
 'use strict';
 const assert = require('node:assert/strict');
-const {calculate, sourceFromChips} = require('../js/teacher-attendance-policy.js');
+const {calculate, sourceFromChips, automaticAttendance} = require('../js/teacher-attendance-policy.js');
 const stats = (hours, vp=0, vdx=0, vkp=0, unreported=0) => ({minutes:hours*60,vp,vdx,vkp,unreported});
+// Independent evaluation of the supplied Excel formula, across every absence
+// priority and both sides of the 50/64.99/65-hour boundaries.
+const formula='IF(AN4>0,-3000*U4,IF(AM4>0,-2000*U4,IF(AND(AL4>0,U4<50),-1000*U4,IF(AL4=0,IF(U4<65,1000*U4,2000*U4),IF(AL4=1,IF(U4<50,0,IF(U4<65,1000*U4,2000*U4)),IF(AL4=2,IF(U4>64.99,2000*U4,0),0))))))';
+const excel=new Function('U4','AL4','AM4','AN4','IF','AND','return '+formula.replace(/AL4=/g,'AL4==='));
+for(const h of [0,12,29.99,49.99,50,50.01,60,64.99,64.995,65,65.01,80,100])
+for(let vp=0;vp<=4;vp++)for(let vdx=0;vdx<=2;vdx++)for(let vkp=0;vkp<=2;vkp++) {
+    const expected=Math.round(excel(h,vp,vdx,vkp,(condition,a,b)=>condition?a:b,(...v)=>v.every(Boolean)))||0;
+    assert.equal(automaticAttendance('old',stats(h,vp,vdx,vkp)).amount,expected,JSON.stringify({h,vp,vdx,vkp}));
+}
+assert.equal(automaticAttendance('old',stats(60,1)).amount,60000,'one permitted absence does not cancel eligible reward');
+assert.equal(automaticAttendance('old',stats(12,3,0,0,1)).amount,-24000,'unreported absence has unexpected-leave priority');
+assert.equal(automaticAttendance('new',stats(12,3,2,1),0).amount,0);
+assert.equal(automaticAttendance('new',stats(4),1234).amount,4936);
+assert.equal(automaticAttendance('new',{...stats(0),minutes:125},1234).amount,2571);
 const old = {mode:'old',eligible:true,fixed:true,attendance:true,absenceRule:'highest',rewardRule:'both'};
 const amount = (input, s, id=0) => calculate(input,s).rows.find(r=>r.id===id).amount;
 for (const [h,a] of [[49.99,0],[50,0],[50.5,50500],[65,65000],[65.5,131000],[80,160000],[80.5,161000]]) assert.equal(amount(old,stats(h)),a);
