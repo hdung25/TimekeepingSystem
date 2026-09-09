@@ -1068,10 +1068,60 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (ownsStaffId(staffId) || isAdmin());
       allow create, update, delete: if isAuthenticated() && isPrimaryAdmin();
     }
+    function hasNoConsultationFee(items) {
+      // Receptionist evaluation has seven criteria. Larger legacy arrays require Admin repair when adding a missing criterion.
+      return items.size() <= 7
+        && (items.size() < 1 || !(items[0].get('id', -1) in [1, '1']))
+        && (items.size() < 2 || !(items[1].get('id', -1) in [1, '1']))
+        && (items.size() < 3 || !(items[2].get('id', -1) in [1, '1']))
+        && (items.size() < 4 || !(items[3].get('id', -1) in [1, '1']))
+        && (items.size() < 5 || !(items[4].get('id', -1) in [1, '1']))
+        && (items.size() < 6 || !(items[5].get('id', -1) in [1, '1']))
+        && (items.size() < 7 || !(items[6].get('id', -1) in [1, '1']))
+        ;
+    }
+    function isConsultationFeeEvaluationEdit(before, after, amount) {
+      let added = after.removeAll(before);
+      let removed = before.removeAll(after);
+      return after == before || (
+        added.size() == 1 && added[0].get('id', -1) in [1, '1']
+        && added[0].get('amount', -1) == amount
+        && after.removeAll(added) == before.removeAll(removed)
+        && (
+          (removed.size() == 1 && before.size() == after.size()
+            && removed[0].get('id', -1) in [1, '1']
+            && added[0].diff(removed[0]).affectedKeys().hasOnly(['amount']))
+          || (removed.size() == 0 && after.size() == before.size() + 1
+            && hasNoConsultationFee(before)
+            && added[0].keys().hasOnly(['id', 'amount', 'note']) && added[0].get('note', '') == '')
+        )
+      );
+    }
+    function isSafeSeniorConsultationFee(docId, before) {
+      let after = request.resource.data;
+      let key = before.keys().hasAny(['tiep_tan']) ? 'tiep_tan' : before.keys().hasAny(['tiep-tan']) ? 'tiep-tan' : 'tiep_tan';
+      let edit = after.get('consultationFeeEdit', {});
+      let defaultPath = /databases/$(database)/documents/salary_settings/$(edit.get('staffId', '_missing'));
+      let inherited = before.keys().hasAny([key]) || !exists(defaultPath) ? {} : get(defaultPath).data;
+      let previousRole = before.get(key, inherited);
+      let nextRole = after.get(key, {});
+      return isSeniorAssistant()
+        && after.diff(before).affectedKeys().hasOnly([key, 'consultationFeePending', 'consultationFeeEdit'])
+        && nextRole.diff(previousRole).affectedKeys().hasOnly(['evaluation'])
+        && edit.keys().hasOnly(['staffId', 'month', 'amount', 'actorUid', 'updatedAt'])
+        && edit.get('staffId', '') is string && edit.get('month', '').matches('[0-9]{4}-(0[1-9]|1[0-2])')
+        && docId == edit.month + '_' + edit.staffId
+        && exists(/databases/$(database)/documents/users/$(edit.staffId))
+        && edit.get('actorUid', '') == request.auth.uid && edit.get('updatedAt', null) == request.time
+        && edit.get('amount', -1) is int && edit.amount >= 0 && edit.amount <= 9007199254740991
+        && after.get('consultationFeePending', false) == true
+        && isConsultationFeeEvaluationEdit(previousRole.get('evaluation', []), nextRole.get('evaluation', []), edit.amount);
+    }
     match /salary_settings_monthly/{docId} {
       allow read: if isAuthenticated() && (isOwnMonthlyDocument(docId) || isAdmin());
-      allow create, delete: if isAuthenticated() && isPrimaryAdmin();
-      allow update: if isAuthenticated() && (isPrimaryAdmin() || isSafePayslipReceipt(docId));
+      allow create: if isAuthenticated() && (isPrimaryAdmin() || isSafeSeniorConsultationFee(docId, {}));
+      allow delete: if isAuthenticated() && isPrimaryAdmin();
+      allow update: if isAuthenticated() && (isPrimaryAdmin() || isSafePayslipReceipt(docId) || isSafeSeniorConsultationFee(docId, resource.data));
       match /revisions/{revisionId} {
         allow read, create: if isAuthenticated() && isPrimaryAdmin();
         allow update, delete: if false;

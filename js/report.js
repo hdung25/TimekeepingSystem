@@ -233,11 +233,11 @@ async function initReport() {
             if (controlFooter) controlFooter.style.display = 'none';
             const extras = document.getElementById('pdf-tieptan-inputs');
             if (extras) {
-                extras.querySelectorAll('input').forEach(input => { input.readOnly = true; });
-                extras.querySelectorAll('button').forEach(button => { button.hidden = true; button.disabled = true; button.style.display = 'none'; });
+                extras.querySelectorAll('input').forEach(input => { input.readOnly = input.id !== 'pdf-phi-tu-van'; });
+                extras.querySelectorAll('button').forEach(button => { button.textContent = 'Lưu phí tư vấn'; });
                 const notice = document.createElement('p');
                 notice.id = 'recep-extras-permission-note';
-                notice.textContent = 'Chỉ Admin được chỉnh và lưu phí tư vấn, thưởng doanh thu. Quản lý cấp cao xem để đối chiếu và duyệt công.';
+                notice.textContent = 'Quản lý cấp cao được nhập và lưu phí tư vấn. Admin tính lại và gửi bảng lương; các khoản thưởng khác chỉ Admin chỉnh.';
                 notice.style.cssText = 'font-size:.8rem;margin:.75rem 0 0';
                 extras.appendChild(notice);
             }
@@ -4204,6 +4204,15 @@ async function loadSalarySettings(isCurrent = null) {
         throw e;
     }
 
+    let feeStatus = document.getElementById('consultation-fee-status');
+    if (!feeStatus) {
+        feeStatus = document.createElement('p');
+        feeStatus.id = 'consultation-fee-status';
+        feeStatus.style.cssText = 'font-size:.8rem;margin:.75rem 0 0';
+        document.getElementById('pdf-tieptan-inputs')?.appendChild(feeStatus);
+    }
+    feeStatus.textContent = window.currentMonthlySalarySettingsAll?.consultationFeePending
+        ? 'Phí tư vấn đã được cập nhật. Admin chọn Tiếp Tân và Lưu & Tính trước khi gửi hoặc gửi hiệu chỉnh.' : '';
     window.currentLoadedSalarySettings = settings;
     document.getElementById('salary-advance').value = formatNumberWithCommas(settings.advance || 0);
 
@@ -8816,7 +8825,9 @@ window.removeRecepCs2Tier = removeRecepCs2Tier;
 window.loadAndComputeAllReceptionists = loadAndComputeAllReceptionists;
 
 async function saveRecepExtras() {
-    if (!requirePayrollAdmin() || payrollWritePending) return;
+    const isSalaryAdmin = isPrimaryPayrollAdminViewer();
+    const viewerRoles = getReportViewerRoles();
+    if (payrollWritePending || (!isSalaryAdmin && !viewerRoles.includes('senior_assistant'))) return;
     if (!requireCompletePayrollReport()) return;
     const staffId = document.getElementById('staff-select').value;
     if (!staffId || staffId === 'all') {
@@ -8843,6 +8854,12 @@ async function saveRecepExtras() {
     }
     
     try {
+        if (!isSalaryAdmin) {
+            await DBService.saveConsultationFee(staffId, monthStr, phiTuVanVal, getPayrollSettingsBaseline(staffId, monthStr, roleKey));
+            await loadSalarySettings();
+            UIService.toast('Đã lưu phí tư vấn. Admin cần tính lại trước khi gửi bảng lương.', 'success');
+            return;
+        }
         const expectedSettings = getPayrollSettingsBaseline(staffId, monthStr, roleKey);
         const monthlySettings = window.currentMonthlySalarySettingsAll || {};
         const settings = JSON.parse(JSON.stringify(monthlySettings[roleKey] || monthlySettings['tiep-tan'] || { evaluation: [] }));

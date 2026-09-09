@@ -7117,6 +7117,47 @@ const DBService = {
         }
     },
 
+    // Narrow writer: preserve every other salary field and all sent snapshots.
+    async saveConsultationFee(staffId, monthStr, amount, expectedSettings = {}) {
+        if (!staffId || !/^\d{4}-(0[1-9]|1[0-2])$/.test(monthStr) || !Number.isSafeInteger(amount) || amount < 0) {
+            throw new Error('Phí tư vấn phải là số tiền nguyên không âm và thuộc tháng hợp lệ.');
+        }
+        const ref = db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`);
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            const data = snapshot.exists ? snapshot.data() : {};
+            const key = data.tiep_tan ? 'tiep_tan' : data['tiep-tan'] ? 'tiep-tan' : 'tiep_tan';
+            const previous = data[key] || {};
+            const canonical = value => Array.isArray(value) ? value.map(canonical) :
+                value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value;
+            if (JSON.stringify(canonical(previous)) !== JSON.stringify(canonical(expectedSettings))) {
+                throw new Error('Cấu hình lương vừa được thay đổi ở phiên khác. Tải lại và đối chiếu trước khi lưu.');
+            }
+            let inherited = previous;
+            if (!data[key]) {
+                const defaults = await transaction.get(db.collection('salary_settings').doc(staffId));
+                inherited = defaults.exists ? defaults.data() : {};
+            }
+            const evaluation = JSON.parse(JSON.stringify(inherited.evaluation || []));
+            const matches = evaluation.filter(item => Number(item.id) === 1);
+            if (matches.length > 1) throw new Error('Dữ liệu có nhiều dòng phí tư vấn. Admin cần đối chiếu trước khi lưu.');
+            if (matches.length) matches[0].amount = amount;
+            else evaluation.push({id: 1, amount, note: ''});
+            transaction.set(ref, {
+                [key]: {...inherited, evaluation}, consultationFeePending: true,
+                consultationFeeEdit: {staffId, month: monthStr, amount, actorUid: firebase.auth().currentUser?.uid || '', updatedAt: firebase.firestore.FieldValue.serverTimestamp()}
+            }, {merge: true});
+        });
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        return {saved: true};
+    },
+
+    _requireCurrentConsultationFee(data, targets) {
+        if (data?.consultationFeePending && targets?.tt) {
+            throw new Error('Phí tư vấn đã thay đổi. Chọn Tiếp Tân và Lưu & Tính trước khi gửi bảng lương.');
+        }
+    },
+
     // Save monthly salary settings for a staff member and specific month
     async saveMonthlySalarySettings(staffId, monthStr, settingsObj, options = {}) {
         if (!staffId || !monthStr) {
@@ -7211,6 +7252,16 @@ const DBService = {
             await db.runTransaction(async transaction => {
                 const docSnap = await transaction.get(docRef);
                 const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                const source = docSnap.exists ? docSnap.data() : {};
+                const feePending = source.consultationFeePending && component === 'tt';
+                if (feePending) {
+                    const evaluation = (source.tiep_tan || source['tiep-tan'] || {}).evaluation || [];
+                    const fee = Number(evaluation.find(item => Number(item.id) === 1)?.amount || 0);
+                    const calculatedFee = calculatedPublished?.details_tt?.phiTuVan ?? calculatedPublished?.details?.phiTuVan;
+                    if (fee !== calculatedFee) throw new Error('Phí tư vấn vừa thay đổi. Tải lại và tính lại trước khi lưu.');
+                }
+                const feeUpdate = feePending ? {consultationFeePending: false} : {};
+
                 transition = _preparePayslipDraftUpdate(
                     currentPublished,
                     calculatedPublished || {},
@@ -7226,15 +7277,15 @@ const DBService = {
                         updatedAt: new Date().toISOString(),
                         actorUid: firebase.auth().currentUser?.uid || ''
                     };
-                    transaction.update(docRef, { [`revisionDrafts.${key}`]: draft });
+                    transaction.update(docRef, { [`revisionDrafts.${key}`]: draft, ...feeUpdate });
                     transition = { ...transition, saved: true, locked: false, revisionDraft: true };
                     return;
                 }
 
                 if (docSnap.exists) {
-                    transaction.update(docRef, { published: transition.published });
+                    transaction.update(docRef, { published: transition.published, ...feeUpdate });
                 } else {
-                    transaction.set(docRef, { published: transition.published }, { merge: true });
+                    transaction.set(docRef, { published: transition.published, ...feeUpdate }, { merge: true });
                 }
             });
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
@@ -7260,6 +7311,7 @@ const DBService = {
         await db.runTransaction(async transaction => {
             const snapshot = await transaction.get(ref);
             const data = snapshot.exists ? snapshot.data() : {};
+            DBService._requireCurrentConsultationFee(data, {[component]: true});
             const before = data.published || {};
             const draft = data.revisionDrafts?.[component];
             if (!draft || draft.version !== expectedVersion || draft.sourceToken !== expectedToken ||
@@ -7324,6 +7376,7 @@ const DBService = {
             await db.runTransaction(async transaction => {
                 const docSnap = await transaction.get(docRef);
                 const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
+                DBService._requireCurrentConsultationFee(docSnap.exists ? docSnap.data() : {}, targets);
                 transition = _preparePayslipComponentPublish(currentPublished, targets, nowIso);
                 if (String(message || '').trim() && transition.publishedComponents.length > 0) {
                     transition.published.message = String(message).trim();
@@ -7368,6 +7421,7 @@ const DBService = {
                 const currentPublished = docSnap.exists ? (docSnap.data().published || {}) : {};
                 transition = _preparePayslipPublishUpdate(currentPublished, payload || {}, nowIso);
 
+                DBService._requireCurrentConsultationFee(docSnap.exists ? docSnap.data() : {}, transition.targets);
                 const requestedComponents = Object.values(transition.targets).filter(Boolean).length;
                 if (requestedComponents === 0) {
                     const error = new Error('Không có thành phần bảng lương hợp lệ để gửi.');

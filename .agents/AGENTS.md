@@ -136,3 +136,7 @@
   uniquely matched assignment. Otherwise retain the actual check-in/check-out values,
   show an unmatched warning, and require an explicit roster/link correction. Never
   rewrite historical attendance merely to make the display agree with a schedule.
+
+#### Owner-confirmed consultation fee permission (09/09/2026)
+- Senior assistants may enter and save the receptionist consultation fee only, including corrections to zero. Preserve all other salary settings and published payslips.
+- Rates, advances, other bonuses, calculating/publishing payslips and sending revisions remain primary-Admin operations. A senior fee save marks the TT calculation pending; Admin must recalculate before sending that component.

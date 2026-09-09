@@ -122,8 +122,34 @@ module.exports = async ({ env, admin, employee, origin, month, record, shot, cli
     await report(manager, 'audit-dual');
     await manager.select('#salary-role-filter', 'tiep-tan');
     await manager.waitForFunction(() => window.payrollReadyScope && window.payrollReadyScope === window.currentReportScope && window.currentLoadedRoleKey === 'tiep_tan');
-    assert.equal(await manager.$eval('#pdf-phi-tu-van', el => el.readOnly), true);
-    assert.equal(await manager.$eval('#pdf-tieptan-inputs button', el => el.hidden && el.disabled && getComputedStyle(el).display === 'none'), true);
-    assert.match(await manager.$eval('#recep-extras-permission-note', el => el.textContent), /Chỉ Admin/);
+    assert.equal(await manager.$eval('#pdf-phi-tu-van', el => el.readOnly), false);
+    assert.equal(await manager.$eval('#pdf-doanh-thu-cs3', el => el.readOnly), true);
+    assert.equal(await manager.$eval('#pdf-tieptan-inputs button', el => el.disabled), false);
+    assert.match(await manager.$eval('#recep-extras-permission-note', el => el.textContent), /Quản lý cấp cao được nhập/);
+    const beforeFee = await admin.evaluate(async m => DBService.getMonthlySalarySettings('audit-dual', m, {strict:true}), month);
+    await manager.$eval('#pdf-phi-tu-van', el => { el.value = '81,675'; el.dispatchEvent(new Event('input', {bubbles:true})); });
+    await click(manager, '#pdf-tieptan-inputs button');
+    await manager.waitForFunction(() => !window.__payrollWritePending && window.currentMonthlySalarySettingsAll?.consultationFeePending === true);
+    const feeSaved = await admin.evaluate(async m => DBService.getMonthlySalarySettings('audit-dual', m, {strict:true}), month);
+    assert.equal(feeSaved.tiep_tan.evaluation.find(e => Number(e.id) === 1).amount, 81675);
+    assert.deepEqual(feeSaved.published, beforeFee.published);
+    assert.deepEqual(feeSaved.giao_vien, beforeFee.giao_vien);
+    assert.equal(feeSaved.consultationFeeEdit.actorUid, uid);
+    assert.match(await manager.$eval('#consultation-fee-status', el => el.textContent), /Admin/);
+    await report(manager, 'audit-dual');
+    assert.equal(await manager.$eval('#pdf-phi-tu-van', el => el.value), '81,675');
+    await report(admin, 'audit-dual');
+    await admin.select('#salary-role-filter', 'tiep-tan');
+    await admin.waitForFunction(() => window.payrollReadyScope && window.payrollReadyScope === window.currentReportScope && window.currentLoadedRoleKey === 'tiep_tan');
+    const blocked = await admin.evaluate(async m => {
+        try { await DBService.publishPayslipComponents('audit-dual', m, {tt:true}); return false; }
+        catch (e) { return e.message.includes('Phí tư vấn'); }
+    }, month);
+    assert.equal(blocked, true, 'old calculated fee cannot be sent');
+    await click(admin, 'button[onclick="saveSalarySettings()"]');
+    await admin.waitForFunction(() => !window.__payrollWritePending && window.currentMonthlySalarySettingsAll?.consultationFeePending === false);
+    const afterFee = await admin.evaluate(async m => DBService.getMonthlySalarySettings('audit-dual', m, {strict:true}), month);
+    const calculated = afterFee.revisionDrafts?.tt?.payload?.details_tt || afterFee.published.details_tt;
+    assert.equal(calculated.phiTuVan, 81675);
     await record('senior-review-and-schedule-deep-links', { permission, screenshot: await shot(manager, 'senior-review') });
 };

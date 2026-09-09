@@ -94,5 +94,6 @@ const rules = fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8');
         await adminDb.collection('attendance_logs').doc('2020-01-01_admin').set({userId:'admin',name:'admin',date:'2020-01-01',sessions:[{checkIn:'2020-01-01T01:00:00.000Z',checkOut:'2020-01-01T03:00:00.000Z',bonus10:true,roleRate:100000}]});
         console.log('PASS forged past/future/checkOut/header-only writes denied; normal clocks and Admin historical corrections allowed');
         await require('./payroll-revision-rules.cjs')({ admin, adminDb, staffDb });
+        await require('./senior-consultation-rules.cjs')({env, admin, adminDb, staffDb, source, firebase});
     } finally { await env.cleanup(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

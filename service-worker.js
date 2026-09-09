@@ -1,7 +1,7 @@
-// Service Worker v162 - consultation fee and payroll synchronization.
+// Service Worker v163 - senior consultation fee permission.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v162-consultation-payroll-20260909';
+const CACHE_NAME = 'tdt-chamcong-v163-senior-consultation-20260909';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -29,8 +29,8 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260908-feedback-repair-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260908-feedback-repair-v1',
-    '/js/report.js?v=20260909-consultation-payroll-v1',
+    '/js/db-service.js?v=20260909-senior-consultation-v1',
+    '/js/report.js?v=20260909-senior-consultation-v1',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',
     '/js/evaluation-service.js?v=20260906-quynh-autosubject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
