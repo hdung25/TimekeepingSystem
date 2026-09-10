@@ -821,8 +821,10 @@ window.saveStudentCountSelections = async function () {
     const staffId = getTargetStaffId();
     if (!staffId) return;
 
-    const loggedInUser = firebase.auth().currentUser;
-    const updaterId = loggedInUser ? loggedInUser.uid : staffId;
+    // DBService verifies the Auth-to-staff mapping. Keep the payload identity
+    // aligned with the attendance owner; the old Auth UID caused Rules to
+    // reject the otherwise valid self-report.
+    const updaterId = staffId;
 
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang lưu sĩ số học sinh...');
@@ -900,13 +902,6 @@ window.adminReviewStudentCount = async function (newStatus) {
         }
         await Promise.all(promises);
 
-        if (newStatus === 'rejected') {
-            const year = currentDate.getFullYear();
-            const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-            const monthStr = `${year}-${month}`;
-            await DBService.saveMonthlyStudentCountPenalty(staffId, monthStr, true, updaterId, 'Từ chối ca đông học sinh');
-        }
-
         if (typeof UIService !== 'undefined') {
             UIService.hideLoading();
             UIService.toast('Cập nhật trạng thái duyệt thành công!', 'success');
@@ -966,12 +961,6 @@ window.adminQuickAction = async function (action) {
             if (typeof UIService !== 'undefined') UIService.toast('Đã duyệt ca đông học sinh!', 'success');
         } else if (action === 'rejected') {
             await DBService.updateSessionStudentCount(staffId, dateStr, sessionId, currentCount, 'rejected', updaterId, 'admin');
-            
-            // Save penalty settings for this month
-            const year = currentDate.getFullYear();
-            const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-            const monthStr = `${year}-${month}`;
-            await DBService.saveMonthlyStudentCountPenalty(staffId, monthStr, true, updaterId, 'Từ chối ca đông học sinh');
             
             if (typeof UIService !== 'undefined') UIService.toast('Đã từ chối và áp dụng phạt phụ cấp tháng này!', 'success');
         } else if (action === 'delete') {

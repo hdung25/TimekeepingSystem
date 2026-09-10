@@ -69,6 +69,16 @@ async function main() {
             assert.equal((await ref.get()).data().sessions[0].status,'closed');
             await service.checkInPersonal(userId,'stale display name');
             assert.equal((await ref.get()).data().sessions.length,2);
+            const studentCountSessionId = String((await ref.get()).data().sessions[0].id);
+            await service.updateSessionStudentCount(
+                userId, dateKey, studentCountSessionId, 12, 'approved', uid, 'staff'
+            );
+            const savedStudentCount = (await ref.get()).data().sessions[0];
+            assert.equal(savedStudentCount.studentCount, 12);
+            assert.equal(savedStudentCount.studentCountStatus, 'approved',
+                'staff student-count reports are accepted immediately');
+            assert.equal(savedStudentCount.studentCountUpdatedBy, userId,
+                'student-count audit must use the mapped staff ID, not the Auth UID');
             console.log(`PASS real DBService check-in/out/re-entry with trailing-name profile (${suffix})`);
             const scheduleKey = `cs1__${dateKey}`;
             const row = {shiftId:'fixture-shift',start:'18:00',end:'19:30',lop:'Fixture',phong:'P1',registeredTeachers:[]};
@@ -140,6 +150,20 @@ async function main() {
         assert.equal(result.find(r=>r.sessionId==='legacy').status,'rejected');
         assert.equal(result.find(r=>r.sessionId==='legacy').minutes,0);
         console.log('PASS real Admin overtime update/create/revoke; staff cannot self-approve');
+
+        const adminAuth = { currentUser: { uid: 'uid-admin' } };
+        const studentCountAdmin = new Function('window','db','firebase','localStorage',source+'\nreturn DBService;')(
+            { auth: adminAuth }, env.authenticatedContext('uid-admin').firestore(),
+            { firestore: firebase.firestore }, { getItem: () => 'Fixture Admin' });
+        await studentCountAdmin.updateSessionStudentCount(
+            'fixture-huy', '2026-08-31', 'session-early-fixture', 12, 'rejected', 'uid-admin', 'admin'
+        );
+        const penalty = await env.authenticatedContext('uid-admin').firestore()
+            .collection('salary_settings_monthly').doc('2026-08_fixture-huy').get();
+        assert.equal(penalty.data().studentCountBonusPenalty, true,
+            'primary Admin rejection must atomically apply the month-wide penalty marker');
+        assert.equal(penalty.data().studentCountBonusPenaltyBy, 'fixture-admin');
+        console.log('PASS Admin student-count rejection atomically applies the employee month penalty');
     } finally { await env.cleanup(); }
 }
 main().catch(e=>{ console.error(e);process.exitCode=1; });

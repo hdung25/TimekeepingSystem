@@ -1,7 +1,7 @@
-// Service Worker v171 - Admin payroll override first-save fix.
+// Service Worker v172 - Student-count auto-approval and monthly cancellation fix.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v171-admin-override-default-20260910';
+const CACHE_NAME = 'tdt-chamcong-v172-student-count-fix-20260910';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -29,8 +29,8 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260908-feedback-repair-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260910-payroll-rate-persistence-v1',
-    '/js/report.js?v=20260910-payroll-rate-persistence-v1',
+    '/js/db-service.js?v=20260910-student-count-fix-v1',
+    '/js/report.js?v=20260910-student-count-fix-v1',
     '/js/teacher-attendance-policy.js?v=20260910-hours-bonus-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',

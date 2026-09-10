@@ -404,24 +404,31 @@ test('owner can create/update own attendance but cannot mutate another employee'
         sessions: [closedSession, pendingStudentCount],
         lastUpdated: serverTimestamp()
     }));
-    await assertFails(updateDoc(ownRef, {
-        sessions: [closedSession, {
-            ...pendingStudentCount,
-            studentCountStatus: 'approved'
-        }],
+    const approvedStudentCount = {
+        ...pendingStudentCount,
+        studentCountStatus: 'approved'
+    };
+    await assertSucceeds(updateDoc(ownRef, {
+        sessions: [closedSession, approvedStudentCount],
         lastUpdated: serverTimestamp()
     }));
     await assertFails(updateDoc(ownRef, {
         sessions: [closedSession, {
-            ...pendingStudentCount,
-            studentCount: 999,
+            ...approvedStudentCount,
             bonus10: true
         }],
         lastUpdated: serverTimestamp()
     }));
     await assertFails(updateDoc(ownRef, {
         sessions: [closedSession, {
-            ...pendingStudentCount,
+            ...approvedStudentCount,
+            studentCount: 999
+        }],
+        lastUpdated: serverTimestamp()
+    }));
+    await assertFails(updateDoc(ownRef, {
+        sessions: [closedSession, {
+            ...approvedStudentCount,
             studentCountUpdatedBy: 'staff-2'
         }],
         lastUpdated: serverTimestamp()

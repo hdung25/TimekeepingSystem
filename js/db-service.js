@@ -5396,8 +5396,29 @@ const DBService = {
         }
 
         try {
+            // Do not trust the role or updater ID supplied by a cached UI. The
+            // Rules enforce the same mapping, and resolving it here prevents a
+            // stale tab from writing an Auth UID into the staff-owned field.
+            const authorization = await DBService.getAuthenticatedAuthorizationContext(true);
+            const actorUserId = String(authorization.userId || '').trim();
+            const actorRoles = Array.isArray(authorization.roles) ? authorization.roles : [];
+            const isManager = actorRoles.some(item => ['admin', 'senior_assistant'].includes(item));
+            const isPrimaryAdmin = actorRoles.includes('admin');
+            const targetUserId = String(userId || '').trim();
+            if (!actorUserId || !targetUserId || (!isManager && actorUserId !== targetUserId)) {
+                const error = new Error('Bạn chỉ có thể cập nhật sĩ số của chính mình.');
+                error.code = 'auth/owner-required';
+                throw error;
+            }
+
+            const shouldApplyMonthlyPenalty = isPrimaryAdmin && !clearing && status === 'rejected';
+            const monthStr = String(dateKey || '').slice(0, 7);
+            const monthlyRef = shouldApplyMonthlyPenalty
+                ? db.collection('salary_settings_monthly').doc(`${monthStr}_${targetUserId}`)
+                : null;
             await db.runTransaction(async (t) => {
                 const doc = await t.get(ref);
+                const monthlySnapshot = shouldApplyMonthlyPenalty ? await t.get(monthlyRef) : null;
                 if (!doc.exists) throw new Error("Attendance record not found");
 
                 const data = doc.data();
@@ -5407,13 +5428,17 @@ const DBService = {
                 if (index === -1) throw new Error("Session not found");
 
                 const session = data.sessions[index];
-                const isAdmin = ['admin', 'senior_assistant'].includes(role);
+                const isAdmin = isManager;
 
                 // Enforce editing permissions
                 if (!isAdmin) {
-                    // Teacher permissions: can only edit if status is empty, or pending
-                    const currentStatus = session.studentCountStatus;
-                    if (currentStatus && currentStatus !== 'pending') {
+                    // Staff may correct an unreviewed self-report. The status is
+                    // intentionally approved immediately; payroll still checks
+                    // the month-wide Admin penalty before applying the class rate.
+                    const currentStatus = String(session.studentCountStatus || '').trim();
+                    const hasAdminReview = !!session.studentCountReviewedAt ||
+                        !!session.studentCountReviewedBy || currentStatus === 'rejected';
+                    if (hasAdminReview || (currentStatus && !['pending', 'approved'].includes(currentStatus))) {
                         throw new Error("Không thể chỉnh sửa ca đã được duyệt hoặc từ chối.");
                     }
                     if (clearing) {
@@ -5423,9 +5448,11 @@ const DBService = {
                         delete session.studentCountUpdatedBy;
                     } else {
                         session.studentCount = normalizedCount;
-                        session.studentCountStatus = 'pending';
+                        session.studentCountStatus = 'approved';
                         session.studentCountUpdatedAt = new Date().toISOString();
-                        session.studentCountUpdatedBy = updaterId || userId;
+                        // Rules bind this field to the mapped staff document ID,
+                        // not to the Firebase Auth UID used by the old UI.
+                        session.studentCountUpdatedBy = targetUserId;
                     }
                 } else {
                     // Admin permissions: can set to approved or rejected or clear
@@ -5451,6 +5478,20 @@ const DBService = {
 
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
+
+                // Rejecting one count is the explicit month-wide payroll
+                // decision. Keep the rejected session as audit evidence, and
+                // atomically persist the marker that suppresses all class-rate
+                // bonuses for this employee/month.
+                if (shouldApplyMonthlyPenalty) {
+                    const nowISO = new Date().toISOString();
+                    t.set(monthlyRef, {
+                        studentCountBonusPenalty: true,
+                        studentCountBonusPenaltyAt: nowISO,
+                        studentCountBonusPenaltyBy: actorUserId,
+                        studentCountBonusPenaltyReason: 'Từ chối ca đông học sinh'
+                    }, { merge: true });
+                }
             });
             DBService._invalidateAttendance(dateKey, userId);
             return true;

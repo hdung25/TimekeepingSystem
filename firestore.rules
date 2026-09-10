@@ -554,7 +554,14 @@ service cloud.firestore {
       ]);
       return oldSession is map
         && newSession is map
-        && oldStatus in ['', 'pending']
+        // A staff self-report is accepted immediately. Once a primary Admin
+        // has reviewed it, the reviewer fields make the decision immutable to
+        // the staff owner; the unreviewed approved state remains correctable.
+        && oldStatus in ['', 'pending', 'approved']
+        && !oldSession.keys().hasAny(['studentCountReviewedAt', 'studentCountReviewedBy'])
+        && (oldStatus != 'approved' || (
+          oldSession.get('studentCountUpdatedBy', '') == resource.data.get('userId', '')
+        ))
         && newSession.get('id', '') == oldSession.get('id', '')
         && newSession.get('start', '') == oldSession.get('start', '')
         && newSession.get('checkIn', '') == oldSession.get('checkIn', '')
@@ -570,7 +577,7 @@ service cloud.firestore {
           && newSession.get('studentCount', 0) is int
           && newSession.get('studentCount', 0) >= 1
           && newSession.get('studentCount', 0) <= 500
-          && newSession.get('studentCountStatus', '') == 'pending'
+          && newSession.get('studentCountStatus', '') in ['pending', 'approved']
           && newSession.get('studentCountUpdatedBy', '') == resource.data.get('userId', '')
           && newSession.get('studentCountUpdatedAt', '') is string
           && newSession.get('studentCountUpdatedAt', '').size() >= 20
