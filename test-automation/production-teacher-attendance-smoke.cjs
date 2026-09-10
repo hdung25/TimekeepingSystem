@@ -2,6 +2,7 @@
 // This smoke never logs in or creates production attendance/payroll records.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
@@ -10,9 +11,12 @@ const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260910-payroll-rate-persistence-v1';
 const scheduleVersion = '20260908-roster-refresh-v1';
 const payrollVersion = '20260908-payroll-review-v2';
-const assets = ['js/main.js', 'js/db-service.js', 'js/report.js', 'js/teacher-attendance-policy.js', 'js/teacher-attendance-editor.js', 'js/payroll-review.js', 'js/schedule.js',
+const adminOverrideVersion = '20260910-admin-override-default-v1';
+const assets = ['js/main.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/report.js', 'js/teacher-attendance-policy.js', 'js/teacher-attendance-editor.js', 'js/payroll-review.js', 'js/schedule.js',
     'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js'];
-const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const digest = value => crypto.createHash('sha256')
+    .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'))
+    .digest('hex');
 (async () => {
     const evidence = { origin, version, checkedAt: new Date().toISOString(), assets: {}, browserErrors: [], writesBlocked: [] };
     const results = await Promise.allSettled(assets.map(async file => {
@@ -30,13 +34,16 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
     const html = await response.text();
     assert.ok(html.includes('js/payroll-review.js?v=' + payrollVersion));
     assert.ok(html.includes('js/report.js?v=' + version));
+    assert.ok(html.includes('js/admin-payroll-override-ui.js?v=' + adminOverrideVersion));
     const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
     assert.equal(scheduleResponse.status, 200);
     assert.ok((await scheduleResponse.text()).includes('js/schedule.js?v=' + scheduleVersion));
     evidence.reportHeaders = { status: response.status, cache: response.headers.get('cache-control'), frame: response.headers.get('x-frame-options') };
-    const browser = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true,
-        args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tdt-production-smoke-'));
+    let browser;
     try {
+        browser = await puppeteer.launch({ userDataDir: profileDir, executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true,
+            args: ['--no-sandbox', '--disable-dev-shm-usage'] });
         const page = await browser.newPage();
         await page.setViewport({ width: 430, height: 932, isMobile: true });
         page.on('pageerror', error => evidence.browserErrors.push(error.message));
@@ -76,5 +83,8 @@ const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         fs.writeFileSync(path.join(root, 'scratch/production-teacher-attendance.json'), JSON.stringify(evidence, null, 2));
         console.log(JSON.stringify(evidence, null, 2));
         console.log('PASS production exact asset hashes, report script, mobile login, PWA installation; no production writes');
-    } finally { await browser.close(); }
+    } finally {
+        if (browser) await browser.close();
+        fs.rmSync(profileDir, { recursive: true, force: true });
+    }
 })().catch(error => { console.error(error); process.exitCode = 1; });
