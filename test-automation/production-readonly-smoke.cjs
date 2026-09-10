@@ -48,12 +48,6 @@ const digest = value => crypto.createHash('sha256')
         const page = await browser.newPage();
         await page.setViewport({ width: 430, height: 932, isMobile: true });
         page.on('pageerror', error => evidence.browserErrors.push(error.message));
-        await page.setRequestInterception(true);
-        page.on('request', request => {
-            if (/firestore\.googleapis\.com/.test(request.url()) && /(?:commit|Write\/channel)/i.test(request.url())) {
-                evidence.writesBlocked.push(request.url().split('?')[0]); request.abort();
-            } else request.continue();
-        });
         await page.goto(origin + '/index.html', { waitUntil: 'domcontentloaded' });
         await page.waitForSelector('#login-form', { visible: true });
         await page.waitForFunction(async cacheName => {
@@ -65,6 +59,15 @@ const digest = value => crypto.createHash('sha256')
                 !!(await cache.match('/js/db-service.js?v=20260910-payroll-rate-persistence-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
+        // Let the worker finish its install fetches before enabling request
+        // interception. Chromium can hold Cache.addAll() requests when an
+        // interception handler is attached during the first install.
+        await page.setRequestInterception(true);
+        page.on('request', request => {
+            if (/firestore\.googleapis\.com/.test(request.url()) && /(?:commit|Write\/channel)/i.test(request.url())) {
+                evidence.writesBlocked.push(request.url().split('?')[0]); request.abort();
+            } else request.continue();
+        });
         // A first PWA install announces APP_UPDATED and intentionally reloads
         // an untouched login page. Wait through that navigation before reading.
         await page.waitForNetworkIdle({ idleTime: 1000, timeout: 30000 });
