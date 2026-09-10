@@ -1,7 +1,7 @@
-// Service Worker v170 - early-10 legacy session merge.
+// Service Worker v171 - Admin payroll override first-save fix.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v170-early10-legacy-merge-20260910';
+const CACHE_NAME = 'tdt-chamcong-v171-admin-override-default-20260910';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -37,7 +37,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/evaluation-service.js?v=20260910-early10-legacy-merge-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
-    '/js/admin-payroll-override-ui.js?v=20260909-scheduled-overtime-v1',
+    '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',
     '/js/shift-oversight.js?v=20260906-early10-recovery-v1',
     // Keep the legacy key for cham-cong.html while caching the current key used
     // by the scheduler and the updated staff pages. A fresh cache must support

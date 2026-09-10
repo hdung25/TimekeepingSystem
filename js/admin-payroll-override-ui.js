@@ -581,9 +581,13 @@
         state.subjects = Array.isArray(context.subjects) ? context.subjects : (root.currentSubjectCatalog || []);
         state.allocations = deriveAllocations(context);
         const saved = context.session.adminPayrollOverride || {};
+        // A session without an existing absolute override should open in the
+        // editable Admin-input mode.  “schedule” is an explicit rollback
+        // choice; defaulting to it silently discarded a newly checked +10
+        // decision on the first save.
         panel.querySelector('#apo-mode').value = ['schedule', 'actual', 'manual'].includes(saved.mode)
             ? saved.mode
-            : 'schedule';
+            : 'actual';
         panel.querySelector('#apo-reason').value = saved.reason || '';
         panel.querySelector('#apo-clear-links').checked = false;
         panel.querySelector('#apo-allow-overlap').checked = false;

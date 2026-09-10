@@ -78,7 +78,7 @@ assert.match(monHocJs, /DBService\.saveSubjectsBatch/);
 assert.match(monHocJs, /DBService\.deleteSubjectsBatch/);
 assert.match(personnel, /salary_config/);
 assert.match(personnel, /subjectRatePolicy/);
-assert.match(serviceWorker, /tdt-chamcong-v170-early10-legacy-merge-20260910/);
+assert.match(serviceWorker, /tdt-chamcong-v171-admin-override-default-20260910/);
 assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1/);
 assert.match(serviceWorker, /report\.js\?v=20260910-payroll-rate-persistence-v1/);
 assert.match(serviceWorker, /lich-van-phong\.html/);
