@@ -375,4 +375,54 @@ const {
     assert.match(dbServiceSource.slice(confirmStart, afterConfirm), /db\.runTransaction/);
 }
 
+{
+    // Recall: only a sent-but-unconfirmed component returns to draft. A received
+    // (confirmed/paid) component stays locked and the input is never mutated.
+    const { _preparePayslipRecall } = context;
+    const dual = {
+        role: 'dual', status: 'published', status_gv: 'published', status_tt: 'received',
+        publishedAt: 'T0', publishedAt_gv: 'T1', publishedAt_tt: 'T1', receivedAt_tt: 'T2', confirmedBy_tt: 'employee',
+        details_gv: { netPay: 100 }, details_tt: { netPay: 50 }, netPay: 150
+    };
+    const both = _preparePayslipRecall(dual, { gv: true, tt: true }, 'T9');
+    assert.equal(both.recalledComponents.join(','), 'gv');
+    assert.equal(both.lockedComponents.join(','), 'tt');
+    assert.equal(both.published.status_gv, 'draft');
+    assert.equal(both.published.publishedAt_gv, undefined);
+    assert.equal(both.published.recalledAt_gv, 'T9');
+    assert.equal(both.published.details_gv.netPay, 100, 'calculated details stay as the draft');
+    assert.equal(both.published.status_tt, 'received');
+    assert.equal(both.published.receivedAt_tt, 'T2');
+    assert.equal(dual.status_gv, 'published', 'input must not be mutated');
+
+    // Legacy single-role document with only the aggregate status.
+    const legacy = { role: 'giao-vien', status: 'published', publishedAt: 'T1', details: { netPay: 80 }, netPay: 80 };
+    const recalled = _preparePayslipRecall(legacy, { gv: true }, 'T9');
+    assert.equal(recalled.recalledComponents.join(','), 'gv');
+    assert.equal(recalled.published.status, 'draft');
+    assert.equal(recalled.published.publishedAt, undefined);
+    assert.equal(_getPayslipLifecycleState(recalled.published).status_gv, 'draft');
+    assert.equal(_getPayslipDraftLockState(recalled.published, 'gv').locked, false, 'recalled draft must be editable again');
+    const republished = _preparePayslipComponentPublish(recalled.published, { gv: true }, 'T10');
+    assert.equal(republished.publishedComponents.join(','), 'gv');
+    assert.equal(republished.published.status, 'published');
+
+    const receivedOnly = _preparePayslipRecall({ role: 'tiep-tan', status: 'received', details: { netPay: 70 } }, { tt: true }, 'T9');
+    assert.equal(receivedOnly.recalledComponents.length, 0);
+    assert.equal(receivedOnly.lockedComponents.join(','), 'tt');
+    assert.equal(receivedOnly.published.status, 'received');
+
+    const draftOnly = _preparePayslipRecall({ status: 'draft', status_gv: 'draft', details_gv: { netPay: 1 } }, { gv: true }, 'T9');
+    assert.equal(draftOnly.skippedComponents.join(','), 'gv');
+    assert.equal(draftOnly.recalledComponents.length, 0);
+
+    const recallStart = dbServiceSource.indexOf('async recallPayslipComponents(');
+    const recallEnd = dbServiceSource.indexOf('async updateDailyNote(', recallStart);
+    assert.ok(recallStart > 0 && recallEnd > recallStart, 'recall writer must exist');
+    const recallSource = dbServiceSource.slice(recallStart, recallEnd);
+    assert.match(recallSource, /db\.runTransaction/);
+    assert.match(recallSource, /_preparePayslipRecall/);
+    assert.match(recallSource, /collection\('revisions'\)/, 'every recalled snapshot is archived');
+}
+
 console.log('payslip-lifecycle.test.js: all assertions passed');

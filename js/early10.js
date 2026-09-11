@@ -267,8 +267,16 @@
     function getSecondsOfDay(value) {
         var date = toDate(value);
         if (!date) return null;
+        var fraction = date.getMilliseconds() / 1000;
+        // Firestore Timestamp.toDate() cuts microseconds. Firestore Rules see
+        // them (07:50:00.000400 is not a whole minute), so read nanoseconds
+        // directly or the client and Rules disagree on earlyMinutes.
+        if (value && typeof value === 'object' && !(value instanceof Date) &&
+            typeof value.nanoseconds === 'number' && isFinite(value.nanoseconds)) {
+            fraction = value.nanoseconds / 1e9;
+        }
         return date.getHours() * 3600 + date.getMinutes() * 60 +
-            date.getSeconds() + date.getMilliseconds() / 1000;
+            date.getSeconds() + fraction;
     }
 
     function formatMinutesOfDay(totalMinutes) {

@@ -99,12 +99,14 @@
             const state = lifecycle[`status_${component}`];
             rows.push(`<div style="border-top:1px solid #BBF7D0;padding-top:8px"><b>${esc(label)}</b> · ${state === 'received' ? 'Đã xác nhận' : state === 'published' ? 'Đã gửi' : 'Bản tính chưa gửi'}: <b>${money(saved?.netPay)}</b>
                 <button type="button" class="btn btn-secondary" data-review-print="${component}">Xem/in bản đã lưu</button>
+                ${state === 'published' ? `<button type="button" class="btn btn-secondary" data-review-recall="${component}" title="Đưa phần đã gửi về bản nháp để tính lại rồi gửi lại" style="color:#B45309;border-color:#FCD34D">Thu hồi để tính lại</button>` : ''}
                 ${draft ? `<div>Bản hiệu chỉnh đã tính: <b>${money(componentDetails(draft.payload, component)?.netPay)}</b> · chưa gửi <button type="button" class="btn btn-primary" data-review-revise="${component}">Đối chiếu & gửi hiệu chỉnh</button></div>` : ''}</div>`);
         }
         panel.querySelector('#review-payroll-snapshots').innerHTML = rows.join('') +
             '<details id="review-history"><summary style="cursor:pointer">Lịch sử hiệu chỉnh bảng lương</summary><div id="review-history-content"></div></details>';
         panel.querySelectorAll('[data-review-print]').forEach(btn => btn.addEventListener('click', () => printSaved(btn.dataset.reviewPrint)));
         panel.querySelectorAll('[data-review-revise]').forEach(btn => btn.addEventListener('click', () => revise(btn.dataset.reviewRevise)));
+        panel.querySelectorAll('[data-review-recall]').forEach(btn => btn.addEventListener('click', () => recall(btn.dataset.reviewRecall)));
         panel.querySelector('#review-history').addEventListener('toggle', async event => {
             if (!event.target.open) return;
             const output = panel.querySelector('#review-history-content');
@@ -137,6 +139,29 @@
             await DBService.publishPayslipRevision(ctx.staffId, ctx.month, component, draft.sourceToken, draft.version, reason);
             await loadSalarySettings();
             UIService.toast('Đã gửi bản hiệu chỉnh, lưu lịch sử bản cũ và yêu cầu xác nhận lại đúng phần lương.', 'success');
+        } catch (error) { UIService.toast(error.message, 'error'); }
+        finally { finish(); }
+    }
+
+    // Sent but not yet confirmed: withdraw it to draft so Admin can recalculate
+    // and send again. The sent snapshot is archived in the revision history.
+    async function recall(component) {
+        if (!requirePayrollAdmin() || payrollWritePending || !requireCompletePayrollReport()) return;
+        const ctx = context();
+        const label = component === 'tt' ? 'Tiếp tân / Văn phòng' : 'Giáo viên';
+        const agreed = await UIService.confirm(
+            `Thu hồi phần lương <b>${esc(label)}</b> của <b>${esc(ctx.user.name || '')}</b> tháng ${esc(ctx.month)}?<br><br>` +
+            'Nhân viên sẽ tạm không thấy phần này. Số liệu được giữ làm bản nháp để bạn sửa, bấm Lưu & Tính rồi gửi lại. Bản đã gửi được lưu vào lịch sử.'
+        );
+        if (!agreed || context().scope !== ctx.scope) return;
+        const finish = beginPayrollWrite();
+        if (!finish) return;
+        try {
+            const result = await DBService.recallPayslipComponents(ctx.staffId, ctx.month, { [component]: true }, 'Thu hồi từ khung Đối chiếu');
+            await loadSalarySettings();
+            if (result.recalledComponents.length) UIService.toast('Đã thu hồi về bản nháp. Sửa đơn giá/công, bấm Lưu & Tính rồi gửi lại.', 'success');
+            else if (result.lockedComponents.length) UIService.toast('Nhân viên đã xác nhận nhận lương phần này nên không thu hồi được. Hãy dùng “Đối chiếu & gửi hiệu chỉnh”.', 'warning');
+            else UIService.toast('Phần lương này hiện không ở trạng thái đã gửi nên không cần thu hồi.', 'info');
         } catch (error) { UIService.toast(error.message, 'error'); }
         finally { finish(); }
     }

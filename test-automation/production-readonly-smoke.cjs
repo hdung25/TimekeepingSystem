@@ -55,8 +55,8 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
-                !!(await cache.match('/js/db-service.js?v=20260911-early10-legacy-checkin-v1')) &&
+            return !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20260912-payroll-recall-rates-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);

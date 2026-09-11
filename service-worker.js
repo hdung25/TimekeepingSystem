@@ -1,7 +1,7 @@
 // Service Worker v179 - managers can verify +10 early bonus on legacy check-ins.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v179-early10-legacy-20260911';
+const CACHE_NAME = 'tdt-chamcong-v180-payroll-recall-20260912';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -31,12 +31,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260911-position-allowance-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260911-early10-legacy-checkin-v1',
+    '/js/db-service.js?v=20260912-payroll-recall-rates-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
-    '/js/report.js?v=20260911-position-allowance-v1',
+    '/js/report.js?v=20260912-payroll-recall-rates-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
-    '/js/payroll-review.js?v=20260908-payroll-review-v2',
+    '/js/payroll-review.js?v=20260912-payroll-recall-v1',
     '/js/evaluation-service.js?v=20260911-meeting-sync-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
@@ -47,7 +47,7 @@ const STATIC_ASSETS = Array.from(new Set([
     // both paths offline during the page-version transition.
     '/js/ui-service.js?v=20260829-location-diagnostics-v3',
     '/js/ui-service.js?v=20260906-early10-recovery-v1',
-    '/js/early10.js?v=20260908-feedback-repair-v1',
+    '/js/early10.js?v=20260912-early10-nanos-v1',
     '/js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',

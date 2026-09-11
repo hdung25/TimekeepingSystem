@@ -5429,6 +5429,7 @@ const DBService = {
 
                 const session = data.sessions[index];
                 const isAdmin = isManager;
+                let unchanged = false;
 
                 // Enforce editing permissions
                 if (!isAdmin) {
@@ -5441,7 +5442,16 @@ const DBService = {
                     if (hasAdminReview || (currentStatus && !['pending', 'approved'].includes(currentStatus))) {
                         throw new Error("Không thể chỉnh sửa ca đã được duyệt hoặc từ chối.");
                     }
-                    if (clearing) {
+                    const alreadyCleared = clearing && session.studentCount == null && !currentStatus;
+                    const alreadySaved = !clearing && Number(session.studentCount) === normalizedCount &&
+                        currentStatus === 'approved' &&
+                        String(session.studentCountUpdatedBy || '') === targetUserId;
+                    if (alreadyCleared || alreadySaved) {
+                        // Rules accept exactly one changed session. An identical
+                        // retry (double tap, several chips of one session) is a
+                        // no-op instead of a denied write.
+                        unchanged = true;
+                    } else if (clearing) {
                         delete session.studentCount;
                         delete session.studentCountStatus;
                         delete session.studentCountUpdatedAt;
@@ -5476,6 +5486,7 @@ const DBService = {
                     }
                 }
 
+                if (unchanged) return;
                 data.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
                 t.set(ref, data);
 
@@ -7412,6 +7423,10 @@ const DBService = {
         return _preparePayslipComponentPublish(published, targets, nowIso);
     },
 
+    preparePayslipRecall(published = {}, targets = {}, nowIso) {
+        return _preparePayslipRecall(published, targets, nowIso);
+    },
+
     // Save a calculated draft against the latest Firestore state. This closes
     // the race where a stale report tab recalculated while another tab published
     // or confirmed the same component.
@@ -7507,6 +7522,48 @@ const DBService = {
         });
         DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
         return { saved: true, revisionId: archive.id };
+    },
+
+    // Withdraw sent-but-unconfirmed components so Admin can recalculate and send
+    // again. Each recalled snapshot is archived in `revisions`; attendance, rates
+    // and the sibling component stay intact. Received components stay locked.
+    async recallPayslipComponents(staffId, monthStr, targets = {}, reason = '') {
+        const normalizedTargets = { gv: targets.gv === true, tt: targets.tt === true };
+        if (!staffId || !/^\d{4}-\d{2}$/.test(String(monthStr || '')) || (!normalizedTargets.gv && !normalizedTargets.tt)) {
+            throw new Error('Cần chọn đúng nhân viên, tháng và phần lương cần thu hồi.');
+        }
+        const ref = db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`);
+        const now = new Date().toISOString();
+        const note = String(reason || '').trim().slice(0, 1900) || 'Admin thu hồi để tính lại và gửi lại';
+        let transition = null;
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(ref);
+            const data = snapshot.exists ? snapshot.data() : {};
+            const before = data.published || {};
+            transition = _preparePayslipRecall(before, normalizedTargets, now);
+            if (!snapshot.exists || transition.recalledComponents.length === 0) return;
+            const update = { published: transition.published };
+            transition.recalledComponents.forEach(component => {
+                // A revision draft is bound to the withdrawn snapshot token.
+                if (data.revisionDrafts?.[component]) {
+                    update[`revisionDrafts.${component}`] = firebase.firestore.FieldValue.delete();
+                }
+                transaction.set(ref.collection('revisions').doc(), {
+                    staffId, month: monthStr, component, action: 'recall',
+                    reason: `Thu hồi bảng lương: ${note}`,
+                    actorUid: firebase.auth().currentUser?.uid || '', createdAt: now,
+                    before, after: transition.published
+                });
+            });
+            transaction.update(ref, update);
+        });
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        return {
+            recalledComponents: transition.recalledComponents,
+            lockedComponents: transition.lockedComponents,
+            skippedComponents: transition.skippedComponents,
+            lifecycle: transition.state
+        };
     },
 
     // Update exactly one calendar day. This avoids read-modify-write data loss
@@ -9883,6 +9940,47 @@ function _preparePayslipRevision(current, calculated, component, nowIso) {
     _recalculatePayslipScalarTotals(next);
     _syncPayslipAggregateStatus(next, nowIso);
     return next;
+}
+
+// Admin recall of a sent-but-unconfirmed component. The calculated details stay
+// as the draft to recalculate; only the publish metadata is withdrawn. A received
+// (confirmed/paid) component is immutable and must use the revision workflow.
+function _preparePayslipRecall(published = {}, targets = {}, nowIso = new Date().toISOString()) {
+    const next = { ...published };
+    const before = _getPayslipLifecycleState(next);
+    const recalledComponents = [];
+    const lockedComponents = [];
+    const skippedComponents = [];
+
+    // Materialize legacy aggregate-only statuses first, otherwise the untouched
+    // sibling component would silently fall back to draft.
+    if (before.has_gv) next.status_gv = before.status_gv;
+    if (before.has_tt) next.status_tt = before.status_tt;
+
+    ['gv', 'tt'].forEach(component => {
+        if (!targets[component]) return;
+        const status = before[`status_${component}`];
+        if (!before[`has_${component}`] || status === 'draft') {
+            skippedComponents.push(component);
+            return;
+        }
+        if (status === 'received') {
+            lockedComponents.push(component);
+            return;
+        }
+        next[`status_${component}`] = 'draft';
+        delete next[`publishedAt_${component}`];
+        delete next[`receivedAt_${component}`];
+        delete next[`confirmedBy_${component}`];
+        next[`recalledAt_${component}`] = nowIso;
+        recalledComponents.push(component);
+    });
+
+    const state = _syncPayslipAggregateStatus(next, nowIso);
+    if (recalledComponents.length > 0 && state.overallStatus === 'draft') {
+        delete next.publishedAt;
+    }
+    return { published: next, state, recalledComponents, lockedComponents, skippedComponents };
 }
 
 // Bind a receipt to precisely the published components and amounts the viewer saw.

@@ -329,6 +329,19 @@ const atSecond = (clock) => new Date(`2026-08-03T${clock}`);
 }
 
 {
+    // Firestore Timestamp.toDate() bỏ phần micro giây nhưng Rules vẫn tính:
+    // 07:20:00.000400 cho ca 07:30 chưa đủ 10 phút, phải khớp Rules.
+    const base = Math.floor(at('07:20').getTime() / 1000);
+    const stampOf = nanoseconds => ({ seconds: base, nanoseconds, toDate: () => new Date(base * 1000) });
+    assert.equal(Early10.getEarlyMinutes(stampOf(0), '07:30'), 10);
+    assert.ok(Early10.getEarlyMinutes(stampOf(400000), '07:30') < 10);
+    assert.equal(Early10.evaluateEarly10Request({
+        subjectIds: ['s1'], subjects: [{ id: 's1', name: 'FFS1', allowEarly10: true }],
+        user: { teachingMode: 'old' }, checkIn: stampOf(400000), classStart: '07:30'
+    }).code, 'checkin');
+}
+
+{
     // Hình phạt tháng: hủy 1 ca sớm 10p khóa cả 10p lẫn phụ cấp lớp đông.
     assert.equal(Early10.isMonthlyBonusPenaltyActive({}, []), false);
     assert.equal(Early10.isMonthlyBonusPenaltyActive({ studentCountBonusPenalty: true }, []), true);

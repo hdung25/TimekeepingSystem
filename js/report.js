@@ -839,6 +839,8 @@ window.saveStudentCountSelections = async function () {
 
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang lưu sĩ số học sinh...');
+        // Nhiều chip (ca gộp) có thể trỏ cùng một phiên chấm công: mỗi phiên chỉ ghi một lần.
+        const seenStudentCountKeys = new Set();
 
         const promises = [];
         
@@ -846,6 +848,8 @@ window.saveStudentCountSelections = async function () {
             if (!chip.sessionId || chip.isReceptionist) continue;
             
             const key = chip.dateStr + '_' + chip.sessionId;
+            if (seenStudentCountKeys.has(key)) continue;
+            seenStudentCountKeys.add(key);
             const selection = window.selectedStudentCountChips[key];
             const originalCount = chip.studentCount || null;
             const originalStatus = chip.studentCountStatus || null;
@@ -856,7 +860,7 @@ window.saveStudentCountSelections = async function () {
                         continue; // Cannot edit rejected
                     }
                     promises.push(
-                        DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, selection.studentCount, 'approved', updaterId, 'staff')
+                        () => DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, selection.studentCount, 'approved', updaterId, 'staff')
                     );
                 }
             } else {
@@ -865,13 +869,17 @@ window.saveStudentCountSelections = async function () {
                         continue; // Cannot edit rejected
                     }
                     promises.push(
-                        DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, null, null, updaterId, 'staff')
+                        () => DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, null, null, updaterId, 'staff')
                     );
                 }
             }
         }
 
-        await Promise.all(promises);
+        // Ghi tuần tự: các ca cùng ngày nằm chung một tài liệu chấm công, ghi song
+        // song sẽ tranh chấp transaction và dễ báo lỗi dù dữ liệu hợp lệ.
+        for (const writeStudentCount of promises) {
+            await writeStudentCount();
+        }
         if (typeof UIService !== 'undefined') {
             UIService.hideLoading();
             UIService.toast('Đã lưu sĩ số học sinh thành công!', 'success');
@@ -4234,6 +4242,94 @@ async function saveSalarySettings() {
     }
 }
 
+// ===== GIỮ ĐƠN GIÁ LƯƠNG / GIỜ SANG THÁNG SAU =====
+// Đơn giá nhập ở modal được lưu theo tháng. Khi tháng đang xem chưa có giá cho
+// một lớp/ca, lấy giá của tháng gần nhất đã lưu cho ĐÚNG nhân viên đó. Chỉ điền
+// trong bộ nhớ (không tự ghi); giá đã có của tháng này luôn được giữ nguyên.
+const CLASS_RATE_INHERIT_LOOKBACK_MONTHS = 6;
+const inheritedClassRateCache = new Map();
+window.inheritedClassRatesInfo = {};
+
+function shiftPayrollMonthKey(monthStr, offset) {
+    const [year, month] = String(monthStr).split('-').map(Number);
+    const date = new Date(year, month - 1 + offset, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function pickPositiveClassRates(rates) {
+    const result = {};
+    if (!rates || typeof rates !== 'object') return result;
+    Object.keys(rates).forEach(name => {
+        const value = Number(rates[name]);
+        if (Number.isFinite(value) && value > 0) result[name] = value;
+    });
+    return result;
+}
+
+function loadInheritedClassRates(staffId, monthStr, roleKeys) {
+    const wanted = roleKeys.slice().sort();
+    const cacheKey = `${staffId}__${monthStr}__${wanted.join(',')}`;
+    if (!inheritedClassRateCache.has(cacheKey)) {
+        const lookup = (async () => {
+            const found = {};
+            // Dừng ngay ở tháng gần nhất có giá, tối đa 6 lần đọc cho mỗi nhân viên/tháng.
+            for (let back = 1; back <= CLASS_RATE_INHERIT_LOOKBACK_MONTHS && wanted.some(key => !found[key]); back++) {
+                const month = shiftPayrollMonthKey(monthStr, -back);
+                const doc = await DBService.getMonthlySalarySettings(staffId, month) || {};
+                wanted.forEach(roleKey => {
+                    if (found[roleKey]) return;
+                    const roleSettings = doc[roleKey] || doc[roleKey.replace('_', '-')] || {};
+                    const rates = pickPositiveClassRates(roleSettings.class_rates);
+                    if (Object.keys(rates).length > 0) found[roleKey] = { month, rates };
+                });
+            }
+            return found;
+        })();
+        inheritedClassRateCache.set(cacheKey, lookup);
+        lookup.catch(() => inheritedClassRateCache.delete(cacheKey));
+    }
+    return inheritedClassRateCache.get(cacheKey);
+}
+
+async function applyInheritedClassRates(staffId, monthStr, monthlyAll) {
+    if (!staffId || staffId === 'all' || !monthlyAll) return;
+    // Chỉ người tính/đối chiếu lương mới cần; nhân viên xem bảng công không tốn thêm lượt đọc.
+    if (!getReportViewerRoles().some(role => role === 'admin' || role === 'senior_assistant')) return;
+    const roleEntries = ['giao_vien', 'tiep_tan']
+        .map(roleKey => [roleKey, monthlyAll[roleKey] || monthlyAll[roleKey.replace('_', '-')]])
+        .filter(([, settings]) => settings && typeof settings === 'object');
+    if (roleEntries.length === 0) return;
+
+    let inherited;
+    try {
+        inherited = await loadInheritedClassRates(staffId, monthStr, roleEntries.map(([roleKey]) => roleKey));
+    } catch (error) {
+        console.warn('[ClassRates] Không đọc được đơn giá tháng trước:', error);
+        return;
+    }
+
+    const scope = `${staffId}__${monthStr}`;
+    if (window.inheritedClassRatesInfo?.scope !== scope) window.inheritedClassRatesInfo = { scope };
+    const configRates = window.currentUserContext?.salary_config?.class_rates;
+    roleEntries.forEach(([roleKey, settings]) => {
+        const source = inherited?.[roleKey];
+        if (!source) return;
+        const current = settings.class_rates && typeof settings.class_rates === 'object' ? settings.class_rates : null;
+        // Giá 0/trống coi như chưa nhập (modal cũng hiểu vậy): Tiếp Tân lưu 0 thì bảng
+        // chính trả 0 đ/giờ, nên phải lấy lại giá tháng trước thay vì bắt nhập lại.
+        const additions = Object.keys(source.rates).filter(name => !current || !(Number(current[name]) > 0));
+        if (additions.length === 0) return;
+        // Trước đây tháng chưa có class_rates thì dùng nguyên salary_config.class_rates;
+        // giữ các tên đó làm nền để không mất đơn giá cấu hình chung.
+        const merged = current
+            ? { ...current }
+            : { ...(configRates && typeof configRates === 'object' ? configRates : {}) };
+        additions.forEach(name => { merged[name] = source.rates[name]; });
+        settings.class_rates = merged;
+        window.inheritedClassRatesInfo[roleKey] = source.month;
+    });
+}
+
 async function loadSalarySettings(isCurrent = null) {
     const requestedEpoch = _reportRenderEpoch;
     const requestedStaff = getTargetStaffId();
@@ -4318,6 +4414,9 @@ async function loadSalarySettings(isCurrent = null) {
             window.currentMonthlySalarySettingsAll['tiep_tan'] = ttSettings;
         }
         
+        await applyInheritedClassRates(staffId, monthStr, window.currentMonthlySalarySettingsAll);
+        if (!canCommit()) return;
+
         settings = roleKey === 'tiep_tan' ? ttSettings : gvSettings;
         if (!settings) settings = {};
     } catch (e) {
@@ -7250,9 +7349,11 @@ async function populateModalCurrentTab() {
 
     // Keep cache updated
     window.currentMonthlySalarySettingsAll = monthlySettingsAll;
+    await applyInheritedClassRates(staffId, monthStr, monthlySettingsAll);
     
     const activeRoleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
-    const roleSettings = monthlySettingsAll[activeRoleKey] || {};
+    // Tài liệu cũ lưu khóa 'tiep-tan'/'giao-vien'; thiếu vế này thì đơn giá đã lưu hiện thành trống.
+    const roleSettings = monthlySettingsAll[activeRoleKey] || monthlySettingsAll[activeRoleKey.replace('_', '-')] || {};
     
     // 1. Calculate Attendance Stats
     let workedShifts = 0;
@@ -7413,7 +7514,7 @@ async function populateModalCurrentTab() {
         
         const groupKeys = Object.keys(groups).sort();
         if (groupKeys.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Không có lớp hoặc ca làm việc nào trong tháng này.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">Không có lớp hoặc ca làm việc nào trong tháng này.</td></tr>';
         } else {
             groupKeys.forEach(name => {
                 const group = groups[name];
@@ -7516,6 +7617,11 @@ async function populateModalCurrentTab() {
                     row.classList.add('salary-row-student-count-disabled');
                 }
                 row.innerHTML = `
+                    <td class="class-rate-select-cell" style="padding: 0.5rem 0 0.5rem 1rem; width: 40px;">
+                        <input type="checkbox" class="class-rate-row-select" aria-label="Chọn dòng ${escapeReportHtml(name)}"
+                            ${inputLocked ? 'disabled title="Dòng này đang khóa, không đổi đơn giá được"' : 'title="Tick để nhập cùng một đơn giá cho nhiều dòng"'}
+                            style="width: 16px; height: 16px; cursor: pointer; accent-color: #4F46E5;">
+                    </td>
                     <td style="padding: 0.75rem 1rem; ${nameStyle}">${displayName}</td>
                     <td style="padding: 0.75rem 1rem; text-align: center; color: #4B5563;">${timeStr}</td>
                     <td style="padding: 0.5rem 1rem; text-align: right;">
@@ -7549,6 +7655,7 @@ async function populateModalCurrentTab() {
         const grandTimeStr = `${grandH}h${grandM > 0 ? ' ' + grandM + 'p' : ''}`;
         
         totalsRow.innerHTML = `
+            <td style="padding: 0.75rem 0 0.75rem 1rem;"></td>
             <td style="padding: 0.75rem 1rem; color: #111827;">Tổng Cộng</td>
             <td style="padding: 0.75rem 1rem; text-align: center; color: #111827;" id="class-rate-total-hours">${grandTimeStr}</td>
             <td style="padding: 0.75rem 1rem;"></td>
@@ -7559,6 +7666,17 @@ async function populateModalCurrentTab() {
         tableBody.appendChild(totalsRow);
     }
     
+    initClassRateBulkSelection();
+    const inheritNote = document.getElementById('class-rate-inherit-note');
+    if (inheritNote) {
+        const inheritInfo = window.inheritedClassRatesInfo || {};
+        const fromMonth = inheritInfo.scope === `${staffId}__${monthStr}` ? (inheritInfo[activeRoleKey] || '') : '';
+        inheritNote.hidden = !fromMonth;
+        inheritNote.textContent = fromMonth
+            ? `Dòng chưa có đơn giá tháng này được điền sẵn theo bảng lương tháng ${fromMonth.slice(5)}/${fromMonth.slice(0, 4)}. Kiểm tra rồi bấm “Lưu và Tính” để giữ cho tháng này.`
+            : '';
+    }
+
     // 3. Advance & Evaluations Grid
     const modalAdvanceInp = document.getElementById('modal-salary-advance');
     if (modalAdvanceInp) modalAdvanceInp.value = formatNumberWithCommas(roleSettings.advance !== undefined ? roleSettings.advance : 0);
@@ -7749,6 +7867,147 @@ function buildSalaryDebugText() {
     return t;
 }
 
+// ===== CHỌN NHIỀU DÒNG Ở CỘT LƯƠNG / GIỜ =====
+// Chỉ điền giá trị vào đúng các ô nhập đang có rồi gọi recalculateSalaryModal();
+// "Lưu và Tính" vẫn đọc từng ô như khi gõ tay, không có đường lưu riêng.
+let classRateLastToggledIndex = -1;
+
+function getClassRateRows() {
+    return Array.from(document.querySelectorAll('#class-rate-table-body tr'))
+        .filter(row => row.querySelector('.class-rate-row-select'));
+}
+
+function getSelectedClassRateInputs() {
+    return getClassRateRows()
+        .filter(row => {
+            const box = row.querySelector('.class-rate-row-select');
+            return box && box.checked && !box.disabled;
+        })
+        .map(row => row.querySelector('.class-rate-input'))
+        .filter(input => input && !input.disabled);
+}
+
+function refreshClassRateSelectionState() {
+    let enabled = 0;
+    let selected = 0;
+    getClassRateRows().forEach(row => {
+        const box = row.querySelector('.class-rate-row-select');
+        const isOn = !!box && box.checked && !box.disabled;
+        if (box && !box.disabled) enabled++;
+        if (isOn) selected++;
+        row.classList.toggle('class-rate-row-selected', isOn);
+    });
+    const counter = document.getElementById('class-rate-bulk-count');
+    if (counter) counter.textContent = selected > 0 ? `Đã chọn ${selected} dòng` : 'Chưa chọn dòng nào';
+    ['class-rate-bulk-apply', 'class-rate-bulk-clear'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = selected === 0;
+    });
+    const selectAll = document.getElementById('class-rate-select-all');
+    if (selectAll) {
+        selectAll.disabled = enabled === 0;
+        selectAll.checked = enabled > 0 && selected === enabled;
+        selectAll.indeterminate = selected > 0 && selected < enabled;
+    }
+}
+
+function initClassRateBulkSelection() {
+    classRateLastToggledIndex = -1;
+    const bulkValue = document.getElementById('class-rate-bulk-value');
+    if (bulkValue) bulkValue.value = '';
+    const rows = getClassRateRows();
+    rows.forEach((row, index) => {
+        const box = row.querySelector('.class-rate-row-select');
+        box.addEventListener('click', event => {
+            // Shift + bấm: chọn/bỏ cả dải từ dòng bấm trước đến dòng này.
+            if (event.shiftKey && classRateLastToggledIndex >= 0 && classRateLastToggledIndex !== index) {
+                const from = Math.min(classRateLastToggledIndex, index);
+                const to = Math.max(classRateLastToggledIndex, index);
+                rows.slice(from, to + 1).forEach(rangeRow => {
+                    const rangeBox = rangeRow.querySelector('.class-rate-row-select');
+                    if (rangeBox && !rangeBox.disabled) rangeBox.checked = box.checked;
+                });
+            }
+            classRateLastToggledIndex = index;
+            refreshClassRateSelectionState();
+        });
+        // Bấm vào tên lớp hoặc ô giờ cũng chọn dòng; bấm vào ô nhập thì không.
+        Array.from(row.cells).forEach(cell => {
+            if (cell.classList.contains('class-rate-select-cell') || cell.querySelector('input')) return;
+            if (box.disabled) return;
+            cell.style.cursor = 'pointer';
+            cell.addEventListener('click', () => box.click());
+        });
+    });
+    refreshClassRateSelectionState();
+}
+
+window.toggleAllClassRateRows = function (checked) {
+    getClassRateRows().forEach(row => {
+        const box = row.querySelector('.class-rate-row-select');
+        if (box && !box.disabled) box.checked = !!checked;
+    });
+    classRateLastToggledIndex = -1;
+    refreshClassRateSelectionState();
+};
+
+window.clearClassRateSelection = function () {
+    window.toggleAllClassRateRows(false);
+};
+
+window.selectClassRatesWithSameValue = function () {
+    const typed = String(document.getElementById('class-rate-bulk-value')?.value || '').trim();
+    let target = typed ? parseFormattedNumber(typed) : null;
+    if (target === null) {
+        const sample = getSelectedClassRateInputs()[0];
+        if (sample) target = parseFormattedNumber(sample.value);
+    }
+    if (target === null || !Number.isFinite(target)) {
+        UIService.toast('Nhập một đơn giá vào ô "Đơn giá" hoặc tick một dòng mẫu trước.', 'info');
+        return;
+    }
+    let matched = 0;
+    getClassRateRows().forEach(row => {
+        const box = row.querySelector('.class-rate-row-select');
+        const input = row.querySelector('.class-rate-input');
+        if (!box || box.disabled || !input || input.disabled) return;
+        box.checked = parseFormattedNumber(input.value) === target;
+        if (box.checked) matched++;
+    });
+    classRateLastToggledIndex = -1;
+    refreshClassRateSelectionState();
+    UIService.toast(matched > 0
+        ? `Đã chọn ${matched} dòng đang có đơn giá ${formatNumberWithCommas(target)} đ.`
+        : 'Không có dòng nào đang có đơn giá này.', matched > 0 ? 'success' : 'info');
+};
+
+window.applyClassRateToSelected = function () {
+    const inputs = getSelectedClassRateInputs();
+    if (inputs.length === 0) {
+        UIService.toast('Hãy tick chọn các dòng cần nhập cùng đơn giá.', 'warning');
+        return;
+    }
+    const valueInput = document.getElementById('class-rate-bulk-value');
+    const raw = String(valueInput?.value || '').trim();
+    const value = parseFormattedNumber(raw);
+    if (!raw || !Number.isFinite(value) || value < 0) {
+        UIService.toast('Nhập đơn giá hợp lệ (số tiền mỗi giờ) trước khi áp dụng.', 'warning');
+        valueInput?.focus();
+        return;
+    }
+    inputs.forEach(input => {
+        input.value = formatNumberWithCommas(value);
+        const row = input.closest('tr');
+        if (row) {
+            row.classList.remove('class-rate-row-flash');
+            void row.offsetWidth;
+            row.classList.add('class-rate-row-flash');
+        }
+    });
+    recalculateSalaryModal();
+    UIService.toast(`Đã điền ${formatNumberWithCommas(value)} đ/giờ cho ${inputs.length} dòng. Bấm “Lưu và Tính” để lưu.`, 'success');
+};
+
 function recalculateSalaryModal() {
     let basePay = 0;
     
@@ -7870,8 +8129,10 @@ async function saveSalarySettingsFromModal() {
     const month = currentDate.getMonth();
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
-    const activeRoleSettings = window.currentMonthlySalarySettingsAll?.[window.modalActiveRole] ||
-        window.currentMonthlySalarySettingsAll?.[String(window.modalActiveRole || '').replace('-', '_')] || {};
+    // Ưu tiên khóa chuẩn 'tiep_tan'/'giao_vien' (nơi lưu và nơi đọc lại), khóa cũ có gạch ngang chỉ để dự phòng.
+    const saveRoleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
+    const activeRoleSettings = window.currentMonthlySalarySettingsAll?.[saveRoleKey] ||
+        window.currentMonthlySalarySettingsAll?.[saveRoleKey.replace('_', '-')] || {};
     const classRates = { ...(activeRoleSettings.class_rates || {}) };
     const classRateInputs = document.querySelectorAll('.class-rate-input');
     classRateInputs.forEach(input => {
@@ -7975,6 +8236,8 @@ async function saveSalarySettingsFromModal() {
             renderEvaluationTable(normalizeEvaluationEntries(settingsObj.evaluation));
         }
         
+        // Tháng sau phải thấy đúng đơn giá vừa lưu, không dùng kết quả kế thừa cũ.
+        inheritedClassRateCache.clear();
         closeClassRateModal();
         await renderMonthReport(currentDate, true);
         // The modal save is role-scoped.  Do not let the post-save report
@@ -10580,7 +10843,7 @@ window.filterBulkPublishList = filterBulkPublishList;
 // không để lẫn vào danh sách chọn nữa (yêu cầu GĐ 07/08/2026).
 const BULK_SECTIONS = [
     { key: 'todo', title: 'Cần gửi', hint: 'Đã tính xong, chưa gửi cho nhân viên', color: '#D97706', statuses: ['draft'] },
-    { key: 'done', title: 'Đã xử lý tháng này', hint: 'Đã gửi — không nằm trong danh sách chọn nữa', color: '#1E40AF', statuses: ['published', 'received'] },
+    { key: 'done', title: 'Đã xử lý tháng này', hint: 'Đã gửi — tick ô cam hoặc bấm "Thu hồi" để tính lại', color: '#1E40AF', statuses: ['published', 'received'] },
     { key: 'none', title: 'Chưa tính lương', hint: 'Bấm tên để mở bảng lương và tính', color: '#6B7280', statuses: ['uncalculated'] }
 ];
 
@@ -10639,6 +10902,8 @@ function createBulkStaffRow(item, group, sectionKey) {
     row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.6rem 0.7rem; border: 1px solid #E5E7EB; border-radius: 10px; background: #fff;';
 
     const selectable = sectionKey === 'todo';
+    // Chỉ phần "Đã gửi" (chưa xác nhận nhận) được thu hồi; "Đã nhận" dùng hiệu chỉnh.
+    const recallable = sectionKey === 'done' && item.status === 'published';
     const accent = group === 'teachers' ? '#3B82F6' : '#10B981';
 
     let statusText = 'Chưa tính';
@@ -10676,6 +10941,10 @@ function createBulkStaffRow(item, group, sectionKey) {
         ? `<input type="checkbox" class="bulk-staff-checkbox bulk-group-${safeGroup}" checked
                    title="Chọn để gửi bảng lương cho người này"
                    style="width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; accent-color: ${accent};" />`
+        : recallable
+        ? `<input type="checkbox" class="bulk-recall-checkbox bulk-recall-group-${safeGroup}"
+                   title="Tick để thu hồi bảng lương đã gửi (tính lại rồi gửi lại)"
+                   style="width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; accent-color: #D97706;" />`
         : `<span style="width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:${badgeColor};">
                <i data-lucide="${item.status === 'uncalculated' ? 'minus' : 'check'}" style="width:14px;height:14px;"></i>
            </span>`;
@@ -10692,6 +10961,7 @@ function createBulkStaffRow(item, group, sectionKey) {
             </button>
         </div>
         <div style="display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0;">
+            ${recallable ? '<button type="button" class="bulk-recall-one" title="Thu hồi bảng lương đã gửi để tính lại rồi gửi lại">Thu hồi</button>' : ''}
             <span style="font-size: 0.68rem; padding: 2px 8px; border-radius: 9999px; font-weight: 700; white-space: nowrap; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder};">
                 ${statusText}
             </span>
@@ -10717,6 +10987,17 @@ function createBulkStaffRow(item, group, sectionKey) {
     if (nameNode) nameNode.insertBefore(document.createTextNode(staffName), nameNode.firstChild);
     const metaNode = row.querySelector('.bulk-staff-meta');
     if (metaNode) metaNode.textContent = `MSNV: ${String(item.msnv || '')}${sentAtStr ? ' · gửi ' + sentAtStr : ''}`;
+    const recallBox = row.querySelector('.bulk-recall-checkbox');
+    if (recallBox) {
+        recallBox.dataset.id = staffId;
+        recallBox.dataset.group = safeGroup;
+        recallBox.addEventListener('change', () => updateBulkSelectedCount());
+    }
+    const recallOne = row.querySelector('.bulk-recall-one');
+    if (recallOne) recallOne.addEventListener('click', () => submitBulkRecall({ staffId, group: safeGroup, staffName }));
+    if (item.status === 'received') {
+        row.title = 'Nhân viên đã xác nhận nhận lương — muốn đổi số tiền hãy dùng “Đối chiếu & gửi hiệu chỉnh”.';
+    }
     return row;
 }
 
@@ -10744,11 +11025,14 @@ function updateBulkSelectedCount() {
     const nT = document.querySelectorAll('.bulk-staff-checkbox.bulk-group-teachers:checked').length;
     const nR = document.querySelectorAll('.bulk-staff-checkbox.bulk-group-receps:checked').length;
 
+    const nRecall = document.querySelectorAll('.bulk-recall-checkbox:checked').length;
+
     const countDisplay = document.getElementById('bulk-selected-count');
     if (countDisplay) {
+        const recallText = nRecall > 0 ? ` · <b style="color:#B45309;">${nRecall} cần thu hồi</b>` : '';
         countDisplay.innerHTML = (nT + nR) === 0
-            ? '<span style="color:#9CA3AF;">Chưa chọn nhân viên nào</span>'
-            : `Đang chọn: <b style="color:#1D4ED8;">${nT} giáo viên</b> · <b style="color:#047857;">${nR} tiếp tân</b>`;
+            ? (nRecall > 0 ? `Đang chọn thu hồi: <b style="color:#B45309;">${nRecall} phần lương</b>` : '<span style="color:#9CA3AF;">Chưa chọn nhân viên nào</span>')
+            : `Đang chọn: <b style="color:#1D4ED8;">${nT} giáo viên</b> · <b style="color:#047857;">${nR} tiếp tân</b>${recallText}`;
     }
 
     const setBtn = (id, n, label) => {
@@ -10763,6 +11047,86 @@ function updateBulkSelectedCount() {
     setBtn('btn-bulk-publish-teachers', nT, 'Gửi bên Giáo Viên');
     setBtn('btn-bulk-publish-receps', nR, 'Gửi bên Tiếp Tân');
     setBtn('btn-submit-bulk-publish', nT + nR, 'Gửi cả hai bên');
+    setBtn('btn-bulk-recall', nRecall, 'Thu hồi đã chọn');
+}
+
+// Thu hồi phần lương "Đã gửi" về bản nháp để tính lại rồi gửi lại.
+// single: { staffId, group, staffName } khi bấm nút "Thu hồi" trên một dòng.
+async function submitBulkRecall(single) {
+    if (!requirePayrollAdmin() || payrollWritePending) return;
+    const selectedMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    if (window.bulkPublishMonth !== selectedMonth) {
+        UIService.toast('Danh sách không thuộc tháng hiện tại. Vui lòng mở lại danh sách.', 'warning');
+        return;
+    }
+
+    const targets = {};
+    const addTarget = (staffId, group) => {
+        if (!staffId) return;
+        if (!targets[staffId]) targets[staffId] = { gv: false, tt: false };
+        targets[staffId][group === 'receps' ? 'tt' : 'gv'] = true;
+    };
+    const isSingle = !!(single && single.staffId);
+    if (isSingle) addTarget(String(single.staffId), single.group);
+    else document.querySelectorAll('.bulk-recall-checkbox:checked').forEach(cb => addTarget(cb.dataset.id, cb.dataset.group));
+
+    const componentCount = Object.values(targets).reduce((sum, item) => sum + (item.gv ? 1 : 0) + (item.tt ? 1 : 0), 0);
+    if (componentCount === 0) {
+        UIService.toast('Tick ô cam ở khu "Đã xử lý tháng này" để chọn bảng lương cần thu hồi.', 'warning');
+        return;
+    }
+
+    const who = isSingle
+        ? `<b>${escapeReportHtml(single.staffName || '')}</b> (bên ${single.group === 'receps' ? 'Tiếp Tân' : 'Giáo Viên'})`
+        : `<b>${componentCount} phần lương</b> đã chọn`;
+    const agreed = await UIService.confirm(
+        `Thu hồi bảng lương đã gửi của ${who}?<br><br>` +
+        '• Nhân viên sẽ tạm không thấy phần lương này.<br>' +
+        '• Số liệu đã tính được giữ làm bản nháp: sửa đơn giá/công, bấm <b>Lưu và Tính</b> rồi gửi lại.<br>' +
+        '• Bản đã gửi được lưu vào lịch sử. Phần nhân viên đã xác nhận nhận lương thì không thu hồi (dùng Gửi hiệu chỉnh).'
+    );
+    if (!agreed) return;
+    if (selectedMonth !== `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`) {
+        UIService.toast('Tháng đã thay đổi. Vui lòng chọn lại.', 'warning');
+        return;
+    }
+
+    const finishWrite = beginPayrollWrite();
+    if (!finishWrite) return;
+    try {
+        const settled = await Promise.allSettled(Object.keys(targets).map(staffId =>
+            DBService.recallPayslipComponents(staffId, selectedMonth, targets[staffId], 'Thu hồi từ danh sách Gửi bảng lương')
+        ));
+        const results = settled.filter(item => item.status === 'fulfilled').map(item => item.value);
+        const failed = settled.filter(item => item.status === 'rejected');
+        if (failed.length) console.error('Bulk recall partial failures:', failed.map(item => item.reason));
+        if (results.length === 0 && failed.length > 0) throw failed[0].reason;
+
+        const recalled = results.reduce((sum, item) => sum + item.recalledComponents.length, 0);
+        const locked = results.reduce((sum, item) => sum + item.lockedComponents.length, 0);
+        const skipped = results.reduce((sum, item) => sum + item.skippedComponents.length, 0);
+        if (locked || skipped || failed.length) {
+            UIService.toast(
+                `Đã thu hồi ${recalled} phần lương; giữ nguyên ${locked} phần nhân viên đã xác nhận, bỏ qua ${skipped} phần không còn ở trạng thái đã gửi và ${failed.length} hồ sơ lỗi.`,
+                'warning'
+            );
+        } else {
+            UIService.toast(`Đã thu hồi ${recalled} bảng lương. Bấm tên nhân viên để tính lại rồi gửi lại.`, 'success');
+        }
+
+        await openBulkPublishModal({ keepMessage: true });
+        const dashView = document.getElementById('salary-dashboard-view');
+        if (dashView && dashView.style.display === 'block') {
+            await loadSalaryDashboard();
+        } else {
+            await loadSalarySettings();
+        }
+    } catch (e) {
+        console.error('Error in bulk recall:', e);
+        UIService.toast('Thu hồi bảng lương thất bại: ' + e.message, 'error');
+    } finally {
+        finishWrite();
+    }
 }
 
 // scope: 'teachers' | 'receps' | 'all' — gửi riêng từng bên để đang tính dở vẫn gửi được
@@ -10879,6 +11243,7 @@ window.onBulkCheckboxChange = onBulkCheckboxChange;
 window.toggleSelectAllGroup = toggleSelectAllGroup;
 window.updateBulkSelectedCount = updateBulkSelectedCount;
 window.submitBulkPublish = submitBulkPublish;
+window.submitBulkRecall = submitBulkRecall;
 
 
 
