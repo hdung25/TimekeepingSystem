@@ -151,6 +151,41 @@ async function main() {
         assert.equal(result.find(r=>r.sessionId==='legacy').minutes,0);
         console.log('PASS real Admin overtime update/create/revoke; staff cannot self-approve');
 
+        // Check-ins before the receipt rollout (2026-09-02) have no server proof.
+        // The employee still cannot self-award; an Admin may verify the log time.
+        const legacyDay = '2026-08-22';
+        const legacySession = '1787381379255';
+        const legacyIn = `${legacyDay}T06:49:39.193Z`;
+        await env.withSecurityRulesDisabled(async c => {
+            const adminDb = c.firestore();
+            await adminDb.collection('schedules').doc(`cs1__${legacyDay}`).set({ afternoon1: [{
+                start: '14:00', end: '15:30', lop: 'E5', lopId: 'fixture-english', gvId: 'fixture-huy',
+                gvList: [{ id: 'fixture-huy', name: 'Quang Huy' }]
+            }] });
+            await adminDb.collection('attendance_logs').doc(`${legacyDay}_fixture-huy`).set({
+                userId: 'fixture-huy', name: 'Quang Huy ', date: legacyDay, sessions: [{ id: Number(legacySession),
+                    checkIn: legacyIn, start: legacyIn, checkOut: `${legacyDay}T10:00:00.000Z` }]
+            });
+        });
+        const loadBonusService = uid => new Function('window','db','firebase','localStorage',source+'\nreturn DBService;')(
+            { auth: { currentUser: { uid } }, Early10: require('../js/early10.js') },
+            env.authenticatedContext(uid).firestore(), { firestore: firebase.firestore }, { getItem: () => null });
+        const legacyMeta = { scheduleDocId: `cs1__${legacyDay}`, scheduleSection: 'afternoon1', scheduleIndex: 0,
+            targetShiftKey: `teaching__${legacyDay}__cs1__${legacyDay}__afternoon1__14:00-15:30`,
+            subjectId: 'fixture-english', classStart: '14:00', classEnd: '15:30', checkInAt: legacyIn, earlyMinutes: 10,
+            scheduleAssignmentList: 'gvList', scheduleAssignmentEntry: { id: 'fixture-huy', name: 'Quang Huy' } };
+        await assert.rejects(loadBonusService('uid-huy').createBonus10Request(
+            'fixture-huy', 'Quang Huy', legacyDay, legacySession, legacyMeta), { code: 'bonus10/proof-missing' });
+        await loadBonusService('uid-admin').createBonus10Request(
+            'fixture-huy', 'Quang Huy', legacyDay, legacySession, legacyMeta);
+        const legacyAwards = (await loadBonusService('uid-admin').getBonus10RequestsForStaff('fixture-huy', '2026-08'))
+            .filter(request => request.dateKey === legacyDay);
+        assert.equal(legacyAwards.length, 1);
+        assert.equal(legacyAwards[0].status, 'approved');
+        assert.equal(legacyAwards[0].requestSource, 'manager_verified_legacy_checkin');
+        assert.equal(legacyAwards[0].approvedBy, 'fixture-admin');
+        console.log('PASS Admin verifies +10 on a pre-receipt legacy check-in; staff self-claim still needs proof');
+
         const adminAuth = { currentUser: { uid: 'uid-admin' } };
         const studentCountAdmin = new Function('window','db','firebase','localStorage',source+'\nreturn DBService;')(
             { auth: adminAuth }, env.authenticatedContext('uid-admin').firestore(),

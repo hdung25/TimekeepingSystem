@@ -238,6 +238,10 @@ assert.match(createBonusCommand, /status:\s*'approved'/,
     'an eligible authenticated staff request is approved without waiting for Admin');
 assert.doesNotMatch(createBonusCommand, /collection\('bonus10_requests'\)\.add/,
     'random request IDs would reopen the duplicate-create race');
+assert.match(createBonusCommand, /canVerifyLegacyCheckIn = isManager && actorUserId !== String\(staffId\)/,
+    'only a manager acting for another employee may verify a pre-receipt legacy check-in');
+assert.match(createBonusCommand, /code === 'proof-missing' && canVerifyLegacyCheckIn/,
+    'staff self-claims must still fail when the server check-in receipt is missing');
 
 const approveBonusStart = db.indexOf('approveBonus10Request: async');
 const approveBonusEnd = db.indexOf('\n    cancelApprovedBonus10:', approveBonusStart);
@@ -392,11 +396,11 @@ assert.match(report,
 
 const earlyIndex = html.indexOf('js/early10.js?v=20260908-feedback-repair-v1');
 const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1');
-const dbIndex = html.indexOf('js/db-service.js?v=20260911-revoke-makeup-meeting-sync-v2');
+const dbIndex = html.indexOf('js/db-service.js?v=20260911-early10-legacy-checkin-v1');
 const scheduleIndex = html.indexOf('js/schedule.js?v=20260908-roster-refresh-v1');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v178-position-allowance-20260911/);
+assert.match(serviceWorker, /tdt-chamcong-v179-early10-legacy-20260911/);
 assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260906-early10-recovery-v1/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');

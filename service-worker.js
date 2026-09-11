@@ -1,7 +1,7 @@
-// Service Worker v178 - teacher position allowance is a dedicated payroll field.
+// Service Worker v179 - managers can verify +10 early bonus on legacy check-ins.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v178-position-allowance-20260911';
+const CACHE_NAME = 'tdt-chamcong-v179-early10-legacy-20260911';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -31,7 +31,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260911-position-allowance-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260911-revoke-makeup-meeting-sync-v2',
+    '/js/db-service.js?v=20260911-early10-legacy-checkin-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/report.js?v=20260911-position-allowance-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',

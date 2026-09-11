@@ -8191,6 +8191,7 @@ const DBService = {
                 error.code = 'auth/owner-required';
                 throw error;
             }
+            const canVerifyLegacyCheckIn = isManager && actorUserId !== String(staffId);
             const claim = _normalizeBonus10ClaimMeta({
                 ...(eligibilityMeta || {}),
                 dateKey,
@@ -8279,7 +8280,8 @@ const DBService = {
                     [attendanceSnapshot, 'attendance-missing', 'Không tìm thấy chấm công của ngày này. Vui lòng tải lại bảng công hoặc nhờ quản lý đối chiếu.'],
                     [subjectSnapshot, 'subject-missing', 'Không tìm thấy môn học của ca này. Vui lòng nhờ quản lý kiểm tra môn trên lịch.'],
                     [checkInProofSnapshot, 'proof-missing', 'Ca này chưa có bằng chứng giờ vào từ máy chủ để tự duyệt +10 phút (có thể là công cũ hoặc công nhập bù). Vui lòng nhờ quản lý đối chiếu và duyệt riêng; công hiện có vẫn được giữ nguyên.']
-                ].find(([snapshot]) => !snapshot.exists);
+                ].find(([snapshot, code]) => !snapshot.exists &&
+                    !(code === 'proof-missing' && canVerifyLegacyCheckIn));
                 if (missingEvidence) {
                     const error = new Error(missingEvidence[2]);
                     error.code = `bonus10/${missingEvidence[1]}`;
@@ -8319,13 +8321,17 @@ const DBService = {
                     error.code = 'bonus10/policy-conflict';
                     throw error;
                 }
+                // Check-ins before 2026-09-02 have no server receipt. A manager
+                // acting for another staff member (Rules: isAdmin) may verify the
+                // attendance-log time instead; staff self-claims still need proof.
+                const usesLegacyCheckIn = !checkInProofSnapshot.exists && canVerifyLegacyCheckIn;
                 const checkInProof = checkInProofSnapshot.data() || {};
-                const proofTime = checkInProof.recordedAt;
-                if (String(checkInProof.staffId || '') !== identity.staffId ||
+                const proofTime = usesLegacyCheckIn ? new Date(liveCheckIn) : checkInProof.recordedAt;
+                if (!usesLegacyCheckIn && (String(checkInProof.staffId || '') !== identity.staffId ||
                     String(checkInProof.dateKey || '') !== identity.dateKey ||
                     String(checkInProof.sessionId || '') !== identity.sessionId ||
                     (actorUserId === identity.staffId && String(checkInProof.authUid || '') !== authorization.uid) ||
-                    !proofTime || typeof proofTime.toDate !== 'function') {
+                    !proofTime || typeof proofTime.toDate !== 'function')) {
                     const error = new Error('Bằng chứng giờ vào ca từ máy chủ không hợp lệ. Hãy Vào ca lại bằng phiên bản ứng dụng mới nhất.');
                     error.code = 'bonus10/checkin-proof-required';
                     throw error;
@@ -8432,7 +8438,7 @@ const DBService = {
                     earlyMinutes: policyVerdict.earlyMinutes,
                     checkInAt: liveCheckIn,
                     scheduledStart: row.start,
-                    requestSource: 'staff_auto_approved',
+                    requestSource: usesLegacyCheckIn ? 'manager_verified_legacy_checkin' : 'staff_auto_approved',
                     authUid: authorization.uid,
                     schemaVersion: 2,
                     policyVersion: 'early10-shift-v2',

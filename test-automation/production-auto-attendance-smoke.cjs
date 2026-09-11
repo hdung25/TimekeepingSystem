@@ -61,7 +61,7 @@ const digest = value => crypto.createHash('sha256')
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
-                !!(await cache.match('/js/db-service.js?v=20260911-revoke-makeup-meeting-sync-v2')) &&
+                !!(await cache.match('/js/db-service.js?v=20260911-early10-legacy-checkin-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1'));
