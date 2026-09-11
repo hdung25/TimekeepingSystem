@@ -40,6 +40,33 @@ assert.match(report, /staffProfile\?\.chuyen_mon \|\| staffProfile\?\.specialty/
 assert.match(report, /if \(meeting\.department !== department\) return false/,
     'mỗi cột lương chỉ xét lịch họp đúng tổ, không lẫn các tổ khác');
 
+// Tiêu chí X của giáo viên chế độ cũ luôn theo trang họp: số tiền nhập tay cũ
+// không được chặn tự động, và mọi đường tính/lưu đều áp cùng một kết quả.
+const automationStart = report.indexOf('function automaticMeetingEvaluation(');
+const automationSource = report.slice(automationStart, report.indexOf('\n}\n', automationStart));
+assert.doesNotMatch(automationSource, /manual === true|mayAutomate/,
+    'dòng họp manual cũ không được chặn đồng bộ từ trang họp');
+{
+    const sandbox = { window: { currentUserContext: { teachingMode: 'old' } } };
+    const helpers = report.slice(report.indexOf('function isMeetingPayrollAutomatic('), report.indexOf('let currentEvalIndex'));
+    const normalize = report.slice(report.indexOf('function normalizeEvaluationEntries('), report.indexOf('\n}\n', report.indexOf('function normalizeEvaluationEntries(')) + 3);
+    const run = new Function('window', `${normalize}\n${helpers}\nreturn { automaticMeetingEvaluation, isMeetingPayrollAutomatic };`)(sandbox.window);
+    const summary = { complete: true, amount: 1000, note: 'T-TV: Có', version: policy.VERSION };
+    const stale = [{ id: 9, amount: 48650, manual: true, note: 'Tiếng Anh: Không họp; T-TV: Chưa ghi nhận' }];
+    const synced = run.automaticMeetingEvaluation(stale, summary).find(row => row.id === 9);
+    assert.equal(synced.amount, 1000, 'họp có mặt phải cộng 1.000đ dù dòng cũ nhập tay');
+    assert.equal(synced.manual, false);
+    assert.equal(stale[0].amount, 48650, 'không được sửa trực tiếp dữ liệu đã tải');
+    assert.equal(run.automaticMeetingEvaluation(stale, { ...summary, complete: false })[0].amount, 48650,
+        'họp chưa kết thúc thì giữ nguyên số đã lưu');
+    sandbox.window.currentUserContext.teachingMode = 'new';
+    assert.equal(run.automaticMeetingEvaluation(stale, summary)[0].amount, 48650,
+        'giáo viên chế độ mới không bị áp tự động');
+}
+const subjectLoader = report.slice(report.indexOf('async function loadAndRenderSubjects('), report.indexOf('const policyApi = await ensureSubjectRatePolicyLoaded();', report.indexOf('async function loadAndRenderSubjects(')));
+assert.match(subjectLoader, /DBService\.getSubjects\(true\)/,
+    'danh sách môn khi sửa/thêm ca phải đọc lại server để thấy môn vừa tạo (VD B2)');
+
 const dbMeetingStart = db.indexOf('getMeetingsForMonth: async');
 const dbMeetingEnd = db.indexOf('getTodayMeetings:', dbMeetingStart);
 const dbMeetingSource = db.slice(dbMeetingStart, dbMeetingEnd);

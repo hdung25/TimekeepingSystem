@@ -2946,14 +2946,17 @@ async function loadMeetingPayrollSummary(staffId, monthStr, staffProfile = windo
     };
 }
 
+function isMeetingPayrollAutomatic(summary) {
+    return window.currentUserContext?.teachingMode === 'old' && summary?.complete === true;
+}
+
+// Criterion X of an old-mode teacher is owned by the meeting page. An older
+// manual amount (e.g. a stale 48.650đ typed into X) must not keep payroll out
+// of sync with the recorded attendance; corrections belong on the meeting page.
 function automaticMeetingEvaluation(savedData, summary) {
     const result = normalizeEvaluationEntries(savedData).map(item => ({ ...item }));
-    if (window.currentUserContext?.teachingMode !== 'old' || !summary?.complete) return result;
+    if (!isMeetingPayrollAutomatic(summary)) return result;
     const saved = result.find(item => Number(item.id) === 9);
-    const generatedNote = !saved?.note || /^(Tiếng Anh:|Họp định kỳ tự động:)/.test(saved.note);
-    const mayAutomate = !saved || saved.manual === false ||
-        (saved.manual !== true && Number(saved.amount || 0) === 0 && generatedNote);
-    if (!mayAutomate) return result;
     const row = {
         id: 9,
         amount: summary.amount,
@@ -2966,10 +2969,19 @@ function automaticMeetingEvaluation(savedData, summary) {
     return result;
 }
 
+function syncMeetingEvaluationRow(evaluation, summary) {
+    if (!Array.isArray(evaluation) || !isMeetingPayrollAutomatic(summary)) return evaluation;
+    const synced = automaticMeetingEvaluation(evaluation, summary).find(item => Number(item.id) === 9);
+    const index = evaluation.findIndex(item => Number(item.id) === 9);
+    if (index >= 0) evaluation[index] = { ...evaluation[index], ...synced };
+    else evaluation.push(synced);
+    return evaluation;
+}
+
 let currentEvalIndex = null;
 
 function renderEvaluationTable(savedData = []) {
-    savedData = automaticMeetingEvaluation(savedData, window.currentMeetingPayrollSummary);
+    savedData = normalizeEvaluationEntries(savedData);
     const section = document.getElementById('evaluation-section');
     if (!section) return;
 
@@ -2998,6 +3010,8 @@ function renderEvaluationTable(savedData = []) {
         ? window.currentLoadedRoleKey === 'tiep_tan'
         : (filterVal === 'tiep-tan') || (filterVal === 'all' && hasReceptionist && !hasTeaching);
     const criteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+    const meetingAutomatic = !isRecep && isMeetingPayrollAutomatic(window.currentMeetingPayrollSummary);
+    if (meetingAutomatic) savedData = automaticMeetingEvaluation(savedData, window.currentMeetingPayrollSummary);
 
     const thead = document.getElementById('eval-thead');
     const tbody = document.getElementById('evaluation-table-body');
@@ -3024,7 +3038,8 @@ function renderEvaluationTable(savedData = []) {
 
         totalBonus += Number(amount);
 
-        const isReadOnlyAttr = isRecep 
+        // Criterion X follows the meeting page; edit attendance there instead.
+        const isReadOnlyAttr = isRecep || (meetingAutomatic && criteriaIndex === 9)
             ? 'readonly style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600; color: #4B5563;"' 
             : 'style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600;"';
 
@@ -3850,7 +3865,10 @@ function calculateSalary() {
             // Nếu otherRole là tiep_tan: phí tư vấn (id=1) và DT CS3 (id=6) đã được cộng
             // trong block isRecep ở trên → loại chúng ra để tránh double-count
             const evalIdsAlreadyCounted = otherRole === 'tiep_tan' ? [1, 6] : [];
-            const otherBonus = normalizeEvaluationEntries(otherSettings.evaluation).reduce((sum, e) => {
+            const otherEvaluation = otherRole === 'giao_vien'
+                ? automaticMeetingEvaluation(otherSettings.evaluation, window.currentMeetingPayrollSummary)
+                : normalizeEvaluationEntries(otherSettings.evaluation);
+            const otherBonus = otherEvaluation.reduce((sum, e) => {
                 if (evalIdsAlreadyCounted.includes(e.id)) return sum; // đã tính trong isRecep block
                 return sum + (Number(e.amount) || 0);
             }, 0);
@@ -4159,6 +4177,8 @@ async function saveSalarySettings() {
         }
     }
 
+    if (roleKey === 'giao_vien') syncMeetingEvaluationRow(evaluationData, window.currentMeetingPayrollSummary);
+
     const loadedSettings = window.currentLoadedSalarySettings || {};
     const settingsObj = {
         rate,
@@ -4317,7 +4337,9 @@ async function loadSalarySettings(isCurrent = null) {
         ? 'Phí tư vấn đã được cập nhật. Admin chọn Tiếp Tân và Lưu & Tính trước khi gửi hoặc gửi hiệu chỉnh.' : '';
     window.currentLoadedSalarySettings = settings;
     window.currentMeetingPayrollSummary = null;
-    if (roleKey === 'giao_vien' && window.currentUserContext?.teachingMode === 'old') {
+    // Load for every old-mode teacher, including a dual-role employee currently
+    // on the receptionist tab, so the teaching component total stays in sync.
+    if (window.currentUserContext?.teachingMode === 'old' && (roleKey === 'giao_vien' || hasTeaching)) {
         try {
             window.currentMeetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr, window.currentUserContext);
             if (!canCommit()) return;
@@ -4779,16 +4801,18 @@ window.closeSubjectDropdown = function() {
     }, 200);
 };
 
+function normalizeSubjectSearchText(value) {
+    const raw = String(value || '').toLowerCase().trim();
+    return typeof removeVietnameseTones === 'function' ? removeVietnameseTones(raw) : raw;
+}
+
+// Match both the leaf name and the displayed group path, ignoring tones.
 window.filterSubjectDropdown = function(query) {
-    const term = query.toLowerCase().trim();
+    const term = normalizeSubjectSearchText(query);
     const items = document.querySelectorAll('.subject-dropdown-item');
     items.forEach(item => {
-        const name = item.dataset.name.toLowerCase();
-        if (name.includes(term)) {
-            item.style.display = 'flex';
-        } else {
-            item.style.display = 'none';
-        }
+        const haystack = normalizeSubjectSearchText(item.dataset.search || item.dataset.name);
+        item.style.display = haystack.includes(term) ? 'flex' : 'none';
     });
 };
 
@@ -4868,6 +4892,7 @@ function createSubjectDropdownItem(sub, isChecked) {
     const item = document.createElement('div');
     item.className = 'subject-dropdown-item';
     item.dataset.name = String(sub.name || '');
+    item.dataset.search = `${sub.name || ''} ${sub.path || ''}`;
     item.style.cssText = `
         display: flex;
         align-items: center;
@@ -5058,7 +5083,9 @@ async function loadAndRenderSubjects(staffId) {
         const user = users.find(u => u.id === staffId);
         if (!user) return;
         
-        const subjects = await DBService.getSubjects();
+        // Read the server so a subject created in another tab (e.g. B2 on the
+        // Môn học page) is selectable without reloading the payroll page.
+        const subjects = await DBService.getSubjects(true);
         const configuredRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles : [];
         const fallbackRate = (configuredRoles.length > 0) ? configuredRoles[0].rate : (user.salary_config?.attendance_rate || 0);
         
@@ -5276,7 +5303,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
                 if (user) {
                     let teachingRoles = (user.salary_config && user.salary_config.roles ? user.salary_config.roles : [])
                         .filter(r => r.id !== 'tiep-tan' && r.id !== 'receptionist');
-                    const subjects = await DBService.getSubjects();
+                    const subjects = await DBService.getSubjects(true);
                     const policyApi = await ensureSubjectRatePolicyLoaded();
                     if (policyApi && policyApi.leafOptions) {
                         const fallbackRate = teachingRoles.length > 0 ? teachingRoles[0].rate : (user.salary_config?.attendance_rate || 0);
@@ -6404,7 +6431,7 @@ async function openRoleSelectModal(dateKey, session) {
     let teachingRoles = (user.salary_config && user.salary_config.roles) ? user.salary_config.roles.slice() : [];
     if (hasTeachingRole) {
         try {
-            const subjects = await DBService.getSubjects();
+            const subjects = await DBService.getSubjects(true);
             const policyApi = await ensureSubjectRatePolicyLoaded();
             if (policyApi && policyApi.leafOptions) {
                 const fallbackRate = teachingRoles.length > 0 ? teachingRoles[0].rate : (user.salary_config?.attendance_rate || 0);
@@ -7191,6 +7218,7 @@ async function populateModalCurrentTab() {
             throw err;
         }
     }
+    window.modalMeetingPayrollSummary = meetingPayrollSummary;
 
     if (!monthlySettingsAll || Object.keys(monthlySettingsAll).length === 0) {
         try {
@@ -7632,6 +7660,7 @@ async function populateModalCurrentTab() {
                 }
             }
             
+            const lockedMeetingRow = !isRecep && criteriaIndex === 9 && isMeetingPayrollAutomatic(meetingPayrollSummary);
             const row = document.createElement('tr');
             row.style.borderBottom = '1px solid #E5E7EB';
             row.innerHTML = `
@@ -7642,8 +7671,8 @@ async function populateModalCurrentTab() {
                     <input type="text" class="modal-eval-amount table-input money-input" 
                         data-index="${criteriaIndex}" 
                         value="${formatNumberWithCommas(amountVal)}" 
-                        style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;"
-                        oninput="this.dataset.manualEdited='true'; recalculateSalaryModal()">
+                        style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;${lockedMeetingRow ? ' background: #F3F4F6;' : ''}"
+                        ${lockedMeetingRow ? 'readonly title="Tự động theo trang Họp định kỳ"' : `oninput="this.dataset.manualEdited='true'; recalculateSalaryModal()"`}>
                 </td>
                 <td style="padding: 0.25rem 0.5rem;">
                     <input type="text" class="modal-eval-note table-input" 
@@ -7851,6 +7880,7 @@ async function saveSalarySettingsFromModal() {
             manual: amountInp?.dataset.manualEdited === 'true' || normalizeEvaluationEntries(activeRoleSettings.evaluation).some(e => Number(e.id) === index && e.manual === true)
         });
     });
+    if (window.modalActiveRole !== 'tiep-tan') syncMeetingEvaluationRow(evaluationData, window.modalMeetingPayrollSummary);
     
     const adjustVDX = parseFormattedNumber(document.getElementById('modal-adjust-vdx')?.value || '0');
     const adjustVKP = parseFormattedNumber(document.getElementById('modal-adjust-vkp')?.value || '0');
@@ -9909,6 +9939,12 @@ function getCurrentCalculationPayload(role) {
     }
     
     if (role !== 'tiep-tan') {
+        const meetingSummary = window.currentMeetingPayrollSummary;
+        if (isMeetingPayrollAutomatic(meetingSummary)) {
+            const meetingItem = evalItems.find(item => Number(item.id) === 9);
+            if (meetingItem) Object.assign(meetingItem, { amount: meetingSummary.amount, note: meetingSummary.note });
+            else evalItems.push({ id: 9, label: 'X', title: 'HỌP ĐỊNH KÌ', amount: meetingSummary.amount, note: meetingSummary.note });
+        }
         const teacherRow = window.TeacherAttendanceEditor?.getRow(roleSettings, isActiveRole ? 'main' : '');
         if (teacherRow) {
             const attendanceItem = evalItems.find(item => Number(item.id) === 0);

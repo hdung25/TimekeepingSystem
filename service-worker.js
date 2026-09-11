@@ -1,7 +1,7 @@
 // Service Worker v176 - auto check-out when the app resumes after a shift ended.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v176-auto-checkout-resume-20260911';
+const CACHE_NAME = 'tdt-chamcong-v177-subject-refresh-meeting-auto-20260911';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -33,7 +33,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
     '/js/db-service.js?v=20260911-revoke-makeup-meeting-sync-v2',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
-    '/js/report.js?v=20260911-revoke-makeup-meeting-sync-v1',
+    '/js/report.js?v=20260911-subject-refresh-meeting-auto-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',
