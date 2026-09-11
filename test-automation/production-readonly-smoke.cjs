@@ -8,12 +8,12 @@ const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260911-meeting-sync-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v173-meeting-sync-20260911';
+const version = '20260911-revoke-makeup-meeting-sync-v1';
+const serviceWorkerCacheName = 'tdt-chamcong-v175-revoke-makeup-meeting-sync-20260911';
 const scheduleVersion = '20260908-roster-refresh-v1';
 const payrollVersion = '20260908-payroll-review-v2';
 const adminOverrideVersion = '20260910-admin-override-default-v1';
-const assets = ['js/main.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
+const assets = ['js/main.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/meeting-attendance-policy.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
     'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js'];
 const digest = value => crypto.createHash('sha256')
     .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'))
@@ -56,7 +56,8 @@ const digest = value => crypto.createHash('sha256')
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260908-payroll-review-v2')) &&
-                !!(await cache.match('/js/db-service.js?v=20260911-meeting-sync-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20260911-revoke-makeup-meeting-sync-v2')) &&
+                !!(await cache.match('/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request

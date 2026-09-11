@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260911-meeting-sync-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260911-revoke-makeup-meeting-sync-v2'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260910-early10-legacy-merge-v1'></script>
     <script src='js/ui-service.js?v=20260807-tuong-trinh-v2'></script>
@@ -1127,7 +1127,11 @@ function renderDetail(){
         }
     }else if(curTab==='approved'){
         actions='<div class="why" style="margin-top:.8rem">Đã duyệt bởi <b>'+esc(r.reviewedBy||'Admin')+'</b>'+
-            (r.materializedSessionId?' · đã ghi vào Bảng Công':'')+'.</div>';
+            (r.materializedSessionId?' · đã ghi vào Bảng Công':'')+'.</div>'+
+            '<div class="acts" style="margin-top:.7rem">'+
+            '<button class="btn b-no" onclick="revokeApprovedOne(\''+r.id+'\')"><i data-lucide="undo-2" style="width:15px;height:15px"></i> Hủy duyệt & gỡ khỏi Bảng Công</button>'+
+            '</div><div class="why" style="margin-top:.5rem;background:#FFF7ED;border-color:#FED7AA;color:#9A3412">'+
+            'Chỉ hủy khi duyệt nhầm. Hệ thống chỉ gỡ đúng phiên công do đơn này tạo, hoàn tác tăng ca kèm theo và giữ lịch sử thao tác.</div>';
     }else{
         actions='<div class="why" style="margin-top:.8rem;background:var(--dan-s);border-color:#FCA5A5;color:#991B1B">'+
             'Từ chối bởi <b>'+esc(r.reviewedBy||'Admin')+'</b> · Lý do: '+esc(r.rejectReason||'(không ghi)')+'</div>';
@@ -1341,6 +1345,26 @@ window.approveOne=async function(id){
 window.approveSelected=async function(){
     const list=curReqs.filter(r=>selected.has(r.id)&&DBService.missingMakeupFields(r).length===0);
     await doApprove(list,'Các mục đang chọn đều thiếu thông tin — hãy bổ sung trước.');
+};
+
+window.revokeApprovedOne=async function(id){
+    const r=curReqs.find(x=>x.id===id); if(!r)return;
+    const ok=await UIService.confirm('<b>Hủy duyệt yêu cầu này?</b><br><br>'+
+        'Ca chấm bù đã tạo sẽ được gỡ khỏi Bảng Công; tăng ca phát sinh từ đơn này cũng không còn tính lương. '+
+        'Các ca công khác trong ngày, lịch dạy và nội dung tường trình được giữ nguyên.');
+    if(!ok)return;
+    try{
+        UIService.showLoading('Đang hủy duyệt và đồng bộ Bảng Công...');
+        await DBService.revokeMakeupApproval(r.id,adminName(),'Quản lý hủy duyệt để kiểm tra/sửa lại');
+        UIService.hideLoading();
+        toast('Đã hủy duyệt. Ca đã được gỡ khỏi Bảng Công và trở về Chờ duyệt.','success');
+        activeId=null;
+        await loadTab('pending');
+        refreshPendingCount();
+    }catch(e){
+        UIService.hideLoading();
+        toast('Không thể hủy duyệt: '+(e.message||e),'error');
+    }
 };
 
 // "Duyệt nhanh": chỉ các mục máy đã kiểm chứng đủ 8 điều kiện. Vẫn cần quản lý bấm nút và chọn

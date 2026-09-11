@@ -6396,6 +6396,115 @@ const DBService = {
         return sid;
     },
 
+    // Reverse one approved make-up request without touching any other session
+    // on the same day. The approval creates linked request, attendance and
+    // overtime records; reversing them atomically keeps payroll in agreement.
+    revokeMakeupApproval: async (reqId, adminName, reason = '') => {
+        const requestId = String(reqId || '').trim();
+        if (!requestId) throw new Error('Thiếu mã yêu cầu chấm bù cần hủy duyệt.');
+        const requestRef = db.collection('makeup_requests').doc(requestId);
+        let outcome = null;
+        await db.runTransaction(async transaction => {
+            const requestSnapshot = await transaction.get(requestRef);
+            if (!requestSnapshot.exists) throw new Error('Yêu cầu chấm bù không còn tồn tại. Vui lòng tải lại.');
+            const request = requestSnapshot.data() || {};
+            if (String(request.status || '') !== 'approved') {
+                const error = new Error('Yêu cầu này không còn ở trạng thái đã duyệt. Hãy tải lại danh sách.');
+                error.code = 'MAKEUP_REQUEST_STALE';
+                throw error;
+            }
+            const staffId = String(request.staffId || '').trim();
+            const dateKey = String(request.dateKey || '').trim();
+            const sessionId = String(request.materializedSessionId || '').trim();
+            if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !sessionId) {
+                const error = new Error('Bản duyệt thiếu định danh phiên công; đã dừng để không xóa nhầm dữ liệu.');
+                error.code = 'MAKEUP_APPROVAL_INCONSISTENT';
+                throw error;
+            }
+            const attendanceRef = db.collection('attendance_logs').doc(`${dateKey}_${staffId}`);
+            const overtimeRef = db.collection('overtime_requests').doc(`makeup_${requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+            const monthStr = dateKey.slice(0, 7);
+            const monthlyRef = db.collection('salary_settings_monthly').doc(`${monthStr}_${staffId}`);
+            const [attendanceSnapshot, overtimeSnapshot, monthlySnapshot] = await Promise.all([
+                transaction.get(attendanceRef), transaction.get(overtimeRef), transaction.get(monthlyRef)
+            ]);
+            if (!attendanceSnapshot.exists) {
+                const error = new Error('Không tìm thấy Bảng Công của ca đã duyệt; đã dừng để giữ an toàn dữ liệu.');
+                error.code = 'MAKEUP_APPROVAL_INCONSISTENT';
+                throw error;
+            }
+            const attendance = attendanceSnapshot.data() || {};
+            const sessions = Array.isArray(attendance.sessions) ? attendance.sessions.slice() : [];
+            const matches = sessions.filter(session => String(session?.id || '') === sessionId &&
+                String(session?.makeupRequestId || '') === requestId);
+            if (matches.length !== 1) {
+                const error = new Error('Không xác định duy nhất phiên công do đơn này tạo; đã dừng để không xóa nhầm ca khác.');
+                error.code = 'MAKEUP_APPROVAL_INCONSISTENT';
+                throw error;
+            }
+            const removedSession = matches[0];
+            attendance.sessions = sessions.filter(session => session !== removedSession);
+            const latest = attendance.sessions.reduce((current, session, index) => {
+                const time = new Date(session?.checkIn || session?.start || '').getTime();
+                if (!Number.isFinite(time)) return current;
+                return !current || time > current.time || (time === current.time && index > current.index)
+                    ? { session, time, index } : current;
+            }, null);
+            attendance.checkIn = latest ? (latest.session.checkIn || latest.session.start || null) : null;
+            attendance.checkOut = latest ? (latest.session.checkOut || null) : null;
+            attendance.lastUpdated = firebase.firestore.FieldValue.serverTimestamp();
+            transaction.set(attendanceRef, attendance);
+
+            const history = Array.isArray(request.approvalHistory) ? request.approvalHistory.slice(-19) : [];
+            history.push({ action: 'approval_revoked', sessionId, reviewedBy: request.reviewedBy || 'Admin',
+                revokedBy: adminName || 'Admin', reason: String(reason || '').slice(0, 500),
+                at: firebase.firestore.FieldValue.serverTimestamp() });
+            transaction.update(requestRef, {
+                status: 'pending', materializedSessionId: '', approvalHistory: history,
+                lastApprovalRevokedBy: adminName || 'Admin',
+                lastApprovalRevokedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                lastApprovalRevokedReason: String(reason || '').slice(0, 500)
+            });
+            const published = monthlySnapshot.exists ? (monthlySnapshot.data()?.published || {}) : {};
+            const revisionRequired = ['published', 'received'].some(status => [
+                published.status, published.status_gv, published.status_tt
+            ].includes(status));
+            if (monthlySnapshot.exists) {
+                transaction.set(monthlyRef, {
+                    attendanceRevisionState: {
+                        active: revisionRequired,
+                        source: 'revoke_makeup_approval',
+                        sessionId,
+                        requestId,
+                        updatedBy: adminName || 'Admin',
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }
+                }, { merge: true });
+            }
+            if (overtimeSnapshot.exists) {
+                const overtime = overtimeSnapshot.data() || {};
+                if (String(overtime.makeupRequestId || '') !== requestId || String(overtime.sessionId || '') !== sessionId) {
+                    const error = new Error('Bản tăng ca liên kết không khớp phiên công; đã dừng để không sửa nhầm tăng ca.');
+                    error.code = 'MAKEUP_APPROVAL_INCONSISTENT';
+                    throw error;
+                }
+                transaction.update(overtimeRef, {
+                    status: 'rejected', approvalRevoked: true, approvalRevokedBy: adminName || 'Admin',
+                    approvalRevokedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    approvalRevokedReason: String(reason || '').slice(0, 500)
+                });
+            }
+            outcome = { staffId, staffName: request.staffName || '', dateKey, sessionId, revisionRequired };
+        });
+        DBService._invalidateAttendance(outcome.dateKey, outcome.staffId);
+        DBService._invalidate(`monthly_attendance_${outcome.dateKey.slice(0, 7)}_${outcome.staffId}`);
+        DBService._invalidate(`all_monthly_salary_settings_${outcome.dateKey.slice(0, 7)}`);
+        DBService._invalidate('overtime_requests_staff_');
+        DBService.createAdminNotification(outcome.staffId, outcome.staffName, 'revoke_makeup_approval', outcome.dateKey,
+            `Quản lý đã hủy duyệt ca chấm bù ${outcome.sessionId}; ca này không còn tính trong Bảng Công.`).catch(() => {});
+        return outcome;
+    },
+
     rejectMakeupRequest: async (reqId, adminName, reason) => {
         await db.collection('makeup_requests').doc(reqId).update({
             status: 'rejected', reviewedBy: adminName || 'Admin',

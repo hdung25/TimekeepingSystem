@@ -2896,7 +2896,7 @@ const MEETING_PAYROLL_DEPARTMENTS = [
     ['TIẾP TÂN', 'hop_tiep_tan', 'Tiếp Tân']
 ];
 
-async function loadMeetingPayrollSummary(staffId, monthStr) {
+async function loadMeetingPayrollSummary(staffId, monthStr, staffProfile = window.currentUserContext || {}) {
     const [meetingsLog, scheduledMeetings] = await Promise.all([
         DBService.getMonthlyMeetings(monthStr),
         DBService.getMeetingsForMonth(monthStr)
@@ -2907,7 +2907,7 @@ async function loadMeetingPayrollSummary(staffId, monthStr) {
     ]));
     const attendanceByMeeting = Object.fromEntries(attendanceEntries);
     const savedRecord = meetingsLog?.records?.[staffId] || {};
-    const specialty = String(savedRecord.chuyen_mon || '').toUpperCase();
+    const specialty = String(staffProfile?.chuyen_mon || staffProfile?.specialty || staffProfile?.specialization || savedRecord.chuyen_mon || '').toUpperCase();
     const specialtyMatches = department => {
         if (department === 'TG TA') return specialty.includes('TG TA');
         if (department === 'TG T-TV') return specialty.includes('TG T-TV');
@@ -2922,7 +2922,7 @@ async function loadMeetingPayrollSummary(staffId, monthStr) {
         // rows without specialty, actual attendance is sufficient evidence;
         // absence is never inferred for an employee whose membership is unknown.
         const applicableMeetings = scheduledMeetings.filter(meeting => {
-            if (meeting.department !== department) return true;
+            if (meeting.department !== department) return false;
             if (Array.isArray(meeting.attendees) && meeting.attendees.length > 0) {
                 return meeting.attendees.includes(staffId);
             }
@@ -4319,7 +4319,7 @@ async function loadSalarySettings(isCurrent = null) {
     window.currentMeetingPayrollSummary = null;
     if (roleKey === 'giao_vien' && window.currentUserContext?.teachingMode === 'old') {
         try {
-            window.currentMeetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr);
+            window.currentMeetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr, window.currentUserContext);
             if (!canCommit()) return;
         } catch (e) {
             console.error('Error loading meeting attendance for payroll:', e);
@@ -7184,7 +7184,7 @@ async function populateModalCurrentTab() {
     let meetingPayrollSummary = null;
     if (window.modalActiveRole !== 'tiep-tan' && window.currentUserContext?.teachingMode === 'old') {
         try {
-            meetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr);
+            meetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr, window.currentUserContext);
         } catch (err) {
             console.error('Error loading meeting attendance for payroll modal:', err);
             renderReportLoadFailure(err);

@@ -35,6 +35,10 @@ assert.match(report, /loadMeetingPayrollSummary[\s\S]*getMeetingAttendance\(meet
     'bảng lương phải đọc bản ghi nhân viên tự điểm danh và không nuốt lỗi đọc');
 assert.match(report, /automaticMeetingEvaluation/,
     'tiêu chí X phải được tính từ cùng dữ liệu họp');
+assert.match(report, /staffProfile\?\.chuyen_mon \|\| staffProfile\?\.specialty/,
+    'nhân viên tự điểm danh phải vẫn được xác định chuyên môn từ hồ sơ khi meetings_log cũ chưa có dòng');
+assert.match(report, /if \(meeting\.department !== department\) return false/,
+    'mỗi cột lương chỉ xét lịch họp đúng tổ, không lẫn các tổ khác');
 
 const dbMeetingStart = db.indexOf('getMeetingsForMonth: async');
 const dbMeetingEnd = db.indexOf('getTodayMeetings:', dbMeetingStart);

@@ -69,6 +69,7 @@ function createHarness() {
             _shiftConfig: { afternoon: { start: '14:00', end: '18:00' } }
         },
         overtime: {},
+        monthly: null,
         serverReads: [],
         scheduleReads: [],
         operationalReads: []
@@ -84,6 +85,7 @@ function createHarness() {
         if (ref.collectionName === 'attendance_logs') return snapshot(ref.id, state.attendance);
         if (ref.collectionName === 'cancelled_shifts') return snapshot(ref.id, state.cancelled);
         if (ref.collectionName === 'overtime_requests') return snapshot(ref.id, state.overtime[ref.id]);
+        if (ref.collectionName === 'salary_settings_monthly') return snapshot(ref.id, state.monthly);
         if (ref.collectionName === 'users') return snapshot(ref.id, { name: 'Võ Quang Mỹ' });
         return snapshot(ref.id, null);
     };
@@ -94,6 +96,8 @@ function createHarness() {
         } else if (ref.collectionName === 'overtime_requests') {
             const current = state.overtime[ref.id] || {};
             state.overtime[ref.id] = merge ? { ...current, ...clone(payload) } : clone(payload);
+        } else if (ref.collectionName === 'salary_settings_monthly') {
+            state.monthly = merge ? { ...(state.monthly || {}), ...clone(payload) } : clone(payload);
         }
     };
     const makeRef = (collectionName, id) => ({
@@ -283,6 +287,29 @@ async function expectCode(promiseFactory, code) {
         assert.equal(retryId, sessionId);
         assert.equal(state.attendance.sessions.length, 1);
         assert.equal(Object.keys(state.overtime).length, 1);
+
+        // Hủy duyệt phải gỡ CHỈ phiên do đơn này materialize, hoàn tác tăng ca
+        // đi kèm, và đưa đơn về chờ duyệt để admin có thể sửa/duyệt lại.
+        state.attendance.sessions.push({
+            id: 'independent-admin-session', checkIn: '2026-08-17T18:00:00+07:00',
+            checkOut: '2026-08-17T19:00:00+07:00', type: 'admin_add'
+        });
+        // Đã gửi bảng lương thì snapshot tiền cũ không bị sửa; chỉ bật cờ
+        // hiệu chỉnh để Admin tính/gửi lại sau khi hoàn tác công.
+        state.monthly = { published: { status_gv: 'published' } };
+        const revoked = await DBService.revokeMakeupApproval(requestId, 'Admin Diễm', 'Duyệt nhầm');
+        assert.equal(revoked.sessionId, sessionId);
+        assert.equal(state.request.status, 'pending');
+        assert.equal(state.request.materializedSessionId, '');
+        assert.equal(state.request.approvalHistory.at(-1).action, 'approval_revoked');
+        assert.deepEqual(state.attendance.sessions.map(session => session.id), ['independent-admin-session'],
+            'revoke must preserve other sessions on the same day');
+        assert.equal(state.attendance.checkIn, '2026-08-17T18:00:00+07:00');
+        assert.equal(state.overtime[`makeup_${requestId}`].status, 'rejected');
+        assert.equal(state.overtime[`makeup_${requestId}`].approvalRevoked, true);
+        assert.equal(revoked.revisionRequired, true);
+        assert.equal(state.monthly.attendanceRevisionState.active, true);
+        assert.equal(state.monthly.attendanceRevisionState.source, 'revoke_makeup_approval');
     }
 
     {
