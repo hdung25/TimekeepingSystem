@@ -637,6 +637,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('[Global] Auto-checkout interval started');
         }, 5000);
 
+        // Điện thoại đóng băng setInterval khi app chạy nền/tắt màn hình, nên mốc tan ca
+        // có thể trôi qua mà không ai ra ca. Mở lại app là kiểm tra ngay bằng dữ liệu mới,
+        // không chờ lượt 60 giây kế tiếp (lúc đó nhân viên đã kịp bấm RA CA với giờ trễ).
+        const runFreshAutoCheckout = () => globalCheckAutoCheckout({ fresh: true });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') runFreshAutoCheckout();
+        });
+        window.addEventListener('pageshow', event => {
+            if (event.persisted) runFreshAutoCheckout();
+        });
+        window.addEventListener('online', runFreshAutoCheckout);
+
         // Initialize PWA System Notifications
         setTimeout(() => {
             if (typeof initPWANotifications === 'function') {
@@ -648,14 +660,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ================= GLOBAL AUTO-CHECKOUT FUNCTION =================
 // Runs on ALL pages. Checks if user has an open session and their shift/class has ended.
-async function globalCheckAutoCheckout() {
+// Trả về true nếu vừa ra ca. options.fresh: bỏ cache chấm công trước khi đọc (mở lại app);
+// options.refreshUi === false: người gọi tự vẽ lại giao diện.
+let globalAutoCheckoutInFlight = null;
+async function globalCheckAutoCheckout(options = {}) {
+    // Interval, lúc mở lại app, lúc vẽ khung chấm công và lúc bấm VÀO/RA CA đều gọi hàm
+    // này; chỉ cho một lượt chạy tại một thời điểm để không bắn transaction ra ca chồng nhau.
+    while (globalAutoCheckoutInFlight) {
+        const closed = await globalAutoCheckoutInFlight.catch(() => false);
+        if (closed || !options.fresh) return closed;
+    }
+    const run = runGlobalAutoCheckout(options);
+    globalAutoCheckoutInFlight = run;
+    let closed = false;
+    try {
+        closed = await run;
+    } finally {
+        if (globalAutoCheckoutInFlight === run) globalAutoCheckoutInFlight = null;
+    }
+    // Vẽ lại SAU khi nhả lượt chạy: renderGlobalCheckIn cũng gọi hàm này, vẽ lại trong
+    // lúc còn giữ lượt sẽ khiến hai bên chờ nhau mãi.
+    if (closed && options.refreshUi !== false) {
+        if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
+        if (typeof renderTodayChips === 'function') renderTodayChips();
+    }
+    return closed;
+}
+
+async function runGlobalAutoCheckout(options = {}) {
     const currentUserId = localStorage.getItem('currentUserId');
-    if (!currentUserId) return;
-    if (typeof DBService === 'undefined') return;
+    if (!currentUserId) return false;
+    if (typeof DBService === 'undefined') return false;
 
     const now = new Date();
     const todayDateKey = getLocalDateKeyFromDate(now);
     const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    const invalidateAttendance = () => {
+        if (typeof DBService._invalidateAttendance !== 'function') return;
+        DBService._invalidateAttendance(todayDateKey, currentUserId);
+        DBService._invalidateAttendance(previousDateKey, currentUserId);
+    };
+    // Cache chấm công trong bộ nhớ không hết hạn: một trang mở từ sáng có thể giữ trạng
+    // thái cũ. Lúc mở lại app / bấm VÀO-RA CA thì đọc mới; interval 60s vẫn dùng cache.
+    if (options.fresh) invalidateAttendance();
 
     try {
         // 1. A session opened before midnight remains anchored in yesterday's
@@ -683,7 +730,7 @@ async function globalCheckAutoCheckout() {
         });
         openCandidates.sort((left, right) => right.startedAt - left.startedAt);
         const selectedOpen = openCandidates[0];
-        if (!selectedOpen) return; // No open session → nothing to auto-close
+        if (!selectedOpen) return false; // No open session → nothing to auto-close
         const openSession = selectedOpen.session;
         const dateKey = selectedOpen.dateKey;
 
@@ -707,20 +754,22 @@ async function globalCheckAutoCheckout() {
         ]);
 
         const finalEnd = resolveWorkChainEnd([...recepBlocks, ...classBlocks], checkInTime);
-        if (!finalEnd) return;
+        if (!finalEnd) return false;
+        if (now < finalEnd) return false;
 
-        if (now >= finalEnd) {
-            console.log(`[GlobalAutoCheckout] Ngày làm kết thúc lúc ${finalEnd.toLocaleTimeString()}. Auto checking out...`);
-            // Truyền đúng mốc tan ca để không ghi nhận dư phút sau khi hết ca
-            await DBService.checkOutPersonal(currentUserId, finalEnd);
-            if (typeof UIService !== 'undefined' && UIService.toast) {
-                UIService.toast('Đã tự động Ra Ca (hết giờ làm hôm nay)', 'success');
-            }
-            if (typeof renderGlobalCheckIn === 'function') await renderGlobalCheckIn();
-            if (typeof renderTodayChips === 'function') renderTodayChips();
+        console.log(`[GlobalAutoCheckout] Ngày làm kết thúc lúc ${finalEnd.toLocaleTimeString()}. Auto checking out...`);
+        // Truyền đúng mốc tan ca để không ghi nhận dư phút sau khi hết ca
+        await DBService.checkOutPersonal(currentUserId, finalEnd);
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast('Đã tự động Ra Ca (hết giờ làm hôm nay)', 'success');
         }
+        return true;
     } catch (e) {
+        // Cache cũ (ca đã được ra ở máy khác) làm transaction báo "đã ra ca"; bỏ cache để
+        // lượt sau đọc lại đúng trạng thái thay vì lặp lại cùng một lỗi mỗi phút.
+        invalidateAttendance();
         console.warn("[GlobalAutoCheckout] Error:", e);
+        return false;
     }
 }
 
@@ -1493,6 +1542,17 @@ function getStaffDataLoadErrorMessage(error, featureLabel = 'dữ liệu') {
     return `Chưa thể tải ${featureLabel}. Vui lòng tải lại trang rồi thử lại.`;
 }
 
+// Ca trước đã quá mốc tan ca theo lịch nhưng chưa được tự ra (app chạy nền đúng lúc tan ca):
+// khép ca đó đúng mốc tan ca trước khi VÀO/RA CA. Không khép được thì luồng cũ chạy như trước.
+async function closeOverdueSessionBeforeAttendanceAction() {
+    if (typeof globalCheckAutoCheckout !== 'function') return false;
+    try {
+        return await globalCheckAutoCheckout({ fresh: true, refreshUi: false });
+    } catch (error) {
+        return false;
+    }
+}
+
 // 1. GLOBAL CHECK-IN/OUT (Cloud Isolated)
 window.globalCheckIn = async function (btn) {
     if (window.__attendanceCheckInPending) return;
@@ -1530,6 +1590,9 @@ window.globalCheckIn = async function (btn) {
         const locationAttempt = canBeginLocationAttempt
             ? DBService.beginAttendanceLocationAttempt()
             : null;
+        // Nếu không, checkInPersonal chặn vì "còn ca chưa kết thúc" và nhân viên chỉ thấy
+        // lỗi chung, phải chờ lượt tự ra ca kế tiếp mới vào ca được.
+        await closeOverdueSessionBeforeAttendanceAction();
         // Do not race a Firestore mutation against a UI timeout: the underlying
         // write cannot be cancelled and could otherwise succeed after a false
         // timeout message. Location acquisition already has bounded timeouts.
@@ -1611,6 +1674,12 @@ window.globalCheckOut = async function (btn) {
     }
 
     try {
+        // Ca đã quá mốc tan ca: ra ca đúng mốc đó (như Bảng Công đang tính) thay vì ghi
+        // giờ bấm muộn. Chưa tới giờ tan ca thì ra ca bằng giờ hiện tại như cũ.
+        if (await closeOverdueSessionBeforeAttendanceAction()) {
+            await refreshAttendanceAfterCommit();
+            return;
+        }
         // Like check-in, this write cannot be cancelled. Waiting for the actual
         // transaction result prevents a false timeout followed by a duplicate tap.
         await DBService.checkOutPersonal(currentUserId);

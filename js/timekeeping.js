@@ -88,7 +88,7 @@ function isCenterClosed(dateStr, shiftKey, centerClosures) {
 
 // 1. Global Check-in Rendering
 let attendanceRenderGeneration = 0;
-async function renderGlobalCheckIn() {
+async function renderGlobalCheckIn(options = {}) {
     const container = document.getElementById('global-checkin-container');
     if (!container) return;
     const renderGeneration = ++attendanceRenderGeneration;
@@ -138,6 +138,14 @@ async function renderGlobalCheckIn() {
         const openSession = [...sessions, ...previousSessions]
             .filter(s => !s.checkOut && !s.isAbsent && (s.checkIn || s.start))
             .sort((a, b) => new Date(b.checkIn || b.start) - new Date(a.checkIn || a.start))[0];
+
+        // Mở lại app sau giờ tan ca: khép ca theo lịch trước khi vẽ, để không hiện
+        // "ĐANG TRONG CA / RA CA" cho một ca Bảng Công đã tính là kết thúc.
+        if (openSession && !options.skipOverdueCheck && typeof globalCheckAutoCheckout === 'function') {
+            const closed = await globalCheckAutoCheckout({ refreshUi: false }).catch(() => false);
+            if (!isCurrentRender()) return;
+            if (closed) return renderGlobalCheckIn({ skipOverdueCheck: true });
+        }
 
         if (openSession) {
             isActiveSession = true;
