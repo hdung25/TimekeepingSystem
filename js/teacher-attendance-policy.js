@@ -120,10 +120,11 @@
             add(8, hours > 80 ? 3000 : hours >= 65 ? 2000 : hours >= 50 ? 1000 : 0, 'Thưởng tổng giờ dạy');
         }
         if (input.meetingEnabled) {
-            const map = { present: [1000, 30000], permitted: [-1000, 30000], unpermitted: [-2000, 50000], none: [0, 0] };
-            if (!map[input.meeting]) throw new Error('Chọn kết quả tham gia họp tháng.');
-            const [rate, min] = map[input.meeting];
-            add(9, rate, `Họp tháng: ${{ present: 'đầy đủ', permitted: 'vắng có phép', unpermitted: 'vắng không phép', none: 'không có họp áp dụng' }[input.meeting]}`, hours, min);
+            const map = { present: 1000, permitted: -1000, unpermitted: -2000, none: 0 };
+            if (!Object.prototype.hasOwnProperty.call(map, input.meeting)) throw new Error('Chọn kết quả tham gia họp tháng.');
+            const amount = map[input.meeting];
+            rows.push({ id: 9, amount, manual: true,
+                note: `Họp tháng: ${{ present: 'đầy đủ +1.000đ', permitted: 'vắng có phép -1.000đ', unpermitted: 'vắng không phép -2.000đ', none: 'không có họp áp dụng 0đ' }[input.meeting]}` });
         }
         const selectedRate = (key, allowed) => {
             const rate = Number(input[key]);

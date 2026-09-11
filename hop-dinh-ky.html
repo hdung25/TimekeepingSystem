@@ -271,7 +271,9 @@
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260910-payroll-rate-persistence-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script>
+    <script src='js/db-service.js?v=20260911-meeting-sync-v1'></script>
+    <script src='js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1'></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -962,7 +964,7 @@
                 
                 if (monthlyMeetingsList.length > 0) {
                     const promises = monthlyMeetingsList.map(async (m) => {
-                        const logs = await DBService.getMeetingAttendance(m.id);
+                        const logs = await DBService.getMeetingAttendance(m.id, { strict: true });
                         monthlyAttendanceMap[m.id] = logs;
                     });
                     await Promise.all(promises);
@@ -1026,41 +1028,13 @@
                 // Xét TẤT CẢ cuộc họp đúng bộ phận mà user này được mời (attendees) —
                 // ưu tiên trạng thái đã điểm danh; nếu có họp đã kết thúc mà chưa điểm danh → Vắng không phép.
                 function resolveAutoStatus(dept, savedValue) {
-                    const deptMeetings = getInvitedDepartmentMeetings(userId, dept);
-                    if (deptMeetings.length === 0) {
-                        return "Không họp";
-                    }
-
-                    const now = new Date();
-                    let sawEndedWithoutCheckIn = false;
-
-                    for (const meeting of deptMeetings) {
-                        const logs = monthlyAttendanceMap[meeting.id] || [];
-                        const userLog = logs.find(l => l.userId === userId);
-
-                        // Chỉ dùng bản ghi điểm danh hợp lệ (tạo sau khi mở điểm danh),
-                        // tránh lấy nhầm bản ghi "điểm danh sẵn" tạo trước ngày họp
-                        if (isValidCheckIn(userLog, meeting)) {
-                            return userLog.status; // Đã điểm danh — ưu tiên dùng trạng thái thực tế
-                        }
-
-                        const [_y, _m, _d] = meeting.date.split('-').map(Number);
-                        const [eH, eM] = meeting.endTime.split(':').map(Number);
-                        const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
-                        if (now > mEnd) sawEndedWithoutCheckIn = true;
-                    }
-
-                    // Admin may have recorded an excused/manual status. Keep it
-                    // only when a real meeting exists; a saved value can never
-                    // manufacture a meeting for an empty department/month.
-                    if (savedValue !== undefined &&
-                        savedValue !== 'Không họp' && savedValue !== 'Chưa điểm danh') {
-                        return savedValue;
-                    }
-                    if (sawEndedWithoutCheckIn) {
-                        return "Vắng không phép";
-                    }
-                    return "Chưa điểm danh";
+                    return MeetingAttendancePolicy.resolveDepartmentStatus({
+                        meetings: monthlyMeetingsList,
+                        attendanceByMeeting: monthlyAttendanceMap,
+                        userId,
+                        department: dept,
+                        savedStatus: savedValue
+                    });
                 }
 
                 // Chuyên môn chỉ quyết định cột nào người đó phụ trách; không bao

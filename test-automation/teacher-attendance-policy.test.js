@@ -41,7 +41,7 @@ assert.equal(automaticHoursBonus('new',stats(80)),null,'new mode does not receiv
 assert.equal(automaticHoursBonus('old',stats(80),{hoursBonusPolicy:{enabled:false}}),null,'explicitly disabled IX stays disabled');
 assert.equal(automaticHoursBonus('old',stats(55),{hoursBonusPolicy:{tiers:[{minHours:50,rate:1500}]}}).amount,82500,'monthly IX tiers can override defaults');
 const meeting={...old,attendance:false,meetingEnabled:true};
-for(const [status,h,a] of [['present',0,30000],['present',60,60000],['permitted',1,-30000],['unpermitted',1,-50000],['unpermitted',60,-120000],['none',60,0]]) assert.equal(amount({...meeting,meeting:status},stats(h),9),a);
+for(const [status,h,a] of [['present',0,1000],['present',60,1000],['permitted',1,-1000],['unpermitted',1,-2000],['unpermitted',60,-2000],['none',60,0]]) assert.equal(amount({...meeting,meeting:status},stats(h),9),a);
 assert.equal(amount({mode:'new',rate:0},stats(65)),0);
 assert.equal(amount({mode:'new',rate:1234},{...stats(0),minutes:125}),2571,'round only final amount');
 assert.throws(()=>calculate({mode:'new',rate:-1},stats(60)),/không âm/);

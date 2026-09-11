@@ -24,7 +24,9 @@ assert.match(main, /missing or insufficient permissions/i);
 assert.doesNotMatch(main, /alert\(e\?\.name === 'AttendanceLocationError'\s*\?\s*e\.message\s*:\s*\("Lỗi: " \+ e\.message\)\)/);
 assert.match(report, /chip\.class !== 'chip-waiting' \|\| chip\.schedData\?\.shiftId/,
     'a waiting chip with a concrete schedule identity may still expose +10');
-assert.match(report, /hasTeachingEmploymentRole\(currentUserContext \|\| staffRoles\)/,
-    'student-count controls must use the shared teaching-role policy');
+assert.match(report, /function hasTeachingPayrollEvidence[\s\S]*user\.teachingMode === 'old'[\s\S]*config\.class_rates/,
+    'legacy teachers with teaching payroll evidence must keep 10p/large-class controls');
+assert.match(report, /const isTeachingAssistant = hasTeachingPayrollEvidence\(currentUserContext\)/,
+    'student-count controls must not depend only on the migrated role array');
 
 console.log('attendance regressions static tests passed');

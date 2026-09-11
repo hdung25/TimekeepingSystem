@@ -1,7 +1,7 @@
-// Service Worker v172 - Student-count auto-approval and monthly cancellation fix.
+// Service Worker v173 - Meeting attendance and payroll share one monthly truth.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v172-student-count-fix-20260910';
+const CACHE_NAME = 'tdt-chamcong-v173-meeting-sync-20260911';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -23,18 +23,21 @@ const STATIC_ASSETS = Array.from(new Set([
     '/nhan-su.html',
     '/he-thong.html',
     '/mon-hoc.html',
+    '/hop-dinh-ky.html',
+    '/hop-cua-toi.html',
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
     '/js/main.js?v=20260908-feedback-repair-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260910-student-count-fix-v1',
-    '/js/report.js?v=20260910-student-count-fix-v1',
-    '/js/teacher-attendance-policy.js?v=20260910-hours-bonus-v1',
+    '/js/db-service.js?v=20260911-meeting-sync-v1',
+    '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
+    '/js/report.js?v=20260911-meeting-sync-v1',
+    '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260908-payroll-review-v2',
-    '/js/evaluation-service.js?v=20260910-early10-legacy-merge-v1',
+    '/js/evaluation-service.js?v=20260911-meeting-sync-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',

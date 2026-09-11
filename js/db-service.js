@@ -9135,7 +9135,7 @@ const DBService = {
         }
     },
 
-    getMeetingAttendance: async (meetingId) => {
+    getMeetingAttendance: async (meetingId, options = {}) => {
         try {
             const snapshot = await db.collection('meeting_attendance')
                 .where('meetingId', '==', meetingId)
@@ -9147,6 +9147,7 @@ const DBService = {
             return attendance;
         } catch (error) {
             console.error("[Meetings] Error getting attendance:", error);
+            if (options.strict === true) throw error;
             return [];
         }
     },

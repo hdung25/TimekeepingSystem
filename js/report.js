@@ -128,6 +128,17 @@ function hasTeachingEmploymentRole(value) {
     return roles.some(r => ['assistant', 'teaching_assistant', 'staff', 'giao-vien', 'teacher', 'gv', 'tro-giang'].includes(r));
 }
 
+function hasTeachingPayrollEvidence(user, chips = []) {
+    if (!user) return false;
+    if (hasTeachingEmploymentRole(user)) return true;
+    if (user.teachingMode === 'old' || user.teachingMode === 'new') return true;
+    const config = user.salary_config || {};
+    if ((Array.isArray(config.roles) && config.roles.length > 0) || Number(config.rate) > 0 ||
+        Object.keys(config.class_rates || {}).length > 0) return true;
+    return (chips || []).some(chip => !chip?.isReceptionist && !chip?.isOffice &&
+        (chip?.isTeaching || chip?.sessionData?.role || chip?.chipFilterName));
+}
+
 function getReportViewerRoles() {
     const roleRaw = localStorage.getItem('currentRole') || 'staff';
     try {
@@ -1227,9 +1238,9 @@ async function _renderMonthReport(date, forceServer = false) {
             ? currentUserContext.roles
             : [currentUserContext.role || ''])
         : [];
-    const isTeachingAssistant = typeof hasTeachingEmploymentRole === 'function'
-        ? hasTeachingEmploymentRole(currentUserContext || staffRoles)
-        : staffRoles.includes('teaching_assistant');
+    // Some legacy teachers have teachingMode/rates but no migrated role array.
+    // Their 10-minute and large-class controls must remain available.
+    const isTeachingAssistant = hasTeachingPayrollEvidence(currentUserContext);
 
     const approveAllBtn = document.getElementById('btn-approve-all-bonus10');
     const approveSelectedBtn = document.getElementById('btn-approve-selected-bonus10');
@@ -2272,9 +2283,7 @@ async function _renderMonthReport(date, forceServer = false) {
                     ? _targetCtx.roles
                     : [_targetCtx.role || ''])
                 : [];
-            const isTargetTA = typeof hasTeachingEmploymentRole === 'function'
-                ? hasTeachingEmploymentRole(_targetCtx || _targetRoles)
-                : _targetRoles.includes('teaching_assistant');
+            const isTargetTA = hasTeachingPayrollEvidence(_targetCtx, window.unfilteredAllMonthChips || []);
             const allowedRoles = ['teaching_assistant', 'admin', 'senior_assistant'];
             const canSeeBonus10 = roles2.some(r => allowedRoles.includes(r)) && !chip.isReceptionist && isTargetTA;
             const isAdminRole2 = roles2.some(r => ['admin', 'senior_assistant'].includes(r));
@@ -2880,10 +2889,87 @@ const RECEP_EVALUATION_CRITERIA = [
     { label: 'VII', tooltip: 'THƯỞNG DOANH THU CS3 (Thủ công)', index: 6, default: 0 }
 ];
 
+const MEETING_PAYROLL_DEPARTMENTS = [
+    ['TG TA', 'hop_tg_tieng_anh', 'Tiếng Anh'],
+    ['TG T-TV', 'hop_tg_t_tv', 'T-TV'],
+    ['TOÁN TƯ DUY', 'hop_toan_tu_duy', 'TTD'],
+    ['TIẾP TÂN', 'hop_tiep_tan', 'Tiếp Tân']
+];
+
+async function loadMeetingPayrollSummary(staffId, monthStr) {
+    const [meetingsLog, scheduledMeetings] = await Promise.all([
+        DBService.getMonthlyMeetings(monthStr),
+        DBService.getMeetingsForMonth(monthStr)
+    ]);
+    const attendanceEntries = await Promise.all(scheduledMeetings.map(async meeting => [
+        meeting.id,
+        await DBService.getMeetingAttendance(meeting.id, { strict: true })
+    ]));
+    const attendanceByMeeting = Object.fromEntries(attendanceEntries);
+    const savedRecord = meetingsLog?.records?.[staffId] || {};
+    const specialty = String(savedRecord.chuyen_mon || '').toUpperCase();
+    const specialtyMatches = department => {
+        if (department === 'TG TA') return specialty.includes('TG TA');
+        if (department === 'TG T-TV') return specialty.includes('TG T-TV');
+        if (department === 'TOÁN TƯ DUY') return specialty.includes('TOÁN TƯ DUY') || specialty.includes('TTD');
+        if (department === 'TIẾP TÂN') return specialty.includes('TIẾP TÂN') || specialty.includes('TT');
+        return false;
+    };
+    const statuses = {};
+    MEETING_PAYROLL_DEPARTMENTS.forEach(([department, field, label]) => {
+        // An empty attendees list means "the department", not every employee.
+        // Use the same saved specialty shown by the meeting grid. For legacy
+        // rows without specialty, actual attendance is sufficient evidence;
+        // absence is never inferred for an employee whose membership is unknown.
+        const applicableMeetings = scheduledMeetings.filter(meeting => {
+            if (meeting.department !== department) return true;
+            if (Array.isArray(meeting.attendees) && meeting.attendees.length > 0) {
+                return meeting.attendees.includes(staffId);
+            }
+            return specialtyMatches(department) ||
+                (attendanceByMeeting[meeting.id] || []).some(log => log.userId === staffId);
+        });
+        statuses[label] = MeetingAttendancePolicy.resolveDepartmentStatus({
+            meetings: applicableMeetings,
+            attendanceByMeeting,
+            userId: staffId,
+            department,
+            savedStatus: savedRecord[field]
+        });
+    });
+    const calculation = MeetingAttendancePolicy.calculateMonthly(statuses);
+    return {
+        ...calculation,
+        statuses,
+        note: MEETING_PAYROLL_DEPARTMENTS.map(([, , label]) => `${label}: ${statuses[label]}`).join('; ') +
+            `. ${calculation.note}`
+    };
+}
+
+function automaticMeetingEvaluation(savedData, summary) {
+    const result = normalizeEvaluationEntries(savedData).map(item => ({ ...item }));
+    if (window.currentUserContext?.teachingMode !== 'old' || !summary?.complete) return result;
+    const saved = result.find(item => Number(item.id) === 9);
+    const generatedNote = !saved?.note || /^(Tiếng Anh:|Họp định kỳ tự động:)/.test(saved.note);
+    const mayAutomate = !saved || saved.manual === false ||
+        (saved.manual !== true && Number(saved.amount || 0) === 0 && generatedNote);
+    if (!mayAutomate) return result;
+    const row = {
+        id: 9,
+        amount: summary.amount,
+        note: summary.note,
+        manual: false,
+        automatic: summary.version
+    };
+    if (saved) Object.assign(saved, row);
+    else result.push(row);
+    return result;
+}
+
 let currentEvalIndex = null;
 
 function renderEvaluationTable(savedData = []) {
-    savedData = normalizeEvaluationEntries(savedData);
+    savedData = automaticMeetingEvaluation(savedData, window.currentMeetingPayrollSummary);
     const section = document.getElementById('evaluation-section');
     if (!section) return;
 
@@ -4230,6 +4316,17 @@ async function loadSalarySettings(isCurrent = null) {
     feeStatus.textContent = window.currentMonthlySalarySettingsAll?.consultationFeePending
         ? 'Phí tư vấn đã được cập nhật. Admin chọn Tiếp Tân và Lưu & Tính trước khi gửi hoặc gửi hiệu chỉnh.' : '';
     window.currentLoadedSalarySettings = settings;
+    window.currentMeetingPayrollSummary = null;
+    if (roleKey === 'giao_vien' && window.currentUserContext?.teachingMode === 'old') {
+        try {
+            window.currentMeetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr);
+            if (!canCommit()) return;
+        } catch (e) {
+            console.error('Error loading meeting attendance for payroll:', e);
+            if (canCommit()) renderReportLoadFailure(e);
+            throw e;
+        }
+    }
     document.getElementById('salary-advance').value = formatNumberWithCommas(settings.advance || 0);
 
     // Reset/populate receptionist extra inputs from loaded database values to avoid carry-over
@@ -7084,17 +7181,15 @@ async function populateModalCurrentTab() {
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
     
     let monthlySettingsAll = window.currentMonthlySalarySettingsAll || {};
-    let meetingsLog = null;
-    let scheduledMeetings = null;
-    try {
-        meetingsLog = await DBService.getMonthlyMeetings(monthStr);
-    } catch (err) {
-        console.error("Error fetching monthly meeting log:", err);
-    }
-    try {
-        scheduledMeetings = await DBService.getMeetingsForMonth(monthStr);
-    } catch (err) {
-        console.error("Error fetching scheduled meetings:", err);
+    let meetingPayrollSummary = null;
+    if (window.modalActiveRole !== 'tiep-tan' && window.currentUserContext?.teachingMode === 'old') {
+        try {
+            meetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr);
+        } catch (err) {
+            console.error('Error loading meeting attendance for payroll modal:', err);
+            renderReportLoadFailure(err);
+            throw err;
+        }
     }
 
     if (!monthlySettingsAll || Object.keys(monthlySettingsAll).length === 0) {
@@ -7496,10 +7591,13 @@ async function populateModalCurrentTab() {
         
         const isRecep = (window.modalActiveRole === 'tiep-tan');
         const activeCriteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+        const effectiveEvaluation = isRecep
+            ? normalizeEvaluationEntries(roleSettings.evaluation)
+            : automaticMeetingEvaluation(roleSettings.evaluation, meetingPayrollSummary);
         
         activeCriteriaList.forEach((item, index) => {
             const criteriaIndex = isRecep ? item.index : index;
-            const saved = normalizeEvaluationEntries(roleSettings.evaluation).find(e => Number(e.id) === criteriaIndex) || {};
+            const saved = effectiveEvaluation.find(e => Number(e.id) === criteriaIndex) || {};
             let amountVal = saved.amount !== undefined ? saved.amount : (item.default || 0);
             let noteVal = saved.note || '';
 
@@ -7530,31 +7628,6 @@ async function populateModalCurrentTab() {
                 } else if (index === 1) {
                     if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Trễ:') || noteVal.startsWith('Trễ: ...')) {
                         noteVal = `Trễ: ${totalLateMinutes} phút; Số lần trễ: ${lateCount} lần`;
-                    }
-                } else if (index === 9) {
-                    if (!noteVal || noteVal.trim() === '' || noteVal.startsWith('Tiếng Anh:') || noteVal.startsWith('Tiếng Anh: ...')) {
-                        const rec = (meetingsLog && meetingsLog.records) ? meetingsLog.records[staffId] : null;
-                        const meetingStatus = (department, field) => {
-                            // Only a successfully loaded schedule can prove that
-                            // a department had no meeting. On read failure keep a
-                            // neutral value instead of silently changing payroll.
-                            if (Array.isArray(scheduledMeetings)) {
-                                const invited = scheduledMeetings.some(meeting =>
-                                    meeting.department === department &&
-                                    (!Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
-                                        meeting.attendees.includes(staffId))
-                                );
-                                if (!invited) return 'Không họp';
-                            }
-                            return (rec && rec[field])
-                                ? rec[field]
-                                : (Array.isArray(scheduledMeetings) ? 'Chưa ghi nhận' : 'Không xác định');
-                        };
-                        const status_ta = meetingStatus('TG TA', 'hop_tg_tieng_anh');
-                        const status_ttv = meetingStatus('TG T-TV', 'hop_tg_t_tv');
-                        const status_ttd = meetingStatus('TOÁN TƯ DUY', 'hop_toan_tu_duy');
-                        const status_receptionist = meetingStatus('TIẾP TÂN', 'hop_tiep_tan');
-                        noteVal = `Tiếng Anh: ${status_ta}; T-TV: ${status_ttv}; TTD: ${status_ttd}; Tiếp Tân: ${status_receptionist}; (0: vắng; có: đi họp; vắng phép...)`;
                     }
                 }
             }

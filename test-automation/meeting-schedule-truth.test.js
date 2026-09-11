@@ -11,14 +11,15 @@ const report = fs.readFileSync(path.join(__dirname, '..', 'js', 'report.js'), 'u
     .replace(/\r\n/g, '\n');
 const db = fs.readFileSync(path.join(__dirname, '..', 'js', 'db-service.js'), 'utf8')
     .replace(/\r\n/g, '\n');
+const policy = require('../js/meeting-attendance-policy.js');
 
 const resolverStart = page.indexOf('function resolveAutoStatus(dept, savedValue)');
 const resolverEnd = page.indexOf('// Chuyên môn chỉ quyết định', resolverStart);
 assert.notEqual(resolverStart, -1, 'thiếu bộ phân giải trạng thái họp');
 assert.notEqual(resolverEnd, -1, 'không đọc được bộ phân giải trạng thái họp');
 const resolver = page.slice(resolverStart, resolverEnd);
-assert.match(resolver, /deptMeetings\.length === 0[\s\S]*return "Không họp"/,
-    'không có lịch họp phải luôn là Không họp');
+assert.match(resolver, /MeetingAttendancePolicy\.resolveDepartmentStatus/,
+    'lưới họp phải dùng chung bộ phân giải với bảng lương');
 assert.doesNotMatch(resolver, /defaultVal/,
     'không được dùng chuyên môn làm mặc định Có');
 assert.match(page, /getInvitedDepartmentMeetings\(row\.dataset\.userId, 'TG TA'\)/,
@@ -28,10 +29,12 @@ assert.match(page, /value="Chưa điểm danh"/,
 assert.match(page, /if \(!autoMeetingsLoaded\)[\s\S]*Không tải được lịch họp thật/,
     'lỗi đọc không được giả thành tháng không họp');
 
-assert.match(report, /scheduledMeetings = await DBService\.getMeetingsForMonth\(monthStr\)/,
+assert.match(report, /DBService\.getMeetingsForMonth\(monthStr\)/,
     'ghi chú tính lương phải đọc lịch họp thật');
-assert.match(report, /if \(!invited\) return 'Không họp'/,
-    'ghi chú lương phải hiện Không họp khi bộ phận không có lịch');
+assert.match(report, /loadMeetingPayrollSummary[\s\S]*getMeetingAttendance\(meeting\.id, \{ strict: true \}\)/,
+    'bảng lương phải đọc bản ghi nhân viên tự điểm danh và không nuốt lỗi đọc');
+assert.match(report, /automaticMeetingEvaluation/,
+    'tiêu chí X phải được tính từ cùng dữ liệu họp');
 
 const dbMeetingStart = db.indexOf('getMeetingsForMonth: async');
 const dbMeetingEnd = db.indexOf('getTodayMeetings:', dbMeetingStart);
@@ -40,5 +43,21 @@ assert.match(dbMeetingSource, /throw error/,
     'lỗi Firestore phải được đẩy lên giao diện');
 assert.doesNotMatch(dbMeetingSource, /catch \(error\)[\s\S]*return \[\]/,
     'lỗi Firestore không được đổi thành danh sách họp rỗng');
+
+const meetings = [
+    { id: 'ta', department: 'TG TA', date: '2026-08-07', checkInStart: '21:37', endTime: '22:45', attendees: ['old-1'] },
+    { id: 'ttv', department: 'TG T-TV', date: '2026-08-08', checkInStart: '21:37', endTime: '22:45', attendees: ['old-1'] }
+];
+const attendance = {
+    ta: [{ userId: 'old-1', status: 'Có', adminOverride: true }],
+    ttv: [{ userId: 'old-1', status: 'Vắng phép', adminOverride: true }]
+};
+assert.equal(policy.resolveDepartmentStatus({ meetings, attendanceByMeeting: attendance, userId: 'old-1', department: 'TG TA', now: new Date('2026-09-01') }), 'Có');
+assert.equal(policy.calculateMonthly(['Có', 'Vắng phép', 'Không họp']).amount, 0,
+    'một môn có mặt và một môn vắng phép phải hòa');
+assert.equal(policy.calculateMonthly(['Vắng phép', 'Vắng phép', 'Vắng phép']).amount, -1000,
+    'ba môn vắng có phép chỉ trừ một lần 1.000đ');
+assert.equal(policy.calculateMonthly(['Vắng không phép']).amount, -2000);
+assert.equal(policy.calculateMonthly(['Không họp']).amount, 0);
 
 console.log('meeting-schedule-truth.test.js: all assertions passed');
