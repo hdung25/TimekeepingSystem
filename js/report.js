@@ -7562,7 +7562,16 @@ async function populateModalCurrentTab() {
     // 3. Advance & Evaluations Grid
     const modalAdvanceInp = document.getElementById('modal-salary-advance');
     if (modalAdvanceInp) modalAdvanceInp.value = formatNumberWithCommas(roleSettings.advance !== undefined ? roleSettings.advance : 0);
-    
+
+    // Teachers enter the position allowance here; receptionists keep it as criterion V below.
+    const isTeacherModal = window.modalActiveRole !== 'tiep-tan';
+    const allowanceRow = document.getElementById('modal-position-allowance-row');
+    if (allowanceRow) allowanceRow.style.display = isTeacherModal ? 'flex' : 'none';
+    const allowanceInp = document.getElementById('modal-position-allowance');
+    if (allowanceInp) allowanceInp.value = formatNumberWithCommas(isTeacherModal ? (Number(roleSettings.position_allowance) || 0) : 0);
+    const allowanceNoteInp = document.getElementById('modal-position-allowance-note');
+    if (allowanceNoteInp) allowanceNoteInp.value = isTeacherModal ? (roleSettings.position_allowance_note || '') : '';
+
     // Recep contribution factors
     const tiepTanContrBox = document.getElementById('modal-tieptan-contribution-factors');
     if (tiepTanContrBox) {
@@ -7838,8 +7847,12 @@ function recalculateSalaryModal() {
         recepPoolPay += parseFormattedNumber(document.getElementById('pdf-doanh-thu-cs2')?.value || '0');
     }
     
-    const netPay = basePay + criteriaPay + recepPoolPay + attendanceAdjustments - advance;
-    
+    const positionAllowance = window.modalActiveRole !== 'tiep-tan'
+        ? Math.max(0, parseFormattedNumber(document.getElementById('modal-position-allowance')?.value || '0'))
+        : 0;
+
+    const netPay = basePay + criteriaPay + positionAllowance + recepPoolPay + attendanceAdjustments - advance;
+
     const displayCell = document.getElementById('modal-final-salary-display');
     if (displayCell) {
         displayCell.innerText = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(netPay);
@@ -7895,7 +7908,11 @@ async function saveSalarySettingsFromModal() {
         adjust_late: adjustLate,
         advance: advance
     };
-    
+    if (window.modalActiveRole !== 'tiep-tan') {
+        settingsObj.position_allowance = Math.max(0, parseFormattedNumber(document.getElementById('modal-position-allowance')?.value || '0'));
+        settingsObj.position_allowance_note = String(document.getElementById('modal-position-allowance-note')?.value || '').trim();
+    }
+
     try {
         Object.assign(settingsObj, window.TeacherAttendanceEditor?.savePatch(activeRoleSettings, evaluationData, 'modal') || {});
     } catch (error) {
@@ -8420,7 +8437,8 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
         const pLate = prevRoleSettings.adjust_late || 0;
         const adv = prevRoleSettings.advance || 0;
         
-        const netPay = basePay + criteriaPay - pVDX - pVKP - pLate - adv;
+        const prevAllowance = isRecep ? 0 : Math.max(0, Number(prevRoleSettings.position_allowance) || 0);
+        const netPay = basePay + criteriaPay + prevAllowance - pVDX - pVKP - pLate - adv;
         
         const fallbackTitle = `Bảng Lương Tháng ${prevMonth + 1}/${prevYear} (Tính lại từ công — chưa có bản chốt)`;
         const fallbackNotice = savedPayslip
@@ -8494,6 +8512,11 @@ async function loadPreviousMonthHistory(staffId, prevMonthStr, user) {
                         <span style="font-weight: 700; color: #111827;">Tạm Ứng:</span>
                         <strong style="color: #DC2626;">${formatNumberWithCommas(adv)} ₫</strong>
                     </div>
+                    ${prevAllowance > 0 ? `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid #E5E7EB; padding-bottom: 0.5rem; font-size: 0.9rem;">
+                        <span style="font-weight: 700; color: #111827;">Trợ Cấp Chức Vụ:${prevRoleSettings.position_allowance_note ? ` <span style="font-weight: normal; font-style: italic; color: #6B7280;">(${prevRoleSettings.position_allowance_note})</span>` : ''}</span>
+                        <strong style="color: #059669;">${formatNumberWithCommas(prevAllowance)} ₫</strong>
+                    </div>` : ''}
                     <div style="max-height: 250px; overflow-y: auto; padding-right: 4px;">
                         <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
                             <thead>
@@ -10051,7 +10074,13 @@ function getCurrentCalculationPayload(role) {
     const roundedTotalBonus = Math.round(totalBonus);
     const roundedAttendanceAdjustments = Math.round(attendanceAdjustments);
     const roundedAdvance = Math.round(advance);
-    const roundedNetPay = roundedBaseSalary + roundedTotalBonus + roundedAttendanceAdjustments - roundedAdvance;
+    // Teacher position allowance is its own Admin field (modal "Trợ Cấp Chức Vụ"), not one of
+    // the ten criteria, so it is added once here. Receptionists keep it as criterion V (id 3),
+    // which is already inside totalBonus.
+    const positionAllowance = role === 'tiep-tan'
+        ? 0
+        : Math.max(0, Math.round(Number(roleSettings.position_allowance) || 0));
+    const roundedNetPay = roundedBaseSalary + roundedTotalBonus + positionAllowance + roundedAttendanceAdjustments - roundedAdvance;
     
     // Stats
     let workedShifts = 0;
@@ -10154,9 +10183,6 @@ function getCurrentCalculationPayload(role) {
         details.criteriaI = { amount: Math.round(criteriaI?.amount || 0), note: criteriaI?.note || '' };
         details.criteriaV = { amount: Math.round(criteriaV?.amount || 0), note: criteriaV?.note || '' };
     } else {
-        const troCapChucVu = evalItems.find(item => item.id === 3)?.amount || 0;
-        const troCapNote = evalItems.find(item => item.id === 3)?.note || '';
-        
         details.totalBaseMins = totalBaseMins;
         details.totalBaseSalary = Math.round(totalBaseSalary);
         details.totalTinHocMins = totalTinHocMins;
@@ -10169,8 +10195,11 @@ function getCurrentCalculationPayload(role) {
         details.totalAffiliateSalary = Math.round(totalAffiliateSalary);
         details.totalTutoringMins = totalTutoringMins;
         details.totalTutoringSalary = Math.round(totalTutoringSalary);
-        details.troCapChucVu = Math.round(troCapChucVu);
-        details.troCapNote = troCapNote;
+        details.troCapChucVu = positionAllowance;
+        details.troCapNote = positionAllowance > 0 ? String(roleSettings.position_allowance_note || '').trim() : '';
+        // Marks this snapshot's troCapChucVu as the separate field (added once to Tổng lương),
+        // unlike older snapshots where it was only a copy of criterion IV.
+        details.positionAllowanceSeparate = true;
         details.evalItems = evalItems.map(item => ({
             ...item,
             amount: Math.round(item.amount)

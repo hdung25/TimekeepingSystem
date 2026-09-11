@@ -2839,7 +2839,13 @@ function renderDetailedSalaryTable(details, status) {
             </tr>
         `;
     } else {
-        const initialTotal = (details.totalBaseSalary || 0) + (details.totalTinHocSalary || 0) + (details.totalExtraSalary || 0) + (details.totalPreschoolSalary || 0) + (details.totalAffiliateSalary || 0) + (details.totalTutoringSalary || 0) + (details.troCapChucVu || 0) + (details.totalBonus || 0) + (details.attendanceAdjustments || 0);
+        // Older teacher snapshots copied criterion IV into troCapChucVu although IV is already
+        // inside totalBonus, so adding it again overstated pay. Only snapshots built from the
+        // dedicated admin "Trợ cấp chức vụ" field (positionAllowanceSeparate) add a separate amount.
+        const hasPositionAllowance = details.positionAllowanceSeparate === true;
+        const troCapChucVu = hasPositionAllowance ? (Number(details.troCapChucVu) || 0) : 0;
+        const troCapNote = hasPositionAllowance ? (details.troCapNote || '') : '';
+        const initialTotal = (details.totalBaseSalary || 0) + (details.totalTinHocSalary || 0) + (details.totalExtraSalary || 0) + (details.totalPreschoolSalary || 0) + (details.totalAffiliateSalary || 0) + (details.totalTutoringSalary || 0) + troCapChucVu + (details.totalBonus || 0) + (details.attendanceAdjustments || 0);
         const finalNet = initialTotal - (details.advance || 0);
         
         const criteria0 = details.evalItems?.find(item => item.id === 0);
@@ -2887,8 +2893,8 @@ function renderDetailedSalaryTable(details, status) {
                 <td class="ps-v" style="${styleValueCell}">${details.totalTutoringSalary > 0 ? fmt(details.totalTutoringSalary) : '—'}</td>
             </tr>
             <tr>
-                <td colspan="3" class="ps-k" style="${styleLabelCell}">TRỢ CẤP CHỨC VỤ:${details.troCapNote ? ' <span style="font-weight:normal; font-style:italic; color:#6B7280;">(' + details.troCapNote + ')</span>' : ''}</td>
-                <td class="ps-v" style="${styleValueCell}">${details.troCapChucVu > 0 ? fmt(details.troCapChucVu) : '—'}</td>
+                <td colspan="3" class="ps-k" style="${styleLabelCell}">TRỢ CẤP CHỨC VỤ:${troCapNote ? ' <span style="font-weight:normal; font-style:italic; color:#6B7280;">(' + troCapNote + ')</span>' : ''}</td>
+                <td class="ps-v" style="${styleValueCell}">${troCapChucVu > 0 ? fmt(troCapChucVu) : '—'}</td>
             </tr>
             ${details.attendanceAdjustments !== 0 ? `
             <tr style="color: #DC2626; background: #FEF2F2;">

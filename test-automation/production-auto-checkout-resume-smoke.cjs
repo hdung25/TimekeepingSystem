@@ -7,7 +7,8 @@ const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260911-auto-checkout-resume-v1';
-const cacheName = 'tdt-chamcong-v177-subject-refresh-meeting-auto-20260911';
+const mainVersion = '20260911-position-allowance-v1';
+const cacheName = 'tdt-chamcong-v178-position-allowance-20260911';
 const digest = value => crypto.createHash('sha256')
     .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8')).digest('hex');
 const fetchText = async file => {
@@ -22,8 +23,8 @@ const fetchText = async file => {
         console.log('PASS hash', file);
     }
     const chamCong = (await fetchText('cham-cong.html')).toString('utf8');
-    assert.ok(chamCong.includes(`js/main.js?v=${version}`) && chamCong.includes(`js/timekeeping.js?v=${version}`));
-    assert.ok((await fetchText('nhan-vien.html')).toString('utf8').includes(`js/main.js?v=${version}`));
+    assert.ok(chamCong.includes(`js/main.js?v=${mainVersion}`) && chamCong.includes(`js/timekeeping.js?v=${version}`));
+    assert.ok((await fetchText('nhan-vien.html')).toString('utf8').includes(`js/main.js?v=${mainVersion}`));
     assert.ok((await fetchText('service-worker.js')).toString('utf8').includes(cacheName));
     console.log('PASS production auto check-out resume release is live');
 })().catch(error => { console.error(error); process.exitCode = 1; });
