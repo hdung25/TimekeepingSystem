@@ -191,5 +191,62 @@ const response = body => ({ ok: true, body, clone() { return response(body + ':c
         'day:2026-09-12T11:00:00.000Z-2026-09-12T12:30:00.000Z'
     ]);
 
+    // ---------- Monthly attendance reads only that month ----------
+    const dbSource = read('js/db-service.js');
+    const monthlyStart = dbSource.indexOf('    getMonthlyAttendance: async');
+    const monthlyEnd = dbSource.indexOf('    // 9a. Subjects', monthlyStart);
+    assert.ok(monthlyStart !== -1 && monthlyEnd > monthlyStart, 'không tìm thấy getMonthlyAttendance');
+    const fakeAttendanceDb = failure => {
+        const calls = [];
+        const docs = [
+            { id: '2026-08-31_s1', userId: 's1', date: '2026-08-31', sessions: [] },
+            { id: '2026-09-01_s1', userId: 's1', date: '2026-09-01', sessions: [] },
+            { id: '2026-09-30_s1', userId: 's1', date: '2026-09-30', checkIn: '2026-09-30T01:00:00.000Z' },
+            { id: '2026-10-01_s1', userId: 's1', date: '2026-10-01', sessions: [] }
+        ];
+        const query = filters => ({
+            where: (field, op, value) => query([...filters, [field, op, value]]),
+            get: async options => {
+                calls.push({ filters, options });
+                if (failure && filters.length > 1) throw Object.assign(new Error(failure), { code: failure });
+                const rows = docs.filter(doc => filters.every(([field, op, value]) =>
+                    op === '==' ? doc[field] === value : op === '>=' ? doc[field] >= value : doc[field] <= value));
+                return { forEach: fn => rows.forEach(({ id, ...data }) => fn({ id, data: () => ({ ...data }) })) };
+            }
+        });
+        const db = { collection: name => { assert.equal(name, 'attendance_logs'); return query([]); } };
+        const service = new Function('db', 'console',
+            `const DBService = { _cache: {},\n${dbSource.slice(monthlyStart, monthlyEnd)}\n};\nreturn DBService;`)(
+            db, { log() {}, warn() {}, error() {} });
+        return { service, calls };
+    };
+    const dates = rows => rows.map(row => row.date);
+    {
+        const { service, calls } = fakeAttendanceDb();
+        const rows = await service.getMonthlyAttendance('2026-09', 's1', true, { strict: true });
+        assert.deepEqual(dates(rows), ['2026-09-01', '2026-09-30']);
+        assert.deepEqual(calls, [{ filters: [['userId', '==', 's1'], ['date', '>=', '2026-09-01'], ['date', '<=', '2026-09-31']], options: { source: 'server' } }],
+            'bảng công chỉ đọc đúng tháng từ server');
+        assert.equal(rows[1].sessions[0].id, 'legacy', 'giữ chuyển đổi dữ liệu cũ checkIn → sessions');
+    }
+    {
+        const { service, calls } = fakeAttendanceDb('failed-precondition');
+        assert.deepEqual(dates(await service.getMonthlyAttendance('2026-09', 's1', true, { strict: true })), ['2026-09-01', '2026-09-30'],
+            'thiếu index thì đọc như cũ, không trả bảng công trống');
+        assert.equal(calls.length, 2);
+        assert.deepEqual(calls[1].filters, [['userId', '==', 's1']]);
+    }
+    {
+        const { service, calls } = fakeAttendanceDb('permission-denied');
+        await assert.rejects(service.getMonthlyAttendance('2026-09', 's1', true, { strict: true }), { code: 'permission-denied' });
+        assert.equal(calls.length, 1, 'lỗi quyền không được thử lại bằng truy vấn rộng hơn');
+    }
+    {
+        const { service, calls } = fakeAttendanceDb();
+        assert.deepEqual(dates(await service.getMonthlyAttendance('2026', 's1')), ['2026-08-31', '2026-09-01', '2026-09-30', '2026-10-01'],
+            'mã tháng không chuẩn giữ nguyên hành vi cũ');
+        assert.deepEqual(calls[0].filters, [['userId', '==', 's1']]);
+    }
+
     console.log('startup-performance.test.js: all assertions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

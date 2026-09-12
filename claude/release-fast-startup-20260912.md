@@ -40,8 +40,22 @@
 - `npm run test:browser` (emulator, 8 loại tài khoản, VÀO CA → RA CA thật, Admin sửa công +10p, đóng/mở lớp, nhân sự, lịch): PASS, 0 lỗi trang.
 - Không chạy `test:payroll-ui` và `test:rules`: release không đổi code lương hay Rules. `test:payroll-ui` vốn có 2 lỗi đã biết ở baseline.
 
-## Giới hạn / việc nên làm tiếp
+## Bản bổ sung 20260912-attendance-month-index-v1 (SW v182)
 
-- `getMonthlyAttendance` lọc `userId` rồi lọc tháng ở trình duyệt, nên đọc toàn bộ lịch sử của nhân viên. Muốn lọc theo tháng trên server cần index composite `userId + date`. Chưa làm vì phải deploy index.
+- Chủ hệ thống duyệt làm tiếp phần index sau release trên.
+- Kiểm tra dữ liệu production (chỉ đọc) trên toàn bộ 3.388 `attendance_logs`:
+  - 0 bản thiếu `date`, sai định dạng hoặc lệch tiền tố mã tài liệu.
+  - 0 bản có `userId` lệch mã.
+  - Cả 3 đường tạo tài liệu chấm công trong code đều ghi `date`.
+- Production trước đó chưa có composite index nào. Đã tạo index `attendance_logs (userId ASC, date ASC)` (`CICAgOjXh4EK`) bằng Firestore Admin API. Cách này chỉ thêm, không xoá hay đổi index/field override khác. Index READY trước khi đẩy code.
+- Đã ghi thêm `firestore.indexes.json` và khai báo trong `firebase.json` để lần deploy Firestore sau không làm mất index.
+- `getMonthlyAttendance` giờ truy vấn `userId == X` + `date` trong tháng:
+  - Vẫn giữ bộ lọc tháng và chuyển đổi dữ liệu cũ (`checkIn` → `sessions`) ở trình duyệt.
+  - Lỗi `failed-precondition` (thiếu index) thì đọc lại bằng truy vấn cũ.
+  - Lỗi quyền không thử lại bằng truy vấn rộng hơn.
+  - Mã tháng không chuẩn giữ hành vi cũ.
+- Firestore Rules không đổi. Test emulator xác nhận: nhân viên đọc được đúng tháng của mình, bị từ chối khi đọc tháng của người khác, Admin đọc được.
+
+## Giới hạn / việc nên làm tiếp
 - Chưa đo trên iPhone/Android thật. Mức cải thiện thực tế phụ thuộc mạng từng người.
 - Lần mở đầu tiên sau bản này, điện thoại vẫn tải bộ đệm mới (một lần). Lợi ích bộ đệm có từ lần mở thứ hai.

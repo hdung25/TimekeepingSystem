@@ -2688,9 +2688,27 @@ const DBService = {
         const promise = (async () => {
             try {
                 const getOptions = forceServer ? { source: 'server' } : {};
-                const snap = await db.collection('attendance_logs')
-                    .where('userId', '==', userId)
-                    .get(getOptions);
+                const ownerQuery = db.collection('attendance_logs').where('userId', '==', userId);
+                // Chỉ đọc đúng tháng (index attendance_logs userId+date). Trước đây đọc toàn bộ
+                // lịch sử của nhân viên rồi mới lọc tháng ở trình duyệt. Mọi tài liệu có
+                // date = tiền tố mã tài liệu (đã kiểm 3.388 bản ngày 12/09/2026); bộ lọc
+                // tháng bên dưới vẫn giữ nguyên.
+                let snap;
+                if (/^\d{4}-(0[1-9]|1[0-2])$/.test(String(monthStr || ''))) {
+                    try {
+                        snap = await ownerQuery
+                            .where('date', '>=', `${monthStr}-01`)
+                            .where('date', '<=', `${monthStr}-31`)
+                            .get(getOptions);
+                    } catch (rangeError) {
+                        // Index chưa sẵn sàng hoặc bị xoá: đọc như cũ thay vì trả bảng công trống.
+                        if (rangeError?.code !== 'failed-precondition') throw rangeError;
+                        console.warn('[MonthlyAttendance] userId+date index unavailable; using full history query.');
+                        snap = await ownerQuery.get(getOptions);
+                    }
+                } else {
+                    snap = await ownerQuery.get(getOptions);
+                }
 
                 let logs = [];
                 snap.forEach(doc => {

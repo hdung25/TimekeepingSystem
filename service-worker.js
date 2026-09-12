@@ -1,7 +1,7 @@
-// Service Worker v181 - versioned scripts are served from cache first for faster startup.
+// Service Worker v181/v182 - cache-first versioned scripts; monthly attendance reads one month.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v181-fast-startup-20260912';
+const CACHE_NAME = 'tdt-chamcong-v182-attendance-month-index-20260912';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -31,7 +31,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260912-fast-startup-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260912-payroll-recall-rates-v1',
+    '/js/db-service.js?v=20260912-attendance-month-index-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/report.js?v=20260912-payroll-recall-rates-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',

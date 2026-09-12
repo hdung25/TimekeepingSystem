@@ -9,7 +9,7 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260912-fast-startup-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v181-fast-startup-20260912';
+const serviceWorkerCacheName = 'tdt-chamcong-v182-attendance-month-index-20260912';
 const reportVersion = '20260912-payroll-recall-rates-v1';
 const scheduleVersion = '20260908-roster-refresh-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
@@ -64,7 +64,7 @@ const digest = value => crypto.createHash('sha256')
             return !!(await cache.match('/js/main.js?v=20260912-fast-startup-v1')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20260912-fast-startup-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
-                !!(await cache.match('/js/db-service.js?v=20260912-payroll-recall-rates-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20260912-attendance-month-index-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);

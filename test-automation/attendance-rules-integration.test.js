@@ -199,6 +199,27 @@ async function main() {
             'primary Admin rejection must atomically apply the month-wide penalty marker');
         assert.equal(penalty.data().studentCountBonusPenaltyBy, 'fixture-admin');
         console.log('PASS Admin student-count rejection atomically applies the employee month penalty');
+
+        // Monthly report reads only the requested month (userId + date range) under real Rules.
+        await env.withSecurityRulesDisabled(async c => {
+            const adminDb = c.firestore();
+            for (const [user, date] of [['fixture-huy', '2026-07-30'], ['fixture-huy', '2026-08-01'],
+                ['fixture-huy', '2026-09-01'], ['fixture-nhan', '2026-08-15']]) {
+                await adminDb.collection('attendance_logs').doc(`${date}_${user}`)
+                    .set({ userId: user, name: 'Fixture', date, sessions: [] });
+            }
+        });
+        const monthDates = records => records.map(record => record.date).sort();
+        assert.deepEqual(monthDates(await loadBonusService('uid-huy').getMonthlyAttendance('2026-08', 'fixture-huy', true, { strict: true })),
+            ['2026-08-01', '2026-08-22', '2026-08-31'], 'staff month query returns exactly that month');
+        assert.deepEqual(monthDates(await loadBonusService('uid-admin').getMonthlyAttendance('2026-08', 'fixture-nhan', true, { strict: true })),
+            ['2026-08-15', '2026-08-31'], 'Admin can read another employee month');
+        await assert.rejects(loadBonusService('uid-nhan').getMonthlyAttendance('2026-08', 'fixture-huy', true, { strict: true }),
+            { code: 'permission-denied' });
+        const ownRange = await env.authenticatedContext('uid-huy').firestore().collection('attendance_logs')
+            .where('userId', '==', 'fixture-huy').where('date', '>=', '2026-09-01').where('date', '<=', '2026-09-31').get();
+        assert.ok(ownRange.docs.some(doc => doc.id === '2026-09-01_fixture-huy'));
+        console.log('PASS month-bounded attendance query: own month allowed, other staff denied, Admin allowed');
     } finally { await env.cleanup(); }
 }
 main().catch(e=>{ console.error(e);process.exitCode=1; });
