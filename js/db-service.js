@@ -786,9 +786,19 @@ function getAttendanceClientContext() {
     };
 }
 
+// Một lần bị từ chối quyền không cho biết điện thoại tự chặn (không hiện hộp hỏi) hay
+// nhân viên đã bấm "Không cho phép". Ghi thêm hậu tố để phân biệt; không lưu dữ liệu vị trí.
+const ATTENDANCE_INSTANT_DENIAL_MS = 1000;
+
 function getAttendanceDiagnosticCode(error) {
     const explicitCode = String(error?.code || '').trim();
-    if (explicitCode) return explicitCode;
+    if (explicitCode) {
+        const failedAfterMs = Number(error?.cause?.failedAfterMs ?? error?.failedAfterMs);
+        if (/PERMISSION_DENIED$/.test(explicitCode) && Number.isFinite(failedAfterMs)) {
+            return `${explicitCode}_${failedAfterMs < ATTENDANCE_INSTANT_DENIAL_MS ? 'INSTANT' : 'ANSWERED'}`;
+        }
+        return explicitCode;
+    }
     if (_isFirestorePermissionDenied(error)) return 'PERMISSION_DENIED';
     const message = String(error?.message || '').toLowerCase();
     if (/network|offline|unavailable|deadline/.test(message)) return 'NETWORK_UNAVAILABLE';
@@ -903,6 +913,8 @@ function getBrowserLocation(options = {}) {
             resolve(position.coords);
         };
 
+        // Chỉ dùng cho chẩn đoán: thời gian từ lúc gọi tới lúc trình duyệt trả lỗi.
+        const requestedAt = Date.now();
         navigator.geolocation.getCurrentPosition(
             handleSuccess,
             error => {
@@ -910,11 +922,13 @@ function getBrowserLocation(options = {}) {
                     options.retryApproximate !== false &&
                     mapBrowserLocationError(error) !== 'PERMISSION_DENIED'
                 ) {
+                    const fallbackRequestedAt = Date.now();
                     navigator.geolocation.getCurrentPosition(
                         handleSuccess,
                         fallbackError => {
                             const finalError = new Error('Unable to acquire a browser location fix.');
                             finalError.locationCode = mapBrowserLocationError(fallbackError);
+                            finalError.failedAfterMs = Date.now() - fallbackRequestedAt;
                             reject(finalError);
                         },
                         { enableHighAccuracy: false, timeout: 12000, maximumAge }
@@ -924,6 +938,7 @@ function getBrowserLocation(options = {}) {
 
                 const finalError = new Error('Unable to acquire a browser location fix.');
                 finalError.locationCode = mapBrowserLocationError(error);
+                finalError.failedAfterMs = Date.now() - requestedAt;
                 reject(finalError);
             },
             { enableHighAccuracy: true, timeout: options.timeout ?? 15000, maximumAge }
@@ -1000,6 +1015,7 @@ function getBrowserLocationFromWatch(campuses, options = {}) {
         let settled = false;
         let sawPosition = false;
         let lastTransientCode = 'TIMEOUT';
+        const startedAt = Date.now();
 
         const cleanup = () => {
             if (deadlineId !== null) {
@@ -1021,6 +1037,7 @@ function getBrowserLocationFromWatch(campuses, options = {}) {
             cleanup();
             const error = new Error('Unable to acquire an allowed browser location fix.');
             error.locationCode = locationCode;
+            error.failedAfterMs = Date.now() - startedAt;
             if (cause) error.cause = cause;
             reject(error);
         };

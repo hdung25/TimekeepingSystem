@@ -67,20 +67,21 @@ function loadHooks(responses = [], watchResponses = [], options = {}) {
         }
     };
     const maxTimerMs = options.maxTimerMs ?? 30;
+    const ClockDate = options.now ? class extends Date { static now() { return options.now(); } } : Date;
     const context = {
         console,
         navigator,
         window: {},
         Number,
         Math,
-        Date,
+        Date: ClockDate,
         Promise,
         queueMicrotask,
         setTimeout: (callback, delay) => setTimeout(callback, Math.min(delay, maxTimerMs)),
         clearTimeout
     };
     vm.createContext(context);
-    vm.runInContext(`${locationSource}\n;globalThis.hooks = { getConfiguredGPSCampuses, getBrowserLocationFromWatch, assertAttendanceLocationAllowed, ATTENDANCE_LOCATION_PUBLIC_MESSAGE };`, context);
+    vm.runInContext(`${locationSource}\n;globalThis.hooks = { getConfiguredGPSCampuses, getBrowserLocationFromWatch, assertAttendanceLocationAllowed, getAttendanceDiagnosticCode, ATTENDANCE_LOCATION_PUBLIC_MESSAGE };`, context);
     return { hooks: context.hooks, calls, watchCalls, clearedWatchIds };
 }
 
@@ -228,6 +229,39 @@ const settings = { gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 };
         assert.equal(watchCalls.length, 1);
         assert.equal(clearedWatchIds.length, 1, 'watcher phải dọn khi chạm deadline');
     }
+
+    {
+        // Chẩn đoán phải phân biệt điện thoại tự chặn ngay với nhân viên trả lời hộp hỏi,
+        // nhưng mã lỗi nghiệp vụ và câu thông báo cho nhân viên giữ nguyên.
+        const instant = loadHooks([{ error: 1 }]);
+        const instantError = await instant.hooks.assertAttendanceLocationAllowed(settings).catch(error => error);
+        assert.equal(instantError.code, 'PERMISSION_DENIED');
+        assert.equal(instantError.message, instant.hooks.ATTENDANCE_LOCATION_PUBLIC_MESSAGE);
+        assert.equal(instant.hooks.getAttendanceDiagnosticCode(instantError), 'PERMISSION_DENIED_INSTANT');
+
+        let clock = 0;
+        const answered = loadHooks([{ error: 1 }], [], { now: () => (clock += 1500) });
+        const answeredError = await answered.hooks.assertAttendanceLocationAllowed(settings).catch(error => error);
+        assert.equal(answeredError.code, 'PERMISSION_DENIED');
+        assert.equal(answered.hooks.getAttendanceDiagnosticCode(answeredError), 'PERMISSION_DENIED_ANSWERED');
+
+        const recovery = loadHooks([{ error: 1 }], [{ error: 1 }], { permissionState: 'granted' });
+        const recoveryError = await recovery.hooks.assertAttendanceLocationAllowed(settings).catch(error => error);
+        assert.match(recovery.hooks.getAttendanceDiagnosticCode(recoveryError), /^RECOVERY_PERMISSION_DENIED_(INSTANT|ANSWERED)$/);
+
+        const outside = loadHooks([makePosition(11, 107, 10)], [makePosition(11, 107, 10)]);
+        const outsideError = await outside.hooks.assertAttendanceLocationAllowed(settings).catch(error => error);
+        assert.equal(outside.hooks.getAttendanceDiagnosticCode(outsideError), 'OUTSIDE_ALLOWED_RADIUS',
+            'chỉ lỗi từ chối quyền mới có hậu tố thời gian');
+        assert.equal(instant.hooks.getAttendanceDiagnosticCode({ code: 'permission-denied' }), 'permission-denied',
+            'lỗi quyền Firestore không bị gắn hậu tố');
+    }
+
+    const hintMatch = timekeepingSource.match(/<p class="checkin-permission-hint"[^>]*>([\s\S]*?)<\/p>/);
+    assert.ok(hintMatch, 'khung VÀO CA phải có dòng gợi ý chọn Cho phép');
+    assert.match(hintMatch[1], /Cho phép/);
+    assert.doesNotMatch(hintMatch[1], /GPS|location|vị trí|định vị/i,
+        'gợi ý cho nhân viên tuyệt đối không được lộ cơ chế GPS');
 
     assert.equal(
         loadHooks([]).hooks.ATTENDANCE_LOCATION_PUBLIC_MESSAGE,

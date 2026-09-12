@@ -177,6 +177,7 @@ async function renderGlobalCheckIn(options = {}) {
                     <button class="btn btn-primary" style="padding: 1rem 3rem; font-size: 1.25rem; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);" onclick="globalCheckIn(this)">
                         VÀO CA
                     </button>
+                    <p class="checkin-permission-hint" style="color: var(--text-muted); font-size: 0.85rem; margin: 1rem 0 0;">Nếu điện thoại hỏi quyền, hãy chọn <strong>Cho phép</strong>.</p>
                 </div>
             `;
         }

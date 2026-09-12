@@ -1,7 +1,7 @@
-// Service Worker v183 - UI toasts no longer crash before <body> exists (auth guard redirect).
+// Service Worker v184 - check-in diagnostics separate instant denials from answered prompts.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v183-schedule-blank-guard-20260912';
+const CACHE_NAME = 'tdt-chamcong-v184-denial-timing-20260912';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -28,10 +28,10 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260912-fast-startup-v1',
+    '/js/main.js?v=20260912-denial-timing-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260912-attendance-month-index-v1',
+    '/js/db-service.js?v=20260912-denial-timing-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/report.js?v=20260912-payroll-recall-rates-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
@@ -58,7 +58,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
-    '/js/timekeeping.js?v=20260912-fast-startup-v1',
+    '/js/timekeeping.js?v=20260912-denial-timing-v1',
     '/js/salary-bulk-export.js?v=20260908-payroll-review-v2',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
