@@ -100,7 +100,7 @@ assert.match(html, /\.replacement-candidate,\s*\n\s*\.replacement-map-options bu
     'các nút chọn GV thay phải đạt kích thước chạm tối thiểu trên điện thoại');
 assert.match(worker, /schedule\.js\?v=20260908-roster-refresh-v1/);
 assert.match(worker, /teacher-shift-state\.js\?v=20260906-early10-recovery-v1/);
-assert.match(worker, /ui-service\.js\?v=20260906-early10-recovery-v1/,
+assert.match(worker, /ui-service\.js\?v=20260912-schedule-blank-guard-v1/,
     'PWA mới phải cache UI service cùng version với trang lịch để dùng được khi offline');
 
 console.log('teacher absence coverage UI regression tests passed');

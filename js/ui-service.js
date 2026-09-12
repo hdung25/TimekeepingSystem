@@ -29,7 +29,9 @@ const UIService = {
         if (!document.querySelector('.toast-container')) {
             const container = document.createElement('div');
             container.className = 'toast-container';
-            document.body.appendChild(container);
+            // Script trong <head> (auth-guard) có thể gọi alert trước khi có <body>.
+            // Trước đây appendChild(null) ném lỗi, chặn luôn lệnh chuyển trang phía sau.
+            (document.body || document.documentElement).appendChild(container);
         }
     },
 

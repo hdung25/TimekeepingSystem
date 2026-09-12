@@ -1,7 +1,7 @@
-// Service Worker v181/v182 - cache-first versioned scripts; monthly attendance reads one month.
+// Service Worker v183 - UI toasts no longer crash before <body> exists (auth guard redirect).
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v182-attendance-month-index-20260912';
+const CACHE_NAME = 'tdt-chamcong-v183-schedule-blank-guard-20260912';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -42,11 +42,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',
     '/js/shift-oversight.js?v=20260906-early10-recovery-v1',
-    // Keep the legacy key for cham-cong.html while caching the current key used
-    // by the scheduler and the updated staff pages. A fresh cache must support
-    // both paths offline during the page-version transition.
-    '/js/ui-service.js?v=20260829-location-diagnostics-v3',
-    '/js/ui-service.js?v=20260906-early10-recovery-v1',
+    '/js/ui-service.js?v=20260912-schedule-blank-guard-v1',
     '/js/early10.js?v=20260912-early10-nanos-v1',
     '/js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',

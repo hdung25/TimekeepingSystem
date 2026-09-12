@@ -116,9 +116,9 @@ const response = body => ({ ok: true, body, clone() { return response(body + ':c
     for (const match of staticAssets.matchAll(/'\/((?:js|css)\/[\w.-]+\.(?:js|css))\?v=([\w.-]+)'/g)) {
         addRef(match[1], match[2], 'service-worker.js');
     }
-    // cham-cong.html giữ khóa cũ có chủ đích (xem chú thích trong service-worker.js);
-    // ui-service.js không đổi kể từ trước mã này nên nội dung vẫn trùng.
-    const allowedLegacy = { 'js/ui-service.js': ['20260829-location-diagnostics-v3'] };
+    // Không còn khóa cũ nào được phép: ui-service.js đã đổi nội dung nên mọi trang
+    // (kể cả cham-cong.html) dùng chung một mã mới.
+    const allowedLegacy = {};
     for (const [file, versions] of refs) {
         const current = [...versions.keys()].filter(version => !(allowedLegacy[file] || []).includes(version));
         assert.equal(current.length, 1,
