@@ -8,12 +8,14 @@ const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260911-position-allowance-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v175-revoke-makeup-meeting-sync-20260911';
+const version = '20260912-fast-startup-v1';
+const serviceWorkerCacheName = 'tdt-chamcong-v181-fast-startup-20260912';
+const reportVersion = '20260912-payroll-recall-rates-v1';
 const scheduleVersion = '20260908-roster-refresh-v1';
-const payrollVersion = '20260908-payroll-review-v2';
+const payrollVersion = '20260912-payroll-recall-v1';
+const pinnedLucide = 'https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js';
 const adminOverrideVersion = '20260910-admin-override-default-v1';
-const assets = ['js/main.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/meeting-attendance-policy.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
+const assets = ['js/main.js', 'js/timekeeping.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/meeting-attendance-policy.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
     'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js'];
 const digest = value => crypto.createHash('sha256')
     .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'))
@@ -34,8 +36,12 @@ const digest = value => crypto.createHash('sha256')
     assert.equal(response.status, 200);
     const html = await response.text();
     assert.ok(html.includes('js/payroll-review.js?v=' + payrollVersion));
-    assert.ok(html.includes('js/report.js?v=' + version));
+    assert.ok(html.includes('js/report.js?v=' + reportVersion));
+    assert.ok(html.includes('js/main.js?v=' + version) && html.includes(pinnedLucide) && !html.includes('lucide@latest'));
     assert.ok(html.includes('js/admin-payroll-override-ui.js?v=' + adminOverrideVersion));
+    const chamCongHtml = await (await fetch(origin + '/cham-cong.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) })).text();
+    assert.ok(chamCongHtml.includes('js/timekeeping.js?v=' + version) && chamCongHtml.includes('js/main.js?v=' + version) &&
+        chamCongHtml.includes('js/evaluation-service.js?v=20260911-meeting-sync-v1') && chamCongHtml.includes(pinnedLucide));
     const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
     assert.equal(scheduleResponse.status, 200);
     assert.ok((await scheduleResponse.text()).includes('js/schedule.js?v=' + scheduleVersion));
@@ -55,7 +61,9 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
+            return !!(await cache.match('/js/main.js?v=20260912-fast-startup-v1')) &&
+                !!(await cache.match('/js/timekeeping.js?v=20260912-fast-startup-v1')) &&
+                !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260912-payroll-recall-rates-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));

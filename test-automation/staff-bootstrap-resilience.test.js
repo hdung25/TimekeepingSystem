@@ -26,11 +26,12 @@ for (const [name, source] of [
 
 assert.match(nhanVien, /<script\s+async\s+src=['"]https:\/\/cdn\.jsdelivr\.net\/npm\/chart\.js@4\.4\.1\/dist\/chart\.umd\.min\.js['"]><\/script>/,
     'Chart.js must not block the personal dashboard bootstrap');
-assert.match(nhanVien, /<script\s+async\s+src=["']https:\/\/unpkg\.com\/lucide@latest["']><\/script>/,
+const pinnedLucide = 'https:\\/\\/unpkg\\.com\\/lucide@1\\.45\\.0\\/dist\\/umd\\/lucide\\.min\\.js';
+assert.match(nhanVien, new RegExp(`<script\\s+async\\s+src=["']${pinnedLucide}["']><\\/script>`),
     'Lucide must not block the personal dashboard bootstrap');
-assert.match(chamCong, /<script\s+async\s+src=["']https:\/\/unpkg\.com\/lucide@latest["']><\/script>/,
+assert.match(chamCong, new RegExp(`<script\\s+async\\s+src=["']${pinnedLucide}["']><\\/script>`),
     'Lucide must not block the attendance bootstrap');
-assert.match(baoCao, /<script\s+async\s+src="https:\/\/unpkg\.com\/lucide@latest"><\/script>/,
+assert.match(baoCao, new RegExp(`<script\\s+async\\s+src="${pinnedLucide}"><\\/script>`),
     'Lucide must not block the report bootstrap');
 assert.match(baoCao, /<script\s+async\s+src="https:\/\/cdn\.jsdelivr\.net\/npm\/flatpickr"><\/script>/,
     'Flatpickr must not block the report bootstrap');
@@ -74,7 +75,7 @@ assert.match(timekeeping, /getStaffAttendanceErrorMessage\(e\)/,
 assert.doesNotMatch(timekeeping, /<p style="color:red">Lỗi tải trạng thái<\/p>/,
     'Attendance load failures must offer a recovery action, not a dead-end error');
 
-assert.match(worker, /tdt-chamcong-v180-payroll-recall-20260912/);
+assert.match(worker, /tdt-chamcong-v181-fast-startup-20260912/);
 assert.match(worker, /startup-recovery\.js\?v=20260906-early10-recovery-v1/,
     'The watchdog must be part of the atomic PWA install manifest');
 assert.doesNotMatch(recovery, /DBService|firestore|attendance_logs|salary_settings|localStorage|sessionStorage|fetch\(/,

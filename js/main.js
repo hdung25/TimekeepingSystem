@@ -847,9 +847,11 @@ async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = []
         // Tìm TẤT CẢ shifts của nhân viên hôm nay
         let allShifts = []; // [{ shiftStart, shiftEnd }]
 
-        for (const branch of BRANCHES) {
+        // Đọc lịch 3 cơ sở song song (trước đây chờ lần lượt từng cơ sở nên khung chấm
+        // công mở chậm). Kết quả vẫn duyệt theo đúng thứ tự cơ sở như cũ.
+        const branchSources = await Promise.all(BRANCHES.map(branch => {
             const compositeKey = `${branch}__${mondayKey}`;
-            const sources = await Promise.all([
+            return Promise.all([
                 Promise.all([
                     DBService.getReceptionistSchedule(compositeKey),
                     DBService.getReceptionistShiftConfig(branch)
@@ -858,8 +860,10 @@ async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = []
                     DBService.getOfficeSchedule(compositeKey),
                     DBService.getOfficeShiftConfig(branch)
                 ]).then(([weekData, config]) => ({ weekData, config, kind: 'van-phong' }))
-            ]);
+            ]).then(sources => ({ compositeKey, sources }));
+        }));
 
+        for (const { compositeKey, sources } of branchSources) {
             for (const source of sources) {
                 const weekData = source.weekData;
                 if (!weekData) continue;
@@ -907,9 +911,11 @@ async function findTeachingBlocks(userId, dateKey, cancelledShifts = [], closure
 
         // Thu thập TẤT CẢ lớp user đã nhận hôm nay (mọi branch)
         const allClasses = [];
-        for (const branch of BRANCHES) {
+        // Đọc song song, duyệt theo thứ tự cơ sở như trước.
+        const branchSchedules = await Promise.all(BRANCHES.map(branch => DBService.getSchedule(`${branch}__${dateKey}`)));
+        for (const [branchIndex, branch] of BRANCHES.entries()) {
             const compositeKey = `${branch}__${dateKey}`;
-            const schedule = await DBService.getSchedule(compositeKey);
+            const schedule = branchSchedules[branchIndex];
             if (!schedule) continue;
             sections.forEach(sec => {
                 if (!schedule[sec]) return;

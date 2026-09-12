@@ -163,11 +163,58 @@ const withTimeout = (promise, label) => Promise.race([
     await notDue.window.globalCheckOut({ disabled: false, innerText: '' });
     assert.deepEqual(order, ['auto:true:false', 'checkOut', 'render'], 'chưa tới giờ tan ca thì ra ca như cũ');
 
-    const renderSource = timekeepingSource.slice(
-        timekeepingSource.indexOf('async function renderGlobalCheckIn'), timekeepingSource.indexOf('// 2. Render History'));
-    const overdueCheckIndex = renderSource.indexOf('globalCheckAutoCheckout({ refreshUi: false })');
-    assert.ok(overdueCheckIndex > 0 && overdueCheckIndex < renderSource.indexOf('>ĐANG TRONG CA<'),
-        'khung chấm công phải khép ca quá giờ trước khi hiện ĐANG TRONG CA / RA CA');
+    // Khung chấm công hiện ngay (không chờ đọc lịch 3 cơ sở), kiểm tra ca quá giờ chạy
+    // nền; nếu vừa khép ca thì vẽ lại khung + chip. Bấm RA CA trong lúc chờ vẫn an toàn vì
+    // globalCheckOut khép ca theo mốc tan ca trước (đã kiểm ở trên).
+    const slice = (from, to) => timekeepingSource.slice(timekeepingSource.indexOf(from), timekeepingSource.indexOf(to));
+    const renderApi = (attendance, overdue) => {
+        const container = { innerHTML: '' };
+        const calls = { overdue: [], chips: 0 };
+        const api = new Function('window', 'document', 'localStorage', 'DBService', 'globalCheckAutoCheckout',
+            'renderTodayChips', 'fetchAndRenderHistory', 'getStaffAttendanceErrorMessage', 'getLocalDateKeyFromDate', 'console',
+            slice('function getLocalDateKey', 'function timekeepingEscapeHTML') +
+            slice('function getAttendanceSessions', 'function isCenterClosed') +
+            slice('let attendanceRenderGeneration', '// 2. Render History') + '\nreturn { renderGlobalCheckIn };')(
+            { waitAuth: async () => ({}), auth: { currentUser: { uid: 'uid-1' } } },
+            { getElementById: id => id === 'global-checkin-container' ? container : null },
+            { getItem: () => 'staff-1' },
+            {
+                getAuthenticatedAuthorizationContext: async () => ({ uid: 'uid-1', userId: 'staff-1' }),
+                getPersonalAttendance: async dateKey => dateKey === vnDateKey(new Date()) ? attendance() : null
+            },
+            options => { calls.overdue.push(options); return overdue(); },
+            () => { calls.chips++; }, () => {}, () => 'error', vnDateKey, quiet);
+        return { api, container, calls };
+    };
+    {
+        let open = { id: 'open', checkIn: new Date(Date.now() - 3600e3).toISOString(), checkOut: null };
+        let finishOverdue;
+        const view = renderApi(() => ({ sessions: [{ ...open }] }), () => new Promise(resolve => { finishOverdue = resolve; }));
+        await withTimeout(view.api.renderGlobalCheckIn(), 'khung chấm công không được chờ kiểm tra ca quá giờ');
+        assert.match(view.container.innerHTML, /ĐANG TRONG CA/);
+        assert.deepEqual(view.calls.overdue, [{ refreshUi: false }], 'ca đang mở vẫn được kiểm tra quá giờ ở nền');
+        open = { ...open, checkOut: new Date().toISOString() };
+        finishOverdue(true);
+        await new Promise(resolve => setTimeout(resolve, 20));
+        assert.match(view.container.innerHTML, /VÀO CA/, 'vừa khép ca quá giờ thì vẽ lại khung');
+        assert.doesNotMatch(view.container.innerHTML, /ĐANG TRONG CA/);
+        assert.equal(view.calls.overdue.length, 1, 'lượt vẽ lại không kiểm tra lặp');
+        assert.equal(view.calls.chips, 1, 'chip ca hôm nay cũng được làm mới');
+    }
+    {
+        const open = { id: 'open', checkIn: new Date(Date.now() - 3600e3).toISOString(), checkOut: null };
+        const view = renderApi(() => ({ sessions: [open] }), async () => false);
+        await view.api.renderGlobalCheckIn();
+        await new Promise(resolve => setTimeout(resolve, 20));
+        assert.match(view.container.innerHTML, /ĐANG TRONG CA/);
+        assert.equal(view.calls.chips, 0, 'chưa quá giờ thì không vẽ lại');
+    }
+    {
+        const view = renderApi(() => ({ sessions: [] }), async () => { throw new Error('không được gọi'); });
+        await view.api.renderGlobalCheckIn();
+        assert.equal(view.calls.overdue.length, 0, 'không có ca mở thì không đọc lịch');
+        assert.match(view.container.innerHTML, /VÀO CA/);
+    }
     assert.match(source, /const runFreshAutoCheckout = \(\) => globalCheckAutoCheckout\(\{ fresh: true \}\)/);
     assert.match(source, /visibilityState === 'visible'\) runFreshAutoCheckout\(\)/,
         'mở lại app (hết đóng băng interval) phải kiểm tra tự ra ca ngay');

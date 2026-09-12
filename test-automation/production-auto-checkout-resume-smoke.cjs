@@ -6,9 +6,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260911-auto-checkout-resume-v1';
-const mainVersion = '20260911-position-allowance-v1';
-const cacheName = 'tdt-chamcong-v180-payroll-recall-20260912';
+const version = '20260912-fast-startup-v1';
+const mainVersion = '20260912-fast-startup-v1';
+const cacheName = 'tdt-chamcong-v181-fast-startup-20260912';
 const digest = value => crypto.createHash('sha256')
     .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8')).digest('hex');
 const fetchText = async file => {

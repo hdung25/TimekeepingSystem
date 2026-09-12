@@ -1,7 +1,7 @@
-// Service Worker v179 - managers can verify +10 early bonus on legacy check-ins.
+// Service Worker v181 - versioned scripts are served from cache first for faster startup.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v180-payroll-recall-20260912';
+const CACHE_NAME = 'tdt-chamcong-v181-fast-startup-20260912';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -28,7 +28,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260911-position-allowance-v1',
+    '/js/main.js?v=20260912-fast-startup-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
     '/js/db-service.js?v=20260912-payroll-recall-rates-v1',
@@ -62,7 +62,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
-    '/js/timekeeping.js?v=20260911-auto-checkout-resume-v1',
+    '/js/timekeeping.js?v=20260912-fast-startup-v1',
     '/js/salary-bulk-export.js?v=20260908-payroll-review-v2',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
@@ -114,6 +114,27 @@ self.addEventListener('fetch', event => {
     }
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
+    // Script/CSS có ?v= đổi mã mỗi khi đổi nội dung (kèm CACHE_NAME mới), nên trả ngay
+    // bản đã lưu thay vì chờ mạng cho ~1,5MB script ở mỗi lần mở trang; vẫn tải lại ở nền
+    // để lần mở sau luôn có nội dung mới nhất. HTML và tệp không có ?v= vẫn ưu tiên mạng.
+    const isVersionedAsset = url.searchParams.has('v') &&
+        (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'));
+    if (isVersionedAsset) {
+        const network = fetch(event.request);
+        const stored = network.then(response => {
+            if (!response.ok) return undefined;
+            const copy = response.clone();
+            return caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        }).catch(() => undefined);
+        event.waitUntil(stored);
+        event.respondWith(
+            caches.open(CACHE_NAME)
+                .then(cache => cache.match(event.request))
+                .then(cached => cached || network)
+        );
+        return;
+    }
 
     const isAppFile =
         url.pathname === '/' ||

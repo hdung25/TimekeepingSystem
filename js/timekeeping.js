@@ -139,14 +139,6 @@ async function renderGlobalCheckIn(options = {}) {
             .filter(s => !s.checkOut && !s.isAbsent && (s.checkIn || s.start))
             .sort((a, b) => new Date(b.checkIn || b.start) - new Date(a.checkIn || a.start))[0];
 
-        // Mở lại app sau giờ tan ca: khép ca theo lịch trước khi vẽ, để không hiện
-        // "ĐANG TRONG CA / RA CA" cho một ca Bảng Công đã tính là kết thúc.
-        if (openSession && !options.skipOverdueCheck && typeof globalCheckAutoCheckout === 'function') {
-            const closed = await globalCheckAutoCheckout({ refreshUi: false }).catch(() => false);
-            if (!isCurrentRender()) return;
-            if (closed) return renderGlobalCheckIn({ skipOverdueCheck: true });
-        }
-
         if (openSession) {
             isActiveSession = true;
             lastCheckInTime = new Date(openSession.checkIn || openSession.start);
@@ -187,6 +179,19 @@ async function renderGlobalCheckIn(options = {}) {
                     </button>
                 </div>
             `;
+        }
+
+        // Mở lại app sau giờ tan ca: kiểm tra ca quá giờ ở NỀN rồi vẽ lại, không bắt khung
+        // chấm công chờ đọc lịch 3 cơ sở. Bấm RA CA/VÀO CA trong lúc chờ vẫn an toàn vì
+        // globalCheckOut/globalCheckIn tự khép ca quá giờ đúng mốc tan ca trước khi ghi.
+        if (openSession && !options.skipOverdueCheck && typeof globalCheckAutoCheckout === 'function') {
+            globalCheckAutoCheckout({ refreshUi: false })
+                .then(async closed => {
+                    if (!closed || !isCurrentRender()) return;
+                    await renderGlobalCheckIn({ skipOverdueCheck: true });
+                    if (typeof renderTodayChips === 'function') renderTodayChips();
+                })
+                .catch(error => console.warn('[Attendance] Overdue shift check failed:', error?.code || error));
         }
     } catch (e) {
         if (renderGeneration !== attendanceRenderGeneration ||
