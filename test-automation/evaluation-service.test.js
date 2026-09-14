@@ -1340,6 +1340,44 @@ function observation(lateMinutes) {
 }
 
 {
+    // Mỹ Yến 06/09: ca 15:30–18:30 quên bấm ra, hệ thống tự khép đủ giờ lịch.
+    // Nút hiện "+10p" đã duyệt thì tổng giờ cũng phải cộng đúng 10 phút.
+    const dateKey = '2026-09-06';
+    const staffId = 'nv-myyen';
+    const sessionId = 'myyen-no-checkout';
+    const schedule = {
+        afternoon2: [{
+            start: '15:30', end: '18:30', lop: 'PRE-I1', lopId: 'subject-pre-i1',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1'
+        }]
+    };
+    const targetShiftKey = context.window.buildEarly10TargetShiftKey(
+        dateKey, schedule.afternoon2[0], 'afternoon2', 0
+    );
+    const sessions = [{ id: sessionId, checkIn: `${dateKey}T15:12:00+07:00`, checkOut: null }];
+    const run = (status, monthFlags) => context.window.calculateDailyChips(
+        schedule, sessions, staffId, dateKey,
+        { roles: ['teaching_assistant'], teachingMode: 'old' },
+        [], {}, [],
+        { [sessionId]: { id: 'auto-myyen-0906', status, sessionId, awardScope: 'teaching_shift', targetShiftKey } },
+        [], monthFlags
+    ).find(chip => chip.isTeaching && chip.sessionId === sessionId);
+
+    const approved = run('approved');
+    assert.equal(approved.bonus10Status, 'approved');
+    assert.equal(approved.paidMinutes, 190, 'ca tự khép 3 giờ + thưởng 10p đã duyệt = 3h10p');
+    assert.equal((approved.text.match(/\+10p/g) || []).length, 1, 'chip tự khép chỉ hiện một nhãn +10p');
+
+    const locked = run('approved', { early10PenaltyActive: true });
+    assert.equal(locked.paidMinutes, 180, 'tháng bị khóa phụ cấp thì ca tự khép không được cộng 10p');
+    assert.match(locked.text, /\+10p \(hủy\)/);
+
+    const pending = run('pending');
+    assert.equal(pending.paidMinutes, 180, 'yêu cầu đang chờ chưa được cộng');
+    assert.match(pending.text, /★\?/);
+}
+
+{
     // FFS01 thiếu lopId vẫn hợp lệ khi tên lịch được map duy nhất tới FFS1;
     // locator kế thừa phải dùng template + vị trí, không dùng shiftId giả.
     const dateKey = '2026-09-05';

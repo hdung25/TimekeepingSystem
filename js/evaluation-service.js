@@ -1667,6 +1667,29 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 let useScheduledSubject = false;
                 let scheduledSubjectName = '';
 
+                // BONUS 10P: a canonical server/rules-approved award wins.
+                // A historic session.bonus10 flag is read only through the
+                // exact per-chip compatibility proof above, so it can never
+                // spill into another class or receptionist work. Applies to
+                // every paid outcome of this chip — a full check-in/out and a
+                // past session closed automatically without check-out — so an
+                // approved +10p never shows on the button but misses the total.
+                const applyEarly10Award = () => {
+                    if (b10StatusT === 'approved') {
+                        if (early10PenaltyActive) {
+                            label += ' ★+10p (hủy)';
+                            tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
+                        } else {
+                            minutes += 10;
+                            label += ' ★+10p';
+                            tooltip += ` | Thưởng 10p (đã duyệt)`;
+                        }
+                    } else if (b10StatusT === 'pending') {
+                        label += ' ★?';
+                        tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
+                    }
+                };
+
                 // --- CASE A: ATTENDED (Has Check-in) ---
                 if (matchedSession.checkOut) {
                     // FULL CHECK-IN/OUT
@@ -1830,23 +1853,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         tooltip += ` | Đã giới hạn theo giờ lịch (chống tính dư)`;
                     }
 
-                    // BONUS 10P: a canonical server/rules-approved award wins.
-                    // A historic session.bonus10 flag is read only through the
-                    // exact per-chip compatibility proof above, so it can never
-                    // spill into another class or receptionist work.
-                    if (b10StatusT === 'approved') {
-                        if (early10PenaltyActive) {
-                            label += ' ★+10p (hủy)';
-                            tooltip += ` | Thưởng 10p bị khóa vì có ca bị từ chối trong tháng`;
-                        } else {
-                            minutes += 10;
-                            label += ' ★+10p';
-                            tooltip += ` | Thưởng 10p (đã duyệt)`;
-                        }
-                    } else if (b10StatusT === 'pending') {
-                        label += ' ★?';
-                        tooltip += ` | Yêu cầu Sớm 10p đang chờ duyệt`;
-                    }
+                    applyEarly10Award();
 
                     cssClass = (isLate || isEarlyCheckout) ? 'chip-orange' : 'chip-green';
                     tooltip += ' - Đã chấm công đầy đủ';
@@ -1866,6 +1873,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         minutes = Math.max(0, schedDuration - effectiveLateMinutes);
                         _paidFrom = (actualStartNoCO && actualStartNoCO > schedStart) ? actualStartNoCO : schedStart;
                         _paidTo = schedEnd;
+                        if (minutes > 0) applyEarly10Award();
                         cssClass = effectiveLateMinutes > 0 ? 'chip-orange' : 'chip-green';
                         tooltip += effectiveLateMinutes > 0
                             ? ' - Tự ra ca (đã khấu trừ phút trễ hiệu lực)'
