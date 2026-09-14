@@ -1367,6 +1367,10 @@ function observation(lateMinutes) {
     assert.equal(approved.bonus10Status, 'approved');
     assert.equal(approved.paidMinutes, 190, 'ca tự khép 3 giờ + thưởng 10p đã duyệt = 3h10p');
     assert.equal((approved.text.match(/\+10p/g) || []).length, 1, 'chip tự khép chỉ hiện một nhãn +10p');
+    assert.match(approved.text, /15:30–18:30.*\(PRE-I1\) ★\+10p/, 'chip tự khép phải hiện tên lớp như chip có giờ ra');
+    assert.equal(approved.chipFilterName, context.normalizeChipFilterName('PRE-I1'),
+        'nhóm môn tính lương giữ nguyên theo lịch');
+    assert.equal(approved.sessionData.role, undefined, 'không tự gán vai trò/đơn giá mới cho ca tự khép');
 
     const locked = run('approved', { early10PenaltyActive: true });
     assert.equal(locked.paidMinutes, 180, 'tháng bị khóa phụ cấp thì ca tự khép không được cộng 10p');

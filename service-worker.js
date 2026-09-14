@@ -1,7 +1,7 @@
-// Service Worker v185 - approved +10p is counted on auto-closed teaching chips without check-out.
+// Service Worker v186 - auto-closed teaching chips without check-out show their class name.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v185-early10-autoclose-20260914';
+const CACHE_NAME = 'tdt-chamcong-v186-autoclose-subject-20260914';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -37,7 +37,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
-    '/js/evaluation-service.js?v=20260914-early10-autoclose-v1',
+    '/js/evaluation-service.js?v=20260914-autoclose-subject-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',

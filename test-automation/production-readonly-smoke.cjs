@@ -9,7 +9,7 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260912-denial-timing-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v185-early10-autoclose-20260914';
+const serviceWorkerCacheName = 'tdt-chamcong-v186-autoclose-subject-20260914';
 const reportVersion = '20260912-payroll-recall-rates-v1';
 const scheduleVersion = '20260908-roster-refresh-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
@@ -41,7 +41,7 @@ const digest = value => crypto.createHash('sha256')
     assert.ok(html.includes('js/admin-payroll-override-ui.js?v=' + adminOverrideVersion));
     const chamCongHtml = await (await fetch(origin + '/cham-cong.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) })).text();
     assert.ok(chamCongHtml.includes('js/timekeeping.js?v=' + version) && chamCongHtml.includes('js/main.js?v=' + version) &&
-        chamCongHtml.includes('js/evaluation-service.js?v=20260914-early10-autoclose-v1') && chamCongHtml.includes(pinnedLucide));
+        chamCongHtml.includes('js/evaluation-service.js?v=20260914-autoclose-subject-v1') && chamCongHtml.includes(pinnedLucide));
     const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
     assert.equal(scheduleResponse.status, 200);
     assert.ok((await scheduleResponse.text()).includes('js/schedule.js?v=' + scheduleVersion));

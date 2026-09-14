@@ -1869,6 +1869,17 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     const isPastDay = dateStr < todayStr;
 
                     appendLateDetails();
+                    // Show the class like a checked-out chip does. Display only:
+                    // role, rate and payroll subject of this branch stay as before.
+                    const noCheckoutRoleName = matchedSession.subjectOverride === true &&
+                        matchedSession.role && !receptionistRoleKeys.includes(matchedSession.role)
+                        ? (matchedSession.roleName || '')
+                        : '';
+                    const noCheckoutSubjectLabel = noCheckoutRoleName || _schedSubjectLabel;
+                    if (noCheckoutSubjectLabel) {
+                        label += ` (${noCheckoutSubjectLabel})`;
+                        tooltip += ` - Lớp: ${noCheckoutSubjectLabel}`;
+                    }
                     if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = Math.max(0, schedDuration - effectiveLateMinutes);
                         _paidFrom = (actualStartNoCO && actualStartNoCO > schedStart) ? actualStartNoCO : schedStart;
