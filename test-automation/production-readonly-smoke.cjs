@@ -9,9 +9,9 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260912-denial-timing-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v186-autoclose-subject-20260914';
+const serviceWorkerCacheName = 'tdt-chamcong-v187-transfer-end-date-20260916';
 const reportVersion = '20260912-payroll-recall-rates-v1';
-const scheduleVersion = '20260908-roster-refresh-v1';
+const scheduleVersion = '20260916-transfer-end-date-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
 const pinnedLucide = 'https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js';
 const adminOverrideVersion = '20260910-admin-override-default-v1';
@@ -66,7 +66,7 @@ const digest = value => crypto.createHash('sha256')
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260912-denial-timing-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
-                !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1'));
+                !!(await cache.match('/js/schedule.js?v=20260916-transfer-end-date-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request
         // interception. Chromium can hold Cache.addAll() requests when an

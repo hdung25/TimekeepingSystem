@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260912-denial-timing-v1';
 const mainVersion = '20260912-denial-timing-v1';
-const cacheName = 'tdt-chamcong-v186-autoclose-subject-20260914';
+const cacheName = 'tdt-chamcong-v187-transfer-end-date-20260916';
 const digest = value => crypto.createHash('sha256')
     .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8')).digest('hex');
 const fetchText = async file => {

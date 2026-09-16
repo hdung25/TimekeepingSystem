@@ -9,7 +9,7 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260912-denial-timing-v1';
-const scheduleVersion = '20260908-roster-refresh-v1';
+const scheduleVersion = '20260916-transfer-end-date-v1';
 const payrollVersion = '20260908-payroll-review-v2';
 const adminOverrideVersion = '20260910-admin-override-default-v1';
 const assets = ['js/main.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/report.js', 'js/teacher-attendance-policy.js', 'js/teacher-attendance-editor.js', 'js/payroll-review.js', 'js/schedule.js',
@@ -62,7 +62,7 @@ const digest = value => crypto.createHash('sha256')
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260912-denial-timing-v1')) &&
-                !!(await cache.match('/js/schedule.js?v=20260908-roster-refresh-v1')) &&
+                !!(await cache.match('/js/schedule.js?v=20260916-transfer-end-date-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1'));
         }, { timeout: 60000 });

@@ -2303,7 +2303,7 @@ function updateTeacherTransferModeHint() {
     if (!modal) return;
     const mode = modal.querySelector('[data-action="transfer-mode"]')?.value || 'temporary';
     const sourceAction = modal.querySelector('[data-action="transfer-source-action"]')?.value || '';
-    const toLabel = modal.querySelector('[data-transfer-scope-label]');
+    const toLabel = modal.querySelector('[data-transfer-scope-label-text]');
     const hint = modal.querySelector('[data-transfer-mode-hint]');
     const replacementTitle = modal.querySelector('[data-transfer-replacement-title]');
     const replacementSelect = modal.querySelector('[data-action="transfer-replacement"]');
@@ -2391,7 +2391,7 @@ function openTeacherTransferModal(state) {
                 <input data-action="transfer-from" type="date" value="${scheduleEscapeAttr(defaultFrom)}" min="${scheduleEscapeAttr(todayKey)}" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;box-sizing:border-box;">
             </label>
         </div>
-        <label style="display:block;margin-top:12px;font-size:.78rem;color:#334155;font-weight:700;" data-transfer-scope-label>Ngày cuối cập nhật các lịch đang có
+        <label style="display:block;margin-top:12px;font-size:.78rem;color:#334155;font-weight:700;" data-transfer-scope-label><span data-transfer-scope-label-text>Ngày cuối cập nhật các lịch đang có</span>
             <input data-action="transfer-scope-to" type="date" value="${scheduleEscapeAttr(defaultTo)}" min="${scheduleEscapeAttr(defaultFrom)}" style="display:block;width:100%;margin-top:5px;height:40px;border:1px solid #CBD5E1;border-radius:9px;padding:0 8px;box-sizing:border-box;">
         </label>
         <div data-transfer-mode-hint style="margin-top:10px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:10px;color:#166534;font-size:.78rem;line-height:1.45;"></div>

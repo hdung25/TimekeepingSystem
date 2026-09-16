@@ -19,6 +19,18 @@ assert.match(modal, /Giữ lịch nguồn · Vắng có phép/);
 assert.match(modal, /Giữ lịch nguồn · Vắng đột xuất/);
 assert.match(modal, /data-transfer-replacement-title/,
     'handoff teacher must be named as the source successor, not an ambiguous generic helper');
+assert.match(modal, /data-transfer-scope-label><span data-transfer-scope-label-text>/,
+    'changing the transfer scope label must not replace its nested end-date input');
+assert.match(modal, /data-action="transfer-scope-to"/,
+    'the transfer modal must retain the end-date input used by submission validation');
+const hintStart = schedule.indexOf('function updateTeacherTransferModeHint');
+const hintEnd = schedule.indexOf('\nfunction handleTeacherTransferModalChange', hintStart);
+assert.ok(hintStart >= 0 && hintEnd > hintStart, 'transfer hint updater must stay isolated');
+const hintUpdater = schedule.slice(hintStart, hintEnd);
+assert.match(hintUpdater, /querySelector\('\[data-transfer-scope-label-text\]'\)/,
+    'the hint updater must change only the label text span');
+assert.doesNotMatch(hintUpdater, /querySelector\('\[data-transfer-scope-label\]'\)/,
+    'the hint updater must not overwrite the label that contains the date input');
 assert.match(schedule, /hỗ trợ ở lớp đích[\s\S]*GV chính/,
     'the modal must make the support-to-main conversion explicit');
 
