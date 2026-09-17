@@ -425,4 +425,115 @@ const {
     assert.match(recallSource, /collection\('revisions'\)/, 'every recalled snapshot is archived');
 }
 
+{
+    // Send/receipt stamps: the aggregate fields are a projection of the
+    // component stamps, never a sticky record of the very first publish.
+    const { _preparePayslipRecall, _preparePayslipRevision, _getPayslipStatusTimeline } = context;
+    const T = {
+        sep09: '2026-09-09T14:00:00.000Z',
+        sep12: '2026-09-12T01:00:00.000Z',
+        sep15: '2026-09-15T09:00:00.000Z',
+        sep16: '2026-09-16T10:00:00.000Z'
+    };
+
+    // A dual payslip whose halves are sent days apart keeps two honest stamps.
+    let dual = _preparePayslipPublishUpdate({}, { role: 'dual', details_gv: { netPay: 100 } }, T.sep09).published;
+    dual = _preparePayslipPublishUpdate(
+        dual, { role: 'dual', details_gv: { netPay: 100 }, details_tt: { netPay: 50 } }, T.sep12
+    ).published;
+    assert.equal(dual.publishedAt_gv, T.sep09, 'the first component keeps its own send time');
+    assert.equal(dual.publishedAt_tt, T.sep12, 'the second component must not inherit the first send time');
+    assert.equal(dual.publishedAt, T.sep12, 'the aggregate shows the latest send');
+
+    // Recall + resend of one half re-stamps that half only.
+    const recalled = _preparePayslipRecall(dual, { gv: true }, T.sep15).published;
+    const resent = _preparePayslipPublishUpdate(
+        recalled, { role: 'dual', details_gv: { netPay: 130 }, details_tt: { netPay: 50 } }, T.sep16
+    ).published;
+    assert.equal(resent.publishedAt_gv, T.sep16, 'a resent component is stamped when it is actually resent');
+    assert.equal(resent.publishedAt_tt, T.sep12, 'the untouched component keeps its stamp');
+    assert.equal(resent.publishedAt, T.sep16);
+
+    // A revision after a receipt re-opens the component and re-stamps the aggregate.
+    let single = _preparePayslipPublishUpdate(
+        {}, { role: 'giao-vien', details: { netPay: 100 }, details_gv: { netPay: 100 } }, T.sep09
+    ).published;
+    single = _preparePayslipConfirmation(single, 'employee', T.sep12, 'all').published;
+    assert.equal(single.receivedAt, T.sep12);
+    single = _preparePayslipRevision(single, { details_gv: { netPay: 120 } }, 'gv', T.sep15);
+    assert.equal(single.status, 'published');
+    assert.equal(single.publishedAt, T.sep15, 'a revision is a new send, not the original one');
+    assert.equal(single.receivedAt, undefined, 'a revision clears the aggregate receipt');
+
+    // Two halves confirmed by different people on different days.
+    let mixed = _preparePayslipPublishUpdate(
+        {}, { role: 'dual', details_gv: { netPay: 100 }, details_tt: { netPay: 50 } }, T.sep09
+    ).published;
+    mixed = _preparePayslipConfirmation(mixed, 'employee', T.sep12, 'gv').published;
+    const partial = _getPayslipStatusTimeline(mixed);
+    assert.equal(partial.overallStatus, 'published');
+    assert.equal(partial.receivedComponents.map(item => item.key).join(','), 'gv');
+    assert.equal(partial.awaitingReceiptComponents.map(item => item.key).join(','), 'tt');
+    assert.equal(partial.receivedComponents[0].receivedAt, T.sep12);
+
+    mixed = _preparePayslipConfirmation(mixed, 'admin', T.sep15, 'tt').published;
+    assert.equal(mixed.status, 'received');
+    assert.equal(mixed.receivedAt, T.sep15, 'the aggregate receipt is the last component receipt');
+    assert.equal(mixed.confirmedBy, 'admin');
+    const done = _getPayslipStatusTimeline(mixed);
+    assert.equal(done.mixedConfirmers, true, 'the dashboard must be able to name both confirmers');
+    assert.equal(done.receivedAt, T.sep15);
+    assert.equal(done.sentAt, T.sep09);
+
+    // One half received, the other still a draft: nothing is awaiting a receipt,
+    // so the employee screen must not offer the confirm button.
+    let halfDraft = _preparePayslipPublishUpdate({}, { role: 'dual', details_gv: { netPay: 100 } }, T.sep09).published;
+    halfDraft.details_tt = { netPay: 40 };
+    halfDraft.status_tt = 'draft';
+    halfDraft = _preparePayslipConfirmation(halfDraft, 'employee', T.sep12, 'all').published;
+    const stalled = _getPayslipStatusTimeline(halfDraft);
+    assert.equal(stalled.overallStatus, 'published');
+    assert.equal(stalled.awaitingReceiptComponents.length, 0);
+    assert.equal(stalled.receivedComponents.length, 1);
+    assert.equal(
+        _getPayslipReceiptRequestState(halfDraft, 'all').allReceived, false,
+        'confirming again would throw payslip/not-published, so the button must be hidden'
+    );
+
+    // Legacy aggregate-only records keep working and still adopt their stamp.
+    const legacyTimeline = _getPayslipStatusTimeline({
+        role: 'giao-vien', status: 'received', publishedAt: T.sep09, receivedAt: T.sep12,
+        confirmedBy: 'employee', details: { netPay: 80 }, netPay: 80
+    });
+    assert.equal(legacyTimeline.sentAt, T.sep09);
+    assert.equal(legacyTimeline.receivedAt, T.sep12);
+    assert.equal(legacyTimeline.confirmedBy, 'employee');
+    assert.equal(legacyTimeline.mixedConfirmers, false);
+
+    const legacyRepublish = _preparePayslipComponentPublish(
+        { role: 'giao-vien', status: 'published', publishedAt: T.sep09, details: { netPay: 80 }, netPay: 80 },
+        { gv: true }, T.sep16
+    ).published;
+    assert.equal(legacyRepublish.publishedAt_gv, T.sep09, 'a legacy aggregate-only send keeps its recorded date');
+}
+
+{
+    // The admin dashboard and the employee payslip screen must read the shared
+    // timeline instead of re-deriving state from raw aggregate fields.
+    const reportSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'report.js'), 'utf8');
+    const mainSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
+    assert.match(dbServiceSource, /getPayslipStatusTimeline\(published = \{\}\)/, 'the timeline adapter must be public');
+    assert.match(reportSource, /DBService\.getPayslipStatusTimeline\(pub\)/);
+    assert.ok(
+        !/new Date\(pub\.receivedAt\)/.test(reportSource) && !/new Date\(pub\.publishedAt\)/.test(reportSource),
+        'the dashboard must not read aggregate stamps directly'
+    );
+    assert.match(mainSource, /DBService\.getPayslipStatusTimeline\(published\)/);
+    assert.ok(
+        !/published\.status === 'received'/.test(mainSource),
+        'the employee screen must not branch on the raw aggregate status'
+    );
+    assert.match(mainSource, /awaitingReceipt \? 'inline-flex' : 'none'/);
+}
+
 console.log('payslip-lifecycle.test.js: all assertions passed');

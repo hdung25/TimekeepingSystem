@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260912-denial-timing-v1';
+const APP_VERSION = '20260918-payslip-status-sync-v1';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -3097,7 +3097,18 @@ async function loadStaffPersonalSalary() {
             });
         }
 
-        if (!published || published.status === 'uncalculated' || published.status === 'draft') {
+        // The employee screen reads the same component lifecycle the admin
+        // dashboard uses; the raw aggregate `status` cannot tell "both halves
+        // received" from "one half received, the other still a draft".
+        const payslipTimeline = published && typeof DBService.getPayslipStatusTimeline === 'function'
+            ? DBService.getPayslipStatusTimeline(published)
+            : null;
+        const payslipStatus = payslipTimeline ? payslipTimeline.overallStatus : (published?.status || 'draft');
+        const awaitingReceipt = payslipTimeline
+            ? payslipTimeline.awaitingReceiptComponents.length > 0
+            : payslipStatus === 'published';
+
+        if (!published || payslipStatus === 'uncalculated' || payslipStatus === 'draft') {
             statusContainer.innerHTML = `
                 <span style="display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size:1.5rem; margin-bottom:0.5rem;">
                     ${window.getIconHtml('help-circle', {width: '32', height: '32'})}
@@ -3121,17 +3132,24 @@ async function loadStaffPersonalSalary() {
         }
 
         const hasDetailed = !!(published.details_gv || published.details_tt || published.details);
+        const componentStatusOf = (component) => {
+            if (payslipTimeline) {
+                const entry = payslipTimeline.components.find(item => item.key === component);
+                if (entry) return entry.status;
+            }
+            return published[`status_${component}`] || published.status || 'draft';
+        };
         let html = '';
         if (hasDetailed) {
-            if (published.details_gv && (published.status_gv === 'published' || published.status_gv === 'received' || (!published.status_gv && published.status !== 'draft'))) {
-                html += renderDetailedSalaryTable(published.details_gv, published.status_gv || published.status);
+            if (published.details_gv && componentStatusOf('gv') !== 'draft') {
+                html += renderDetailedSalaryTable(published.details_gv, componentStatusOf('gv'));
             }
-            if (published.details_tt && (published.status_tt === 'published' || published.status_tt === 'received' || (!published.status_tt && published.status !== 'draft'))) {
+            if (published.details_tt && componentStatusOf('tt') !== 'draft') {
                 if (html) html += '<div style="height: 20px;"></div>';
-                html += renderDetailedSalaryTable(published.details_tt, published.status_tt || published.status);
+                html += renderDetailedSalaryTable(published.details_tt, componentStatusOf('tt'));
             }
             if (!published.details_gv && !published.details_tt && published.details) {
-                html += renderDetailedSalaryTable(published.details, published.status);
+                html += renderDetailedSalaryTable(published.details, payslipStatus);
             }
         }
 
@@ -3145,11 +3163,7 @@ async function loadStaffPersonalSalary() {
                     detailedView.innerHTML = html;
                 }
 
-                if (published.status === 'received') {
-                    if (confirmBtn) confirmBtn.style.display = 'none';
-                } else {
-                    if (confirmBtn) confirmBtn.style.display = 'inline-flex';
-                }
+                if (confirmBtn) confirmBtn.style.display = awaitingReceipt ? 'inline-flex' : 'none';
             } else {
                 // Fallback to uncalculated / draft view
                 statusContainer.style.display = 'block';
@@ -3181,13 +3195,14 @@ async function loadStaffPersonalSalary() {
             // Status badge in basic card
             const badgeContainer = document.getElementById('ps-status-badge-container');
             if (badgeContainer) {
-                if (published.status === 'received') {
+                if (payslipStatus === 'received') {
                     badgeContainer.innerHTML = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã nhận lương</span>`;
-                    if (confirmBtn) confirmBtn.style.display = 'none';
+                } else if (!awaitingReceipt && payslipTimeline && payslipTimeline.receivedComponents.length > 0) {
+                    badgeContainer.innerHTML = `<span style="background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã nhận phần đã gửi</span>`;
                 } else {
                     badgeContainer.innerHTML = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:6px 12px;border-radius:9999px;font-size:0.8rem;font-weight:700;display:inline-block;">Đã công bố</span>`;
-                    if (confirmBtn) confirmBtn.style.display = 'inline-flex';
                 }
+                if (confirmBtn) confirmBtn.style.display = awaitingReceipt ? 'inline-flex' : 'none';
             }
 
             // Subject Breakdown table (For teachers)
@@ -3257,8 +3272,14 @@ async function confirmPersonalSalaryReceipt() {
     try {
         if (btn) btn.disabled = true;
         
-        await DBService.confirmSalaryReceived(staffId, monthStr, 'employee', 'all', receiptToken);
-        alert("Xác nhận nhận lương thành công!");
+        const result = await DBService.confirmSalaryReceived(staffId, monthStr, 'employee', 'all', receiptToken);
+        if (result?.changed === false) {
+            alert("Bảng lương này đã được xác nhận trước đó.");
+        } else if (result?.status === 'received') {
+            alert("Xác nhận nhận lương thành công!");
+        } else {
+            alert("Đã xác nhận phần lương đã gửi. Phần còn lại sẽ báo khi được gửi.");
+        }
         await loadStaffPersonalSalary();
     } catch (e) {
         console.error("Error confirming salary receipt:", e);

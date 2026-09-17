@@ -943,3 +943,26 @@ là bảng 4 cột với nhãn dọc như cũ.
   HTTP 11 file khớp local; trang đăng nhập live không có unhandled JS error.
   Chưa nghiệm thu ghi bằng nhân viên thật, không sửa dữ liệu công/lương.
   Các mục đối chiếu còn lại: `claude/release-incident-recovery-20260908.md`.
+
+### 18/09/2026 — Đồng bộ trạng thái Đã gửi / Đã nhận / Đã chi
+- Mốc thời gian tổng của bảng lương giờ là hình chiếu của mốc từng phần, không
+  còn là bản ghi dính cứng của lần gửi đầu. Phần thứ hai của hồ sơ dual không
+  mượn ngày gửi của phần đầu; thu hồi rồi gửi lại, và hiệu chỉnh sau khi đã
+  nhận, đều đóng dấu đúng thời điểm gửi thật. Hồ sơ legacy chỉ có trường tổng
+  vẫn giữ nguyên ngày đã ghi.
+- Bảng điều khiển lương đọc `getPayslipStatusTimeline` thay vì `pub.publishedAt`
+  / `pub.receivedAt`: dòng "Đã nhận" hiển thị thêm ngày gửi, dòng nhận một phần
+  nêu rõ phần nào nhận lúc nào, và khi hai phần do hai người xác nhận thì nêu cả
+  hai thay vì chỉ người xác nhận sau cùng. Nút "Đã chi" giữ nguyên phạm vi cũ.
+- Trang nhân viên cũng đọc lifecycle. Trước đây khi một phần đã nhận còn phần
+  kia vẫn là nháp, nút "Xác nhận đã nhận" vẫn hiện và bấm vào chỉ nhận lỗi
+  `payslip/not-published`; nay nút chỉ hiện khi thật sự còn phần chờ xác nhận,
+  badge có trạng thái "Đã nhận phần đã gửi", và thông báo sau khi xác nhận nói
+  đúng kết quả thay vì luôn báo thành công.
+- Kiểm chứng: toàn bộ `npm test` (63 nhóm) và `npm run pretest` đạt;
+  `payslip-lifecycle.test.js` thêm hồi quy cho mốc gửi/nhận, người xác nhận hỗn
+  hợp, trạng thái nhận-một-phần và hồ sơ legacy. Luồng UI payroll trên emulator
+  chạy qua đúng các bước liên quan; hai lỗi `scheduled-overtime-ui.cjs` và
+  `payroll-review-ui.cjs` đã tồn tại sẵn trên HEAD sạch, không do thay đổi này.
+- Build `20260918-payslip-status-sync-v1`, cache
+  `tdt-chamcong-v188-payslip-status-sync-20260918`.

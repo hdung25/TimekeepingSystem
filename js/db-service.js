@@ -7425,6 +7425,10 @@ const DBService = {
         return _getPayslipPaymentBreakdown(published);
     },
 
+    getPayslipStatusTimeline(published = {}) {
+        return _getPayslipStatusTimeline(published);
+    },
+
     getPayslipReceiptToken(published = {}) {
         return _getPayslipReceiptToken(published);
     },
@@ -9705,14 +9709,50 @@ function _getPayslipPaymentBreakdown(published = {}) {
     return { total, paid, unpaid, lifecycle };
 }
 
+function _payslipStampValue(value) {
+    if (typeof value !== 'string' || !value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+// Pick the newest component timestamp among the components currently holding one
+// of `statuses`. The aggregate publish/receipt metadata is a projection of these
+// component stamps, so a dashboard never shows the first send date of a payslip
+// that was revised, recalled and resent, or completed by a second component.
+function _latestPayslipComponentStamp(published, state, field, statuses) {
+    let latestValue = null;
+    let latestRank = null;
+    let latestComponent = null;
+    ['gv', 'tt'].forEach(component => {
+        if (!state[`has_${component}`]) return;
+        if (!statuses.includes(state[`status_${component}`])) return;
+        const rank = _payslipStampValue(published[`${field}_${component}`]);
+        if (rank === null) return;
+        if (latestRank === null || rank > latestRank) {
+            latestValue = published[`${field}_${component}`];
+            latestRank = rank;
+            latestComponent = component;
+        }
+    });
+    return { value: latestValue, component: latestComponent };
+}
+
 function _syncPayslipAggregateStatus(published, nowIso) {
     const state = _getPayslipLifecycleState(published);
     published.status = state.overallStatus;
     if (state.overallStatus === 'published' || state.overallStatus === 'received') {
-        published.publishedAt = published.publishedAt || nowIso;
+        // Component stamps are the source of truth once they exist; the old
+        // sticky aggregate value survives only for legacy aggregate-only records.
+        const latestSent = _latestPayslipComponentStamp(published, state, 'publishedAt', ['published', 'received']);
+        published.publishedAt = latestSent.value || published.publishedAt || nowIso;
     }
     if (state.overallStatus === 'received') {
-        published.receivedAt = published.receivedAt || nowIso;
+        const latestReceipt = _latestPayslipComponentStamp(published, state, 'receivedAt', ['received']);
+        published.receivedAt = latestReceipt.value || published.receivedAt || nowIso;
+        const latestConfirmer = latestReceipt.component
+            ? published[`confirmedBy_${latestReceipt.component}`]
+            : null;
+        if (latestConfirmer) published.confirmedBy = latestConfirmer;
     } else {
         // Component-level receipt metadata remains intact. Aggregate receipt
         // metadata is meaningful only after every relevant component is received.
@@ -9720,6 +9760,63 @@ function _syncPayslipAggregateStatus(published, nowIso) {
         delete published.confirmedBy;
     }
     return state;
+}
+
+// Flattened per-component send/receipt view for the salary dashboard and the
+// employee payslip screen, so every surface reads one legacy-compatible contract
+// instead of re-deriving state from raw aggregate fields.
+function _getPayslipStatusTimeline(published = {}) {
+    const state = _getPayslipLifecycleState(published);
+    const aggregateReceived = state.overallStatus === 'received';
+    const components = ['gv', 'tt']
+        .filter(component => state[`has_${component}`])
+        .map(component => {
+            const status = state[`status_${component}`];
+            const explicit = state[`explicit_${component}`];
+            const sentAt = published[`publishedAt_${component}`]
+                || (!explicit && status !== 'draft' ? published.publishedAt : null)
+                || null;
+            const receivedAt = published[`receivedAt_${component}`]
+                || (status === 'received' && aggregateReceived ? published.receivedAt : null)
+                || null;
+            const confirmedBy = published[`confirmedBy_${component}`]
+                || (status === 'received' && aggregateReceived ? published.confirmedBy : null)
+                || null;
+            return {
+                key: component,
+                label: component === 'gv' ? 'GV' : 'TT',
+                status,
+                sentAt: status === 'draft' ? null : sentAt,
+                receivedAt: status === 'received' ? receivedAt : null,
+                confirmedBy: status === 'received' ? confirmedBy : null
+            };
+        });
+
+    const latestOf = (items, field) => items.reduce((latest, item) => {
+        const rank = _payslipStampValue(item[field]);
+        if (rank === null) return latest;
+        return latest.rank === null || rank > latest.rank ? { rank, item } : latest;
+    }, { rank: null, item: null }).item;
+
+    const sentComponents = components.filter(item => item.status === 'published' || item.status === 'received');
+    const receivedComponents = components.filter(item => item.status === 'received');
+    const latestSent = latestOf(sentComponents, 'sentAt');
+    const latestReceipt = latestOf(receivedComponents, 'receivedAt');
+    const confirmers = Array.from(new Set(receivedComponents.map(item => item.confirmedBy).filter(Boolean)));
+
+    return {
+        lifecycle: state,
+        overallStatus: state.overallStatus,
+        components,
+        sentComponents,
+        receivedComponents,
+        draftComponents: components.filter(item => item.status === 'draft'),
+        awaitingReceiptComponents: components.filter(item => item.status === 'published'),
+        sentAt: (latestSent && latestSent.sentAt) || (sentComponents.length ? published.publishedAt || null : null),
+        receivedAt: (latestReceipt && latestReceipt.receivedAt) || (aggregateReceived ? published.receivedAt || null : null),
+        confirmedBy: (latestReceipt && latestReceipt.confirmedBy) || (aggregateReceived ? published.confirmedBy || null : null),
+        mixedConfirmers: confirmers.length > 1
+    };
 }
 
 function _preparePayslipComponentPublish(published = {}, targets = {}, nowIso = new Date().toISOString()) {
@@ -9747,7 +9844,14 @@ function _preparePayslipComponentPublish(published = {}, targets = {}, nowIso = 
             lockedComponents.push(component);
         } else {
             next[statusField] = 'published';
-            next[publishedAtField] = next[publishedAtField] || next.publishedAt || nowIso;
+            // Only a legacy aggregate-only record may adopt the aggregate send
+            // time. A component published now must carry its own stamp, or the
+            // second component of a dual payslip (and every recall + resend)
+            // would inherit the first component's date.
+            const legacyAggregateStamp = !before[`explicit_${component}`] && currentStatus === 'published'
+                ? next.publishedAt
+                : null;
+            next[publishedAtField] = next[publishedAtField] || legacyAggregateStamp || nowIso;
             publishedComponents.push(component);
         }
     });

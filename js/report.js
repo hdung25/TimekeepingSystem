@@ -9683,21 +9683,38 @@ function renderSalaryDashboardTable() {
             totalPaid += paymentBreakdown.paid;
             totalUnpaid += paymentBreakdown.unpaid;
             
+            // Aggregate fields alone cannot describe a dual-role payslip whose two
+            // halves were sent (or confirmed) on different days by different people.
+            const timeline = typeof DBService.getPayslipStatusTimeline === 'function'
+                ? DBService.getPayslipStatusTimeline(pub)
+                : null;
+            const sentAtStr = formatPayslipStamp(timeline ? timeline.sentAt : pub.publishedAt);
+            const receivedAtStr = formatPayslipStamp(timeline ? timeline.receivedAt : pub.receivedAt);
+            const receivedByStr = timeline && timeline.mixedConfirmers
+                ? timeline.receivedComponents
+                    .map(item => `${item.label}: ${formatPayslipConfirmer(item.confirmedBy)}`).join(' · ')
+                : formatPayslipConfirmer(timeline ? timeline.confirmedBy : pub.confirmedBy);
+            const partialReceiptStr = timeline
+                ? timeline.receivedComponents
+                    .map(item => `${item.label} ${formatPayslipStampShort(item.receivedAt)}`.trim()).join(' · ')
+                : '';
+
             if (status === 'received') {
-                const date = new Date(pub.receivedAt);
-                const dateStr = isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN');
-                const by = pub.confirmedBy === 'admin' ? 'Admin' : 'Nhân viên';
-                infoStr = `<div style="font-size:0.8rem;color:#059669;font-weight:600;">Nhận: ${dateStr}</div><div style="font-size:0.7rem;color:#6B7280;">Bởi: ${by}</div>`;
-                
+                infoStr = `<div style="font-size:0.8rem;color:#059669;font-weight:600;">Nhận: ${escapeReportHtml(receivedAtStr)}</div>`
+                    + `<div style="font-size:0.7rem;color:#6B7280;">Bởi: ${escapeReportHtml(receivedByStr)}</div>`
+                    + (sentAtStr ? `<div style="font-size:0.68rem;color:#9CA3AF;">Gửi: ${escapeReportHtml(sentAtStr)}</div>` : '');
+
                 statusBadge = `<span style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Đã nhận</span>`;
             } else if (canConfirmPaid) {
-                const date = new Date(pub.publishedAt);
-                const dateStr = isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN');
-                infoStr = `<div style="font-size:0.8rem;color:#1E40AF;font-weight:600;">Gửi: ${dateStr}</div>${hasReceivedComponent ? '<div style="font-size:0.7rem;color:#92400E;">Đã nhận một phần</div>' : ''}`;
-                
+                infoStr = `<div style="font-size:0.8rem;color:#1E40AF;font-weight:600;">Gửi: ${escapeReportHtml(sentAtStr)}</div>`
+                    + (hasReceivedComponent
+                        ? `<div style="font-size:0.7rem;color:#92400E;">Đã nhận: ${escapeReportHtml(partialReceiptStr || 'một phần')}</div>`
+                        : '');
+
                 statusBadge = `<span style="background:#DBEAFE;color:#1E40AF;border:1px solid #3B82F6;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">${hasReceivedComponent ? 'Đã nhận một phần' : 'Đã gửi'}</span>`;
             } else if (hasReceivedComponent) {
-                infoStr = '<div style="font-size:0.8rem;color:#92400E;font-weight:600;">Đã nhận phần đã gửi</div><div style="font-size:0.7rem;color:#6B7280;">Phần còn lại đang tổng hợp</div>';
+                infoStr = `<div style="font-size:0.8rem;color:#92400E;font-weight:600;">Đã nhận: ${escapeReportHtml(partialReceiptStr || 'phần đã gửi')}</div>`
+                    + '<div style="font-size:0.7rem;color:#6B7280;">Phần còn lại đang tổng hợp</div>';
                 statusBadge = '<span style="background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;padding:4px 8px;border-radius:9999px;font-size:0.75rem;font-weight:700;">Chờ phần còn lại</span>';
             } else {
                 infoStr = '<div style="font-size:0.8rem;color:#6B7280;">Đang tổng hợp</div>';
@@ -9804,6 +9821,28 @@ function renderSalaryDashboardTable() {
             else viewPersonalReportFromDash(staffId);
         });
     });
+}
+
+// One formatter for every payslip send/receipt stamp shown to an administrator,
+// so the dashboard and the bulk modal cannot drift apart again.
+function formatPayslipStamp(value) {
+    // `new Date(null)` is the 1970 epoch, not an invalid date, so a missing
+    // stamp must be rejected before parsing.
+    if (!value) return '';
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN');
+}
+
+function formatPayslipStampShort(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return '';
+    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')} `
+        + `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatPayslipConfirmer(value) {
+    return String(value || '').trim().toLowerCase() === 'admin' ? 'Admin' : 'Nhân viên';
 }
 
 async function adminConfirmPaid(staffId) {

@@ -1,7 +1,7 @@
 // Service Worker v187 - keep the transfer end-date input when its label changes.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v187-transfer-end-date-20260916';
+const CACHE_NAME = 'tdt-chamcong-v188-payslip-status-sync-20260918';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -28,12 +28,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260912-denial-timing-v1',
+    '/js/main.js?v=20260918-payslip-status-sync-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260912-denial-timing-v1',
+    '/js/db-service.js?v=20260918-payslip-status-sync-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
-    '/js/report.js?v=20260912-payroll-recall-rates-v1',
+    '/js/report.js?v=20260918-payslip-status-sync-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -58,7 +58,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
-    '/js/timekeeping.js?v=20260912-denial-timing-v1',
+    '/js/timekeeping.js?v=20260918-payslip-status-sync-v1',
     '/js/salary-bulk-export.js?v=20260908-payroll-review-v2',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
