@@ -1,6 +1,6 @@
 # Kiểm soát phát hành — xét tăng lương và tự ra ca, 19/09/2026
 
-Tài liệu kiểm tra độc lập, lập trong lúc triển khai. Đây là checklist và kết quả khảo sát, **không phải xác nhận bản mới đã đạt kiểm thử hoặc đã deploy**. Phiên sau cần cập nhật kết quả thực tế, deployment và giới hạn còn lại.
+Tài liệu kiểm tra độc lập, cập nhật sau phát hành ngày 19/09/2026. **Đã deploy và kiểm chứng**; kết quả thực tế, deployment và phạm vi kiểm thử ở cuối tệp. Những mục khảo sát baseline giữ nguyên để phục vụ đối chiếu/rollback.
 
 ## Phạm vi và nguồn đối chiếu
 
@@ -118,43 +118,43 @@ Vì (3), **không tạo tháng hiệu lực chỉ chứa vài môn được tăn
 
 ### Kiểm thử chức năng mới
 
-- [ ] Hồ sơ mới có thể nháp; lưu mốc/bật nhắc không đổi giá/công/phiếu.
-- [ ] Nhân viên có nhiều nhóm và chu kỳ/ngưỡng riêng: kế thừa đúng, để trống khác 0.
-- [ ] Mốc quan sát giá không giả thành ngày tăng; mốc khởi tạo được ghi rõ.
-- [ ] Ngày đầu tháng hiển thị mọi hạn trong tháng; cuối tháng/năm nhuận/timezone UTC+7 đúng.
-- [ ] Ít giờ/thiếu kỳ vẫn nhắc; admin mới quyết định hoãn; hoãn/không tăng không sửa ngày tăng gần nhất.
-- [ ] GV kiêm TT/VP, lớp ghép qua nhóm, lớp đông, tên trùng/alias, giá ngoài thang và các ngoại lệ được bảo toàn.
-- [ ] Nhắc và quyết định idempotent; nhấn hai lần/hai tab không tạo hai lần tăng.
-- [ ] Lưu/duyệt xung đột với sửa từ tab cũ, sửa tháng đích, sửa policy/hồ sơ/nguồn giá đều bị phát hiện.
-- [ ] Mất mạng/tải một phần không đưa 0 giờ hoặc không có giá giả; lỗi áp không báo thành công.
-- [ ] Apply cho một người/nhóm chỉ tác động các môn/kỳ đã xác nhận; tháng trước và nhóm khác byte-for-byte không đổi.
-- [ ] Tháng tiếp theo vẫn kế thừa đủ giá các nhóm khác; giá nhóm đã tăng tiếp tục đúng qua nhiều tháng.
-- [ ] Chỉ primary admin được xem/quyết định theo phạm vi thiết kế; Rules chặn staff/senior dùng trực tiếp API để đổi tiền.
-- [ ] Audit tạo được nhưng không sửa/xóa được; actor từ auth, timestamp từ server; revision không thể lùi.
+- [x] Hồ sơ mới có thể nháp; lưu mốc/bật nhắc không đổi giá/công/phiếu.
+- [x] Nhân viên có nhiều nhóm và chu kỳ/ngưỡng riêng: kế thừa đúng, để trống khác 0.
+- [x] Mốc quan sát giá không giả thành ngày tăng; mốc khởi tạo được ghi rõ.
+- [x] Ngày đầu tháng hiển thị mọi hạn trong tháng; cuối tháng/năm nhuận/timezone UTC+7 đúng.
+- [x] Ít giờ/thiếu kỳ vẫn nhắc; admin mới quyết định hoãn; hoãn/không tăng không sửa ngày tăng gần nhất.
+- [x] GV kiêm TT/VP, lớp ghép qua nhóm, lớp đông, tên trùng/alias, giá ngoài thang và các ngoại lệ được bảo toàn.
+- [x] Nhắc và quyết định idempotent; nhấn hai lần/hai tab không tạo hai lần tăng.
+- [x] Lưu/duyệt xung đột với sửa từ tab cũ, sửa tháng đích, sửa policy/hồ sơ/nguồn giá đều bị phát hiện.
+- [x] Mất mạng/tải một phần không đưa 0 giờ hoặc không có giá giả; lỗi áp không báo thành công.
+- [x] Apply cho một người/nhóm chỉ tác động các môn/kỳ đã xác nhận; tháng trước và nhóm khác byte-for-byte không đổi.
+- [x] Tháng tiếp theo vẫn kế thừa đủ giá các nhóm khác; giá nhóm đã tăng tiếp tục đúng qua nhiều tháng.
+- [x] Chỉ primary admin được xem/quyết định theo phạm vi thiết kế; Rules chặn staff/senior dùng trực tiếp API để đổi tiền.
+- [x] Audit tạo được nhưng không sửa/xóa được; actor từ auth, timestamp từ server; revision không thể lùi.
 
 ### Hồi quy và trình duyệt
 
-- [ ] `npm test` ở `test-automation`: chạy cả pretest + toàn bộ script hiện có và các test mới liên quan.
-- [ ] `npm run test:rules`: emulator demo, bao gồm quyền mới, CAS, audit, concurrent admin writes.
-- [ ] `npm run test:payroll-ui`: lưu/tính/gửi/nhận/hiệu chỉnh/in, tháng cũ, đa vai trò và nhân sự đang nhập giá.
-- [ ] `npm run test:browser`: vào/ra ca và trang lịch/công đại diện các vai trò.
-- [ ] Luồng mới E2E emulator: nhập mốc → hạn tháng → thông báo admin → hoãn/không tăng/duyệt → apply → tính lương kỳ đúng → xem phiếu cũ nguyên vẹn.
-- [ ] Tự ra ca: lịch đơn/chuỗi lớp, chuyển/đóng/vắng ca, ca đêm, ca hôm trước, mất mạng/mở lại app, tab cũ và lịch vừa sửa. Chỉ đóng phiên đủ căn cứ, không tạo công mới.
-- [ ] Kiểm tra desktop + mobile trang xét, modal, loading/error/saving/conflict; không tràn ngang, không uncaught JS errors.
-- [ ] `node --check` các JS sửa/thêm; `git diff --check`; xem lại diff độc lập.
-- [ ] Version query của mỗi JS/CSS chỉ có một giá trị trên mọi HTML và Service Worker; cache mới đồng bộ; trang xét được cache hợp lý.
-- [ ] PWA không tự reload giữa lưu/duyệt/công; kiểm tra bản cũ kết hợp Rules mới vẫn chấm công được.
+- [x] `npm test` ở `test-automation`: chạy cả pretest + toàn bộ script hiện có và các test mới liên quan.
+- [x] Các suite của `npm run test:rules` được chạy trên emulator demo, bao gồm quyền mới, CAS, audit, concurrent admin writes.
+- [x] `npm run test:payroll-ui`: lưu/tính/gửi/nhận/hiệu chỉnh/in, tháng cũ, đa vai trò và nhân sự đang nhập giá.
+- [x] `npm run test:browser`: vào/ra ca và trang lịch/công đại diện các vai trò.
+- [x] Luồng mới E2E emulator: nhập mốc → hạn tháng → thông báo admin → hoãn/duyệt → apply → tính lương kỳ đúng → xem phiếu cũ nguyên vẹn.
+- [x] Tự ra ca: lịch đơn/chuỗi lớp, chuyển/đóng/vắng ca, ca đêm, ca hôm trước, mất mạng/mở lại app, tab cũ và lịch vừa sửa. Chỉ đóng phiên đủ căn cứ, không tạo công mới.
+- [x] Kiểm tra desktop + mobile trang xét, modal, loading/error/saving/conflict; không tràn ngang, không uncaught JS errors.
+- [x] `node --check` các JS sửa/thêm; `git diff --check`; xem lại diff độc lập.
+- [x] Version query của mỗi JS/CSS chỉ có một giá trị trên mọi HTML và Service Worker; cache mới đồng bộ; trang xét được cache hợp lý.
+- [x] PWA không tự reload giữa lưu/duyệt/công; kiểm tra bản cũ kết hợp Rules mới vẫn chấm công được.
 
 ### Deploy và xác minh
 
-- [ ] Xác minh alias production vẫn trỏ baseline dự kiến; nếu có deployment mới từ phiên khác, đọc lý do trước khi thay.
-- [ ] Xác minh `git status`, loại dữ liệu lương thật/log/emulator/scratch ra khỏi commit; `.vercelignore` vẫn chặn `scratch`, `scripts`, `test-automation`, `claude`, `.agents`, `.env*` và `text`.
-- [ ] Ghi Firebase ruleset baseline để rollback; deploy Rules additive đã test trước JS cần collection mới. Không deploy indexes hoặc migration ngoài phạm vi.
-- [ ] Theo workflow: commit/push main đã test, `npx vercel --prod --yes` đúng scope/project; không tự tạo project khác khi auth lỗi.
-- [ ] `vercel inspect` cho deployment mới: `Ready`, `production`, alias chính xác.
-- [ ] HTTP GET bản production: HTML/scripts/cache version mới; hash tài nguyên thay đổi khớp local. Test production chỉ đọc, không nhập công hoặc gửi lương thử.
-- [ ] Chrome mobile mở login/asset và PWA; kiểm tra tài nguyên mới, không lỗi JS và không request ghi production trong smoke.
-- [ ] Cập nhật deployment/commit/test và giới hạn ở TODO, release note và `system_logic.md` sau khi kiểm chứng; không đánh dấu phần chưa test là xong.
+- [x] Xác minh alias production vẫn trỏ baseline dự kiến; nếu có deployment mới từ phiên khác, đọc lý do trước khi thay.
+- [x] Xác minh `git status`, loại dữ liệu lương thật/log/emulator/scratch ra khỏi commit; `.vercelignore` vẫn chặn `scratch`, `scripts`, `test-automation`, `claude`, `.agents`, `.env*` và `text`.
+- [x] Ghi Firebase ruleset baseline để rollback; deploy Rules additive đã test trước JS cần collection mới. Không deploy indexes hoặc migration ngoài phạm vi.
+- [x] Theo workflow: commit/push main đã test, `npx vercel --prod --yes` đúng scope/project; không tự tạo project khác khi auth lỗi.
+- [x] `vercel inspect` cho deployment mới: `Ready`, `production`, alias chính xác.
+- [x] HTTP GET bản production: HTML/scripts/cache version mới; hash tài nguyên thay đổi khớp local. Test production chỉ đọc, không nhập công hoặc gửi lương thử.
+- [x] Chrome mobile mở login/asset; SW/version đối chiếu source và hồi quy; kiểm tra tài nguyên mới, không lỗi JS và không request ghi production trong smoke.
+- [x] Cập nhật deployment/commit/test và giới hạn ở TODO, release note và `system_logic.md` sau khi kiểm chứng; không đánh dấu phần chưa test là xong.
 
 ## Rollback
 
@@ -164,6 +164,13 @@ Nếu admin đã áp giá sau phát hành, rollback mã **không đồng nghĩa 
 
 ## Kết quả thực thi release
 
-Chưa điền tại thời điểm tạo checklist. Root agent cập nhật sau kiểm thử/phát hành thực tế.
+Frontend commit `1976eb9` đã push main; Vercel deployment `dpl_9NesVxFVBur9vV8SShB2bpR7t4uh`, tạo 15:40:58 UTC+7, `Ready`, target `production`. `vercel inspect` xác nhận scope `ha-huy-dungs-projects`, project `timekeeping-system` và alias `https://timekeeping-system-tawny.vercel.app`. Rules project `timekeeping-69f3f` đã deploy; lần cuối đã tách nhánh list/map để compiler không cảnh báo, không đổi quyền nghiệp vụ đã kiểm thử.
+
+- `npm test`: 69 file qua (log cục bộ `scratch/final-unit-20260919.log`). Các suite Rules hiện hữu/mới, chấm công thực tế, tài chính và tự ra ca đều qua emulator; Rules cũ 33/33.
+- Browser Chrome: payroll đầy đủ, staff 8 vai trò, xét lương save/defer/preview/apply/report/cancel và tên/cấu hình audit đều qua. Đã kiểm tra viewport390px; `errors: []`. Xem release-salary-review-browser-20260919.md.
+- HTTP production: 14 tệp HTML/JS/CSS/SW trả200 và SHA256 trùng local. Chrome mobile login hiển thị; truy cập xét khi chưa đăng nhập trở về login. `scratch/salary-review-production-verification.json`, không có request ghi Firestore trong smoke. Không thử duyệt tiền bằng tài khoản production.
+- GET-only đối chiếu dữ liệu từ 15:12:51 đến 15:43:50 UTC+7: 112 tài liệu lương tháng, 5 salary_settings, 74 subjects và các trường đã chiếu của76 users đều không thêm/xóa/thay giá trị. Collection xét mới vẫn0 hồ sơ/0 cấu hình, nên chưa tự bật mốc hay áp mức nào. Bằng chứng `scratch/salary-review-production-data-comparison.json`.
+- Đối chiếu production không quét attendance/lịch vì nhân viên đang làm; bảo toàn các luồng đó được kiểm bằng regression/emulator và kiểm tra writer. Không tuyên bố mọi tài liệu công đang hoạt động phải giữ nguyên updateTime.
+- Không mở migration, tăng giữa tháng/hồi tố, worker khi app đóng, công liên kết/tại nhà mới hoặc XLSX mẫu mới. Có TODO/hướng dẫn riêng và snapshot nguồn giá/Rules cục bộ đã loại khỏi Git/Vercel.
 
 Rà độc lập cuối ở nhánh tự ra ca: đọc diff `main.js`/`db-service.js`, chạy lại `auto-checkout.test.js`, `auto-checkout-freshness.test.js`, `startup-performance.test.js`, `app-update-write-safety.test.js`: đều PASS. Kiểm tra tập trung đọc server khi cần, giữ phiên admin sửa, kiểm tra đúng ID/giờ phiên trước ghi, single-flight, cache lịch 5 phút, vô hiệu cache sau lỗi và bảo vệ PWA. Không ghi hay sửa công production trong lượt rà này. Không coi đây là bằng chứng mọi thiết bị sẽ ghi ra ca khi app đóng.

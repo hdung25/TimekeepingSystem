@@ -2,7 +2,7 @@
 
 Cập nhật: 19/09/2026. Người dùng yêu cầu phân tích kỹ, hệ thống mở, tận dụng giá admin đã nhập, tự nhắc admin và ghi lại từng phần cho phiên sau. Không coi các gợi ý ban đầu của người dùng là thiết kế đã tối ưu.
 
-**Trạng thái lúc cập nhật triển khai 19/09/2026:** đã có module sản phẩm, trang xét, nhắc admin, quy trình áp/hủy giá tháng tương lai và bản vá tự ra ca; các test mới đang được nghiệm thu toàn luồng. **Chưa deploy tại thời điểm cập nhật này, không ghi thử dữ liệu production.** Kết quả cuối phải cập nhật sau khi browser/rules/regression và production smoke hoàn tất. Xem thêm `release-checklist-20260919.md` và `HUONG_DAN_XET_TANG_LUONG.md`.
+**Đã phát hành và kiểm chứng ngày 19/09/2026:** trang xét, nhắc admin, áp/hủy giá tháng tương lai và bản vá tự ra ca đã chạy trên `https://timekeeping-system-tawny.vercel.app`. Frontend commit `1976eb9`, deployment `dpl_9NesVxFVBur9vV8SShB2bpR7t4uh` (production, Ready); Rules cuối đã deploy và biên dịch không cảnh báo. Không ghi thử dữ liệu nghiệp vụ production. Đối chiếu sau deploy: 112 tài liệu lương tháng, 5 cấu hình lương cũ, 74 môn và phần hồ sơ 76 người đã lấy mẫu đều không đổi. Xem `release-checklist-20260919.md` và `HUONG_DAN_XET_TANG_LUONG.md`.
 
 ## Đọc trước khi tiếp tục
 
@@ -118,19 +118,19 @@ Cập nhật: 19/09/2026. Người dùng yêu cầu phân tích kỹ, hệ thố
 - [x] Mã chấm công không phải chờ nguồn xét lương; không thêm polling lương vào trang nhân viên.
 - [x] Bản vá tự ra ca: bỏ cache roster cũ khi cần, đọc server tại mốc đóng, kiểm tra đúng phiên trong transaction, giữ ca admin sửa, bảo vệ PWA.
 - [x] Tự ra ca không tải lịch nếu không có phiên mở; tái dùng snapshot lịch 5 phút, kiểm tra mới trước ghi; 3 cơ sở đọc song song.
-- [ ] Hoàn tất browser desktop/mobile và PWA/version toàn dự án, rồi ghi kết quả cuối ở release note. Chưa đánh dấu từ static code.
+- [x] Browser desktop/mobile 390px không tràn ngang, không lỗi JS; PWA/version đồng bộ, hash 14 tệp production khớp local. Bằng chứng trong release note.
 
 ## P6 — kiểm chứng và phát hành
 
 - [x] Unit policy/application/service/notifications được thêm vào npm test; fixtures ẩn danh, không đưa dữ liệu thật vào tests.
 - [x] Unit transaction mới qua: áp/hủy, stale nguồn 8 loại, retry, double action, pending group, partial scope và bảo toàn lương cũ.
-- [x] Rules emulator mới qua phần settings/profile/defer và quyền/audit; Rules cũ 33/33 qua. Apply/cancel và các suite còn lại ghi theo kết quả agent kiểm thử cuối.
+- [x] Rules emulator qua settings/profile/defer/preview/apply/retry/cancel và quyền/audit; Rules cũ 33/33, attendance, financial-concurrency, auto-checkout đều qua. Lỗi phí tư vấn legacy có kiểm thử chặn thay đổi ngoài phạm vi.
 - [x] Rà độc lập và chạy lại auto-checkout.test.js, auto-checkout-freshness.test.js, startup-performance.test.js, app-update-write-safety.test.js: PASS.
 - [x] Syntax application/service và git diff --check qua; cảnh báo CRLF không phải lỗi cú pháp.
-- [ ] Hoàn tất npm test toàn bộ + test:rules + test:payroll-ui + test:browser + test:salary-review-ui của mã cuối.
-- [ ] E2E mới: lưu mốc → nhắc → hẹn/duyệt → kỳ/giá đúng → hủy + bảo toàn phiếu cũ; desktop/mobile.
-- [ ] Deploy additive Rules, rồi Vercel đúng alias, smoke HTTP/hash/PWA chỉ đọc. **Chưa deploy ở thời điểm cập nhật TODO này.**
-- [ ] Cập nhật chính xác commit/deployment/test và kết quả production; không để dòng “pending” sau khi có bằng chứng hoàn tất.
+- [x] npm test: 69 file qua. Các suite Rules, payroll UI, staff browser 8 vai trò và salary-review UI đều qua; dùng Auth/Firestore emulator, không dùng dữ liệu thật để thử ghi.
+- [x] E2E mới: lưu mốc → nhắc → hẹn/duyệt → report đọc đúng kỳ/giá → hủy, giữ công/phiếu cũ; desktop/mobile và audit tên người duyệt/cấu hình xét.
+- [x] Deploy Rules và Vercel đúng alias. HTTP/hash 14 tệp khớp, Chrome mobile login và trang xét khi chưa đăng nhập hoạt động, không phát sinh ghi dữ liệu trong smoke.
+- [x] Ghi commit/deployment/test/giới hạn và đối chiếu dữ liệu production vào TODO, release checklist, hướng dẫn, system_logic.
 
 ## Việc chủ động để đợt sau
 
@@ -164,4 +164,4 @@ Cập nhật: 19/09/2026. Người dùng yêu cầu phân tích kỹ, hệ thố
 - `scratch/analyze-salary-review.cjs`: tính lại số liệu từ bản đọc cục bộ, dùng lifecycle của code hiện tại; chạy `node scratch/analyze-salary-review.cjs`, không truy cập mạng và không ghi database. Ngày khảo sát được cố định 19/09/2026; khi khảo sát kỳ mới phải đổi phạm vi và ghi một bản kết quả mới, không trình bày số cũ như số mới.
 - `scratch/salary-review-policy.prototype.cjs`: prototype thử suy luận; đã chuyển khỏi `js/`. Không trang nào nạp. Còn hạn chế về nguồn/alias/lifecycle, không phải code sản phẩm.
 - `scratch/salary-review-research.test.cjs`: chạy bằng `node scratch/salary-review-research.test.cjs`, không network/Firestore writes; chỉ kiểm chứng giả thuyết hẹp.
-- **Bước tiếp theo:** hoàn tất P6 trên mã cuối, phát hành đúng dự án và cập nhật kết quả. Không chạy lại prototype hoặc migration để khởi tạo hồ sơ thật; admin xác nhận mốc lần đầu trên trang mới.
+- **Bước tiếp theo:** admin dùng trang mới xác nhận mốc cho từng người/nhóm và lưu ngưỡng tham khảo khi đồng ý. Phần mở rộng chờ nằm ở “Việc chủ động để đợt sau”; không chạy prototype hoặc migration để khởi tạo hồ sơ thật. Không tự tăng/áp giá cho nhân viên.

@@ -232,6 +232,11 @@ async function main() {
         assert.deepEqual(records.map(r => r.kind).sort(), ['approved', 'cancelled', 'deferred', 'profile'].sort());
         assert.ok(records.every(record => record.recordedAt?.toMillis() > 0));
         assert.ok(records.every(record => record.actorUserId === admin));
+        const approved = records.find(record => record.kind === 'approved');
+        assert.equal(approved.reviewDate, today);
+        assert.equal(approved.reviewSettings.cycleMonths, 3);
+        assert.equal(approved.reviewSettings.minimumHours, 43);
+        assert.deepEqual(approved.personOverrides, { cycleMonths: null, minimumHours: null, extraMonths: null });
     });
     assert.match(await page.$eval('.sr-history', el => el.innerText), /Admin kiểm thử/);
     await page.setViewport({ width: 390, height: 844 });

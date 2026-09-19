@@ -102,6 +102,12 @@ kiểm tra giá 36.000 ở tháng sau và 32.000/30.000 ở các tháng cũ; aud
 Hai JSON evidence đều `errors: []`, không `fatal`. Ảnh mobile đã được ghi lại từ
 chính lượt cuối. Browser staff tám vai trò đã qua trong lượt riêng trước đó.
 
+Sau đó service thêm đóng băng ngày xét/cấu hình/ghi đè cá nhân trong audit duyệt;
+đã chạy riêng lại toàn `salary-review-ui-flow.test.js`, thêm assertion trực tiếp
+`reviewDate`, `reviewSettings.cycleMonths/minimumHours`, `personOverrides`.
+Exit **0**, toàn flow vẫn **PASS** trên đúng service cuối. Không cần chạy lại
+payroll vì chỉnh sửa này chỉ thuộc service trang xét mới.
+
 Một lần khởi động emulator song song trước lượt cuối lỗi hub cục bộ trước khi
 test bắt đầu. Đã dừng đúng tiến trình emulator mồ côi của phiên và chạy lại tuần
 tự; không phải lỗi app và không liên quan môi trường production. Emulator cuối

@@ -1,6 +1,6 @@
 # Hướng dẫn Admin — Xét tăng lương
 
-Tài liệu cho màn **Xét Tăng Lương**. Cập nhật 19/09/2026 trước khi phát hành; trạng thái deploy cuối xem TODO/release note. Chỉ quản trị viên chính sử dụng màn này.
+Tài liệu cho màn **Xét Tăng Lương**, đã phát hành ngày 19/09/2026. Chỉ quản trị viên chính sử dụng màn này. Mở từ menu hoặc `https://timekeeping-system-tawny.vercel.app/xet-tang-luong.html`.
 
 ## 1. Nhập lần đầu cho từng nhân viên
 

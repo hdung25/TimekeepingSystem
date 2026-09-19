@@ -1087,10 +1087,7 @@ service cloud.firestore {
         && (items.size() < 7 || !(items[6].get('id', -1) in [1, '1']))
         ;
     }
-    function isConsultationFeeEvaluationEdit(legacyBefore, after, amount) {
-      // Older fee saves stored one criterion as a map. The existing writer
-      // converts that row to a list without changing its non-amount fields.
-      let before = legacyBefore is map && legacyBefore.keys().hasAny(['id']) ? [legacyBefore] : legacyBefore;
+    function isConsultationFeeEvaluationEdit(before, after, amount) {
       let added = after.removeAll(before);
       let removed = before.removeAll(after);
       return before is list && after is list && (after == before || (
@@ -1125,7 +1122,15 @@ service cloud.firestore {
         && edit.get('actorUid', '') == request.auth.uid && edit.get('updatedAt', null) == request.time
         && edit.get('amount', -1) is int && edit.amount >= 0 && edit.amount <= 9007199254740991
         && after.get('consultationFeePending', false) == true
-        && isConsultationFeeEvaluationEdit(previousRole.get('evaluation', []), nextRole.get('evaluation', []), edit.amount);
+        && (
+          (previousRole.get('evaluation', []) is list
+            && isConsultationFeeEvaluationEdit(previousRole.get('evaluation', []), nextRole.get('evaluation', []), edit.amount))
+          // Older fee saves stored one criterion as a map. Compare its
+          // lossless conversion separately so the comparator remains list-only.
+          || (previousRole.get('evaluation', []) is map
+            && previousRole.get('evaluation', []).keys().hasAny(['id'])
+            && isConsultationFeeEvaluationEdit([previousRole.get('evaluation', [])], nextRole.get('evaluation', []), edit.amount))
+        );
     }
     match /salary_settings_monthly/{docId} {
       allow read: if isAuthenticated() && (isOwnMonthlyDocument(docId) || isAdmin());

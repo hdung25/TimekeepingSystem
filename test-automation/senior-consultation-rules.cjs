@@ -104,5 +104,17 @@ module.exports = async ({env, admin, adminDb, staffDb, source, firebase}) => {
     assert.deepEqual(data.tiep_tan.evaluation,[unrelatedRow,fee]);
     assert.equal(data.tiep_tan.advance,role.advance);
     assert.deepEqual(data.published,original.published);
+
+    // Legacy compatibility is only for a real criterion, never for repairing
+    // malformed or keyed-object data under a senior assistant's authority.
+    for (const malformed of [null, false, 123, 'invalid', {}, {amount:123}, {0:{id:1,amount:123}}]) {
+        await ref.set({tiep_tan:{...role,evaluation:malformed},published:original.published});
+        await assert.rejects(seniorRef.update({
+            'tiep_tan.evaluation':[fee],
+            consultationFeePending:true,
+            consultationFeeEdit:{staffId:id,month,amount:0,actorUid:'fee-senior',updatedAt:firebase.firestore.FieldValue.serverTimestamp()}
+        }), {code:'permission-denied'});
+        assert.deepEqual((await ref.get()).data().tiep_tan.evaluation,malformed);
+    }
     console.log('PASS senior fee save/zero/legacy single-map/new month, unrelated writes denied, stale calculation and revision sends blocked');
 };
