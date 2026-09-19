@@ -55,5 +55,54 @@ module.exports = async ({env, admin, adminDb, staffDb, source, firebase}) => {
     assert.equal(data['tiep-tan'].evaluation[1].amount,5);
     assert.equal(data.tiep_tan,undefined);
     await assert.rejects(senior.saveConsultationFee(id,month,-1,data['tiep-tan']));
-    console.log('PASS senior fee save/zero/legacy/new month, unrelated writes denied, stale calculation and revision sends blocked');
+
+    // A historical writer saved one criterion as a map instead of a list.
+    // Accept only its lossless conversion during the permitted fee edit.
+    for (const key of ['tiep_tan', 'tiep-tan']) {
+        const oldRow = {id:'1', amount:123, note:'keep legacy note', source:'legacy'};
+        const oldRole = {...role, evaluation:oldRow};
+        const legacyDocument = {[key]:oldRole, giao_vien:original.giao_vien, published:original.published};
+        await ref.set(legacyDocument);
+        const changedRow = {...oldRow, amount:81675};
+        const legacyAttack = async (evaluation, patch = {}) => assert.rejects(seniorRef.update({
+            [`${key}.evaluation`]:evaluation,
+            consultationFeePending:true,
+            consultationFeeEdit:{staffId:id, month, amount:81675, actorUid:'fee-senior', updatedAt:firebase.firestore.FieldValue.serverTimestamp()},
+            ...patch
+        }), {code:'permission-denied'});
+        await legacyAttack([{...changedRow, id:6}]);
+        await legacyAttack([{...changedRow, note:'changed'}]);
+        await legacyAttack([{...changedRow, source:'forged'}]);
+        await legacyAttack([{id:'1', amount:81675, note:oldRow.note}]);
+        await legacyAttack([changedRow, {id:6,amount:999999}]);
+        await legacyAttack(changedRow);
+        await legacyAttack([changedRow], {[`${key}.advance`]:0});
+        await legacyAttack([changedRow], {published:{...original.published,netPay:999999}});
+        await senior.saveConsultationFee(id,month,81675,oldRole);
+        data = (await ref.get()).data();
+        assert.deepEqual(data[key], {...oldRole,evaluation:[changedRow]});
+        assert.deepEqual(data.published,original.published);
+        assert.deepEqual(data.giao_vien,original.giao_vien);
+        assert.equal(data.consultationFeePending,true);
+        await senior.saveConsultationFee(id,month,0,data[key]);
+        data = (await ref.get()).data();
+        assert.deepEqual(data[key].evaluation,[{...oldRow,amount:0}]);
+    }
+
+    // A single unrelated legacy criterion must survive adding the missing fee.
+    const unrelatedRow = {id:6,amount:45000,note:'preserve bonus'};
+    const bonusRole = {...role,evaluation:unrelatedRow};
+    await ref.set({tiep_tan:bonusRole,published:original.published});
+    const fee = {id:1,amount:0,note:''};
+    await assert.rejects(seniorRef.update({
+        'tiep_tan.evaluation':[{...unrelatedRow,amount:0},fee],
+        consultationFeePending:true,
+        consultationFeeEdit:{staffId:id,month,amount:0,actorUid:'fee-senior',updatedAt:firebase.firestore.FieldValue.serverTimestamp()}
+    }), {code:'permission-denied'});
+    await senior.saveConsultationFee(id,month,0,bonusRole);
+    data = (await ref.get()).data();
+    assert.deepEqual(data.tiep_tan.evaluation,[unrelatedRow,fee]);
+    assert.equal(data.tiep_tan.advance,role.advance);
+    assert.deepEqual(data.published,original.published);
+    console.log('PASS senior fee save/zero/legacy single-map/new month, unrelated writes denied, stale calculation and revision sends blocked');
 };

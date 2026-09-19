@@ -1,7 +1,7 @@
-// Service Worker v187 - keep the transfer end-date input when its label changes.
+// Service Worker v189 - isolated salary reviews and fresh scheduled checkout.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v188-payslip-status-sync-20260918';
+const CACHE_NAME = 'tdt-chamcong-v189-salary-review-20260919';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -21,6 +21,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/tuong-trinh.html',
     '/cham-bu.html',
     '/nhan-su.html',
+    '/xet-tang-luong.html',
     '/he-thong.html',
     '/mon-hoc.html',
     '/hop-dinh-ky.html',
@@ -28,10 +29,16 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/js/main.js?v=20260918-payslip-status-sync-v1',
+    '/css/salary-review.css?v=20260919-review-v1',
+    '/js/salary-review-policy.js?v=20260919-review-v1',
+    '/js/salary-review-application.js?v=20260919-review-v1',
+    '/js/salary-review-service.js?v=20260919-review-v1',
+    '/js/salary-review-notifications.js?v=20260919-review-v1',
+    '/js/salary-review.js?v=20260919-review-v1',
+    '/js/main.js?v=20260919-review-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260918-payslip-status-sync-v1',
+    '/js/db-service.js?v=20260919-review-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/report.js?v=20260918-payslip-status-sync-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
@@ -49,7 +56,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20260908-feedback-repair-v1',
     '/js/personnel.js?v=20260908-incident-recovery-v1',
-    '/js/auth-guard.js?v=20260906-early10-recovery-v1',
+    '/js/auth-guard.js?v=20260919-review-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260906-early10-recovery-v1',

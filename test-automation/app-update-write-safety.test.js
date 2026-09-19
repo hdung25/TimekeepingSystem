@@ -20,7 +20,7 @@ function createUpdateHarness() {
     return { window, document, inputs, elements, reloads: () => reloads,
         update: () => listeners.message({ data: { type: 'APP_UPDATED', version: 'new-version' } }) };
 }
-for (const flag of ['__attendanceCheckInPending', '__attendanceCheckOutPending', '__adminPayrollSavePending',
+for (const flag of ['__attendanceCheckInPending', '__attendanceCheckOutPending', '__autoCheckoutPending', '__adminPayrollSavePending',
     '__classClosurePending', '__payrollWritePending', '__scheduleMutationPending']) {
     const h = createUpdateHarness();
     h.window[flag] = true;

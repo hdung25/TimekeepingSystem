@@ -48,7 +48,7 @@ if (!window.RolePolicy) {
 
     let refreshing = false;
     let formEdited = false;
-    const hasPendingWrite = () => window.__attendanceCheckInPending || window.__attendanceCheckOutPending ||
+    const hasPendingWrite = () => window.__attendanceCheckInPending || window.__attendanceCheckOutPending || window.__autoCheckoutPending ||
         window.__adminPayrollSavePending || window.__classClosurePending ||
         window.__payrollWritePending || window.__scheduleMutationPending;
     // A cache update must not discard a payroll/schedule draft or interrupt
@@ -663,6 +663,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Trả về true nếu vừa ra ca. options.fresh: bỏ cache chấm công trước khi đọc (mở lại app);
 // options.refreshUi === false: người gọi tự vẽ lại giao diện.
 let globalAutoCheckoutInFlight = null;
+// Only one user's open workday is retained. Idle staff never load rosters, and an
+// active tab reuses its snapshot for five minutes. A due cutoff is revalidated.
+let globalAutoCheckoutScheduleSnapshot = null;
+const AUTO_CHECKOUT_SCHEDULE_TTL_MS = 5 * 60 * 1000;
 async function globalCheckAutoCheckout(options = {}) {
     // Interval, lúc mở lại app, lúc vẽ khung chấm công và lúc bấm VÀO/RA CA đều gọi hàm
     // này; chỉ cho một lượt chạy tại một thời điểm để không bắn transaction ra ca chồng nhau.
@@ -708,8 +712,8 @@ async function runGlobalAutoCheckout(options = {}) {
         // 1. A session opened before midnight remains anchored in yesterday's
         // attendance document. Search both documents and pick the newest open one.
         const attendanceEntries = await Promise.all([
-            DBService.getPersonalAttendance(todayDateKey, currentUserId),
-            DBService.getPersonalAttendance(previousDateKey, currentUserId)
+            DBService.getPersonalAttendance(todayDateKey, currentUserId, options.fresh ? { source: 'server' } : {}),
+            DBService.getPersonalAttendance(previousDateKey, currentUserId, options.fresh ? { source: 'server' } : {})
         ]);
         const openCandidates = [];
         attendanceEntries.forEach((attendance, index) => {
@@ -730,9 +734,15 @@ async function runGlobalAutoCheckout(options = {}) {
         });
         openCandidates.sort((left, right) => right.startedAt - left.startedAt);
         const selectedOpen = openCandidates[0];
-        if (!selectedOpen) return false; // No open session → nothing to auto-close
+        if (!selectedOpen) {
+            globalAutoCheckoutScheduleSnapshot = null;
+            return false; // No open session → do not load schedules.
+        }
         const openSession = selectedOpen.session;
         const dateKey = selectedOpen.dateKey;
+        // An administrator may deliberately leave a corrected session open.
+        // Preserve that explicit decision, including when another page resumes.
+        if (openSession.isAdminEdited) return false;
 
         // 2. Determine when the user's current shift/class ends
         const checkInTime = new Date(openSession.checkIn || openSession.start);
@@ -742,24 +752,52 @@ async function runGlobalAutoCheckout(options = {}) {
         // 07:00–11:00 vừa có lớp 07:30–09:00 bị tự động RA CA lúc 09:00 (hết lớp) dù vẫn
         // đang trong ca trực → phải bấm vào ca lần 2. Nay gom CẢ HAI nguồn lịch (ca trực +
         // lớp dạy) rồi nối thành MỘT MẠCH LÀM VIỆC LIỀN từ lúc vào ca.
-        const monthStr = dateKey.slice(0, 7);
-        const [cancelledShifts, settings] = await Promise.all([
-            DBService.getCancelledShifts(monthStr, currentUserId),
-            DBService.getSystemSettings()
-        ]);
-        const closures = settings?.centerClosures || {};
-        const [recepBlocks, classBlocks] = await Promise.all([
-            findReceptionistShiftBlocks(currentUserId, dateKey, cancelledShifts, closures),
-            findTeachingBlocks(currentUserId, dateKey, cancelledShifts, closures)
-        ]);
-
-        const finalEnd = resolveWorkChainEnd([...recepBlocks, ...classBlocks], checkInTime);
-        if (!finalEnd) return false;
-        if (now < finalEnd) return false;
+        let scheduleRefreshed = false;
+        const loadWorkBlocks = async (force) => {
+            const cached = globalAutoCheckoutScheduleSnapshot;
+            if (!force && cached?.userId === currentUserId && cached.dateKey === dateKey &&
+                Date.now() - cached.loadedAt < AUTO_CHECKOUT_SCHEDULE_TTL_MS) return cached.blocks;
+            const [cancelledShifts, settings] = await Promise.all([
+                DBService.getCancelledShifts(dateKey.slice(0, 7), currentUserId, { strict: true }),
+                DBService.getSystemSettings({ source: 'server' })
+            ]);
+            const closures = settings?.centerClosures || {};
+            const readOptions = { source: 'server', settings, readCache: new Map() };
+            const [recepBlocks, classBlocks] = await Promise.all([
+                findReceptionistShiftBlocks(currentUserId, dateKey, cancelledShifts, closures, readOptions),
+                findTeachingBlocks(currentUserId, dateKey, cancelledShifts, closures, readOptions)
+            ]);
+            const blocks = [...recepBlocks, ...classBlocks];
+            globalAutoCheckoutScheduleSnapshot = { userId: currentUserId, dateKey, loadedAt: Date.now(), blocks };
+            scheduleRefreshed = true;
+            return blocks;
+        };
+        let finalEnd = resolveWorkChainEnd(await loadWorkBlocks(options.fresh === true), checkInTime);
+        if (!finalEnd || now < finalEnd) return false;
+        // Admin may extend/cancel a shift after this tab's previous check. Never
+        // persist an automatic cutoff based only on the reusable memory snapshot.
+        if (!scheduleRefreshed) {
+            finalEnd = resolveWorkChainEnd(await loadWorkBlocks(true), checkInTime);
+            if (!finalEnd || now < finalEnd) return false;
+        }
+        if (localStorage.getItem('currentUserId') !== currentUserId) return false;
 
         console.log(`[GlobalAutoCheckout] Ngày làm kết thúc lúc ${finalEnd.toLocaleTimeString()}. Auto checking out...`);
         // Truyền đúng mốc tan ca để không ghi nhận dư phút sau khi hết ca
-        await DBService.checkOutPersonal(currentUserId, finalEnd);
+        if (typeof window !== 'undefined') window.__autoCheckoutPending = true;
+        try {
+            await DBService.checkOutPersonal(currentUserId, finalEnd, {
+                expectedSession: {
+                    dateKey,
+                    id: openSession.id || 'legacy',
+                    checkIn: openSession.checkIn || openSession.start,
+                    start: openSession.start || openSession.checkIn
+                }
+            });
+        } finally {
+            if (typeof window !== 'undefined') window.__autoCheckoutPending = false;
+        }
+        globalAutoCheckoutScheduleSnapshot = null;
         if (typeof UIService !== 'undefined' && UIService.toast) {
             UIService.toast('Đã tự động Ra Ca (hết giờ làm hôm nay)', 'success');
         }
@@ -768,6 +806,7 @@ async function runGlobalAutoCheckout(options = {}) {
         // Cache cũ (ca đã được ra ở máy khác) làm transaction báo "đã ra ca"; bỏ cache để
         // lượt sau đọc lại đúng trạng thái thay vì lặp lại cùng một lỗi mỗi phút.
         invalidateAttendance();
+        globalAutoCheckoutScheduleSnapshot = null;
         console.warn("[GlobalAutoCheckout] Error:", e);
         return false;
     }
@@ -821,7 +860,7 @@ function isAutoCheckoutShiftClosed(dateKey, shiftKey, closures) {
     return false;
 }
 
-async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = [], closures = {}) {
+async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = [], closures = {}, options = {}) {
     try {
         const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
         const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -849,16 +888,23 @@ async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = []
 
         // Đọc lịch 3 cơ sở song song (trước đây chờ lần lượt từng cơ sở nên khung chấm
         // công mở chậm). Kết quả vẫn duyệt theo đúng thứ tự cơ sở như cũ.
+        const defaultConfig = {
+            morning: { start: '07:00', end: '11:30' },
+            afternoon: { start: '14:00', end: '18:00' },
+            evening: { start: '17:30', end: '21:30' }
+        };
         const branchSources = await Promise.all(BRANCHES.map(branch => {
             const compositeKey = `${branch}__${mondayKey}`;
             return Promise.all([
                 Promise.all([
-                    DBService.getReceptionistSchedule(compositeKey),
-                    DBService.getReceptionistShiftConfig(branch)
+                    DBService.getReceptionistSchedule(compositeKey, options),
+                    options.settings ? (options.settings[`receptionistShifts_${branch}`] || options.settings.receptionistShifts || defaultConfig)
+                        : DBService.getReceptionistShiftConfig(branch)
                 ]).then(([weekData, config]) => ({ weekData, config, kind: 'tiep-tan' })),
                 Promise.all([
-                    DBService.getOfficeSchedule(compositeKey),
-                    DBService.getOfficeShiftConfig(branch)
+                    DBService.getOfficeSchedule(compositeKey, options),
+                    options.settings ? (options.settings[`officeShifts_${branch}`] || options.settings.officeShifts || defaultConfig)
+                        : DBService.getOfficeShiftConfig(branch)
                 ]).then(([weekData, config]) => ({ weekData, config, kind: 'van-phong' }))
             ]).then(sources => ({ compositeKey, sources }));
         }));
@@ -898,12 +944,13 @@ async function findReceptionistShiftBlocks(userId, dateKey, cancelledShifts = []
             .map(s => ({ start: s.shiftStart, end: s.shiftEnd, kind: s.kind }));
     } catch (e) {
         console.warn('[GlobalAutoCheckout] Receptionist error:', e);
+        if (options.source === 'server') throw e;
         return [];
     }
 }
 
 // Trả về danh sách khúc LỚP DẠY nhân viên được xếp trong ngày ([] nếu không có).
-async function findTeachingBlocks(userId, dateKey, cancelledShifts = [], closures = {}) {
+async function findTeachingBlocks(userId, dateKey, cancelledShifts = [], closures = {}, options = {}) {
     try {
         const BRANCHES = ['cs1', 'cs2', 'cs3'];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
@@ -912,7 +959,7 @@ async function findTeachingBlocks(userId, dateKey, cancelledShifts = [], closure
         // Thu thập TẤT CẢ lớp user đã nhận hôm nay (mọi branch)
         const allClasses = [];
         // Đọc song song, duyệt theo thứ tự cơ sở như trước.
-        const branchSchedules = await Promise.all(BRANCHES.map(branch => DBService.getSchedule(`${branch}__${dateKey}`)));
+        const branchSchedules = await Promise.all(BRANCHES.map(branch => DBService.getSchedule(`${branch}__${dateKey}`, options)));
         for (const [branchIndex, branch] of BRANCHES.entries()) {
             const compositeKey = `${branch}__${dateKey}`;
             const schedule = branchSchedules[branchIndex];
@@ -948,6 +995,7 @@ async function findTeachingBlocks(userId, dateKey, cancelledShifts = [], closure
             .filter(b => b.start && b.end);
     } catch (e) {
         console.warn("[GlobalAutoCheckout] Teacher error:", e);
+        if (options.source === 'server') throw e;
         return [];
     }
 }
@@ -1267,6 +1315,7 @@ function renderSidebar() {
         { name: 'Nhật Ký Ca', link: 'nhat-ky-ca.html', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line>', roles: ['admin', 'senior_assistant'] },
         { name: 'Tường Trình', link: 'tuong-trinh.html', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line>', roles: ['admin', 'senior_assistant'] },
         { name: reportName, link: 'bao-cao.html', icon: '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="10" x2="16" y2="18"></line><line x1="8" y1="10" x2="12" y2="10"></line><line x1="8" y1="14" x2="12" y2="14"></line><line x1="8" y1="18" x2="12" y2="18"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant'] },
+        { name: 'Xét Tăng Lương', link: 'xet-tang-luong.html', icon: '<path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"></path><path d="M13 3h8v8M21 3l-9 9"></path><path d="M7 13v4M11 15v2M15 13v4"></path>', roles: ['admin'] },
         { name: 'Môn Học', link: 'mon-hoc.html', icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>', roles: ['admin'] },
         { name: 'Hệ Thống', link: 'he-thong.html', icon: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>', roles: ['admin', 'senior_assistant', 'assistant'] },
         // NEW: Maintenance

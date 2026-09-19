@@ -9,6 +9,11 @@
 
 # 1. TỔNG QUAN & QUY ƯỚC DỰ ÁN
 
+> Cập nhật 19/09/2026: các mô tả lịch sử bên dưới có thể thuộc phiên bản cũ.
+> Phần xét tăng lương mới xem `TODO_XET_TANG_LUONG.md`,
+> `HUONG_DAN_XET_TANG_LUONG.md` và nhật ký cuối tệp. Quyền thực tế lấy từ
+> `firestore.rules`; không dùng bảng quyền lịch sử ở mục 9 để nới quyền.
+
 - **Tên App:** Hệ Thống Chấm Công — Trung Tâm Ngoại Ngữ & Toán Tư Duy Trẻ (Version 2.0)
 - **Firebase Project:** `timekeeping-69f3f` (Auth Domain: `timekeeping-69f3f.firebaseapp.com`)
 - **Deploy:** Vercel — https://timekeeping-system-tawny.vercel.app
@@ -966,3 +971,19 @@ là bảng 4 cột với nhãn dọc như cũ.
   `payroll-review-ui.cjs` đã tồn tại sẵn trên HEAD sạch, không do thay đổi này.
 - Build `20260918-payslip-status-sync-v1`, cache
   `tdt-chamcong-v188-payslip-status-sync-20260918`.
+
+### 19/09/2026 — Xét tăng lương theo người/nhóm và kiểm tra tự ra ca
+
+- User cho phép phân tích, triển khai, điều chỉnh kế hoạch, kiểm thử và deploy; yêu cầu đọc Rule HD, bảo toàn mọi giá đã nhập/công cũ và chức năng liên quan.
+- Trang mới `xet-tang-luong.html`, chỉ primary admin. Các module độc lập: `salary-review-policy` (thuần), `salary-review-application` (preview thuần), `salary-review-service` (đọc/transaction), `salary-review` (UI), `salary-review-notifications` (nhắc Tổng quan).
+- Dữ liệu bổ sung: `salary_review_settings/default`, `salary_review_profiles/{staffId}` và `history` bất biến của mỗi hồ sơ/cấu hình. Revision/CAS, actor từ quyền server, thời gian audit server, mọi mutation ghép lịch sử cùng transaction.
+- Chỉ gợi ý giá từ nguồn đã có; không giả ngày tăng từ tháng quan sát. Nhóm Toán 1–5/6–9/10–12 là phạm vi xét riêng, không chuyển folder môn. Cấu hình chung → người → nhóm; mặc định 3 tháng, mức42k mặc định6; cả tháng được nhắc ngay đầu tháng. Giờ ít/thiếu chỉ là thông tin, không tự hoãn/tăng.
+- Mẫu ngày khảo sát: 48/61 người có phiếu GV tháng8 đủ điều kiện, mean43,208h, gợi ý43h; ngưỡng chỉ có hiệu lực khi admin lưu. Giờ nhập bổ sung có kỳ/nguồn, kỳ cũ không tự áp cho tháng mới.
+- Duyệt là thao tác admin rõ ràng: chỉ ngày01 tháng tương lai chưa có bản tính GV; xem trước từng môn, giữ đủ bản đồ giá kế thừa và TT/phiếu/ngoại lệ. Môn bỏ chọn giữ giá và rời phạm vi nhóm mới, có thể tạo nhóm ngoại lệ. Giá ca thủ công và các bộ tính report/modal/PDF/ZIP hiện hữu không bị thay.
+- Hủy trước hiệu lực dùng audit trước/sau; kiểm tra giá/công thức tháng đích còn nguyên, chưa tính GV và không gây trùng phạm vi nhóm. Không xóa document lương tháng hoặc ghi đè dữ liệu được sửa tiếp. Sau hiệu lực cần đối chiếu/hiệu chỉnh qua quy trình lương hiện hành.
+- Trang nhân viên không nạp/tính hồ sơ xét. Tìm/lọc trong bộ nhớ; nguồn giá tối đa6 tháng tải theo người, song song tối đa4; dashboard chỉ đọc hồ sơ/cấu hình và không polling. Sang tháng mới khi tab hiện lại thì làm mới nhắc; chưa có worker chạy lúc app đóng.
+- Tự ra ca: snapshot lịch tối đa5 phút, làm mới khi resume và trước khi ghi cutoff; lỗi một nguồn lịch không coi là không có ca. Transaction xác nhận đúng phiên mở, giữ ca admin sửa và toàn bộ link/giá/bonus. Có single-flight + bảo vệ PWA trong write. Đóng hẳn ứng dụng vẫn cần mở lại để client chạy bổ sung giờ ra.
+- Kiểm thử xuyên luồng phát hiện lỗi Rules có sẵn ở phí tư vấn legacy dạng object; chỉ chuẩn hóa đối chiếu object→list, giữ giới hạn quyền senior. Kiểm thử phủ cả giữ note/metadata/tiêu chí khác và chặn sửa tiền/quyền ngoài phạm vi. Assertion default popup cũ sửa theo hành vi `actual` đã tồn tại từ commit a78c1f9; không đổi bộ tính.
+- PWA v189, query main/db-service/auth-guard và các module mới `20260919-review-v1`, đồng bộ tất cả HTML và STATIC_ASSETS, không ép reload lúc đang ghi.
+- Các bộ kiểm thử và bằng chứng browser/deployment cuối xem `release-checklist-20260919.md`, `release-salary-review-browser-20260919.md`, `regression-payroll-ui-baseline-20260919.md`. Không coi test emulator là thao tác dữ liệu production.
+- Chưa mở: công liên kết/tại nhà mới, alias editor, hồi tố/giữa tháng, worker push app đóng, XLSX mẫu mới. Hướng dẫn và TODO nêu rõ phần chờ cho phiên sau.

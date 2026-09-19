@@ -39,7 +39,10 @@ module.exports = async ({env,admin,origin,record,click}) => {
     assert.match(view[0].text,/18:00/);
     await open();await fill('#edit-overtime-minutes',0);await save();
     assert.equal(await admin.evaluate(id=>window.allMonthChips.filter(c=>String(c.sessionId)===String(id)).reduce((n,c)=>n+c.paidMinutes,0),sessionId),90,'reversing overtime restores schedule hours');
-    assert.equal(defaultMode,'schedule','an ordinary edit must preserve schedule mode');
+    // Existing production contract since a78c1f9: the first Admin override opens
+    // in actual mode so an explicitly checked Admin +10 is not discarded.
+    // The transitions above still prove schedule mode and overtime reversal work.
+    assert.equal(defaultMode,'actual','the first Admin override opens in editable actual mode');
     await open();
     const concurrent=await read();concurrent.sessions[0].checkOut=date+'T12:45:00.000Z';
     await env.withSecurityRulesDisabled(c=>c.firestore().doc(path).update({sessions:concurrent.sessions}));

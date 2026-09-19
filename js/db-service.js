@@ -2612,14 +2612,16 @@ const DBService = {
     },
 
     // 7. Personal Attendance (Isolated)
-    getPersonalAttendance: async (dateKey, userId) => {
+    getPersonalAttendance: async (dateKey, userId, options = {}) => {
         const cacheKey = `attendance_${dateKey}_${userId}`;
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+        const serverFresh = options.source === 'server';
+        if (!serverFresh && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
             try {
                 const docId = `${dateKey}_${userId}`;
-                const doc = await db.collection('attendance_logs').doc(docId).get();
+                const ref = db.collection('attendance_logs').doc(docId);
+                const doc = serverFresh ? await ref.get({ source: 'server' }) : await ref.get();
 
                 if (!doc.exists) return null;
 
@@ -2649,7 +2651,7 @@ const DBService = {
             }
         })();
 
-        DBService._cache[cacheKey] = promise;
+        if (!serverFresh) DBService._cache[cacheKey] = promise;
         return promise;
     },
 
@@ -2957,21 +2959,24 @@ const DBService = {
     },
 
     // 9. System Settings
-    getSystemSettings: async () => {
+    getSystemSettings: async (options = {}) => {
         const cacheKey = 'system_settings';
-        if (DBService._cache[cacheKey]) return DBService._cache[cacheKey];
+        const serverFresh = options.source === 'server';
+        if (!serverFresh && DBService._cache[cacheKey]) return DBService._cache[cacheKey];
 
         const promise = (async () => {
             try {
-                const doc = await db.collection('settings').doc('system').get();
+                const ref = db.collection('settings').doc('system');
+                const doc = serverFresh ? await ref.get({ source: 'server' }) : await ref.get();
                 return doc.exists ? doc.data() : {};
             } catch (error) {
                 console.error("Error getting settings:", error);
+                if (serverFresh) throw error;
                 return {};
             }
         })();
 
-        DBService._cache[cacheKey] = promise;
+        if (!serverFresh) DBService._cache[cacheKey] = promise;
         return promise;
     },
 
@@ -3791,8 +3796,9 @@ const DBService = {
         DBService._invalidateAttendance(dateKey, expectedStaffId);
     },
 
-    checkOutPersonal: async (userId, checkOutTime = null) => {
+    checkOutPersonal: async (userId, checkOutTime = null, options = {}) => {
         const now = checkOutTime instanceof Date ? checkOutTime : new Date();
+        const expected = options.expectedSession || null;
         const dateKey = getLocalDateKeyFromDate(now);
         const previousDateKey = getLocalDateKeyFromDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
         const candidates = Array.from(new Set([dateKey, previousDateKey])).map(key => ({
@@ -3801,7 +3807,7 @@ const DBService = {
         }));
         let anchorDateKey = dateKey;
 
-        await db.runTransaction(async (t) => {
+        const closeSession = async (actor = null) => db.runTransaction(async (t) => {
             const snapshots = await Promise.all(candidates.map(item => t.get(item.ref)));
             const openCandidates = [];
             snapshots.forEach((doc, candidateIndex) => {
@@ -3827,6 +3833,19 @@ const DBService = {
             });
             openCandidates.sort((left, right) => right.startedAt - left.startedAt);
             const selected = openCandidates[0];
+            // Automatic work was resolved before this transaction. A newer check-in,
+            // admin correction or checkout in another tab must never reuse that cutoff.
+            if (expected) {
+                const session = selected?.data.sessions[selected.sessionIndex];
+                if (!selected || session.isAdminEdited || selected.key !== expected.dateKey ||
+                    String(session.id || 'legacy') !== String(expected.id || 'legacy') ||
+                    (session.checkIn || session.start) !== expected.checkIn ||
+                    (session.start || session.checkIn) !== expected.start ||
+                    localStorage.getItem('currentUserId') !== userId ||
+                    (actor && window.auth?.currentUser?.uid !== actor.uid)) {
+                    throw _attendanceAuthError('Ca đang mở đã thay đổi. Vui lòng tải lại.', 'attendance/session-changed');
+                }
+            }
             if (!selected) throw new Error("Bạn chưa vào ca hoặc đã ra ca rồi!");
             if (!Number.isFinite(selected.startedAt) || now.getTime() < selected.startedAt) {
                 throw new Error('Giờ Ra ca không thể sớm hơn giờ Vào ca.');
@@ -3839,6 +3858,7 @@ const DBService = {
             data.sessions[openSessionIndex].checkOut = now.toISOString();
             data.sessions[openSessionIndex].status = 'closed';
             data.sessions[openSessionIndex].anchorDateKey = data.sessions[openSessionIndex].anchorDateKey || selected.key;
+            if (expected) data.sessions[openSessionIndex].autoClosedReason = 'scheduled_end';
 
             // Sync top level
             data.checkOut = now.toISOString();
@@ -3846,6 +3866,10 @@ const DBService = {
 
             t.set(selected.ref, data);
         });
+        // A resumed tab can have a stale credential. Retry only a rejected permission
+        // write once, using the existing same-user guard; never retry uncertain commits.
+        if (expected) await _runAttendanceFirestoreOperation(closeSession);
+        else await closeSession();
         DBService._invalidateAttendance(anchorDateKey, userId);
         if (anchorDateKey !== dateKey) DBService._invalidateAttendance(dateKey, userId);
     },

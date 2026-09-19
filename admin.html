@@ -19,8 +19,8 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/auth-guard.js?v=20260906-early10-recovery-v1'></script> <!-- Security Guard -->
-<script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/early10.js?v=20260912-early10-nanos-v1'></script> <script src='js/db-service.js?v=20260918-payslip-status-sync-v1'></script>
+    <script src='js/auth-guard.js?v=20260919-review-v1'></script> <!-- Security Guard -->
+<script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/early10.js?v=20260912-early10-nanos-v1'></script> <script src='js/db-service.js?v=20260919-review-v1'></script>
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js?v=20260906-early10-recovery-v1'></script>
@@ -142,6 +142,8 @@
 
             <!-- TAB 1: DASHBOARD (Default) -->
             <div id="tab-dashboard" class="tab-section">
+                <section id="salary-review-reminder" class="glass-panel" hidden role="status" aria-live="polite"
+                    style="padding:1.25rem 1.5rem;margin-bottom:1.5rem;border-left:4px solid var(--primary-color);"></section>
                 <div
                     style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
                     <div class="glass-panel" style="padding: 1.5rem;">
@@ -934,7 +936,10 @@
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/note-repair.js?v=20260805-note-owner-fix-v1"></script> <!-- Dọn ghi chú lộn người -->
     <script src="js/analytics.js?v=20260906-early10-recovery-v1"></script> <!-- Charts -->
-    <script src="js/main.js?v=20260918-payslip-status-sync-v1"></script>
+    <script src="js/main.js?v=20260919-review-v1"></script>
+    <script src="js/salary-review-policy.js?v=20260919-review-v1"></script>
+    <script src="js/salary-review-service.js?v=20260919-review-v1"></script>
+    <script src="js/salary-review-notifications.js?v=20260919-review-v1"></script>
     <!-- Safe UI Animations -->
     <script src="js/ui-animations.js"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>

@@ -66,14 +66,15 @@
         'nhat-ky-ca.html',
         'tuong-trinh.html',
         'hop-dinh-ky.html',
-        'mon-hoc.html'
+        'mon-hoc.html',
+        'xet-tang-luong.html'
     ];
     const isTargetingAdminPage = adminPages.some(page => path.includes(page));
 
     const hasAssistantAccess = currentRoles.some(r => r === 'assistant');
     let isAllowed = true;
     if (isTargetingAdminPage) {
-        if (path.includes('mon-hoc.html')) {
+        if (path.includes('mon-hoc.html') || path.includes('xet-tang-luong.html')) {
             isAllowed = currentRoles.includes('admin');
         } else if (path.includes('he-thong.html')) {
             isAllowed = hasAdminAccess || hasAssistantAccess;

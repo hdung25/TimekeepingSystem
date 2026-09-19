@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Xét tăng lương · Tư Duy Trẻ</title>
+    <meta name="theme-color" content="#059669"><meta name="description" content="Đối chiếu mức lương, xác nhận mốc và xét tăng theo từng nhân viên, nhóm môn.">
+    <link rel="icon" href="images/TUDUYTRE.jpg"><link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css/style.css?v=20260906-early10-recovery-v1"><link rel="stylesheet" href="css/salary-review.css?v=20260919-review-v1">
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js?v=20260906-early10-recovery-v1"></script>
+    <script src="js/auth-guard.js?v=20260919-review-v1"></script>
+    <script src="js/teacher-shift-state.js?v=20260906-early10-recovery-v1"></script>
+    <script src="js/early10.js?v=20260912-early10-nanos-v1"></script>
+    <script src="js/db-service.js?v=20260919-review-v1"></script>
+</head>
+<body>
+    <a class="sr-skip" href="#sr-detail">Đến hồ sơ đang xét</a>
+    <div class="admin-container">
+        <aside class="sidebar"><div class="logo-area"><img src="images/TUDUYTRE.jpg" alt="Tư Duy Trẻ" width="40" height="40"><span>NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span></div><nav id="sidebar-nav"></nav></aside>
+        <main class="main-content"><div class="sr-page">
+            <header class="sr-header"><div><p class="sr-eyebrow">NHÂN SỰ / PHÁT TRIỂN</p><h1>Xét tăng lương</h1><p>Đúng người, đúng nhóm môn, rõ từng quyết định.</p></div><button id="sr-refresh" class="sr-btn" type="button">Tải lại dữ liệu</button></header>
+            <div id="sr-message" class="sr-message" role="status" aria-live="polite">Đang xác thực và tải hồ sơ…</div>
+            <details id="sr-settings" class="sr-settings"><summary>Quy định chung <span id="sr-settings-summary">· Có thể điều chỉnh riêng cho từng người</span></summary><form id="sr-settings-form"></form></details>
+            <div class="sr-workspace">
+                <section class="sr-directory" aria-label="Danh sách nhân viên"><div class="sr-filters"><label for="sr-search">Tìm nhân viên</label><input id="sr-search" type="search" placeholder="Tên hoặc tài khoản…"><label for="sr-filter">Hiển thị</label><select id="sr-filter"><option value="all">Tất cả giáo viên / trợ giảng</option><option value="due">Cần xét trong tháng</option><option value="setup">Cần xác nhận mốc</option></select><p id="sr-count" class="sr-help"></p></div><div id="sr-list" class="sr-list"></div></section>
+                <section id="sr-detail" class="sr-detail" aria-label="Hồ sơ xét lương"><div class="sr-empty"><span class="sr-empty-mark">01</span><h2>Bắt đầu từ một nhân viên</h2><p>Hệ thống đối chiếu giá đã nhập. Bạn xác nhận mốc một lần để nhận nhắc xét theo từng nhóm môn.</p></div></section>
+            </div>
+        </div></main>
+    </div>
+    <dialog id="sr-dialog" class="sr-dialog" aria-labelledby="sr-dialog-title"><div id="sr-dialog-content"></div></dialog>
+    <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
+    <script src="js/main.js?v=20260919-review-v1"></script>
+    <script src="js/subject-rate-policy.js?v=20260809-subject-rate-v1"></script>
+    <script src="js/salary-review-policy.js?v=20260919-review-v1"></script>
+    <script src="js/salary-review-application.js?v=20260919-review-v1"></script>
+    <script src="js/salary-review-service.js?v=20260919-review-v1"></script>
+    <script src="js/salary-review.js?v=20260919-review-v1"></script>
+    <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js',{updateViaCache:'none'});</script>
+</body></html>

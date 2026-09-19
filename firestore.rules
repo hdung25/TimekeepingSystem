@@ -1087,10 +1087,13 @@ service cloud.firestore {
         && (items.size() < 7 || !(items[6].get('id', -1) in [1, '1']))
         ;
     }
-    function isConsultationFeeEvaluationEdit(before, after, amount) {
+    function isConsultationFeeEvaluationEdit(legacyBefore, after, amount) {
+      // Older fee saves stored one criterion as a map. The existing writer
+      // converts that row to a list without changing its non-amount fields.
+      let before = legacyBefore is map && legacyBefore.keys().hasAny(['id']) ? [legacyBefore] : legacyBefore;
       let added = after.removeAll(before);
       let removed = before.removeAll(after);
-      return after == before || (
+      return before is list && after is list && (after == before || (
         added.size() == 1 && added[0].get('id', -1) in [1, '1']
         && added[0].get('amount', -1) == amount
         && after.removeAll(added) == before.removeAll(removed)
@@ -1102,7 +1105,7 @@ service cloud.firestore {
             && hasNoConsultationFee(before)
             && added[0].keys().hasOnly(['id', 'amount', 'note']) && added[0].get('note', '') == '')
         )
-      );
+      ));
     }
     function isSafeSeniorConsultationFee(docId, before) {
       let after = request.resource.data;
@@ -1134,6 +1137,98 @@ service cloud.firestore {
         allow update, delete: if false;
       }
     }
+    // Review reminders are separate from payroll. Every change is paired with a
+    // new immutable audit in the same transaction; these grants do not authorize
+    // salary/attendance writes for any additional role.
+    function validSalaryReviewOverrides(value) {
+      return value is map
+        && value.keys().hasOnly(['cycleMonths', 'minimumHours', 'extraMonths'])
+        && (value.get('cycleMonths', null) == null
+          || (value.cycleMonths is int && value.cycleMonths >= 1 && value.cycleMonths <= 36))
+        && (value.get('minimumHours', null) == null
+          || (value.minimumHours is number && value.minimumHours >= 0 && value.minimumHours <= 744))
+        && (value.get('extraMonths', null) == null
+          || (value.extraMonths is int && value.extraMonths >= 1 && value.extraMonths <= 12));
+    }
+    function validSalaryReviewEnvelope(data, previousRevision) {
+      return data.schemaVersion == 1
+        && data.revision is int && data.revision == previousRevision + 1
+        && data.updatedBy == request.auth.uid
+        && data.updatedAt is string && data.updatedAt.size() >= 20 && data.updatedAt.size() <= 40
+        && data.lastHistoryId is string && data.lastHistoryId.matches('[A-Za-z0-9_-]{1,100}');
+    }
+    function hasSalaryReviewAudit(collection, parentId, data) {
+      let audit = /databases/$(database)/documents/$(collection)/$(parentId)/history/$(data.lastHistoryId);
+      return !exists(audit)
+        && getAfter(audit).data.revision == data.revision
+        && getAfter(audit).data.actorUid == request.auth.uid
+        && getAfter(audit).data.createdAt == data.updatedAt
+        && getAfter(audit).data.recordedAt == request.time;
+    }
+    function validSalaryReviewHistory(collection, parentId, historyId) {
+      let before = /databases/$(database)/documents/$(collection)/$(parentId);
+      let after = getAfter(before).data;
+      let data = request.resource.data;
+      return data.revision is int && data.revision > 0
+        && data.revision == (exists(before) ? get(before).data.revision + 1 : 1)
+        && after.revision == data.revision && after.lastHistoryId == historyId
+        && after.updatedBy == request.auth.uid && after.updatedAt == data.createdAt
+        && data.actorUid == request.auth.uid
+        && data.recordedAt == request.time
+        && data.kind is string && data.kind.size() > 0 && data.kind.size() <= 40
+        && data.createdAt is string && data.createdAt.size() >= 20 && data.createdAt.size() <= 40;
+    }
+    function validSalaryReviewProfile(staffId, previousRevision) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['schemaVersion', 'staffId', 'staffName', 'revision',
+          'personOverrides', 'groups', 'updatedAt', 'updatedBy', 'lastHistoryId'])
+        && validSalaryReviewEnvelope(data, previousRevision)
+        && data.staffId == staffId
+        && exists(/databases/$(database)/documents/users/$(staffId))
+        && data.staffName is string && data.staffName.size() <= 300
+        && data.groups is list && data.groups.size() <= 40
+        && validSalaryReviewOverrides(data.personOverrides)
+        && hasSalaryReviewAudit('salary_review_profiles', staffId, data);
+    }
+    match /salary_review_profiles/{staffId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated() && isPrimaryAdmin()
+        && validSalaryReviewProfile(staffId, 0);
+      allow update: if isAuthenticated() && isPrimaryAdmin()
+        && validSalaryReviewProfile(staffId, resource.data.revision);
+      allow delete: if false;
+      match /history/{historyId} {
+        allow read: if isAuthenticated() && isPrimaryAdmin();
+        allow create: if isAuthenticated() && isPrimaryAdmin()
+          && validSalaryReviewHistory('salary_review_profiles', staffId, historyId);
+        allow update, delete: if false;
+      }
+    }
+    function validSalaryReviewSettings(previousRevision) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['schemaVersion', 'revision', 'cycleMonths', 'minimumHours',
+          'extraMonths', 'updatedAt', 'updatedBy', 'lastHistoryId'])
+        && validSalaryReviewEnvelope(data, previousRevision)
+        && data.cycleMonths is int && data.cycleMonths >= 1 && data.cycleMonths <= 36
+        && data.minimumHours is number && data.minimumHours >= 0 && data.minimumHours <= 744
+        && data.extraMonths is int && data.extraMonths >= 1 && data.extraMonths <= 12
+        && hasSalaryReviewAudit('salary_review_settings', 'default', data);
+    }
+    match /salary_review_settings/{settingId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin() && settingId == 'default';
+      allow create: if isAuthenticated() && isPrimaryAdmin() && settingId == 'default'
+        && validSalaryReviewSettings(0);
+      allow update: if isAuthenticated() && isPrimaryAdmin() && settingId == 'default'
+        && validSalaryReviewSettings(resource.data.revision);
+      allow delete: if false;
+      match /history/{historyId} {
+        allow read: if isAuthenticated() && isPrimaryAdmin() && settingId == 'default';
+        allow create: if isAuthenticated() && isPrimaryAdmin() && settingId == 'default'
+          && validSalaryReviewHistory('salary_review_settings', 'default', historyId);
+        allow update, delete: if false;
+      }
+    }
+
     match /staff_payroll_profiles/{staffId} {
       allow read: if isAuthenticated() && isAdmin();
       allow create, update, delete: if isAuthenticated() && isPrimaryAdmin();

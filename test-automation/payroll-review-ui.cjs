@@ -127,9 +127,31 @@ module.exports = async ({ env, admin, employee, origin, month, record, shot, cli
     assert.equal(await manager.$eval('#pdf-tieptan-inputs button', el => el.disabled), false);
     assert.match(await manager.$eval('#recep-extras-permission-note', el => el.textContent), /Quản lý cấp cao được nhập/);
     const beforeFee = await admin.evaluate(async m => DBService.getMonthlySalarySettings('audit-dual', m, {strict:true}), month);
+    const feeConsole = [];
+    const captureFeeConsole = message => feeConsole.push({ type: message.type(), text: message.text() });
+    manager.on('console', captureFeeConsole);
     await manager.$eval('#pdf-phi-tu-van', el => { el.value = '81,675'; el.dispatchEvent(new Event('input', {bubbles:true})); });
     await click(manager, '#pdf-tieptan-inputs button');
-    await manager.waitForFunction(() => !window.__payrollWritePending && window.currentMonthlySalarySettingsAll?.consultationFeePending === true);
+    try {
+        await manager.waitForFunction(() => !window.__payrollWritePending && window.currentMonthlySalarySettingsAll?.consultationFeePending === true);
+    } catch (error) {
+        await record('senior-consultation-save-failure', {
+            logs: feeConsole,
+            state: await manager.evaluate(() => ({
+                pending: window.__payrollWritePending,
+                scope: window.currentReportScope,
+                ready: window.payrollReadyScope,
+                staff: document.getElementById('staff-select')?.value,
+                monthly: window.currentMonthlySalarySettingsAll,
+                fee: document.getElementById('pdf-phi-tu-van')?.value,
+                text: document.body.innerText.slice(-1200)
+            })),
+            stored: await admin.evaluate(async m => DBService.getMonthlySalarySettings('audit-dual', m, {strict:true}), month)
+        });
+        throw error;
+    } finally {
+        manager.off('console', captureFeeConsole);
+    }
     const feeSaved = await admin.evaluate(async m => DBService.getMonthlySalarySettings('audit-dual', m, {strict:true}), month);
     assert.equal(feeSaved.tiep_tan.evaluation.find(e => Number(e.id) === 1).amount, 81675);
     assert.deepEqual(feeSaved.published, beforeFee.published);

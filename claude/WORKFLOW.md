@@ -1,5 +1,13 @@
 # WORKFLOW.md — Quy Trình Làm Việc AI Cho Dự Án TimekeepingSystem
 
+> **Cập nhật xét tăng lương (19/09/2026):** đọc `TODO_XET_TANG_LUONG.md` và
+> `nghien-cuu-moc-luong-20260919.md` trước khi tiếp tục phần xét tăng lương.
+> Có kết quả khảo sát dữ liệu thật, các quyết định đã điều chỉnh, trạng thái
+> từng pha và những luồng cần bảo vệ. Mã sản phẩm đã được triển khai và kiểm thử;
+> trạng thái phát hành phải xem phần nghiệm thu trong TODO/release note.
+> Prototype trong `scratch/` không phải mã sản phẩm. Hướng dẫn thao tác:
+> `HUONG_DAN_XET_TANG_LUONG.md`.
+
 > **File này dành cho AI Coder (Antigravity hoặc bất kỳ AI nào được giao task trong dự án này).**
 > Đọc kỹ toàn bộ file này TRƯỚC KHI làm bất cứ điều gì.
 
