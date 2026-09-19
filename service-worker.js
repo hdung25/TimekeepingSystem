@@ -1,7 +1,7 @@
-// Service Worker v189 - isolated salary reviews and fresh scheduled checkout.
+// Service Worker v190 - fresh staff schedules and guarded admin attendance edits.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v189-salary-review-20260919';
+const CACHE_NAME = 'tdt-chamcong-v190-attendance-resume-20260919';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -38,7 +38,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20260919-review-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260919-review-v1',
+    '/js/db-service.js?v=20260919-attendance-resume-v1',
     '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/report.js?v=20260918-payslip-status-sync-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
@@ -61,11 +61,11 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260906-early10-recovery-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260916-transfer-end-date-v1',
+    '/js/schedule.js?v=20260919-attendance-roster-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
-    '/js/timekeeping.js?v=20260918-payslip-status-sync-v1',
+    '/js/timekeeping.js?v=20260919-resume-schedule-v1',
     '/js/salary-bulk-export.js?v=20260908-payroll-review-v2',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',

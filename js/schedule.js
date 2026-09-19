@@ -1425,6 +1425,54 @@ async function refreshTeacherDirectoryForManager(state = teacherShiftManagerStat
     }
 }
 
+function teacherShiftManagerStaffingFingerprint(state) {
+    if (!state) return '';
+    const mainIds = [...(state.mainIds || [])].map(String).sort();
+    const substituteIds = [...(state.substituteIds || [])].map(String).sort();
+    const mainMeta = Object.fromEntries(mainIds.map(id => [id, {
+        pendingFixed: state.mainMeta?.[id]?.pendingFixed === true
+    }]));
+    const statuses = Object.fromEntries(mainIds.map(id => [id, {
+        type: String(state.statuses?.[id]?.type || 'ACTIVE'),
+        reason: String(state.statuses?.[id]?.reason || ''),
+        reportedAt: String(state.statuses?.[id]?.reportedAt || '')
+    }]));
+    const substitutes = substituteIds.map(id => ({
+        id,
+        replacesTeacherIds: [...(state.substituteById?.get(id)?.replacesTeacherIds || [])]
+            .map(String).sort()
+    }));
+    return JSON.stringify({ mainIds, mainMeta, statuses, substitutes });
+}
+
+function teacherAttendanceDraftFingerprint(draft) {
+    const value = draft || {};
+    return JSON.stringify({
+        mode: value.mode || 'none',
+        checkIn: value.checkIn || '',
+        checkOut: value.checkOut || '',
+        studentCount: value.studentCount ?? null,
+        bonus10: value.bonus10 === true,
+        isAbsent: value.isAbsent === true
+    });
+}
+
+function teacherShiftManagerHasUnsavedAttendance(state = teacherShiftManagerState) {
+    if (!state) return false;
+    return [...(state.attendance?.entries?.values?.() || [])].some(entry =>
+        entry.bonus10Dirty === true || entry.studentCountDirty === true ||
+        entry.draft?.studentCountDirty === true ||
+        (entry.initialDraftFingerprint && entry.initialDraftFingerprint !== teacherAttendanceDraftFingerprint(entry.draft))
+    );
+}
+
+function teacherShiftManagerHasUnsavedChanges(state = teacherShiftManagerState) {
+    if (!state) return false;
+    if (state.initialStaffingFingerprint &&
+        state.initialStaffingFingerprint !== teacherShiftManagerStaffingFingerprint(state)) return true;
+    return teacherShiftManagerHasUnsavedAttendance(state);
+}
+
 function closeTeacherShiftManager(force = false) {
     if (!force && teacherShiftManagerState?.saving) {
         window.UIService?.toast?.('Đang lưu điều phối ca. Vui lòng chờ hoàn tất.', 'warning');
@@ -1433,6 +1481,12 @@ function closeTeacherShiftManager(force = false) {
     if (!force && isAttendanceSaveInFlight()) {
         window.UIService?.toast?.('Đang lưu công nguyên tử. Vui lòng chờ hoàn tất trước khi đóng popup.', 'warning');
         return false;
+    }
+    if (!force && teacherShiftManagerHasUnsavedChanges()) {
+        const shouldDiscard = typeof window.confirm === 'function' && window.confirm(
+            'Bạn đang có thay đổi chưa lưu trong ca này.\n\nChọn Hủy để quay lại bấm “Lưu điều phối ca” hoặc “Lưu công & cập nhật chip”.\nChọn OK chỉ khi muốn bỏ các thay đổi.'
+        );
+        if (!shouldDiscard) return false;
     }
     teacherPickerGeneration += 1;
     const state = teacherShiftManagerState;
@@ -1970,6 +2024,7 @@ async function loadAdminAttendanceEditor(state = teacherShiftManagerState) {
                 source,
                 resolution,
                 draft,
+                initialDraftFingerprint: teacherAttendanceDraftFingerprint(draft),
                 sourceWasAbsent: !!session?.isAbsent,
                 sessionId: session && hasCanonicalSessions ? String(session.id || '') : '',
                 expectedFingerprint: session && hasCanonicalSessions ? ScheduleAttendanceAdmin.fingerprintSession(session) : '',
@@ -2134,7 +2189,7 @@ function teacherShiftManagerMarkup() {
         <aside class="teacher-roster-column">
             <div class="roster-tabs" role="tablist">
                 <button type="button" role="tab" data-action="roster-tab" data-tab="main" class="${state.activeTab === 'main' ? 'is-active' : ''}">GV chính <span>${state.mainIds.length}</span></button>
-                <button type="button" role="tab" data-action="roster-tab" data-tab="substitute" class="${state.activeTab === 'substitute' ? 'is-active' : ''}">GV dạy thay <span>${state.substituteIds.length}</span></button>
+                <button type="button" role="tab" data-action="roster-tab" data-tab="substitute" class="${state.activeTab === 'substitute' ? 'is-active' : ''}">GV hỗ trợ / dạy thay <span>${state.substituteIds.length}</span></button>
             </div>
             <div class="roster-directory-toolbar${state.directoryError ? ' has-error' : ''}" role="status">
                 <span>${state.directoryRefreshing
@@ -2147,13 +2202,13 @@ function teacherShiftManagerMarkup() {
             <div class="roster-pane ${state.activeTab === 'main' ? 'is-active' : ''}" data-roster-pane="main">
                 <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="main" value="${scheduleEscapeAttr(state.search.main)}" placeholder="Tìm GV chính..."></label>
                 ${state.isPast
-                    ? '<div class="roster-lock-note">Ca đã bắt đầu: khóa thay đổi danh sách GV chính, nhưng vẫn cho phép cập nhật nghỉ và GV thay.</div>'
+                    ? '<div class="roster-lock-note">Ca đã bắt đầu nên danh sách GV chính được khóa. Nếu cần bổ sung người thực tế đã hỗ trợ/dạy thay, chọn tab “GV hỗ trợ / dạy thay”, tích đúng người rồi bấm “Lưu điều phối ca”. Sau khi lưu, bước 3 sẽ hiện người đó để Admin nhập công.</div>'
                     : '<div class="roster-help-note">Đổi GV chính: tích người mới trước, sau đó bỏ người cũ. Hệ thống không cho lưu ca không có GV chính.</div>'}
                 <div class="teacher-roster-list" data-roster-list="main">${primaryRoster}<div class="teacher-roster-empty" data-roster-empty="main" hidden>Không tìm thấy nhân sự giảng dạy phù hợp. Hãy bấm “Làm mới”; nếu vẫn không có, kiểm tra vai trò Giáo viên/Trợ giảng tại trang Nhân sự.</div></div>
             </div>
             <div class="roster-pane ${state.activeTab === 'substitute' ? 'is-active' : ''}" data-roster-pane="substitute">
                 ${replacementTargetPickerMarkup()}
-                <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="substitute" value="${scheduleEscapeAttr(state.search.substitute)}" placeholder="Tìm GV dạy thay..."></label>
+                <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="substitute" value="${scheduleEscapeAttr(state.search.substitute)}" placeholder="Tìm GV hỗ trợ / dạy thay..."></label>
                 <div class="teacher-roster-list" data-roster-list="substitute">${substituteRoster}<div class="teacher-roster-empty" data-roster-empty="substitute" hidden>Không tìm thấy nhân sự giảng dạy phù hợp. Hãy bấm “Làm mới”; nếu vẫn không có, kiểm tra vai trò Giáo viên/Trợ giảng tại trang Nhân sự.</div></div>
             </div>
         </aside>
@@ -3017,6 +3072,7 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             },
             saving: false
         };
+        teacherShiftManagerState.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(teacherShiftManagerState);
 
         const branchLabel = ({ cs1: 'Cơ sở 1', cs2: 'Cơ sở 2', cs3: 'Cơ sở 3' })[compositeKey.split('__')[0]] || 'Cơ sở 1';
         const overlay = document.createElement('div');
@@ -3076,6 +3132,10 @@ window.saveTeacherShiftCommand = async function () {
         return;
     }
     if (state.saving) return;
+    if (teacherShiftManagerHasUnsavedAttendance(state)) {
+        UIService.toast('Phần nhập công đang có thay đổi chưa lưu. Hãy bấm “Lưu công & cập nhật chip” trước khi lưu điều phối ca.', 'warning');
+        return;
+    }
     const newlyAbsentId = (state.mainIds || []).find(id =>
         (state.statuses?.[id]?.type || 'ACTIVE') !== 'ACTIVE' &&
         !isRowMainTeacherAbsent(state.originalRow, id)
@@ -3094,6 +3154,7 @@ window.saveTeacherShiftCommand = async function () {
         return;
     }
     const saveButton = document.querySelector('[data-action="save-manager"]');
+    const hadStaffingChanges = state.initialStaffingFingerprint !== teacherShiftManagerStaffingFingerprint(state);
     state.saving = true;
     if (saveButton) {
         saveButton.disabled = true;
@@ -3123,7 +3184,7 @@ window.saveTeacherShiftCommand = async function () {
         };
         const command = { shiftId: state.shiftId, mains, substitutes, statuses };
         const nowISO = new Date().toISOString();
-        await DBService.updateScheduleRowAtomic(
+        const committedRow = await DBService.updateScheduleRowAtomic(
             state.compositeKey,
             state.caType,
             {
@@ -3158,8 +3219,28 @@ window.saveTeacherShiftCommand = async function () {
             state.dayData
         );
         state.saving = false;
-        if (teacherShiftManagerState === state) closeTeacherShiftManager();
         scheduleLastMutationFailed = false;
+        if (teacherShiftManagerState === state && state.canEditAttendance && hadStaffingChanges) {
+            state.originalRow = JSON.parse(JSON.stringify(committedRow));
+            state.originalMainIds = mains.map(item => String(item.id));
+            state.originalSubstituteIds = substitutes.map(item => String(item.id));
+            state.expectedStaffingUpdatedAt = committedRow.staffingUpdatedAt || '';
+            state.signature = scheduleRowSignature(committedRow);
+            state.shiftId = stableScheduleShiftLocatorId(state.compositeKey, state.caType, committedRow, state.index);
+            if (state.dayData?.[state.caType]?.[state.index]) {
+                state.dayData[state.caType][state.index] = JSON.parse(JSON.stringify(committedRow));
+            }
+            const newlyAssignedIds = [...state.originalMainIds, ...state.originalSubstituteIds]
+                .filter(id => !state.attendance.teacherIds.includes(id));
+            state.attendance.teacherIds = Array.from(new Set([...state.originalMainIds, ...state.originalSubstituteIds]));
+            state.attendance.selectedId = newlyAssignedIds[0] || state.attendance.selectedId || state.attendance.teacherIds[0] || '';
+            state.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(state);
+            UIService.toast('Đã lưu phân công. Bạn có thể nhập công ngay cho nhân sự vừa thêm ở bước 3.', 'success');
+            await loadAdminAttendanceEditor(state);
+            await renderTable();
+            return;
+        }
+        if (teacherShiftManagerState === state) closeTeacherShiftManager(true);
         UIService.toast('Đã lưu điều phối ca và đồng bộ trạng thái GV.', 'success');
         await renderTable();
     } catch (error) {

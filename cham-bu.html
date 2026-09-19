@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260919-review-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260919-attendance-resume-v1'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260914-autoclose-subject-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
@@ -293,7 +293,7 @@ async function fillSubjectList(){
     }catch(e){console.warn('[ChamBu] Không tải được danh sách môn:',e)}
 }
 
-async function loadMonth(){
+async function loadMonth(options={}){
     const grid=document.getElementById('cal-grid');
     const mStr=curY+'-'+String(curM+1).padStart(2,'0');
     document.getElementById('cal-title').innerText='Tháng '+(curM+1)+'/'+curY;
@@ -301,9 +301,10 @@ async function loadMonth(){
     monthMap={};
     const me=uid(), todayK=dk(new Date()), daysIn=new Date(curY,curM+1,0).getDate();
     try{
-        const logs=await DBService.getMonthlyAttendance(mStr,me);
+        const fresh=options.fresh===true;
+        const logs=await DBService.getMonthlyAttendance(mStr,me,fresh,fresh?{strict:true}:{});
         const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
-        const reqs=await DBService.getMyMakeupRequests(me);
+        const reqs=await DBService.getMyMakeupRequests(me,fresh?{source:'server'}:{});
         const reqMap={}; reqs.forEach(r=>{if(!reqMap[r.dateKey])reqMap[r.dateKey]=[];reqMap[r.dateKey].push(r)});
         // QUY TẮC GĐ: chấm công bù chỉ dành cho ca thiếu công chưa được ghi nhận
         // VP/VĐX. Mọi bằng chứng phải khớp đúng ca; daily_notes chỉ phân loại một
@@ -315,13 +316,14 @@ async function loadMonth(){
         const cancelledSet=new Set(cancelled);
         const dates=[];
         for(let d=1;d<=daysIn;d++){const k=mStr+'-'+String(d).padStart(2,'0'); if(k<=todayK)dates.push(k)}
+        const scheduleReadOptions=fresh?{source:'server',readCache:new Map()}:{readCache:new Map()};
         const schedRes=await Promise.all(dates.flatMap(k=>BRS.map(b=>
-            DBService.getSchedule(b+'__'+k).then(v=>({k:k,b:b,v:v||{}})).catch(()=>({k:k,b:b,v:{}})))));
+            DBService.getSchedule(b+'__'+k,scheduleReadOptions).then(v=>({k:k,b:b,v:v||{}})).catch(()=>({k:k,b:b,v:{}})))));
         const mons=new Set();
         dates.forEach(k=>{const d=new Date(k+'T12:00:00'),w=d.getDay(),m=new Date(d);m.setDate(d.getDate()-w+(w===0?-6:1));mons.add(dk(m))});
         const recRes=await Promise.all([...mons].flatMap(mk=>BRS.flatMap(b=>[
-            DBService.getReceptionistSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,kind:'tt',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'tt',v:{}})),
-            DBService.getOfficeSchedule(b+'__'+mk).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
+            DBService.getReceptionistSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'tt',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'tt',v:{}})),
+            DBService.getOfficeSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
         ])));
 
         dates.forEach(k=>{
@@ -581,10 +583,10 @@ window.submitExtra=async function(){
     }catch(e){alert('Lỗi gửi: '+(e.message||e))}
 };
 
-async function loadMy(){
+async function loadMy(options={}){
     const el=document.getElementById('my-reqs');
     try{
-        const list=await DBService.getMyMakeupRequests(uid());
+        const list=await DBService.getMyMakeupRequests(uid(),options.fresh?{source:'server'}:{});
         if(!list.length){el.innerHTML='<div class="empty">Chưa có yêu cầu nào.</div>';return}
         const M={pending:['Chờ duyệt','b-i'],approved:['Đã duyệt','b-g'],rejected:['Từ chối','b-r']};
         el.innerHTML=list.slice(0,30).map(function(r){const s=M[r.status]||M.pending;
@@ -608,9 +610,25 @@ document.addEventListener('DOMContentLoaded',async function(){
     if(window.waitAuth){try{await window.waitAuth()}catch(e){}}
     const t=new Date(); curY=t.getFullYear(); curM=t.getMonth();
     document.getElementById('ex-date').value=dk(t);
-    fillRoles(); fillSubjectList(); loadMy(); await loadMonth();
+    fillRoles(); fillSubjectList(); loadMy({fresh:true}); await loadMonth({fresh:true});
+    lastResumeRefreshAt=Date.now();
     if(window.lucide)lucide.createIcons();
 });
+
+let resumeRefresh=null,lastResumeRefreshAt=0;
+async function refreshMakeupAfterResume(){
+    if(resumeRefresh||Date.now()-lastResumeRefreshAt<5000)return resumeRefresh;
+    lastResumeRefreshAt=Date.now();
+    const selected=selDate;
+    picked.clear();
+    resumeRefresh=Promise.all([loadMonth({fresh:true}),loadMy({fresh:true})]).then(()=>{
+        if(selected&&monthMap[selected]){selDate=selected;renderCal();renderDay()}
+    }).finally(()=>{resumeRefresh=null});
+    return resumeRefresh;
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshMakeupAfterResume()});
+window.addEventListener('pageshow',event=>{if(event.persisted)refreshMakeupAfterResume()});
+window.addEventListener('online',refreshMakeupAfterResume);
 </script>
 </body>
 </html>

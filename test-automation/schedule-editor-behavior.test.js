@@ -345,6 +345,72 @@ test('saving staffing cannot close or replace the manager while its write is in 
     assert.equal(h.run('teacherShiftManagerState.saving'), true);
 });
 
+test('closing a manager with unsaved staffing requires an explicit discard decision', async () => {
+    const h = harness();
+    h.run(`teacherShiftManagerState = {
+        saving: false,
+        mainIds: ['teacher-1'],
+        mainMeta: { 'teacher-1': {} },
+        statuses: { 'teacher-1': { type: 'ACTIVE', reason: '', reportedAt: '2026-09-19T00:00:00.000Z' } },
+        substituteIds: [],
+        substituteById: new Map(),
+        attendance: { savingId: '', entries: new Map() }
+    };
+    teacherShiftManagerState.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(teacherShiftManagerState);
+    teacherShiftManagerState.substituteIds.push('assistant-1');
+    teacherShiftManagerState.substituteById.set('assistant-1', { id: 'assistant-1', replacesTeacherIds: [] });`);
+    h.context.confirm = () => false;
+    assert.equal(h.context.closeTeacherShiftManager(), false);
+    assert.notEqual(h.run('teacherShiftManagerState'), null, 'cancel keeps the unsaved manager open');
+    h.context.confirm = () => true;
+    assert.equal(h.context.closeTeacherShiftManager(), true);
+    assert.equal(h.run('teacherShiftManagerState'), null, 'explicit discard closes the manager');
+});
+
+test('admin roster save keeps the manager open and loads attendance for the newly assigned person', async () => {
+    const h = harness();
+    const original = row('shift-a');
+    h.context.TeacherShiftState = {
+        applyStaffingCommand(latest, command, actor, nowISO) {
+            return {
+                ...latest,
+                gvList: command.mains.map(item => ({ id: item.id, name: item.name })),
+                gvThayTeList: command.substitutes.map(item => ({ id: item.id, name: item.name })),
+                staffingUpdatedAt: nowISO,
+                staffingUpdatedById: actor.id
+            };
+        }
+    };
+    h.service.updateScheduleRowAtomic = async (_key, _section, _locator, apply) => apply(clone(original));
+    h.run(`loadAdminAttendanceEditor = async function (state) { state.__attendanceReloaded = true; };
+    renderTable = async function () {};
+    teacherShiftManagerState = {
+        compositeKey: '${key}', caType: 'morning1', index: 0,
+        dayData: { morning1: [${JSON.stringify(original)}] },
+        originalRow: ${JSON.stringify(original)}, shiftId: 'shift-a', signature: scheduleRowSignature(${JSON.stringify(original)}),
+        expectedStaffingUpdatedAt: '', isPast: true, dateKey: '${day}',
+        teacherById: new Map([
+            ['teacher-1', { id: 'teacher-1', name: 'Teacher' }],
+            ['assistant-1', { id: 'assistant-1', name: 'Assistant' }]
+        ]),
+        mainIds: ['teacher-1'], mainMeta: { 'teacher-1': {} },
+        statuses: { 'teacher-1': { type: 'ACTIVE', reason: '', reportedAt: '2026-09-19T00:00:00.000Z' } },
+        substituteIds: [], substituteById: new Map(),
+        originalMainIds: ['teacher-1'], originalSubstituteIds: [],
+        canEditAttendance: true, saving: false,
+        attendance: { teacherIds: ['teacher-1'], selectedId: 'teacher-1', savingId: '', entries: new Map() }
+    };
+    teacherShiftManagerState.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(teacherShiftManagerState);
+    teacherShiftManagerState.substituteIds.push('assistant-1');
+    teacherShiftManagerState.substituteById.set('assistant-1', { id: 'assistant-1', name: 'Assistant', replacesTeacherIds: [] });`);
+    await h.context.saveTeacherShiftCommand();
+    assert.notEqual(h.run('teacherShiftManagerState'), null);
+    assert.equal(h.run('teacherShiftManagerState.__attendanceReloaded'), true);
+    assert.deepEqual(Array.from(h.run('teacherShiftManagerState.attendance.teacherIds')), ['teacher-1', 'assistant-1']);
+    assert.equal(h.run('teacherShiftManagerState.attendance.selectedId'), 'assistant-1');
+    assert.match(h.messages.at(-1).text, /nhập công ngay/);
+});
+
 test('a pending staffing popup does not open after navigating to another week or branch', async () => {
     const h = harness(), wait = deferred();
     h.service.getSchedule = () => wait.promise;

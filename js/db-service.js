@@ -6083,9 +6083,12 @@ const DBService = {
         return { batchId, count: list.length };
     },
 
-    getMyMakeupRequests: async (staffId) => {
+    getMyMakeupRequests: async (staffId, options = {}) => {
         try {
-            const snap = await db.collection('makeup_requests').where('staffId', '==', staffId).limit(100).get();
+            const query = db.collection('makeup_requests').where('staffId', '==', staffId).limit(100);
+            const snap = options.source === 'server'
+                ? await query.get({ source: 'server' })
+                : await query.get();
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             list.sort((a, b) => ((b.createdAt && b.createdAt.seconds) || 0) - ((a.createdAt && a.createdAt.seconds) || 0));
             return list;

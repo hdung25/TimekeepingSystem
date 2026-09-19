@@ -46,8 +46,11 @@ async function initTimekeeping() {
         window.centerClosures = {};
     }
     await renderGlobalCheckIn();
-    renderTodayChips();  // NEW: Show chip status for today's classes
-    renderTodayClasses();
+    await Promise.all([
+        renderTodayChips({ fresh: true }),
+        renderTodayClasses({ fresh: true })
+    ]);
+    timekeepingLastResumeRefreshAt = Date.now();
 
     // Run global auto-checkout check once immediately
     if (typeof globalCheckAutoCheckout === 'function') {
@@ -78,6 +81,26 @@ function getAttendanceSessions(record) {
     return record.checkIn
         ? [{ id: 'legacy', checkIn: record.checkIn, start: record.checkIn, checkOut: record.checkOut || null }]
         : [];
+}
+
+let todayTeachingScheduleRead = null;
+function loadTodayTeachingSchedules(dateKey, options = {}) {
+    const fresh = options.fresh === true;
+    const key = `${dateKey}:${fresh ? 'server' : 'default'}`;
+    if (todayTeachingScheduleRead?.key === key && Date.now() - todayTeachingScheduleRead.startedAt < 2000) {
+        return todayTeachingScheduleRead.promise;
+    }
+    const readOptions = fresh ? { source: 'server', readCache: new Map() } : {};
+    const promise = Promise.all(['cs1', 'cs2', 'cs3'].map(branch => {
+        const compositeKey = `${branch}__${dateKey}`;
+        return DBService.getSchedule(compositeKey, readOptions)
+            .then(data => ({ data: data || {}, schedule: data || {}, branch, compositeKey }));
+    }));
+    todayTeachingScheduleRead = { key, startedAt: Date.now(), promise };
+    promise.catch(() => {
+        if (todayTeachingScheduleRead?.promise === promise) todayTeachingScheduleRead = null;
+    });
+    return promise;
 }
 
 function isCenterClosed(dateStr, shiftKey, centerClosures) {
@@ -262,7 +285,7 @@ window.handleDeleteSession = async function (dateKey, sessionId) {
     }
 }
 
-function renderTodayClasses() {
+async function renderTodayClasses(options = {}) {
     const container = document.getElementById('class-list-container');
     if (!container) return;
 
@@ -270,14 +293,7 @@ function renderTodayClasses() {
     const dateKey = getLocalDateKey(today);
     const currentUserId = localStorage.getItem('currentUserId');
 
-    // Fetch from BOTH branches
-    const BRANCHES = ['cs1', 'cs2', 'cs3'];
-    const branchPromises = BRANCHES.map(branch => {
-        const compositeKey = `${branch}__${dateKey}`;
-        return DBService.getSchedule(compositeKey).then(data => ({ data: data || {}, branch, compositeKey }));
-    });
-
-    Promise.all(branchPromises).then(results => {
+    return loadTodayTeachingSchedules(dateKey, options).then(results => {
         let classes = [];
         const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
 
@@ -320,6 +336,13 @@ function renderTodayClasses() {
             const card = createClassCard(cls, cls._compositeKey);
             container.appendChild(card);
         });
+    }).catch(error => {
+        console.error('Error loading today classes:', error);
+        container.innerHTML = `
+            <div style="text-align:center;color:#92400E;padding:1.25rem;">
+                <p style="margin:0 0 0.75rem;">Chưa tải được lịch mới nhất.</p>
+                <button type="button" class="btn btn-primary" onclick="renderTodayClasses({ fresh: true })">Tải lại lịch</button>
+            </div>`;
     });
 }
 
@@ -445,7 +468,8 @@ window.registerClass = async function (compositeKey, section, index, btn, endTim
         await DBService.registerClass(compositeKey, section, rowMeta, user);
 
         UIService.toast("Cập nhật thành công!", "success");
-        renderTodayClasses();
+        todayTeachingScheduleRead = null;
+        renderTodayClasses({ fresh: true });
         localStorage.setItem('schedule_registration_updated', Date.now().toString());
     } catch (e) {
         UIService.toast("Lỗi: " + e, "error");
@@ -454,7 +478,7 @@ window.registerClass = async function (compositeKey, section, index, btn, endTim
 }
 
 // === NEW: Render Chips Status for Today's Classes ===
-function renderTodayChips() {
+async function renderTodayChips(options = {}) {
     const container = document.getElementById('chips-container');
     if (!container) return;
 
@@ -470,19 +494,11 @@ function renderTodayChips() {
         userName: localStorage.getItem('currentUserName') || 'Unknown'
     };
 
-    const BRANCHES = ['cs1', 'cs2', 'cs3'];
-    const branchPromises = BRANCHES.map(branch => {
-        const compositeKey = `${branch}__${dateKey}`;
-        return DBService.getSchedule(compositeKey).then(schedule => ({
-            schedule: schedule || {},
-            branch,
-            compositeKey
-        }));
-    });
+    const readOptions = options.fresh ? { source: 'server' } : {};
 
-    Promise.all([
-        Promise.all(branchPromises),
-        DBService.getPersonalAttendance(dateKey, currentUserId),
+    return Promise.all([
+        loadTodayTeachingSchedules(dateKey, options),
+        DBService.getPersonalAttendance(dateKey, currentUserId, readOptions),
         DBService._getDashboardReceptionistShifts(currentUserId, dateKey),
         DBService.loadDailyEvaluationContext(currentUserId, dateKey)
     ]).then(([results, attendance, operationalShifts, evaluationContext]) => {
@@ -557,3 +573,31 @@ function renderTodayChips() {
         container.innerHTML = `<div style="color: var(--text-muted);">Lỗi tải dữ liệu</div>`;
     });
 }
+
+let timekeepingResumeRefresh = null;
+let timekeepingLastResumeRefreshAt = 0;
+async function refreshTimekeepingAfterResume() {
+    if (!document.getElementById('timekeeping-container')) return;
+    if (timekeepingResumeRefresh) return timekeepingResumeRefresh;
+    if (Date.now() - timekeepingLastResumeRefreshAt < 5000) return;
+    timekeepingLastResumeRefreshAt = Date.now();
+    const dateKey = getLocalDateKey(new Date());
+    todayTeachingScheduleRead = null;
+    ['cs1', 'cs2', 'cs3'].forEach(branch => DBService._invalidate(`schedule_${branch}__${dateKey}`));
+    const currentUserId = localStorage.getItem('currentUserId');
+    if (currentUserId) DBService._invalidateAttendance(dateKey, currentUserId);
+    timekeepingResumeRefresh = Promise.all([
+        renderGlobalCheckIn({ skipOverdueCheck: true }),
+        renderTodayChips({ fresh: true }),
+        renderTodayClasses({ fresh: true })
+    ]).finally(() => { timekeepingResumeRefresh = null; });
+    return timekeepingResumeRefresh;
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshTimekeepingAfterResume();
+});
+window.addEventListener('pageshow', event => {
+    if (event.persisted) refreshTimekeepingAfterResume();
+});
+window.addEventListener('online', refreshTimekeepingAfterResume);
