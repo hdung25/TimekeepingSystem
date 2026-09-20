@@ -121,6 +121,9 @@ assert.equal(policy.calculateMonthly(['Không họp']).amount, 0);
         'người không thuộc tổ này không được nhận bằng chứng buổi tự chọn');
     assert.equal(ask([custom], 'u2', true), 'Không họp',
         'vắng ở buổi tự chọn không bao giờ thành mức trừ');
+    customLogs['custom-1'].push({userId:'u2',status:'Vắng phép',adminOverride:true});
+    assert.equal(ask([custom], 'u2', true), 'Không họp',
+        'báo vắng ở buổi tự chọn cũng không tạo mức trừ của tổ');
     assert.equal(ask([custom, deptMeeting], 'u1', true), 'Vắng không phép',
         'buổi tự chọn không được che một buổi họp tổ đã bỏ lỡ');
     assert.equal(ask([deptMeeting], 'u1', true), 'Vắng không phép',

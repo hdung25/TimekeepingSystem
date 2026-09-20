@@ -261,11 +261,15 @@ async function main() {
             return { value: select.value, disabled: select.disabled };
         });
         assert.equal(beforeCheckIn.value, 'Chưa điểm danh');
-        assert.equal(beforeCheckIn.disabled, false, 'cột của tổ có họp phải mở cho admin sửa');
+        assert.equal(beforeCheckIn.disabled, true, 'bảng tháng là tổng hợp; sửa điểm danh ở chi tiết buổi họp');
 
         // --- 2. Nhân viên tự điểm danh ở "Họp Của Tôi" --------------------
         const staff = await openSession(browser, origin, users[1]);
         sessions.push(staff);
+        await staff.page.goto(origin + '/cham-cong.html', { waitUntil: 'domcontentloaded' });
+        await staff.page.waitForFunction(() => typeof window.checkAndRenderMeetingBanner === 'function');
+        await staff.page.evaluate(() => window.checkAndRenderMeetingBanner());
+        await staff.page.waitForSelector(`[onclick*="checkInToMeeting('${deptMeetingId}'"]`, { timeout: 30000 });
         await staff.page.goto(origin + '/hop-cua-toi.html', { waitUntil: 'domcontentloaded' });
         await staff.page.waitForSelector('#today-grid .hero-card', { timeout: 30000 });
 
@@ -307,6 +311,27 @@ async function main() {
         assert.equal(payroll.status, 'Có');
         assert.equal(payroll.money.amount, 1000, 'có mặt phải cộng 1.000đ vào tiêu chí X');
         assert.equal(payroll.money.complete, true);
+
+        // A real report load uses the same result (not only the pure policy).
+        const reportPage = await admin.context.newPage();
+        await reportPage.goto(origin + '/bao-cao.html', { waitUntil: 'domcontentloaded' });
+        await reportPage.waitForFunction(() => typeof loadMeetingPayrollSummary === 'function');
+        const summary = await reportPage.evaluate(async month =>
+            loadMeetingPayrollSummary('meet-ta', month, { chuyen_mon: 'TG TA', teachingMode: 'old' }), monthStr());
+        assert.equal(summary.amount, 1000);
+        assert.equal(summary.complete, true);
+        await reportPage.close();
+
+        // Correction and restoration must update BOTH sources atomically.
+        await admin.page.evaluate(id => DBService.updateMeetingAttendanceStatus(id, 'meet-ta', 'TRẦN GIA BẢO', 'Vắng phép'), deptMeetingId);
+        await admin.page.evaluate(id => DBService.updateMeetingAttendanceStatus(id, 'meet-ta', 'TRẦN GIA BẢO', 'Chưa điểm danh'), deptMeetingId);
+        const restored = await staff.page.evaluate(id => DBService.getMyMeetingStatus(id, 'meet-ta'), deptMeetingId);
+        assert.equal(restored.adminOverride, false);
+        assert.equal(restored.status, 'Chưa điểm danh');
+        await staff.page.reload({ waitUntil: 'domcontentloaded' });
+        await staff.page.waitForSelector('#today-grid .hero-checkin-btn');
+        await staff.page.click('#today-grid .hero-checkin-btn');
+        await staff.page.waitForFunction(() => /Đã điểm danh/.test(document.querySelector('#today-grid .hero-card')?.innerText || ''));
 
         // --- 5. Admin sửa tay trạng thái trên trang Thống Kê --------------
         await admin.page.evaluate(() => window.showMeetingsStats());

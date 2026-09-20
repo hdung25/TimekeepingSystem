@@ -1320,7 +1320,12 @@ service cloud.firestore {
       return data.get('status', '') in ['', 'Có', 'Trễ', 'Vắng phép', 'Vắng không phép'];
     }
     match /meeting_attendance/{docId} {
-      allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('userId', '')));
+      // First check-in reads its canonical document before it exists. Keep
+      // collection queries resource-scoped; only the owner's missing get is allowed.
+      allow get: if isAuthenticated() && (isAdmin()
+        || (resource != null && ownsStaffId(resource.data.get('userId', '')))
+        || (resource == null && docId.matches('^[A-Za-z0-9-]+_' + getUserId() + '$')));
+      allow list: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('userId', '')));
       allow create: if isAuthenticated() && (isAdmin() || (
         ownsStaffId(request.resource.data.get('userId', ''))
         && docId == request.resource.data.get('meetingId', '') + '_' + getUserId()

@@ -1333,6 +1333,9 @@ test('notification recipient can read/acknowledge but cannot alter content', asy
 });
 
 test('meeting attendance is deterministic and owner-only for staff', async () => {
+    await assertSucceeds(getDoc(doc(staffDb, 'meeting_attendance', 'missing-meeting_staff-1')));
+    await assertFails(getDoc(doc(staffDb, 'meeting_attendance', 'missing-meeting_staff-2')));
+    await assertFails(getDocs(collection(staffDb, 'meeting_attendance')));
     await assertSucceeds(setDoc(doc(staffDb, 'meeting_attendance', 'meeting-1_staff-1'), {
         meetingId: 'meeting-1', userId: 'staff-1', userName: 'Staff One', rsvp: 'yes'
     }));

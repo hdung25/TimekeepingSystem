@@ -224,6 +224,7 @@
     }
     async function initialize() {
         if(state.busy||state.loading||!confirmDiscard())return;
+        if(window.SalaryReviewOverview?.hasPendingChanges()) { message('Tổng quan có thay đổi chưa lưu. Hoàn tất thao tác ở đó trước khi tải lại.',true); return; }
         state.loading=true;document.querySelector('.sr-page').inert=true;
         const epoch=++state.epoch;
         try {
@@ -232,6 +233,7 @@
             if(epoch!==state.epoch)return;
             const index=await S.loadIndex();if(epoch!==state.epoch)return;
             state.index=index;state.month=today().slice(0,7);state.cache.clear();renderSettings();directory();
+            window.dispatchEvent(new CustomEvent('salary-review-index-loaded', {detail:index}));
             message('Hệ thống chỉ nhắc xét. Admin xác nhận mốc, đánh giá và duyệt mức mới cho từng nhóm môn.');
             const requested=state.staffId||new URLSearchParams(location.search).get('staffId');
             if(requested&&index.users.some(u=>u.id===requested&&P.isTeacher(u)))await loadPerson(requested,true);
@@ -240,6 +242,12 @@
         finally{state.loading=false;document.querySelector('.sr-page').inert=state.busy;}
     }
     $('sr-list').addEventListener('click',e=>{const button=e.target.closest('[data-person]');if(button)loadPerson(button.dataset.person);});
+    window.addEventListener('salary-review-open-person',e=>loadPerson(e.detail,true));
+    window.addEventListener('salary-review-profiles-changed',e=>{
+        if(!state.index)return;
+        state.cache.delete(e.detail.staffId);
+        directory();
+    });
     $('sr-search').addEventListener('input',()=>state.index&&directory());$('sr-filter').addEventListener('change',()=>state.index&&directory());
     $('sr-refresh').addEventListener('click',initialize);
     $('sr-settings-form').addEventListener('submit',e=>{e.preventDefault();const values={cycleMonths:Number($('sr-global-cycle').value),minimumHours:Number($('sr-global-hours').value),extraMonths:Number($('sr-global-extra').value)};write(async()=>{await S.saveSettings(values,state.index.config.revision);state.index.config={...state.index.config,...values,revision:Number(state.index.config.revision||0)+1};renderSettings();directory();if(state.draft){collect();renderPerson();}message('Đã lưu quy định chung. Những điều chỉnh riêng vẫn được ưu tiên.');});});

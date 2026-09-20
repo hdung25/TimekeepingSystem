@@ -70,7 +70,7 @@
             const customRecorded = meetings
                 .filter(meeting => isCustomInvited(meeting, userId))
                 .map(statusOf)
-                .filter(Boolean);
+                .filter(status => PRESENT.has(status));
             return strongestStatus(customRecorded) || 'Không họp';
         }
 

@@ -8,17 +8,19 @@ const crypto = require('node:crypto');
 const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
-const version = '20260920-meeting-flow-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v192-meeting-edit-20260921';
-const reportVersion = '20260920-meeting-flow-v1';
+const version = '20260921-meeting-review-v2';
+const serviceWorkerCacheName = 'tdt-chamcong-v193-meeting-review-20260921';
+const reportVersion = '20260921-meeting-review-v2';
 const scheduleVersion = '20260919-attendance-roster-v1';
-const attendanceVersion = '20260921-meeting-edit-v1';
+const attendanceVersion = '20260921-meeting-review-v2';
 const timekeepingVersion = '20260919-resume-schedule-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
 const pinnedLucide = 'https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js';
 const adminOverrideVersion = '20260910-admin-override-default-v1';
 const assets = ['js/main.js', 'js/timekeeping.js', 'js/admin-payroll-override-ui.js', 'js/db-service.js', 'js/meeting-attendance-policy.js', 'js/report.js', 'js/payroll-review.js', 'js/schedule.js',
-    'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js'];
+    'js/pdf-export.js', 'js/salary-bulk-export.js', 'js/receptionist-schedule.js', 'service-worker.js',
+    'hop-dinh-ky.html', 'hop-cua-toi.html', 'xet-tang-luong.html', 'css/salary-review.css',
+    'js/salary-review.js', 'js/salary-review-overview.js', 'js/salary-review-overview-policy.js'];
 const digest = value => crypto.createHash('sha256')
     .update(Buffer.from(value.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'))
     .digest('hex');
@@ -64,11 +66,11 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/main.js?v=20260920-meeting-flow-v1')) &&
+            return !!(await cache.match('/js/main.js?v=20260921-meeting-review-v2')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20260919-resume-schedule-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
-                !!(await cache.match('/js/db-service.js?v=20260921-meeting-edit-v1')) &&
-                !!(await cache.match('/js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20260921-meeting-review-v2')) &&
+                !!(await cache.match('/js/meeting-attendance-policy.js?v=20260921-meeting-review-v2')) &&
                 !!(await cache.match('/js/schedule.js?v=20260919-attendance-roster-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request

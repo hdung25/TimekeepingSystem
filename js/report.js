@@ -2915,19 +2915,20 @@ async function loadMeetingPayrollSummary(staffId, monthStr, staffProfile = windo
     ]));
     const attendanceByMeeting = Object.fromEntries(attendanceEntries);
     const savedRecord = meetingsLog?.records?.[staffId] || {};
-    const specialty = String(staffProfile?.chuyen_mon || staffProfile?.specialty || staffProfile?.specialization || savedRecord.chuyen_mon || '').toUpperCase();
+    const specialty = String(savedRecord.chuyen_mon !== undefined ? savedRecord.chuyen_mon :
+        staffProfile?.chuyen_mon || staffProfile?.specialty || staffProfile?.specialization || '').toUpperCase();
     const matchesSpecialty = (value, department) => {
         if (department === 'TG TA') return value.includes('TG TA');
         if (department === 'TG T-TV') return value.includes('TG T-TV');
         if (department === 'TOÁN TƯ DUY') return value.includes('TOÁN TƯ DUY') || value.includes('TTD');
-        if (department === 'TIẾP TÂN') return value.includes('TIẾP TÂN') || value.includes('TT');
+        if (department === 'TIẾP TÂN') return value.includes('TIẾP TÂN') || /\bTT\b/.test(value);
         return false;
     };
     const specialtyMatches = department => matchesSpecialty(specialty, department);
     // Chỉ dùng để nhận bằng chứng ĐÃ đi họp ở buổi "Tự chọn thành viên". Suy ra
     // chuyên môn từ hồ sơ ở đây là an toàn vì nhánh đó không bao giờ tạo mức trừ;
     // `specialtyMatches` (có thể suy ra buổi vắng) vẫn chỉ tin dữ liệu đã lưu.
-    const profileSpecialty = specialty ||
+    const profileSpecialty = savedRecord.chuyen_mon !== undefined ? specialty : specialty ||
         String(window.formatUserSpecialty?.(staffProfile || {}) || '').toUpperCase();
     const belongsToDepartment = department => matchesSpecialty(profileSpecialty, department);
     const statuses = {};
@@ -7125,6 +7126,21 @@ function classifyAbsentChip(chip, notesMap) {
     return 'VKP';
 }
 
+// Persist durations only when the chip has explicit schedule bounds. Unknown
+// legacy bounds remain null; absence counts must never be converted to hours.
+function scheduledAbsenceMinutes(chip) {
+    const duration = segment => {
+        const parse = value => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value || '')
+            ? Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5)) : NaN;
+        const start = parse(segment?.start), end = parse(segment?.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start >= 1440 || end >= 1440 || start === end) return null;
+        return end > start ? end - start : end + 1440 - start;
+    };
+    const segments = chip.mergedSegments?.length ? chip.mergedSegments : [chip.schedData];
+    const minutes = segments.map(duration);
+    return minutes.some(value => value === null) ? null : minutes.reduce((sum, value) => sum + value, 0);
+}
+
 function absenceChipDisplayText(chip, notesMap) {
     if (!chip || !chip.text) return chip ? chip.text : '';
     const type = classifyAbsentChip(chip, notesMap);
@@ -10406,6 +10422,7 @@ function getCurrentCalculationPayload(role) {
     let lateCount = 0;
     let totalLateMinutes = 0;
     
+    const absenceDurations = { VP: 0, VDX: 0, VKP: 0 };
     const unfilteredChips = window.unfilteredAllMonthChips || [];
     const notesMap = typeof _cachedStaffNotes !== 'undefined' ? _cachedStaffNotes : {};
     unfilteredChips.forEach(chip => {
@@ -10417,6 +10434,9 @@ function getCurrentCalculationPayload(role) {
         
         if (chip.isAbsence || chip.absenceType || chip.isVDX || /(?:^|\s)chip-(?:gray|red)(?:\s|$)/.test(chip.class || '')) {
             const type = classifyAbsentChip(chip, notesMap);
+            const bucket = type === 'VP' || type === 'VDX' ? type : 'VKP';
+            const minutes = scheduledAbsenceMinutes(chip);
+            absenceDurations[bucket] = absenceDurations[bucket] === null || minutes === null ? null : absenceDurations[bucket] + minutes;
             if (type === 'VP') vpShifts++;
             else if (type === 'VDX') vdxShifts++;
             else vkpShifts++;
@@ -10433,6 +10453,9 @@ function getCurrentCalculationPayload(role) {
     
     const stats = {
         workedShifts: workedShifts,
+        vpMinutes: absenceDurations.VP,
+        vdxMinutes: absenceDurations.VDX,
+        vkpMinutes: absenceDurations.VKP,
         vpShifts: vpShifts,
         vdxShifts: vdxShifts,
         vkpShifts: vkpShifts,

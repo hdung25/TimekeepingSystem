@@ -272,8 +272,8 @@
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
     <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/db-service.js?v=20260921-meeting-edit-v1'></script>
-    <script src='js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1'></script>
+    <script src='js/db-service.js?v=20260921-meeting-review-v2'></script>
+    <script src='js/meeting-attendance-policy.js?v=20260921-meeting-review-v2'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
 
@@ -321,6 +321,7 @@
                     </div>
                 </header>
 
+            <p style="font-size:.85rem;color:var(--text-muted);margin:0 0 1rem;">Kết quả họp được tổng hợp tự động. Để điểm danh hoặc sửa kết quả, chọn <strong>Lịch Đã Tạo → Chi tiết</strong>. Nút Lưu lưu chuyên môn và số tờ của tháng.</p>
             <!-- Excel-like Table Grid Container -->
             <div class="glass-panel" style="overflow: hidden; padding: 0;">
                 <div style="overflow-x: auto; width: 100%;">
@@ -693,7 +694,7 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260920-meeting-flow-v1"></script>
+    <script src="js/main.js?v=20260921-meeting-review-v2"></script>
     <script src="js/auth-helper.js?v=20260906-early10-recovery-v1"></script>
     
     <script>
@@ -892,8 +893,8 @@
         function getInvitedDepartmentMeetings(userId, department, hasRole = true) {
             return monthlyMeetingsList.filter(meeting => {
                 if (meeting.department === department) {
-                    return !Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
-                        meeting.attendees.includes(userId);
+                    return Array.isArray(meeting.attendees) && meeting.attendees.length > 0
+                        ? meeting.attendees.includes(userId) : hasRole;
                 }
                 return hasRole && meeting.department === 'CUSTOM' &&
                     Array.isArray(meeting.attendees) && meeting.attendees.includes(userId);
@@ -916,7 +917,7 @@
                 const hasRole = specLabel.includes('TG TA');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG TA', hasRole).length > 0;
                 selectTa.disabled = !hasRole || !hasMeeting;
-                if (!hasRole || !hasMeeting) {
+                if (!hasMeeting) {
                     selectTa.value = 'Không họp';
                     selectTa.style.cssText = styleDisabled;
                 } else {
@@ -928,7 +929,7 @@
                 const hasRole = specLabel.includes('TG T-TV');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG T-TV', hasRole).length > 0;
                 selectTtv.disabled = !hasRole || !hasMeeting;
-                if (!hasRole || !hasMeeting) {
+                if (!hasMeeting) {
                     selectTtv.value = 'Không họp';
                     selectTtv.style.cssText = styleDisabled;
                 } else {
@@ -940,7 +941,7 @@
                 const hasRole = specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TOÁN TƯ DUY', hasRole).length > 0;
                 selectTtd.disabled = !hasRole || !hasMeeting;
-                if (!hasRole || !hasMeeting) {
+                if (!hasMeeting) {
                     selectTtd.value = 'Không họp';
                     selectTtd.style.cssText = styleDisabled;
                 } else {
@@ -952,13 +953,20 @@
                 const hasRole = specLabel.includes('TIẾP TÂN') || specLabel.includes('TT');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TIẾP TÂN', hasRole).length > 0;
                 selectTt.disabled = !hasRole || !hasMeeting;
-                if (!hasRole || !hasMeeting) {
+                if (!hasMeeting) {
                     selectTt.value = 'Không họp';
                     selectTt.style.cssText = styleDisabled;
                 } else {
                     selectTt.style.cssText = styleEnabled;
                 }
             }
+            // This is a monthly summary, not a second attendance source.
+            // Correct an individual meeting in its detail view instead.
+            [selectTa, selectTtv, selectTtd, selectTt].forEach(select => {
+                if (!select) return;
+                select.disabled = true;
+                select.title = 'Kết quả tự động. Vào Lịch đã tạo → Chi tiết để sửa điểm danh từng buổi.';
+            });
         }
 
         let monthlyMeetingsList = [];
@@ -1050,7 +1058,7 @@
 
                 function resolveAutoStatus(dept, savedValue) {
                     return MeetingAttendancePolicy.resolveDepartmentStatus({
-                        meetings: monthlyMeetingsList,
+                        meetings: getInvitedDepartmentMeetings(userId, dept, belongsTo(dept)),
                         attendanceByMeeting: monthlyAttendanceMap,
                         userId,
                         department: dept,
@@ -1220,10 +1228,6 @@
                     so_to_cs1: parseInt(row.querySelector('.cs1-input').value, 10) || 0,
                     so_to_cs2: parseInt(row.querySelector('.cs2-input').value, 10) || 0,
                     so_to_cs3: parseInt(row.querySelector('.cs3-input').value, 10) || 0,
-                    hop_tg_tieng_anh: row.querySelector('.hop-ta-select').value,
-                    hop_tg_t_tv: row.querySelector('.hop-ttv-select').value,
-                    hop_toan_tu_duy: row.querySelector('.hop-ttd-select').value,
-                    hop_tiep_tan: row.querySelector('.hop-tt-select').value,
                     chuyen_mon: row.querySelector('.btn-chuyenmon-setup').innerText.trim()
                 };
             });
@@ -1237,10 +1241,10 @@
                 return;
             }
 
+            const saveBtn = document.querySelector('button[onclick="saveMeetings()"]');
+            if (saveBtn.disabled) return;
+            const oldText = saveBtn.innerText;
             try {
-                // Show loading state
-                const saveBtn = document.querySelector('button[onclick="saveMeetings()"]');
-                const oldText = saveBtn.innerText;
                 saveBtn.innerText = "Đang lưu...";
                 saveBtn.disabled = true;
 
@@ -1248,11 +1252,12 @@
 
                 UIService.toast("Đã lưu bảng điểm danh thành công!", "success");
                 
-                saveBtn.innerText = oldText;
-                saveBtn.disabled = false;
             } catch (err) {
                 console.error("Error saving meetings log:", err);
                 UIService.toast("Lỗi lưu dữ liệu: " + err.message, "error");
+            } finally {
+                saveBtn.innerText = oldText;
+                saveBtn.disabled = false;
             }
         }
 
@@ -2269,7 +2274,7 @@
                                 <option value="Vắng phép" ${status === 'Vắng phép' ? 'selected' : ''}>Vắng phép</option>
                                 <option value="Vắng đột xuất" ${status === 'Vắng đột xuất' ? 'selected' : ''}>Vắng đột xuất</option>
                                 <option value="Vắng không phép" ${status === 'Vắng không phép' ? 'selected' : ''}>Vắng không phép</option>
-                                <option value="Chưa điểm danh" ${status === 'Chưa điểm danh' ? 'selected' : ''} disabled>Chưa điểm danh</option>
+                                <option value="Chưa điểm danh" ${status === 'Chưa điểm danh' ? 'selected' : ''}>Chưa điểm danh (mở lại)</option>
                             </select>
                         </td>
                     `;

@@ -9602,30 +9602,13 @@ const DBService = {
 
     // GPS cho điểm danh HỌP — họp tổ chức tại Cơ Sở 1, nên ưu tiên kiểm tra đúng CS1;
     // nếu CS1 chưa cấu hình toạ độ thì chấp nhận bất kỳ cơ sở nào (giống chấm công).
-    // Chưa cấu hình GPS nào -> trả false (bỏ qua kiểm tra, không chặn điểm danh).
+    // Dùng cùng cơ chế lấy điểm mới và phục hồi có giới hạn như Vào ca.
     assertMeetingLocationAllowed: async () => {
         const settings = await DBService.getSystemSettings();
         const campuses = getConfiguredGPSCampuses(settings);
-        if (campuses.length === 0) return false;
-        let coords;
-        try {
-            coords = await getBrowserLocation();
-        } catch (e) {
-            console.error("Location meeting check error:", e);
-            // Giữ nguyên cách nói "IP mạng/Wifi" như chấm công — không lộ là GPS.
-            throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.");
-        }
         const cs1 = campuses.find(c => c.name === 'CS1');
-        const targets = cs1 ? [cs1] : campuses;
-        const ok = targets.some(campus => {
-            const dist = calculateDistanceInMeters(coords.latitude, coords.longitude, campus.lat, campus.lng);
-            const allowedRadius = campus.radius + Math.min(coords.accuracy || 0, 250);
-            return dist <= allowedRadius;
-        });
-        if (!ok) {
-            throw new Error("IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.");
-        }
-        return true;
+        const scoped = cs1 ? { ...settings, gpsCS2Lat: null, gpsCS3Lat: null } : settings;
+        return assertAttendanceLocationAllowed(scoped);
     },
 
     // Lấy trạng thái điểm danh của 1 user trong 1 cuộc họp (đọc trực tiếp theo id ghép)
@@ -9641,42 +9624,38 @@ const DBService = {
 
     updateMeetingAttendanceStatus: async (meetingId, userId, userName, status) => {
         try {
+            if (!['Có', 'Trễ', 'Vắng phép', 'Vắng đột xuất', 'Vắng không phép', 'Chưa điểm danh'].includes(status)) {
+                throw new Error('Trạng thái điểm danh không hợp lệ.');
+            }
             const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
-            await attendanceRef.set({
+            const meetingDoc = await db.collection('meetings').doc(meetingId).get();
+            if (!meetingDoc.exists) throw new Error('Cuộc họp không còn tồn tại.');
+            const mData = meetingDoc.data();
+            const monthStr = mData.date.substring(0, 7);
+            const fieldName = DBService._meetingLogField(mData.department);
+            const resetting = status === 'Chưa điểm danh';
+            const batch = db.batch();
+            const data = {
                 meetingId,
                 userId,
                 userName,
                 status,
                 // Admin chỉnh tay -> luôn được coi là hợp lệ, kể cả khi ngoài khung giờ điểm danh
-                adminOverride: true,
+                adminOverride: !resetting,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            if (resetting) {
+                ['checkInTime', 'preMarked', 'preservedByEdit', 'selfCheckIn', 'autoNoShow'].forEach(key => {
+                    data[key] = firebase.firestore.FieldValue.delete();
+                });
+            }
+            batch.set(attendanceRef, data, { merge: true });
+            if (fieldName) batch.set(db.collection('meetings_log').doc(monthStr), {
+                month: monthStr, records: { [userId]: { [fieldName]: status } },
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
-
-            const meetingDoc = await db.collection('meetings').doc(meetingId).get();
-            if (meetingDoc.exists) {
-                const mData = meetingDoc.data();
-                const dept = mData.department;
-                const mDate = mData.date;
-                if (dept && mDate) {
-                    const monthStr = mDate.substring(0, 7);
-                    const fieldName = DBService._meetingLogField(dept);
-
-                    if (fieldName) {
-                        const logRef = db.collection('meetings_log').doc(monthStr);
-                        const updateKey = `records.${userId}.${fieldName}`;
-                        const updateData = {};
-                        updateData[updateKey] = status;
-                        
-                        await logRef.update(updateData).catch(async (err) => {
-                            if (err.code === 'not-found') {
-                                const initialData = { month: monthStr, records: {} };
-                                initialData.records[userId] = { [fieldName]: status };
-                                await logRef.set(initialData, { merge: true });
-                            }
-                        });
-                    }
-                }
-            }
+            await batch.commit();
+            DBService._invalidate(`monthly_meetings_${monthStr}`);
             return true;
         } catch (error) {
             console.error("[Meetings] Error updating attendance status:", error);

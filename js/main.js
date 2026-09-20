@@ -7,7 +7,7 @@ function signalCoreBootstrapReady() {
     }
 }
 
-const APP_VERSION = '20260918-payslip-status-sync-v1';
+const APP_VERSION = '20260921-meeting-review-v2';
 
 // Quyền truy cập và loại công việc tính lương là hai khái niệm riêng.
 // Trợ lý cấp cao có quyền hỗ trợ Admin nhưng mặc định làm việc như Tiếp tân;
@@ -2515,7 +2515,7 @@ window.requestNotificationPermission = async function(button = null) {
 
 window.isUserMatchingMeeting = function(user, meeting) {
     if (!meeting || !user) return false;
-    if (meeting.attendees && Array.isArray(meeting.attendees)) {
+    if (Array.isArray(meeting.attendees) && meeting.attendees.length > 0) {
         return meeting.attendees.includes(user.id);
     }
     const specLabel = window.formatUserSpecialty(user) || '';

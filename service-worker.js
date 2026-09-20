@@ -1,7 +1,7 @@
-// Service Worker v192 - editable meeting schedules and guarded meeting attendance writes.
+// Service Worker v193 - meeting corrections and salary review overview.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v192-meeting-edit-20260921';
+const CACHE_NAME = 'tdt-chamcong-v193-meeting-review-20260921';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -29,18 +29,20 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/style.css?v=20260906-early10-recovery-v1',
     '/css/login.css?v=20260621-font',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/css/salary-review.css?v=20260919-review-v1',
+    '/css/salary-review.css?v=20260921-overview-v1',
     '/js/salary-review-policy.js?v=20260919-review-v1',
     '/js/salary-review-application.js?v=20260919-review-v1',
     '/js/salary-review-service.js?v=20260919-review-v1',
     '/js/salary-review-notifications.js?v=20260919-review-v1',
-    '/js/salary-review.js?v=20260919-review-v1',
-    '/js/main.js?v=20260920-meeting-flow-v1',
+    '/js/salary-review.js?v=20260921-overview-v1',
+    '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
+    '/js/salary-review-overview.js?v=20260921-overview-v1',
+    '/js/main.js?v=20260921-meeting-review-v2',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260921-meeting-edit-v1',
-    '/js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1',
-    '/js/report.js?v=20260920-meeting-flow-v1',
+    '/js/db-service.js?v=20260921-meeting-review-v2',
+    '/js/meeting-attendance-policy.js?v=20260921-meeting-review-v2',
+    '/js/report.js?v=20260921-meeting-review-v2',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',

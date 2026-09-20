@@ -244,6 +244,59 @@ async function main() {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
     assert.deepEqual(evidence.errors, [], 'no uncaught browser JavaScript errors');
     evidence.results.push('Actual UI cancel restores original target and personal baseline; complete immutable audit trail');
+
+    // Batch overview: two staff, independent reminder cycles and different
+    // prices, all existing salary/attendance sources preserved.
+    const second = 'review-teacher-2';
+    await env.withSecurityRulesDisabled(async c => {
+        const db = c.firestore();
+        const user = (await db.doc('users/' + staff).get()).data();
+        await db.doc('users/' + second).set({...user,id:second,username:'reviewteacher2',name:'Giáo viên Thứ Hai'});
+        await db.doc('salary_settings_monthly/' + month + '_' + second).set({giao_vien:{class_rates:rates}});
+    });
+    await page.setViewport({width:1440,height:1000});
+    await page.goto(origin + '/xet-tang-luong.html', {waitUntil:'domcontentloaded'});
+    await page.waitForSelector(`[data-select="${staff}"]`,{timeout:30000});
+    await click(`[data-select="${staff}"]`); await click(`[data-select="${second}"]`);
+    await click('#sro-load');
+    await page.waitForFunction(()=>document.querySelectorAll('.sro-group').length>=5&&!document.getElementById('sro-workspace').inert,{timeout:60000});
+    assert.match(await page.$eval('#sro-list',e=>e.innerText),/43,2|43.2/);
+    await fill('#sro-cycle',4); await fill('#sro-next',Policy.addMonths(today,4));
+    await click('#sro-fill-reminders');
+    const secondGroup = await page.$eval(`[data-person-row="${second}"] .sro-group`,e=>e.dataset.group);
+    await fill(`[data-staff="${second}"][data-group="${secondGroup}"] [data-edit="cycle"]`,5);
+    await click('#sro-save');
+    await page.waitForFunction(()=>/Đã lưu lịch nhắc cho 2/.test(document.getElementById('sro-message').textContent)&&!window.__payrollWritePending,{timeout:60000});
+    const secondProfile=await readRecord('salary_review_profiles/'+second);
+    assert.equal(secondProfile.groups.find(g=>g.id===secondGroup).cycleMonths,5);
+    assert.equal((await readRecord('salary_review_profiles/'+staff)).groups[0].cycleMonths,4);
+    assert.deepEqual(await snapshotSources(),original,'bulk reminders must not change salary or attendance');
+    await fill('#sro-increase',2000); await click('#sro-fill-increase');
+    assert.equal(await page.$eval('#sro-message',e=>e.classList.contains('error')),false,'batch increment must fill valid rates');
+    await fill(`[data-staff="${second}"][data-group="${secondGroup}"] [data-edit="newRate"]`,61000);
+    await fill('#sro-reason','Xét cùng đợt, mức riêng cho từng người.');
+    await click('#sro-prepare');
+    await page.waitForSelector('#sro-apply',{visible:true,timeout:60000});
+    assert.deepEqual(await readRecord('salary_settings_monthly/'+future+'_'+staff),targetInitial,'bulk preview is read-only');
+    await page.setViewport({width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'overview mobile must not overflow');
+    await shot('overview-mobile-preview');
+    await click('#sro-apply');
+    await page.waitForFunction(()=>!window.__payrollWritePending&&document.getElementById('sro-preview').hidden,{timeout:90000});
+    const batchMessage=await page.$eval('#sro-message',e=>e.textContent);
+    assert.match(batchMessage,/Đã duyệt \d+ nhóm môn\./,batchMessage);
+    const afterBatch=await readRecord('salary_settings_monthly/'+future+'_'+staff);
+    assert.equal(afterBatch.giao_vien.class_rates['Toán 1'],34000);
+    assert.equal(afterBatch.giao_vien.class_rates['E5'],58000);
+    assert.equal(afterBatch.giao_vien.class_rates['Toán 1 + E5'],73000);
+    assert.deepEqual(afterBatch.tiep_tan,targetInitial.tiep_tan);
+    assert.deepEqual(afterBatch.published,targetInitial.published);
+    const secondAfter=await readRecord('salary_review_profiles/'+second);
+    assert.equal(secondAfter.groups.find(g=>g.id===secondGroup).currentRate,61000);
+    assert.deepEqual(await snapshotSources(),original,'batch decisions preserve previous/current salary and attendance');
+    assert.deepEqual(evidence.errors,[]);
+    await page.setViewport({width:1440,height:1000}); await shot('overview-desktop-applied');
+    evidence.results.push('Batch reminders and multi-person/multi-group approval: individual cycles/rates, readonly previews, full price preservation and mobile layout');
     console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/mobile + source preservation');
 }
 main().catch(async error => {
