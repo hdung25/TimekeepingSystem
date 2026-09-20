@@ -9248,6 +9248,20 @@ const DBService = {
         return new Date(parts[0], parts[1] - 1, parts[2], hour, minute, 0).toISOString();
     },
 
+    // Cùng luật hợp lệ với MeetingAttendancePolicy. Giữ bản dự phòng ở đây để
+    // db-service không phụ thuộc vào việc trang có nạp file chính sách hay chưa.
+    _meetingAttendanceValid: (log, meeting) => {
+        const policy = (typeof window !== 'undefined' ? window : globalThis).MeetingAttendancePolicy;
+        if (policy && typeof policy.isValidAttendance === 'function') {
+            return policy.isValidAttendance(log, meeting);
+        }
+        if (!log || !log.status || log.status === 'Chưa điểm danh') return false;
+        if (log.adminOverride === true || !log.checkInTime) return true;
+        const recordedAt = new Date(log.checkInTime);
+        const openedAt = new Date(DBService._meetingCheckInOpenISO(meeting));
+        return Number.isFinite(recordedAt.getTime()) && recordedAt >= openedAt;
+    },
+
     createMeeting: async (meetingData) => {
         try {
             const docRef = await db.collection('meetings').add({
@@ -9263,9 +9277,73 @@ const DBService = {
         }
     },
 
+    // Sửa lịch họp đã tạo. Trước đây admin gõ nhầm giờ chỉ còn cách XOÁ rồi tạo
+    // lại, mà xoá thì mất sạch bản ghi điểm danh — đó mới là rủi ro mất dữ liệu
+    // lớn nhất của luồng này.
+    //
+    // Bẫy cần tránh: tính hợp lệ của một bản ghi được so với giờ MỞ ĐIỂM DANH
+    // của buổi họp. Dời giờ mở (hoặc dời ngày) sẽ âm thầm vô hiệu hoá những lần
+    // điểm danh đã có. Nên trước khi ghi, ta chốt lại những bản ghi đang hợp lệ
+    // và đánh dấu adminOverride để chúng không bị mất vì một thao tác sửa lịch.
+    updateMeeting: async (meetingId, changes) => {
+        try {
+            const meetingRef = db.collection('meetings').doc(meetingId);
+            const snapshot = await meetingRef.get();
+            if (!snapshot.exists) throw new Error('Cuộc họp không còn tồn tại.');
+
+            const before = { id: meetingId, ...snapshot.data() };
+            const after = { ...before, ...changes };
+
+            // Bộ phận quyết định cột lương và tháng quyết định tài liệu
+            // meetings_log; đổi hai thứ đó là một cuộc họp khác, không phải sửa.
+            if (changes.department && changes.department !== before.department) {
+                throw new Error('Không thể đổi bộ phận của cuộc họp đã tạo. Hãy tạo cuộc họp mới.');
+            }
+            if (changes.date && String(changes.date).substring(0, 7) !== String(before.date).substring(0, 7)) {
+                throw new Error('Chỉ có thể dời ngày trong cùng một tháng.');
+            }
+
+            const attendanceSnap = await db.collection('meeting_attendance')
+                .where('meetingId', '==', meetingId)
+                .get();
+            const preserve = [];
+            attendanceSnap.docs.forEach(doc => {
+                const log = { id: doc.id, ...doc.data() };
+                if (log.adminOverride === true) return;
+                if (DBService._meetingAttendanceValid(log, before) &&
+                    !DBService._meetingAttendanceValid(log, after)) {
+                    preserve.push(doc.ref);
+                }
+            });
+
+            const batch = db.batch();
+            batch.set(meetingRef, {
+                ...changes,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            preserve.forEach(ref => {
+                batch.set(ref, {
+                    adminOverride: true,
+                    preservedByEdit: true,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            });
+            await batch.commit();
+
+            DBService._invalidate('today_meetings_');
+            DBService._invalidate('meetings_month_');
+            return { preservedCheckIns: preserve.length };
+        } catch (error) {
+            console.error("[Meetings] Error updating:", error);
+            throw error;
+        }
+    },
+
     deleteMeeting: async (meetingId) => {
         try {
-            await db.collection('meetings').doc(meetingId).delete();
+            const meetingSnap = await db.collection('meetings').doc(meetingId).get();
+            const meeting = meetingSnap.exists ? meetingSnap.data() : null;
+
             const attendanceSnap = await db.collection('meeting_attendance')
                 .where('meetingId', '==', meetingId)
                 .get();
@@ -9273,7 +9351,17 @@ const DBService = {
             attendanceSnap.docs.forEach(doc => {
                 batch.delete(doc.ref);
             });
+            batch.delete(db.collection('meetings').doc(meetingId));
             await batch.commit();
+
+            // Trạng thái đã lưu trong meetings_log là bản dự phòng khi không đọc
+            // được bản ghi điểm danh. Nếu để lại sau khi xoá cuộc họp, nó vẫn
+            // thắng "Chưa điểm danh" của một buổi khác cùng tổ và người ta bị
+            // tính vắng vì một cuộc họp không còn tồn tại.
+            await DBService._clearOrphanMeetingLog(meetingId, meeting).catch(error => {
+                console.warn('[Meetings] Could not clean monthly log after delete:', error);
+            });
+
             DBService._invalidate('today_meetings_');
             DBService._invalidate('meetings_month_');
             return true;
@@ -9281,6 +9369,40 @@ const DBService = {
             console.error("[Meetings] Error deleting:", error);
             throw error;
         }
+    },
+
+    // Chỉ xoá đúng ô của những người từng được mời buổi vừa xoá, và chỉ khi
+    // tháng đó tổ ấy không còn buổi nào mời họ nữa.
+    _clearOrphanMeetingLog: async (meetingId, meeting) => {
+        const field = DBService._meetingLogField(meeting?.department);
+        const monthStr = String(meeting?.date || '').substring(0, 7);
+        const attendees = Array.isArray(meeting?.attendees) ? meeting.attendees : [];
+        if (!field || !/^\d{4}-\d{2}$/.test(monthStr) || attendees.length === 0) return false;
+
+        const remaining = await db.collection('meetings')
+            .where('department', '==', meeting.department)
+            .get();
+        const stillInvited = new Set();
+        remaining.docs.forEach(doc => {
+            if (doc.id === meetingId) return;
+            const data = doc.data();
+            if (String(data.date || '').substring(0, 7) !== monthStr) return;
+            const list = Array.isArray(data.attendees) ? data.attendees : [];
+            if (list.length === 0) attendees.forEach(userId => stillInvited.add(userId));
+            else list.forEach(userId => stillInvited.add(userId));
+        });
+
+        const updates = {};
+        attendees.forEach(userId => {
+            if (stillInvited.has(userId)) return;
+            updates[`records.${userId}.${field}`] = firebase.firestore.FieldValue.delete();
+        });
+        if (Object.keys(updates).length === 0) return false;
+
+        await db.collection('meetings_log').doc(monthStr).update(updates)
+            .catch(error => { if (error.code !== 'not-found') throw error; });
+        DBService._invalidate(`monthly_meetings_${monthStr}`);
+        return true;
     },
 
     getMeetingsForMonth: async (monthStr) => {
@@ -9589,14 +9711,12 @@ const DBService = {
             attendees.forEach(att => {
                 const userId = att.id;
                 if (!userId) return;
-                const userName = att.name;
-                const spec = String(att.specialty || '').toUpperCase();
 
                 const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
                 batch.set(attendanceRef, {
                     meetingId,
                     userId,
-                    userName,
+                    userName: att.name,
                     status,
                     checkInTime,
                     adminOverride: true,
@@ -9604,18 +9724,12 @@ const DBService = {
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
 
-                const fields = {};
-                if (meetingField) {
-                    fields[meetingField] = status;
-                } else {
-                    // CUSTOM: không có cột riêng -> ghi vào (các) cột mà người
-                    // này phụ trách, đúng như bằng chứng mà lưới sẽ đọc lại.
-                    if (spec.includes('TG TA')) fields.hop_tg_tieng_anh = status;
-                    if (spec.includes('TG T-TV')) fields.hop_tg_t_tv = status;
-                    if (spec.includes('TOÁN TƯ DUY') || spec.includes('TTD')) fields.hop_toan_tu_duy = status;
-                    if (spec.includes('TIẾP TÂN')) fields.hop_tiep_tan = status;
-                }
-                if (Object.keys(fields).length > 0) logRecords[userId] = fields;
+                // Buổi "Tự chọn thành viên" KHÔNG ghi vào bảng tháng. Nó không
+                // thuộc tổ nào, nên một giá trị "Có" để lại trong meetings_log sẽ
+                // thắng "Chưa điểm danh" của một buổi họp tổ mà người này bỏ lỡ,
+                // và xoá cuộc họp cũng không dọn được ô đó. Bằng chứng đi họp của
+                // buổi tự chọn nằm ở meeting_attendance và được đọc trực tiếp.
+                if (meetingField) logRecords[userId] = { [meetingField]: status };
             });
 
             // set(..., merge) hợp nhất sâu từng trường, nên không đọc-rồi-ghi đè

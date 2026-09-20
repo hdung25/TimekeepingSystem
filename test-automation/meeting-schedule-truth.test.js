@@ -194,11 +194,83 @@ assert.match(report, /MeetingAttendancePolicy\.isCustomInvited\(meeting, staffId
         'nhân viên không được ghi đè trạng thái admin đã chốt');
     assert.match(mine, /báo vắng có phép/,
         'nhân viên phải báo vắng được ngay trong khung giờ điểm danh');
+    const rsvpArea = mine.slice(mine.indexOf('function mmRsvpArea(m, log)'),
+        mine.indexOf('function mmEsc(s)'));
+    assert.match(rsvpArea, /if \(log && log\.adminOverride\)/,
+        'buổi admin đã chốt không được hiện nút xác nhận chắc chắn báo lỗi quyền');
 }
 
 // Ngày mặc định của form tạo họp phải theo giờ máy: toISOString() trả giờ UTC
 // nên trước 07:00 giờ Việt Nam nó lùi lịch họp về hôm qua.
 assert.doesNotMatch(page, /toISOString\(\)\.split\('T'\)\[0\]/,
     'ngày họp mặc định không được lấy từ giờ UTC');
+
+// ===== Sửa lịch họp không được làm mất lượt đã điểm danh =====
+// Tính hợp lệ được so với giờ MỞ ĐIỂM DANH, nên dời giờ mở (hoặc dời ngày) sẽ
+// âm thầm vô hiệu hoá những lần điểm danh đã có.
+{
+    const updateStart = db.indexOf('updateMeeting: async (meetingId, changes)');
+    assert.notEqual(updateStart, -1, 'phải có đường sửa lịch họp thay vì chỉ xoá rồi tạo lại');
+    const update = db.slice(updateStart, db.indexOf('deleteMeeting: async', updateStart));
+    assert.match(update, /_meetingAttendanceValid\(log, before\)[\s\S]*!DBService\._meetingAttendanceValid\(log, after\)/,
+        'phải chốt lại đúng những bản ghi sắp mất hiệu lực vì thao tác sửa');
+    assert.match(update, /preservedByEdit: true/,
+        'lượt điểm danh được giữ lại phải có dấu vết kiểm tra');
+    assert.match(update, /Không thể đổi bộ phận/,
+        'đổi bộ phận là một cuộc họp khác, không phải sửa');
+    assert.match(update, /cùng một tháng/,
+        'đổi tháng làm lệch tài liệu meetings_log');
+
+    const deleteStart = db.indexOf('deleteMeeting: async');
+    const remove = db.slice(deleteStart, db.indexOf('_clearOrphanMeetingLog: async', deleteStart));
+    assert.match(remove, /_clearOrphanMeetingLog/,
+        'xoá cuộc họp phải dọn ô đã lưu trong bảng tháng');
+    const orphanStart = db.indexOf('_clearOrphanMeetingLog: async');
+    const orphan = db.slice(orphanStart, db.indexOf('getMeetingsForMonth: async', orphanStart));
+    assert.match(orphan, /stillInvited/,
+        'chỉ dọn ô của người không còn buổi họp nào khác cùng tổ trong tháng');
+
+    // Buổi tự chọn không có cột riêng: ghi vào bảng tháng sẽ tạo ô mồ côi mà
+    // thao tác xoá không dọn được, và ô đó che mất một buổi họp tổ bỏ lỡ.
+    const bulkStart = db.indexOf('checkInMeetingBulk: async');
+    const bulk = db.slice(bulkStart, db.indexOf('// PAYSLIP LIFECYCLE HELPERS START', bulkStart));
+    assert.match(bulk, /if \(meetingField\) logRecords\[userId\]/,
+        'chỉ buổi họp của một tổ mới được ghi vào bảng điểm danh tháng');
+    assert.doesNotMatch(bulk, /hop_tg_tieng_anh = status|fields\.hop_tiep_tan/,
+        'buổi tự chọn không được ghi vào bất kỳ cột tháng nào');
+}
+
+// ===== Rules: nhân viên không tự hợp thức hoá điểm danh =====
+{
+    const rules = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8')
+        .replace(CRLF, NL);
+    assert.match(rules, /function staffMeetingFlagsClean\(data\)/,
+        'rules phải chặn nhân viên tự đặt adminOverride/preMarked');
+    assert.match(rules, /data\.get\('adminOverride', false\) == false/);
+    assert.match(rules, /data\.get\('preMarked', false\) == false/);
+    assert.match(rules, /function staffMeetingStatusAllowed\(data\)/,
+        'rules phải giới hạn trạng thái nhân viên ghi được');
+    const block = rules.slice(rules.indexOf('match /meeting_attendance/'),
+        rules.indexOf('match /makeup_requests/'));
+    assert.match(block, /resource\.data\.get\('adminOverride', false\) == false/,
+        'nhân viên không được ghi đè trạng thái admin đã chốt');
+    assert.match(block, /staffMeetingFlagsClean\(request\.resource\.data\)/);
+    assert.match(block, /staffMeetingStatusAllowed\(request\.resource\.data\)/);
+}
+
+// ===== Trang Thống Kê =====
+{
+    // Bấm "Thống Kê" ngay khi mở trang từng báo "không có nhân sự nào được xếp
+    // tham dự" chỉ vì danh sách nhân sự chưa tải xong.
+    const statsStart = page.indexOf('async function loadMeetingsStats()');
+    const stats = page.slice(statsStart, page.indexOf('async function selectMeetingForStats', statsStart));
+    assert.match(stats, /if \(employeesList\.length === 0\)[\s\S]*loadEmployeesAndMeetings\(\)/,
+        'thống kê phải chờ danh sách nhân sự như view "Lịch Đã Tạo"');
+    // Admin cần thấy ai xác nhận dự / báo vắng TRƯỚC buổi họp.
+    assert.match(page, /XÁC NHẬN TRƯỚC/, 'bảng chi tiết phải có cột xác nhận trước');
+    assert.match(page, /function rsvpCellHtml\(log\)/);
+    assert.doesNotMatch(page, /colspan="5"/,
+        'thêm cột thì mọi dòng trống phải đổi colspan theo');
+}
 
 console.log('meeting-schedule-truth.test.js: all assertions passed');

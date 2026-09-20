@@ -164,6 +164,25 @@ async function createMeeting(page, origin, options, dialogSink = []) {
     }
 }
 
+async function createMeetingEdit(page, origin, meetingId, changes) {
+    await page.evaluate(id => window.openEditMeetingModal(id), meetingId);
+    await page.waitForFunction(
+        () => document.getElementById('create-meeting-submit')?.innerText === 'Lưu Thay Đổi',
+        { timeout: 30000 });
+    assert.equal(await page.evaluate(() => document.getElementById('meeting-dept').disabled), true,
+        'bộ phận phải bị khoá khi sửa');
+    await page.evaluate(values => {
+        if (values.title !== undefined) document.getElementById('meeting-title').value = values.title;
+        if (values.checkInStart !== undefined) document.getElementById('meeting-ci-start').value = values.checkInStart;
+        if (values.checkInClose !== undefined) document.getElementById('meeting-ci-close').value = values.checkInClose;
+    }, changes);
+    await page.evaluate(() => document.getElementById('create-meeting-form')
+        .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })));
+    await page.waitForFunction(
+        () => document.getElementById('create-meeting-modal').style.display === 'none',
+        { timeout: 30000 });
+}
+
 async function main() {
     for (const host of [emulatorHost, authHost]) {
         assert.match(host || '', /^127\.0\.0\.1:\d+$/, 'Local emulators required');
@@ -227,6 +246,7 @@ async function main() {
             return list.map(m => ({ id: m.id, title: m.title, department: m.department, attendees: m.attendees, requireNetwork: m.requireNetwork }));
         }, monthStr());
         assert.equal(created.length, 1, 'phải tạo đúng một cuộc họp');
+        const deptMeetingId = created[0].id;
         assert.equal(created[0].title, '[Trực tiếp] Họp tổ TG TA');
         assert.deepEqual([...created[0].attendees].sort(), ['meet-ta', 'meet-ta2']);
 
@@ -304,6 +324,76 @@ async function main() {
             () => document.querySelector('#meetings-tbody tr[data-user-id="meet-ta2"] .hop-ta-select')?.value === 'Vắng phép',
             { timeout: 30000 });
 
+        // --- 5b. Admin thấy xác nhận trước của nhân viên ------------------
+        await staff.page.evaluate(async meetingId => {
+            const userName = localStorage.getItem('userFullName') || 'TRẦN GIA BẢO';
+            await DBService.selfRsvpMeeting(meetingId, 'meet-ta', userName, true, '');
+        }, deptMeetingId);
+        await admin.page.reload({ waitUntil: 'domcontentloaded' });
+        await admin.page.waitForFunction(() => typeof window.showMeetingsStats === 'function', { timeout: 30000 });
+        await admin.page.evaluate(() => window.showMeetingsStats());
+        try {
+            await admin.page.waitForFunction(
+                () => document.querySelectorAll('#stats-meeting-details-tbody tr').length >= 2, { timeout: 30000 });
+        } catch (err) {
+            const dump = await admin.page.evaluate(() => ({
+                tbody: document.getElementById('stats-meeting-details-tbody')?.innerHTML?.slice(0, 600),
+                cards: document.querySelectorAll('.meeting-stats-card').length,
+                statsVisible: document.getElementById('meetings-stats-view')?.style.display
+            }));
+            throw new Error('stats detail rỗng: ' + JSON.stringify(dump) + ' | errors=' + JSON.stringify(admin.errors));
+        }
+        const rsvpView = await admin.page.evaluate(() => ({
+            headers: Array.from(document.querySelectorAll('#meetings-stats-view thead th')).map(th => th.innerText.trim()),
+            rows: Array.from(document.querySelectorAll('#stats-meeting-details-tbody tr')).map(tr => tr.innerText)
+        }));
+        assert.ok(rsvpView.headers.includes('XÁC NHẬN TRƯỚC'),
+            'trang Thống Kê phải có cột xác nhận trước: ' + JSON.stringify(rsvpView.headers));
+        assert.ok(rsvpView.rows.some(text => /Sẽ dự/.test(text)),
+            'admin phải thấy ai đã xác nhận sẽ dự: ' + JSON.stringify(rsvpView.rows));
+
+        // --- 5c. Sửa lịch họp không được làm mất lượt đã điểm danh --------
+        // Dời giờ mở điểm danh TRỄ HƠN lần điểm danh thật của nhân viên: nếu
+        // không giữ lại, bản ghi đó thành không hợp lệ và người ta bị tính vắng.
+        await createMeetingEdit(admin.page, origin, deptMeetingId, {
+            title: 'Họp tổ TG TA (đã dời giờ)',
+            checkInStart: hhmm(30),
+            checkInClose: hhmm(75)
+        });
+        const afterEdit = await admin.page.evaluate(async (month, meetingId) => {
+            const meetings = await DBService.getMeetingsForMonth(month);
+            const meeting = meetings.find(m => m.id === meetingId);
+            const logs = await DBService.getMeetingAttendance(meetingId);
+            const mine = logs.find(l => l.userId === 'meet-ta');
+            return {
+                title: meeting.title,
+                checkInStart: meeting.checkInStart,
+                status: mine?.status,
+                preservedByEdit: mine?.preservedByEdit === true,
+                valid: window.MeetingAttendancePolicy.isValidAttendance(mine, meeting)
+            };
+        }, monthStr(), deptMeetingId);
+        assert.equal(afterEdit.title, '[Trực tiếp] Họp tổ TG TA (đã dời giờ)', 'tiêu đề phải được cập nhật');
+        assert.equal(afterEdit.checkInStart, hhmm(30), 'giờ mở điểm danh phải được dời');
+        assert.equal(afterEdit.status, 'Có', 'trạng thái đã điểm danh không được mất');
+        assert.equal(afterEdit.preservedByEdit, true, 'lượt điểm danh cũ phải được chốt lại khi dời giờ');
+        assert.equal(afterEdit.valid, true, 'lượt điểm danh cũ phải vẫn hợp lệ sau khi sửa lịch');
+        await admin.page.waitForFunction(
+            () => document.querySelector('#meetings-tbody tr[data-user-id="meet-ta"] .hop-ta-select')?.value === 'Có',
+            { timeout: 30000 });
+
+        // Không cho đổi bộ phận hay nhảy sang tháng khác.
+        const rejected = await admin.page.evaluate(async meetingId => {
+            const out = {};
+            try { await DBService.updateMeeting(meetingId, { department: 'TIẾP TÂN' }); out.dept = 'allowed'; }
+            catch (e) { out.dept = e.message; }
+            try { await DBService.updateMeeting(meetingId, { date: '2020-01-05' }); out.month = 'allowed'; }
+            catch (e) { out.month = e.message; }
+            return out;
+        }, deptMeetingId);
+        assert.match(rejected.dept, /Không thể đổi bộ phận/);
+        assert.match(rejected.month, /cùng một tháng/);
+
         // --- 6. Buổi "Tự chọn thành viên" + điểm danh sẵn tất cả ----------
         const customMeeting = {
             title: 'Họp toàn trung tâm', type: 'online', department: 'CUSTOM',
@@ -333,13 +423,20 @@ async function main() {
 
         // Thẻ của buổi tự chọn trên trang nhân viên phải hiện là đã ghi nhận,
         // không còn mời bấm điểm danh nữa.
+        // Buổi họp tổ vừa bị dời giờ mở điểm danh sang tương lai nên nó rời khu
+        // "cần điểm danh hôm nay"; chỉ còn buổi tự chọn ở đó.
         await staff.page.reload({ waitUntil: 'domcontentloaded' });
         await staff.page.waitForFunction(
-            () => document.querySelectorAll('#today-grid .hero-card').length >= 2, { timeout: 30000 });
+            () => /Họp toàn trung tâm/.test(document.getElementById('today-grid')?.innerText || ''),
+            { timeout: 30000 });
         const heroTexts = await staff.page.evaluate(
             () => Array.from(document.querySelectorAll('#today-grid .hero-card')).map(c => c.innerText));
         const customHero = heroTexts.find(t => /Họp toàn trung tâm/.test(t));
         assert.ok(customHero, 'nhân viên phải thấy buổi họp tự chọn');
+        const upcomingText = await staff.page.evaluate(
+            () => document.getElementById('upcoming-grid')?.innerText || '');
+        assert.match(upcomingText, /Họp tổ TG TA \(đã dời giờ\)/,
+            'buổi vừa dời giờ phải chuyển sang mục "Sắp tới" với tiêu đề mới: ' + upcomingText);
         assert.match(customHero, /Đã điểm danh|Đã ghi nhận/, 'buổi đã điểm danh sẵn không được mời bấm lại: ' + customHero);
 
         // Danh sách "Lịch Đã Tạo" phải đếm đúng số người đã điểm danh.
@@ -374,6 +471,15 @@ async function main() {
         assert.equal(customEvidence.member, 'Có', 'đã điểm danh buổi tự chọn phải được ghi nhận cho tổ của mình');
         assert.equal(customEvidence.notMember, 'Không họp', 'người ngoài tổ không nhận bằng chứng này');
 
+        // Buổi tự chọn KHÔNG được ghi vào bảng điểm danh tháng: một ô "Có" còn
+        // lại ở đó sẽ che mất buổi họp tổ mà người này bỏ lỡ.
+        const customLogTouch = await admin.page.evaluate(async month => {
+            const log = await DBService.getMonthlyMeetings(month);
+            return log?.records?.['meet-ta2']?.hop_tg_tieng_anh || null;
+        }, monthStr());
+        assert.equal(customLogTouch, 'Vắng phép',
+            'ô của meet-ta2 phải vẫn là quyết định của admin, không bị buổi tự chọn ghi đè: ' + customLogTouch);
+
         // --- 8. Xóa cuộc họp dọn sạch bản ghi điểm danh -------------------
         const afterDelete = await admin.page.evaluate(async (month, meetingId) => {
             await DBService.deleteMeeting(meetingId);
@@ -383,6 +489,23 @@ async function main() {
         }, monthStr(), preMarked.id);
         assert.equal(afterDelete.count, 1, 'xóa xong chỉ còn lại buổi họp tổ');
         assert.equal(afterDelete.logs, 0, 'xóa cuộc họp phải xóa cả bản ghi điểm danh');
+
+        // --- 9. Xóa buổi họp tổ dọn luôn ô đã lưu trong bảng tháng --------
+        // Nếu để lại, ô "Vắng phép" của một cuộc họp không còn tồn tại vẫn thắng
+        // "Chưa điểm danh" và người ta bị trừ lương vì một buổi họp đã bị xóa.
+        const afterDeptDelete = await admin.page.evaluate(async (month, meetingId) => {
+            await DBService.deleteMeeting(meetingId);
+            const log = await DBService.getMonthlyMeetings(month);
+            const meetings = await DBService.getMeetingsForMonth(month);
+            return {
+                remaining: meetings.length,
+                ta: log?.records?.['meet-ta']?.hop_tg_tieng_anh ?? null,
+                ta2: log?.records?.['meet-ta2']?.hop_tg_tieng_anh ?? null
+            };
+        }, monthStr(), deptMeetingId);
+        assert.equal(afterDeptDelete.remaining, 0, 'tháng không còn cuộc họp nào');
+        assert.equal(afterDeptDelete.ta, null, 'ô mồ côi của meet-ta phải được dọn');
+        assert.equal(afterDeptDelete.ta2, null, 'ô mồ côi của meet-ta2 phải được dọn');
 
         for (const session of sessions) {
             assert.deepEqual(session.errors, [], 'trang không được có lỗi JavaScript: ' + session.errors.join(' | '));

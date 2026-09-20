@@ -1342,6 +1342,39 @@ test('meeting attendance is deterministic and owner-only for staff', async () =>
     await assertFails(getDoc(doc(staffDb, 'meeting_attendance', 'meeting-1_staff-2')));
 });
 
+test('staff cannot self-certify a meeting check-in as admin-confirmed', async () => {
+    const ref = doc(staffDb, 'meeting_attendance', 'meeting-flag_staff-1');
+    const base = { meetingId: 'meeting-flag', userId: 'staff-1', userName: 'Staff One' };
+    // adminOverride/preMarked làm bản ghi hợp lệ ở mọi trang kể cả ngoài khung
+    // giờ điểm danh, nên nhân viên không được tự đặt.
+    await assertFails(setDoc(ref, { ...base, status: 'Có', adminOverride: true }));
+    await assertFails(setDoc(ref, { ...base, status: 'Có', preMarked: true }));
+    // "Vắng đột xuất" là quyết định của admin.
+    await assertFails(setDoc(ref, { ...base, status: 'Vắng đột xuất' }));
+    // Các trạng thái mà chính giao diện nhân viên tạo ra vẫn ghi được.
+    await assertSucceeds(setDoc(ref, { ...base, status: 'Có', checkInTime: '2026-09-20T08:10:00' }));
+    await assertSucceeds(setDoc(ref, { ...base, status: 'Vắng phép', rsvp: 'no' }, { merge: true }));
+    await assertSucceeds(setDoc(ref, { ...base, status: 'Vắng không phép', autoNoShow: true }, { merge: true }));
+});
+
+test('staff cannot overwrite an attendance status the admin has decided', async () => {
+    const id = 'meeting-locked_staff-1';
+    await env.withSecurityRulesDisabled(async context => {
+        await setDoc(doc(context.firestore(), 'meeting_attendance', id), {
+            meetingId: 'meeting-locked', userId: 'staff-1', userName: 'Staff One',
+            status: 'Vắng không phép', adminOverride: true
+        });
+    });
+    await assertFails(setDoc(doc(staffDb, 'meeting_attendance', id), {
+        meetingId: 'meeting-locked', userId: 'staff-1', userName: 'Staff One', status: 'Có'
+    }, { merge: true }));
+    // Admin vẫn sửa lại được quyết định của chính mình.
+    await assertSucceeds(setDoc(doc(adminDb, 'meeting_attendance', id), {
+        meetingId: 'meeting-locked', userId: 'staff-1', userName: 'Staff One',
+        status: 'Có', adminOverride: true
+    }, { merge: true }));
+});
+
 async function main() {
     env = await initializeTestEnvironment({
         projectId: PROJECT_ID,

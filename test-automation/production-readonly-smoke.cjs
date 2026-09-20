@@ -9,10 +9,10 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260920-meeting-flow-v1';
-const serviceWorkerCacheName = 'tdt-chamcong-v191-meeting-flow-20260920';
+const serviceWorkerCacheName = 'tdt-chamcong-v192-meeting-edit-20260921';
 const reportVersion = '20260920-meeting-flow-v1';
 const scheduleVersion = '20260919-attendance-roster-v1';
-const attendanceVersion = '20260920-meeting-flow-v1';
+const attendanceVersion = '20260921-meeting-edit-v1';
 const timekeepingVersion = '20260919-resume-schedule-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
 const pinnedLucide = 'https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js';
@@ -67,7 +67,7 @@ const digest = value => crypto.createHash('sha256')
             return !!(await cache.match('/js/main.js?v=20260920-meeting-flow-v1')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20260919-resume-schedule-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
-                !!(await cache.match('/js/db-service.js?v=20260920-meeting-flow-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20260921-meeting-edit-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20260919-attendance-roster-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);

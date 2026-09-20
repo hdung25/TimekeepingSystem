@@ -296,7 +296,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260920-meeting-flow-v1'></script> <script src='js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260921-meeting-edit-v1'></script> <script src='js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
 
@@ -735,6 +735,14 @@
         function mmRsvpArea(m, log) {
             const attended = log && (log.status === 'Có' || log.status === 'Trễ') && mmIsValidCheckIn(log, m);
             if (attended) return '';
+            // Admin đã chốt trạng thái: nhân viên không ghi đè được (rules cũng
+            // chặn), nên hiện kết quả thay vì một nút bấm chắc chắn báo lỗi.
+            if (log && log.adminOverride) {
+                return `<div class="rsvp-box">
+                    <div class="rsvp-state no">${svgIcon(ICON.timer)}<span>Quản lý đã ghi nhận: ${mmEsc(log.status || 'Chưa xác định')}</span></div>
+                    <div style="font-size:0.76rem;color:var(--text-muted);margin-top:0.35rem;">Cần thay đổi, vui lòng báo quản lý.</div>
+                </div>`;
+            }
             const rsvp = log && log.rsvp;
             if (rsvp === 'yes') {
                 return `<div class="rsvp-box">
