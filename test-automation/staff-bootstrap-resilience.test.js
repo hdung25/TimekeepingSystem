@@ -75,7 +75,7 @@ assert.match(timekeeping, /getStaffAttendanceErrorMessage\(e\)/,
 assert.doesNotMatch(timekeeping, /<p style="color:red">Lỗi tải trạng thái<\/p>/,
     'Attendance load failures must offer a recovery action, not a dead-end error');
 
-assert.match(worker, /tdt-chamcong-v190-attendance-resume-20260919/);
+assert.match(worker, /tdt-chamcong-v191-meeting-flow-20260920/);
 assert.match(worker, /startup-recovery\.js\?v=20260906-early10-recovery-v1/,
     'The watchdog must be part of the atomic PWA install manifest');
 assert.doesNotMatch(recovery, /DBService|firestore|attendance_logs|salary_settings|localStorage|sessionStorage|fetch\(/,

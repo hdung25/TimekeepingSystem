@@ -2,11 +2,12 @@
 (function (global) {
     'use strict';
 
-    const VERSION = 'meeting-payroll-20260911-v1';
+    const VERSION = 'meeting-payroll-20260920-v2';
     const PRESENT = new Set(['Có', 'Trễ']);
     const PERMITTED = new Set(['Vắng phép']);
     const UNPERMITTED = new Set(['Vắng không phép', 'Vắng đột xuất']);
     const NEUTRAL = new Set(['Không họp', 'Chưa điểm danh', 'Chưa ghi nhận', 'Chưa diễn ra', 'Không xác định']);
+    const CUSTOM_DEPARTMENT = 'CUSTOM';
 
     function meetingTime(meeting, field, fallback) {
         const parts = String(meeting?.date || '').split('-').map(Number);
@@ -20,6 +21,13 @@
         return meeting?.department === department &&
             (!Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
                 meeting.attendees.includes(userId));
+    }
+
+    // Cuộc họp "Tự chọn thành viên" không thuộc tổ nào nên không có cột riêng
+    // trên lưới lương. Người được mời đích danh vẫn phải được ghi nhận.
+    function isCustomInvited(meeting, userId) {
+        return meeting?.department === CUSTOM_DEPARTMENT &&
+            Array.isArray(meeting.attendees) && meeting.attendees.includes(userId);
     }
 
     function isValidAttendance(log, meeting) {
@@ -38,18 +46,39 @@
         return null;
     }
 
-    function resolveDepartmentStatus({ meetings, attendanceByMeeting, userId, department, savedStatus, now = new Date() }) {
+    function resolveDepartmentStatus({
+        meetings, attendanceByMeeting, userId, department, savedStatus,
+        memberOfDepartment = false, now = new Date()
+    }) {
         if (!Array.isArray(meetings)) return 'Không xác định';
+
+        const statusOf = meeting => {
+            const logs = attendanceByMeeting?.[meeting.id];
+            if (!Array.isArray(logs)) return null;
+            const log = logs.find(item => item.userId === userId);
+            return isValidAttendance(log, meeting) ? log.status : null;
+        };
+
         const invited = meetings.filter(meeting => isInvited(meeting, userId, department));
-        if (invited.length === 0) return 'Không họp';
+
+        // Không có buổi họp nào của tổ này. Buổi "Tự chọn thành viên" mà người
+        // này được mời đích danh và ĐÃ điểm danh vẫn là bằng chứng có đi họp,
+        // nên được dùng thay cho "Không họp". Danh sách mời của buổi tự chọn là
+        // thủ công nên không bao giờ suy ra một buổi vắng từ đó.
+        if (invited.length === 0) {
+            if (!memberOfDepartment) return 'Không họp';
+            const customRecorded = meetings
+                .filter(meeting => isCustomInvited(meeting, userId))
+                .map(statusOf)
+                .filter(Boolean);
+            return strongestStatus(customRecorded) || 'Không họp';
+        }
 
         const recorded = [];
         let endedWithoutAttendance = false;
         invited.forEach(meeting => {
-            const logs = attendanceByMeeting?.[meeting.id];
-            if (!Array.isArray(logs)) return;
-            const log = logs.find(item => item.userId === userId);
-            if (isValidAttendance(log, meeting)) recorded.push(log.status);
+            const status = statusOf(meeting);
+            if (status) recorded.push(status);
             else {
                 const endedAt = meetingTime(meeting, 'endTime', '23:59');
                 if (endedAt && now > endedAt) endedWithoutAttendance = true;
@@ -88,7 +117,9 @@
 
     global.MeetingAttendancePolicy = {
         VERSION,
+        CUSTOM_DEPARTMENT,
         isInvited,
+        isCustomInvited,
         isValidAttendance,
         resolveDepartmentStatus,
         calculateMonthly

@@ -272,8 +272,8 @@
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
     <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/db-service.js?v=20260919-attendance-resume-v1'></script>
-    <script src='js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1'></script>
+    <script src='js/db-service.js?v=20260920-meeting-flow-v1'></script>
+    <script src='js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
 
@@ -561,6 +561,7 @@
                                     <option value="TIẾP TÂN">Tiếp Tân</option>
                                     <option value="CUSTOM">Tự chọn thành viên họp</option>
                                 </select>
+                                <p id="meeting-dept-hint" style="margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--text-muted); line-height: 1.45;"></p>
                             </div>
                             
                             <div id="custom-attendees-container" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: #F9FAFB; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -688,7 +689,7 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260919-review-v1"></script>
+    <script src="js/main.js?v=20260920-meeting-flow-v1"></script>
     <script src="js/auth-helper.js?v=20260906-early10-recovery-v1"></script>
     
     <script>
@@ -880,12 +881,19 @@
             return parts.length > 0 ? parts.join(' / ') : 'TG TA';
         }
 
-        function getInvitedDepartmentMeetings(userId, department) {
-            return monthlyMeetingsList.filter(meeting =>
-                meeting.department === department &&
-                (!Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
-                    meeting.attendees.includes(userId))
-            );
+        // Cuộc họp mà người này phải dự cho cột `department`. Buổi "Tự chọn
+        // thành viên" không thuộc tổ nào, nhưng nếu người này được mời đích danh
+        // và có phụ trách tổ đó thì cột phải mở để admin xem/sửa được — nếu
+        // không, bằng chứng đi họp của buổi tự chọn sẽ bị khoá thành "Không họp".
+        function getInvitedDepartmentMeetings(userId, department, hasRole = true) {
+            return monthlyMeetingsList.filter(meeting => {
+                if (meeting.department === department) {
+                    return !Array.isArray(meeting.attendees) || meeting.attendees.length === 0 ||
+                        meeting.attendees.includes(userId);
+                }
+                return hasRole && meeting.department === 'CUSTOM' &&
+                    Array.isArray(meeting.attendees) && meeting.attendees.includes(userId);
+            });
         }
 
         function updateRowMeetingSelectStates(row) {
@@ -902,7 +910,7 @@
 
             if (selectTa) {
                 const hasRole = specLabel.includes('TG TA');
-                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG TA').length > 0;
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG TA', hasRole).length > 0;
                 selectTa.disabled = !hasRole || !hasMeeting;
                 if (!hasRole || !hasMeeting) {
                     selectTa.value = 'Không họp';
@@ -914,7 +922,7 @@
             
             if (selectTtv) {
                 const hasRole = specLabel.includes('TG T-TV');
-                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG T-TV').length > 0;
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG T-TV', hasRole).length > 0;
                 selectTtv.disabled = !hasRole || !hasMeeting;
                 if (!hasRole || !hasMeeting) {
                     selectTtv.value = 'Không họp';
@@ -926,7 +934,7 @@
 
             if (selectTtd) {
                 const hasRole = specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD');
-                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TOÁN TƯ DUY').length > 0;
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TOÁN TƯ DUY', hasRole).length > 0;
                 selectTtd.disabled = !hasRole || !hasMeeting;
                 if (!hasRole || !hasMeeting) {
                     selectTtd.value = 'Không họp';
@@ -938,7 +946,7 @@
             
             if (selectTt) {
                 const hasRole = specLabel.includes('TIẾP TÂN') || specLabel.includes('TT');
-                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TIẾP TÂN').length > 0;
+                const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TIẾP TÂN', hasRole).length > 0;
                 selectTt.disabled = !hasRole || !hasMeeting;
                 if (!hasRole || !hasMeeting) {
                     selectTt.value = 'Không họp';
@@ -1027,13 +1035,23 @@
                 // Helper to resolve auto attendance status
                 // Xét TẤT CẢ cuộc họp đúng bộ phận mà user này được mời (attendees) —
                 // ưu tiên trạng thái đã điểm danh; nếu có họp đã kết thúc mà chưa điểm danh → Vắng không phép.
+                const specUpper = (specLabel || '').toUpperCase();
+                const belongsTo = dept => {
+                    if (dept === 'TG TA') return specUpper.includes('TG TA');
+                    if (dept === 'TG T-TV') return specUpper.includes('TG T-TV');
+                    if (dept === 'TOÁN TƯ DUY') return specUpper.includes('TOÁN TƯ DUY') || specUpper.includes('TTD');
+                    if (dept === 'TIẾP TÂN') return specUpper.includes('TIẾP TÂN');
+                    return false;
+                };
+
                 function resolveAutoStatus(dept, savedValue) {
                     return MeetingAttendancePolicy.resolveDepartmentStatus({
                         meetings: monthlyMeetingsList,
                         attendanceByMeeting: monthlyAttendanceMap,
                         userId,
                         department: dept,
-                        savedStatus: savedValue
+                        savedStatus: savedValue,
+                        memberOfDepartment: belongsTo(dept)
                     });
                 }
 
@@ -1336,6 +1354,13 @@
                 });
             }
             
+            const hint = document.getElementById('meeting-dept-hint');
+            if (hint) {
+                hint.innerText = dept === 'CUSTOM'
+                    ? 'Buổi tự chọn không có cột riêng trên bảng điểm danh tháng. Người đã điểm danh vẫn được tính "Có" cho tổ của mình khi tháng đó tổ không có buổi họp riêng; nhưng vắng mặt ở buổi tự chọn KHÔNG bị trừ.'
+                    : 'Kết quả điểm danh sẽ tự động đổ vào cột tương ứng trên bảng điểm danh tháng và tiêu chí X của bảng lương.';
+            }
+
             // Clear search & filters on department change
             const searchInput = document.getElementById('attendee-search-input');
             const roleFilter = document.getElementById('attendee-role-filter');
@@ -1485,8 +1510,10 @@
         function openCreateMeetingModal() {
             document.getElementById('create-meeting-form').reset();
             // Preset date to today
+            // toISOString() trả giờ UTC: trước 07:00 giờ Việt Nam nó lùi về hôm
+            // qua và lịch họp bị tạo sai ngày. Luôn lấy ngày theo giờ máy.
             const today = new Date();
-            const todayStr = today.toISOString().split('T')[0];
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             document.getElementById('meeting-date').value = todayStr;
             
             // Default select to TG TA
@@ -1580,9 +1607,16 @@
                             specialty: u ? formatUserSpecialty(u) : ""
                         };
                     });
-                    // Bulk check-in — đánh dấu "Có" ngay trên bảng & bảng lương
-                    await DBService.checkInMeetingBulk(meetingId, attendeeDetails, "Có");
-                    UIService.toast("Tạo lịch họp và điểm danh sẵn tất cả thành công!", "success");
+                    // Bulk check-in — đánh dấu "Có" ngay trên bảng & bảng lương.
+                    // Lịch họp đã được tạo ở trên: nếu bước này hỏng thì báo riêng,
+                    // tuyệt đối không để admin bấm lại và tạo trùng cuộc họp.
+                    try {
+                        await DBService.checkInMeetingBulk(meetingId, attendeeDetails, "Có");
+                        UIService.toast("Tạo lịch họp và điểm danh sẵn tất cả thành công!", "success");
+                    } catch (bulkErr) {
+                        console.error("Error pre-marking meeting attendance:", bulkErr);
+                        UIService.toast("Đã tạo lịch họp, nhưng chưa điểm danh sẵn được. Hãy đánh dấu thủ công ở mục Thống Kê.", "error");
+                    }
                 } else {
                     // Chế độ tự điểm danh: không đánh dấu sẵn, nhân viên sẽ tự bấm ở trang "Họp Của Tôi"
                     UIService.toast(`Đã tạo lịch họp! ${attendees.length} nhân sự có thể tự điểm danh trong khung giờ.`, "success");
@@ -1861,11 +1895,12 @@
                     activeAttendanceMap[m.id] = logs;
 
                     const requiredCount = employeesList.filter(user => {
-                        if (m.attendees && Array.isArray(m.attendees)) {
+                        // Danh sách mời rỗng nghĩa là "cả tổ", không phải "không ai".
+                        if (Array.isArray(m.attendees) && m.attendees.length > 0) {
                             return m.attendees.includes(user.id);
                         }
                         const userSpecs = formatUserSpecialty(user).toUpperCase();
-                        const deptKey = m.department.toUpperCase();
+                        const deptKey = (m.department || '').toUpperCase();
                         if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
                         if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
                         if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
@@ -2014,11 +2049,12 @@
 
                 const dept = meeting.department;
                 const requiredUsers = employeesList.filter(user => {
-                    if (meeting.attendees && Array.isArray(meeting.attendees)) {
+                    // Danh sách mời rỗng nghĩa là "cả tổ", không phải "không ai".
+                    if (Array.isArray(meeting.attendees) && meeting.attendees.length > 0) {
                         return meeting.attendees.includes(user.id);
                     }
                     const userSpecs = formatUserSpecialty(user).toUpperCase();
-                    const deptKey = dept.toUpperCase();
+                    const deptKey = (dept || '').toUpperCase();
                     if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
                     if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
                     if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
@@ -2170,11 +2206,11 @@
 
                 activeMeetingsInStats.forEach(m => {
                     let isRequired = false;
-                    if (m.attendees && Array.isArray(m.attendees)) {
+                    if (Array.isArray(m.attendees) && m.attendees.length > 0) {
                         isRequired = m.attendees.includes(userId);
                     } else {
                         const userSpecs = specLabel.toUpperCase();
-                        const deptKey = m.department.toUpperCase();
+                        const deptKey = (m.department || '').toUpperCase();
                         if (deptKey === 'TG TA') isRequired = userSpecs.includes('TG TA');
                         else if (deptKey === 'TG T-TV') isRequired = userSpecs.includes('TG T-TV');
                         else if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') isRequired = userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
@@ -2235,11 +2271,11 @@
 
                 const dept = m.department;
                 const requiredUsers = employeesList.filter(user => {
-                    if (m.attendees && Array.isArray(m.attendees)) {
+                    if (Array.isArray(m.attendees) && m.attendees.length > 0) {
                         return m.attendees.includes(user.id);
                     }
                     const userSpecs = formatUserSpecialty(user).toUpperCase();
-                    const deptKey = dept.toUpperCase();
+                    const deptKey = (dept || '').toUpperCase();
                     if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
                     if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
                     if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');

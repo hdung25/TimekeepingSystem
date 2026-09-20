@@ -9227,6 +9227,27 @@ const DBService = {
 
     // ================= PERIODIC MEETING AUTOMATION =================
 
+    // Một chỗ duy nhất ánh xạ bộ phận họp -> cột trên bảng điểm danh tháng.
+    // Buổi "Tự chọn thành viên" (CUSTOM) không thuộc cột nào; bằng chứng đi họp
+    // của nó nằm ở meeting_attendance và được MeetingAttendancePolicy đọc ra.
+    _meetingLogField: (department) => ({
+        'TG TA': 'hop_tg_tieng_anh',
+        'TG T-TV': 'hop_tg_t_tv',
+        'TOÁN TƯ DUY': 'hop_toan_tu_duy',
+        'TIẾP TÂN': 'hop_tiep_tan'
+    })[department] || '',
+
+    // Mốc giờ mở điểm danh của buổi họp, dùng làm giờ ghi nhận khi admin đánh
+    // dấu sẵn "Có" lúc tạo lịch (tạo trước ngày họp nên không thể dùng giờ hiện tại).
+    _meetingCheckInOpenISO: (meeting) => {
+        const parts = String(meeting?.date || '').split('-').map(Number);
+        if (parts.length !== 3 || parts.some(value => !Number.isFinite(value))) return new Date().toISOString();
+        const time = String(meeting?.checkInStart || '00:00').split(':').map(Number);
+        const hour = Number.isFinite(time[0]) ? time[0] : 0;
+        const minute = Number.isFinite(time[1]) ? time[1] : 0;
+        return new Date(parts[0], parts[1] - 1, parts[2], hour, minute, 0).toISOString();
+    },
+
     createMeeting: async (meetingData) => {
         try {
             const docRef = await db.collection('meetings').add({
@@ -9343,12 +9364,7 @@ const DBService = {
                 const mDate = mData.date;
                 if (dept && mDate) {
                     const monthStr = mDate.substring(0, 7);
-                    
-                    let fieldName = '';
-                    if (dept === 'TG TA') fieldName = 'hop_tg_tieng_anh';
-                    else if (dept === 'TG T-TV') fieldName = 'hop_tg_t_tv';
-                    else if (dept === 'TOÁN TƯ DUY') fieldName = 'hop_toan_tu_duy';
-                    else if (dept === 'TIẾP TÂN') fieldName = 'hop_tiep_tan';
+                    const fieldName = DBService._meetingLogField(dept);
 
                     if (fieldName) {
                         const logRef = db.collection('meetings_log').doc(monthStr);
@@ -9521,11 +9537,7 @@ const DBService = {
                 const mDate = mData.date;
                 if (dept && mDate) {
                     const monthStr = mDate.substring(0, 7);
-                    let fieldName = '';
-                    if (dept === 'TG TA') fieldName = 'hop_tg_tieng_anh';
-                    else if (dept === 'TG T-TV') fieldName = 'hop_tg_t_tv';
-                    else if (dept === 'TOÁN TƯ DUY') fieldName = 'hop_toan_tu_duy';
-                    else if (dept === 'TIẾP TÂN') fieldName = 'hop_tiep_tan';
+                    const fieldName = DBService._meetingLogField(dept);
 
                     if (fieldName) {
                         const logRef = db.collection('meetings_log').doc(monthStr);
@@ -9550,31 +9562,36 @@ const DBService = {
         }
     },
 
+    // Admin đánh dấu sẵn cả phòng (dùng khi họp trực tiếp, không bấm điểm danh).
+    // Bản ghi phải mang adminOverride để MỌI trang (lưới lương, thống kê, thẻ
+    // "Họp Của Tôi") đều công nhận — nếu không, quy tắc "chỉ hợp lệ khi điểm
+    // danh sau giờ mở" sẽ vô hiệu hoá bản ghi tạo trước ngày họp và các trang
+    // sẽ mâu thuẫn nhau. Giờ ghi nhận lấy theo giờ MỞ ĐIỂM DANH của buổi họp.
     checkInMeetingBulk: async (meetingId, attendees, status) => {
         try {
             const meetingDoc = await db.collection('meetings').doc(meetingId).get();
             if (!meetingDoc.exists) return false;
-            
+
             const mData = meetingDoc.data();
             const mDate = mData.date;
             if (!mDate) return false;
-            
+
             const monthStr = mDate.substring(0, 7);
-            const checkInTime = new Date().toISOString();
+            const checkInTime = DBService._meetingCheckInOpenISO(mData);
             const batch = db.batch();
-            
-            // Read or initialize the monthly meetings log document
-            const logRef = db.collection('meetings_log').doc(monthStr);
-            const logDoc = await logRef.get();
-            let logData = logDoc.exists ? logDoc.data() : { month: monthStr, records: {} };
-            if (!logData.records) logData.records = {};
-            
+
+            // Buổi họp của một tổ chỉ được ghi vào đúng cột của tổ đó. Trước đây
+            // hệ thống ghi theo chuyên môn của người dự, nên một buổi họp TG TA
+            // có thể ghi nhầm sang cột Tiếp Tân của người kiêm nhiệm.
+            const meetingField = DBService._meetingLogField(mData.department);
+            const logRecords = {};
+
             attendees.forEach(att => {
                 const userId = att.id;
+                if (!userId) return;
                 const userName = att.name;
-                const spec = att.specialty || '';
-                
-                // Write/merge the attendance document
+                const spec = String(att.specialty || '').toUpperCase();
+
                 const attendanceRef = db.collection('meeting_attendance').doc(`${meetingId}_${userId}`);
                 batch.set(attendanceRef, {
                     meetingId,
@@ -9582,32 +9599,37 @@ const DBService = {
                     userName,
                     status,
                     checkInTime,
+                    adminOverride: true,
+                    preMarked: true,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
-                
-                // Merge in meetings_log
-                if (!logData.records[userId]) {
-                    logData.records[userId] = {};
+
+                const fields = {};
+                if (meetingField) {
+                    fields[meetingField] = status;
+                } else {
+                    // CUSTOM: không có cột riêng -> ghi vào (các) cột mà người
+                    // này phụ trách, đúng như bằng chứng mà lưới sẽ đọc lại.
+                    if (spec.includes('TG TA')) fields.hop_tg_tieng_anh = status;
+                    if (spec.includes('TG T-TV')) fields.hop_tg_t_tv = status;
+                    if (spec.includes('TOÁN TƯ DUY') || spec.includes('TTD')) fields.hop_toan_tu_duy = status;
+                    if (spec.includes('TIẾP TÂN')) fields.hop_tiep_tan = status;
                 }
-                
-                const specUpper = spec.toUpperCase();
-                if (specUpper.includes('TG TA')) {
-                    logData.records[userId].hop_tg_tieng_anh = status;
-                }
-                if (specUpper.includes('TG T-TV')) {
-                    logData.records[userId].hop_tg_t_tv = status;
-                }
-                if (specUpper.includes('TOÁN TƯ DUY') || specUpper.includes('TTD')) {
-                    logData.records[userId].hop_toan_tu_duy = status;
-                }
-                if (specUpper.includes('TIẾP TÂN') || specUpper.includes('TT')) {
-                    logData.records[userId].hop_tiep_tan = status;
-                }
+                if (Object.keys(fields).length > 0) logRecords[userId] = fields;
             });
-            
-            batch.set(logRef, logData, { merge: true });
+
+            // set(..., merge) hợp nhất sâu từng trường, nên không đọc-rồi-ghi đè
+            // cả tài liệu: thao tác song song của admin khác không bị mất.
+            if (Object.keys(logRecords).length > 0) {
+                batch.set(db.collection('meetings_log').doc(monthStr), {
+                    month: monthStr,
+                    records: logRecords,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+
             await batch.commit();
-            
+
             DBService._invalidate(`monthly_meetings_${monthStr}`);
             return true;
         } catch (error) {

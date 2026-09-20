@@ -1,7 +1,7 @@
-// Service Worker v190 - fresh staff schedules and guarded admin attendance edits.
+// Service Worker v191 - consistent meeting attendance across admin, staff and payroll.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v190-attendance-resume-20260919';
+const CACHE_NAME = 'tdt-chamcong-v191-meeting-flow-20260920';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -35,12 +35,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review-service.js?v=20260919-review-v1',
     '/js/salary-review-notifications.js?v=20260919-review-v1',
     '/js/salary-review.js?v=20260919-review-v1',
-    '/js/main.js?v=20260919-review-v1',
+    '/js/main.js?v=20260920-meeting-flow-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260919-attendance-resume-v1',
-    '/js/meeting-attendance-policy.js?v=20260911-meeting-sync-v1',
-    '/js/report.js?v=20260918-payslip-status-sync-v1',
+    '/js/db-service.js?v=20260920-meeting-flow-v1',
+    '/js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1',
+    '/js/report.js?v=20260920-meeting-flow-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',

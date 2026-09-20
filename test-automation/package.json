@@ -10,6 +10,7 @@
     "test:payroll-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node payroll-ui-flow.test.js\"",
     "test:rules": "firebase emulators:exec --only firestore --project demo-timekeeping --config ../firebase.json \"node firestore-rules.test.js && node attendance-rules-integration.test.js && node financial-concurrency-rules.test.js && node auto-checkout-rules.test.js && node salary-review-rules.test.js\"",
     "test:browser": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node browser-staff-flow.test.js\"",
+    "test:meeting-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node meeting-flow-ui.test.js\"",
     "test:salary-review-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node salary-review-ui-flow.test.js\""
   },
   "keywords": [],

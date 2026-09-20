@@ -1985,6 +1985,23 @@ window.formatUserSpecialty = function(user) {
     return parts.length > 0 ? parts.join(' / ') : 'TG TA';
 };
 
+// Quy tắc DUY NHẤT để nói "đã điểm danh họp", dùng chung cho banner chấm công,
+// trang Họp Của Tôi và lưới họp của admin. Ưu tiên MeetingAttendancePolicy khi
+// trang có nạp; bản dự phòng ở đây giữ nguyên cùng một luật.
+window.isValidMeetingCheckIn = function(log, meeting) {
+    if (window.MeetingAttendancePolicy?.isValidAttendance) {
+        return window.MeetingAttendancePolicy.isValidAttendance(log, meeting);
+    }
+    if (!log || !log.status || log.status === 'Chưa điểm danh') return false;
+    if (log.adminOverride === true || !log.checkInTime) return true;
+    const parts = String(meeting?.date || '').split('-').map(Number);
+    if (parts.length !== 3 || parts.some(value => !Number.isFinite(value))) return true;
+    const time = String(meeting?.checkInStart || '00:00').split(':').map(Number);
+    const openedAt = new Date(parts[0], parts[1] - 1, parts[2], time[0] || 0, time[1] || 0, 0);
+    const recordedAt = new Date(log.checkInTime);
+    return Number.isFinite(recordedAt.getTime()) && recordedAt >= openedAt;
+};
+
 window.checkAndRenderMeetingBanner = async function() {
     const container = document.getElementById('meeting-banner-container');
     if (!container) return;
@@ -2021,10 +2038,11 @@ window.checkAndRenderMeetingBanner = async function() {
         const userSpecs = specLabel.toUpperCase();
         
         const matchingMeetings = todayMeetings.filter(m => {
-            if (m.attendees && Array.isArray(m.attendees)) {
+            // Danh sách mời rỗng nghĩa là "cả tổ", không phải "không ai".
+            if (Array.isArray(m.attendees) && m.attendees.length > 0) {
                 return m.attendees.includes(currentUserId);
             }
-            let deptKey = m.department.toUpperCase();
+            let deptKey = (m.department || '').toUpperCase();
             if (deptKey === 'TG TA') return userSpecs.includes('TG TA');
             if (deptKey === 'TG T-TV') return userSpecs.includes('TG T-TV');
             if (deptKey === 'TOÁN TƯ DUY' || deptKey === 'TTD') return userSpecs.includes('TOÁN TƯ DUY') || userSpecs.includes('TTD');
@@ -2054,7 +2072,14 @@ window.checkAndRenderMeetingBanner = async function() {
             }
 
             const attendanceSnap = await db.collection('meeting_attendance').doc(`${meeting.id}_${currentUserId}`).get();
-            const attendanceData = attendanceSnap.exists ? attendanceSnap.data() : null;
+            const rawAttendance = attendanceSnap.exists ? attendanceSnap.data() : null;
+            // Một tài liệu meeting_attendance KHÔNG đồng nghĩa với đã điểm danh:
+            // bản ghi xác nhận tham gia (RSVP) chưa có trạng thái, và bản ghi
+            // tạo trước giờ mở điểm danh không hợp lệ. Nếu coi mọi tài liệu là
+            // "đã điểm danh", nút điểm danh biến mất và nhân viên bị tính vắng.
+            const attendanceData = window.isValidMeetingCheckIn(rawAttendance, meeting)
+                ? rawAttendance : null;
+            const rsvpState = rawAttendance?.rsvp || '';
 
             container.style.display = 'block';
             
@@ -2063,7 +2088,10 @@ window.checkAndRenderMeetingBanner = async function() {
             const ciRange = `${meeting.checkInStart} - ${meeting.checkInClose}`;
 
             if (attendanceData) {
-                const checkInTimeStr = new Date(attendanceData.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                const checkInAt = attendanceData.checkInTime ? new Date(attendanceData.checkInTime) : null;
+                const checkInTimeStr = checkInAt && Number.isFinite(checkInAt.getTime())
+                    ? checkInAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                    : '';
                 const isLate = attendanceData.status === 'Trễ';
                 const statusColor = isLate ? '#D97706' : '#059669';
                 
@@ -2104,7 +2132,7 @@ window.checkAndRenderMeetingBanner = async function() {
                                 border: 1.5px solid ${statusColor};
                             ">
                                 ${window.getIconHtml('check-circle', {width: '16', height: '16', stroke: statusColor})}
-                                Đã điểm danh (${attendanceData.status}) lúc ${checkInTimeStr}
+                                Đã điểm danh (${attendanceData.status})${checkInTimeStr ? ' lúc ' + checkInTimeStr : ''}
                             </span>
                         </div>
                     </div>
@@ -2134,6 +2162,11 @@ window.checkAndRenderMeetingBanner = async function() {
                                 <span style="display:inline-flex; align-items:center; gap:4px; margin-right: 1.25rem;">${window.getIconHtml('clock', {width: '14', height: '14'})} ${timeRange}</span>
                                 <span style="display:inline-flex; align-items:center; gap:4px;">${window.getIconHtml('clock', {width: '14', height: '14'})} Điểm danh: ${ciRange}</span>
                             </div>
+                            ${rsvpState === 'yes'
+                                ? '<div style="margin-top:0.4rem; font-size:0.8rem; font-weight:600; color:#047857;">Bạn đã xác nhận tham gia — vẫn cần bấm điểm danh để được ghi nhận.</div>'
+                                : (rsvpState === 'no'
+                                    ? '<div style="margin-top:0.4rem; font-size:0.8rem; font-weight:600; color:#4338CA;">Bạn đã báo vắng (có phép). Nếu vẫn dự họp, hãy bấm điểm danh.</div>'
+                                    : '')}
                         </div>
                         <div>
                             <button class="btn" onclick="checkInToMeeting('${meeting.id}', this)" style="
@@ -2205,9 +2238,38 @@ window.checkInToMeeting = async function(meetingId, btn) {
         const meeting = meetingDoc.data();
         const now = new Date();
         const [_y, _m, _d] = meeting.date.split('-').map(Number);
-        
+
+        const [ciSH, ciSM] = (meeting.checkInStart || '00:00').split(':').map(Number);
+        const ciStart = new Date(_y, _m - 1, _d, ciSH, ciSM, 0);
         const [ciCH, ciCM] = meeting.checkInClose.split(':').map(Number);
         const ciClose = new Date(_y, _m - 1, _d, ciCH, ciCM, 0);
+        const [eH, eM] = (meeting.endTime || '23:59').split(':').map(Number);
+        const mEnd = new Date(_y, _m - 1, _d, eH, eM, 0);
+
+        // Cùng một cửa sổ thời gian với trang "Họp Của Tôi" — banner không được
+        // là đường vòng để điểm danh sớm hoặc sau khi họp đã kết thúc.
+        if (now < ciStart) {
+            alert('Chưa tới giờ điểm danh.');
+            if (btn) btn.disabled = false;
+            return;
+        }
+        if (now > mEnd) {
+            alert('Cuộc họp đã kết thúc, không thể điểm danh.');
+            if (btn) btn.disabled = false;
+            return;
+        }
+
+        // Và cùng một điều kiện mạng/cơ sở. Trước đây banner bỏ qua bước này nên
+        // nhân viên vẫn điểm danh được từ xa dù admin đã bật "bắt buộc đúng IP mạng".
+        if (meeting.requireNetwork !== false) {
+            try {
+                await DBService.assertMeetingLocationAllowed();
+            } catch (gpsErr) {
+                alert(gpsErr.message || 'IP Mạng không hợp lệ! Vui lòng kết nối đúng Wifi của cơ sở để điểm danh.');
+                if (btn) btn.disabled = false;
+                return;
+            }
+        }
 
         let status = 'Có';
         if (now > ciClose) {

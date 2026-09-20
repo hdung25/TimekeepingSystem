@@ -2916,13 +2916,20 @@ async function loadMeetingPayrollSummary(staffId, monthStr, staffProfile = windo
     const attendanceByMeeting = Object.fromEntries(attendanceEntries);
     const savedRecord = meetingsLog?.records?.[staffId] || {};
     const specialty = String(staffProfile?.chuyen_mon || staffProfile?.specialty || staffProfile?.specialization || savedRecord.chuyen_mon || '').toUpperCase();
-    const specialtyMatches = department => {
-        if (department === 'TG TA') return specialty.includes('TG TA');
-        if (department === 'TG T-TV') return specialty.includes('TG T-TV');
-        if (department === 'TOÁN TƯ DUY') return specialty.includes('TOÁN TƯ DUY') || specialty.includes('TTD');
-        if (department === 'TIẾP TÂN') return specialty.includes('TIẾP TÂN') || specialty.includes('TT');
+    const matchesSpecialty = (value, department) => {
+        if (department === 'TG TA') return value.includes('TG TA');
+        if (department === 'TG T-TV') return value.includes('TG T-TV');
+        if (department === 'TOÁN TƯ DUY') return value.includes('TOÁN TƯ DUY') || value.includes('TTD');
+        if (department === 'TIẾP TÂN') return value.includes('TIẾP TÂN') || value.includes('TT');
         return false;
     };
+    const specialtyMatches = department => matchesSpecialty(specialty, department);
+    // Chỉ dùng để nhận bằng chứng ĐÃ đi họp ở buổi "Tự chọn thành viên". Suy ra
+    // chuyên môn từ hồ sơ ở đây là an toàn vì nhánh đó không bao giờ tạo mức trừ;
+    // `specialtyMatches` (có thể suy ra buổi vắng) vẫn chỉ tin dữ liệu đã lưu.
+    const profileSpecialty = specialty ||
+        String(window.formatUserSpecialty?.(staffProfile || {}) || '').toUpperCase();
+    const belongsToDepartment = department => matchesSpecialty(profileSpecialty, department);
     const statuses = {};
     MEETING_PAYROLL_DEPARTMENTS.forEach(([department, field, label]) => {
         // An empty attendees list means "the department", not every employee.
@@ -2938,11 +2945,18 @@ async function loadMeetingPayrollSummary(staffId, monthStr, staffProfile = windo
                 (attendanceByMeeting[meeting.id] || []).some(log => log.userId === staffId);
         });
         statuses[label] = MeetingAttendancePolicy.resolveDepartmentStatus({
-            meetings: applicableMeetings,
+            // Buổi "Tự chọn thành viên" không thuộc tổ nào. Truyền cả danh sách
+            // để chính sách dùng được bằng chứng đã điểm danh ở buổi tự chọn khi
+            // tổ này tháng đó không có buổi họp riêng.
+            meetings: applicableMeetings.concat(
+                scheduledMeetings.filter(meeting =>
+                    MeetingAttendancePolicy.isCustomInvited(meeting, staffId))
+            ),
             attendanceByMeeting,
             userId: staffId,
             department,
-            savedStatus: savedRecord[field]
+            savedStatus: savedRecord[field],
+            memberOfDepartment: belongsToDepartment(department)
         });
     });
     const calculation = MeetingAttendancePolicy.calculateMonthly(statuses);

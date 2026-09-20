@@ -14,6 +14,22 @@
     <link rel="stylesheet" href="css/style.css?v=20260906-early10-recovery-v1">
 
     <style>
+        .hero-absent-btn {
+            background: rgba(255, 255, 255, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            color: white;
+            font-weight: 600;
+            font-size: 0.82rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 10px;
+            cursor: pointer;
+            align-self: flex-start;
+        }
+
+        .hero-absent-btn:hover {
+            background: rgba(255, 255, 255, 0.28);
+        }
+
         .mymeet-stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -280,7 +296,7 @@
 
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260919-attendance-resume-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260920-meeting-flow-v1'></script> <script src='js/meeting-attendance-policy.js?v=20260920-meeting-flow-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
 
@@ -356,7 +372,7 @@
     </div>
 
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260919-review-v1"></script>
+    <script src="js/main.js?v=20260920-meeting-flow-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>
@@ -400,9 +416,13 @@
             return new Date(y, mo - 1, d, h, mi, 0);
         }
 
-        // Một bản ghi điểm danh CHỈ hợp lệ nếu được tạo sau khi khung giờ điểm danh mở.
-        // Vô hiệu hoá các bản ghi "điểm danh sẵn" tạo trước ngày họp (dữ liệu cũ).
+        // Dùng CHUNG một luật hợp lệ với lưới họp của admin và bảng lương
+        // (MeetingAttendancePolicy). Trang nào tự chép lại luật thì sớm muộn cũng
+        // lệch nhau và nhân viên thấy "đã điểm danh" trong khi lương ghi là vắng.
         function mmIsValidCheckIn(log, m) {
+            if (window.MeetingAttendancePolicy?.isValidAttendance) {
+                return window.MeetingAttendancePolicy.isValidAttendance(log, m);
+            }
             if (!log || !log.status) return false;
             if (log.status === 'Chưa điểm danh') return false;
             if (log.adminOverride) return true;   // admin chỉnh tay -> luôn hợp lệ
@@ -590,27 +610,41 @@
             const end = mmMk(m.date, m.endTime);
 
             const card = document.createElement('div');
-            // Chỉ coi là đã điểm danh khi bản ghi hợp lệ (tạo sau khi mở điểm danh)
-            const alreadyDone = mmIsValidCheckIn(log, m);
-            card.className = 'hero-card' + (alreadyDone ? ' done' : '');
-            if (!alreadyDone) card.style.animation = 'pulse-live 2.5s infinite';
+            // Chỉ coi là đã điểm danh khi bản ghi hợp lệ (tạo sau khi mở điểm danh).
+            // Một bản ghi "Vắng phép" do chính nhân viên báo KHÔNG phải là điểm
+            // danh: nếu cuối cùng họ vẫn dự họp thì phải bấm được để đổi thành Có.
+            const validLog = mmIsValidCheckIn(log, m) ? log : null;
+            const attended = !!validLog && (validLog.status === 'Có' || validLog.status === 'Trễ');
+            // Admin đã chốt trạng thái -> nhân viên không được tự ghi đè.
+            const lockedByAdmin = !!(log && log.adminOverride);
+            const canCheckIn = !attended && !lockedByAdmin;
+            card.className = 'hero-card' + (attended ? ' done' : '');
+            if (canCheckIn) card.style.animation = 'pulse-live 2.5s infinite';
 
             let actionHtml = '';
-            if (alreadyDone) {
-                const t = log.checkInTime ? new Date(log.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+            if (attended || lockedByAdmin) {
+                const shown = validLog || log;
+                const t = shown && shown.checkInTime ? new Date(shown.checkInTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+                const statusLabel = shown.status === 'Trễ' ? 'Đi trễ' : (shown.status === 'Có' ? 'Có mặt' : shown.status);
                 actionHtml = `
                     <div style="background: rgba(255,255,255,0.15); border-radius: 14px; padding: 0.9rem 1rem; display: flex; align-items: center; gap: 10px; font-weight: 700;">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        <span>Đã điểm danh: ${log.status === 'Trễ' ? 'Đi trễ' : (log.status === 'Có' ? 'Có mặt' : log.status)}${t ? ' lúc ' + t : ''}</span>
+                        <span>${attended ? 'Đã điểm danh' : 'Đã ghi nhận'}: ${statusLabel}${t && attended ? ' lúc ' + t : ''}</span>
                     </div>`;
             } else {
                 const willBeLate = now > ciClose;
                 const label = willBeLate ? 'Điểm danh (sẽ tính Trễ)' : 'Điểm danh ngay';
+                const reported = validLog
+                    ? `<div style="font-size:0.8rem; font-weight:600; opacity:0.95;">Bạn đã báo vắng (${mmEsc(validLog.status)}). Vẫn dự họp? Bấm điểm danh để đổi lại.</div>`
+                    : `<button type="button" class="hero-absent-btn" onclick="mmRsvpNo('${m.id}')">Không dự được — báo vắng có phép</button>`;
                 actionHtml = `
-                    <button class="hero-checkin-btn" data-mid="${m.id}" onclick="mmCheckIn('${m.id}', this)" ${willBeLate ? 'style="color:#B45309;"' : ''}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                        ${label}
-                    </button>`;
+                    <div style="display:flex; flex-direction:column; gap:0.6rem;">
+                        <button class="hero-checkin-btn" data-mid="${m.id}" onclick="mmCheckIn('${m.id}', this)" ${willBeLate ? 'style="color:#B45309;"' : ''}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            ${label}
+                        </button>
+                        ${reported}
+                    </div>`;
             }
 
             card.innerHTML = `
@@ -619,7 +653,7 @@
                         <div style="font-size:0.72rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; opacity:0.85;">Họp định kỳ hôm nay</div>
                         <div style="font-size:1.25rem; font-weight:800; margin-top:4px; line-height:1.3;">${mmCleanTitle(m)}</div>
                     </div>
-                    ${!alreadyDone ? `<span class="countdown-badge" data-countdown="${m.id}" data-close="${ciClose.getTime()}" data-end="${end.getTime()}">${svgIcon(ICON.hourglass)} --</span>` : ''}
+                    ${canCheckIn ? `<span class="countdown-badge" data-countdown="${m.id}" data-close="${ciClose.getTime()}" data-end="${end.getTime()}">${svgIcon(ICON.hourglass)} --</span>` : ''}
                 </div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap; position:relative; z-index:1;">
                     ${mmTypeBadge(m).replace('background:#DBEAFE;color:#1D4ED8;','background:rgba(255,255,255,0.2);color:white;').replace('background:#D1FAE5;color:#047857;','background:rgba(255,255,255,0.2);color:white;')}
