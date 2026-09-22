@@ -9597,7 +9597,7 @@ async function loadSalaryDashboard() {
     unsubscribeSalaryDashboard = null;
     salaryDashboardWatchMonth = '';
     const body = document.getElementById('dash-table-body');
-    if (body) body.innerHTML = '<tr><td colspan="9" style="padding:1.5rem;text-align:center;color:#6B7280;">Đang tải bảng lương đúng tháng…</td></tr>';
+    if (body) body.innerHTML = '<tr><td colspan="11" style="padding:1.5rem;text-align:center;color:#6B7280;">Đang tải bảng lương đúng tháng…</td></tr>';
     ['dash-total-payroll', 'dash-total-paid', 'dash-total-unpaid', 'dash-total-draft'].forEach(id => {
         const element = document.getElementById(id); if (element) element.innerText = '…';
     });
@@ -9622,7 +9622,7 @@ async function loadSalaryDashboard() {
     } catch (e) {
         if (generation !== salaryDashboardGeneration) return;
         console.error("Error loading salary dashboard:", e);
-        if (body) body.innerHTML = '<tr><td colspan="9" style="padding:1.5rem;text-align:center;">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="11" style="padding:1.5rem;text-align:center;">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
         UIService.toast("Lỗi khi tải dữ liệu dashboard: " + e.message, "error");
     } finally {
         UIService.hideLoading();
@@ -9675,16 +9675,16 @@ function renderSalaryDashboardTable() {
         
         const uRoles = Array.isArray(u.roles) && u.roles.length > 0 ? u.roles : [u.role || ''];
         const isTeacher = hasTeachingEmploymentRole(uRoles);
-        const isOffice = hasOfficeEmploymentRole(uRoles);
         // Dashboard rows must be classified from this employee's own profile.
         // `unfilteredAllMonthChips` belongs to the employee currently open in
         // the report and previously marked every row as receptionist.
         const isRecep = hasReceptionistEmploymentRole(uRoles);
         
+        // Chỉ có 2 chức vụ: Giáo viên/Trợ giảng và Tiếp tân (văn phòng tính vào bên Tiếp tân).
         let primaryRole = 'Staff';
-        if (isTeacher && isRecep) primaryRole = isOffice ? 'Kiêm nhiệm (GV & Văn Phòng)' : 'Dual (GV & TT)';
-        else if (isTeacher) primaryRole = 'Giáo Viên';
-        else if (isRecep) primaryRole = isOffice ? 'Nhân Viên Văn Phòng' : 'Tiếp Tân';
+        if (isTeacher && isRecep) primaryRole = 'GV/Trợ giảng + Tiếp tân';
+        else if (isTeacher) primaryRole = 'Giáo viên / Trợ giảng';
+        else if (isRecep) primaryRole = 'Tiếp tân';
         if (u.outsideList) primaryRole += ' · không còn trong danh sách';
         
         if (roleFilter === 'giao-vien' && !isTeacher) return;
@@ -9817,12 +9817,13 @@ function renderSalaryDashboardTable() {
     }
     
     if (rows.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="9" style="padding:2rem;text-align:center;color:#9CA3AF;">Không tìm thấy kết quả phù hợp</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="11" style="padding:2rem;text-align:center;color:#9CA3AF;">Không tìm thấy kết quả phù hợp</td></tr>`;
         return;
     }
     
-    tableBody.innerHTML = rows.map(row => {
+    tableBody.innerHTML = rows.map((row, rowIndex) => {
         const u = row.user;
+        const safeMsnv = escapeReportHtml(u.msnvStr || '');
         const colorCandidate = String(u.scheduleColor || '');
         const color = /^#[0-9a-f]{6}$/i.test(colorCandidate) ? colorCandidate : '#64748B';
         const displayName = String(u.name || u.username || 'Không tên');
@@ -9859,11 +9860,15 @@ function renderSalaryDashboardTable() {
         
         return `
             <tr style="border-bottom:1px solid var(--border-color);font-size:0.9rem;">
+                <td style="padding:0.75rem 0.5rem;text-align:center;color:#6B7280;font-weight:600;">${rowIndex + 1}</td>
+                <td style="padding:0.75rem 0.5rem;text-align:center;">${safeMsnv
+                    ? `<button type="button" class="dash-msnv-copy" data-msnv="${safeMsnv}" title="Bấm để chép MSNV ${safeMsnv}">${safeMsnv}</button>`
+                    : '<span style="color:#9CA3AF;">—</span>'}</td>
                 <td style="padding:0.75rem 0.75rem;display:flex;align-items:center;gap:0.5rem;">
                     <div style="width:28px;height:28px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.75rem;color:white;">${initial}</div>
                     <div>
                         <div style="font-weight:600;color:var(--text-color);">${safeName}</div>
-                        <div style="font-size:0.7rem;color:#9CA3AF;">MSNV: ${safeUsername}</div>
+                        <div style="font-size:0.7rem;color:#9CA3AF;">TK: ${safeUsername}</div>
                     </div>
                 </td>
                 <td style="padding:0.75rem 0.75rem;color:#4B5563;font-weight:500;">${safePrimaryRole}</td>
@@ -9882,6 +9887,10 @@ function renderSalaryDashboardTable() {
         `;
     }).join('');
 
+    tableBody.querySelectorAll('.dash-msnv-copy').forEach(button => {
+        button.addEventListener('click', () => copyDashboardMsnv(button.dataset.msnv || ''));
+    });
+
     tableBody.querySelectorAll('[data-salary-dashboard-action]').forEach(button => {
         button.addEventListener('click', () => {
             const staffId = button.dataset.staffId || '';
@@ -9889,6 +9898,29 @@ function renderSalaryDashboardTable() {
             else viewPersonalReportFromDash(staffId);
         });
     });
+}
+
+// Bấm vào MSNV ở bảng lương → chép vào bộ nhớ tạm để dán sang app ngân hàng / sổ chi.
+async function copyDashboardMsnv(msnv) {
+    if (!msnv) return;
+    let copied = false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(msnv);
+            copied = true;
+        }
+    } catch (e) { copied = false; }
+    if (!copied) {
+        const area = document.createElement('textarea');
+        area.value = msnv;
+        area.setAttribute('readonly', '');
+        area.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+        document.body.appendChild(area);
+        area.select();
+        try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+        area.remove();
+    }
+    UIService.toast(copied ? `Đã chép MSNV ${msnv}` : `MSNV: ${msnv}`, copied ? 'success' : 'info');
 }
 
 // One formatter for every payslip send/receipt stamp shown to an administrator,

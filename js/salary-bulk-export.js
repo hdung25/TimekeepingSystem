@@ -45,8 +45,8 @@
         return { time: time & 0xFFFF, date: date & 0xFFFF };
     }
 
-    // entries: [{ name: string, text: string }] → Blob (application/zip)
-    function buildZip(entries) {
+    // entries: [{ name: string, text?: string, bytes?: Uint8Array }] → Blob
+    function buildZip(entries, mimeType) {
         const enc = new TextEncoder();
         const stamp = dosDateTime(new Date());
         const parts = [];
@@ -55,7 +55,7 @@
 
         entries.forEach(entry => {
             const nameBytes = enc.encode(entry.name);
-            const dataBytes = enc.encode(entry.text);
+            const dataBytes = entry.bytes instanceof Uint8Array ? entry.bytes : enc.encode(entry.text || '');
             const crc = crc32(dataBytes);
 
             // Local file header (30 bytes + name)
@@ -108,7 +108,7 @@
         eocd.setUint32(16, offset, true);
         eocd.setUint16(20, 0, true);
 
-        return new Blob([...parts, ...central, new Uint8Array(eocd.buffer)], { type: 'application/zip' });
+        return new Blob([...parts, ...central, new Uint8Array(eocd.buffer)], { type: mimeType || 'application/zip' });
     }
 
     // ---------- Tên file ----------
@@ -227,7 +227,496 @@
 
     window.buildSavedPayslipHtml = buildPayslipHtml;
 
-    // ---------- Hàm chính ----------
+    // ---------- Danh sách người + từng bên vai trò (dùng chung cho ZIP và Excel) ----------
+    // Yêu cầu 22/09/2026: danh sách lương Giáo viên/Trợ giảng và Tiếp tân tách riêng, đánh số
+    // thứ tự từ trên xuống theo MSNV để chi trả lần lượt. MSNV = phần số ở cuối tên tài khoản
+    // (vd "dung39" → 39), đúng cách trang Tính Lương đang sắp xếp. Chỉ có 2 chức vụ: người
+    // làm văn phòng được tính vào bên Tiếp tân (lương của họ nằm ở details_tt).
+    const ROLE_SIDES = {
+        'giao-vien': { key: 'giao-vien', folder: 'Giao Vien', roleLabel: 'Giao Vien', roleShow: 'Giáo viên / Trợ giảng', sheet: 'Giáo viên - Trợ giảng' },
+        'tiep-tan': { key: 'tiep-tan', folder: 'Tiep Tan', roleLabel: 'Tiep Tan', roleShow: 'Tiếp tân', sheet: 'Tiếp tân' }
+    };
+
+    function msnvOf(u) {
+        const match = String((u && u.username) || '').match(/\d+$/);
+        return match ? match[0] : '';
+    }
+
+    // Cùng thứ tự với bảng ở trang Tính Lương (report.js populateStaffSelect)
+    function compareStaff(a, b) {
+        const na = a.msnv ? parseInt(a.msnv, 10) : null;
+        const nb = b.msnv ? parseInt(b.msnv, 10) : null;
+        if (na !== null && nb !== null && na !== nb) return na - nb;
+        if (na !== null && nb === null) return -1;
+        if (na === null && nb !== null) return 1;
+        return String(a.account || a.staffName).localeCompare(String(b.account || b.staffName), 'vi');
+    }
+
+    function statusText(st) {
+        if (st === 'received') return 'Đã nhận';
+        if (st === 'published') return 'Đã gửi - chờ chi';
+        if (st === 'draft') return 'Chưa gửi (bản nháp)';
+        return 'Chưa tính';
+    }
+
+    function statusAllowedFor(statusMode) {
+        return (st) => {
+            if (!st) return false;
+            if (statusMode === 'received') return st === 'received';
+            if (statusMode === 'sent') return st === 'published' || st === 'received';
+            return st === 'draft' || st === 'published' || st === 'received'; // any = đã tính
+        };
+    }
+
+    function statusModeText(statusMode) {
+        if (statusMode === 'received') return 'chỉ người Đã nhận';
+        if (statusMode === 'any') return 'mọi người đã tính lương (gồm cả bản nháp)';
+        return 'Đã gửi + Đã nhận';
+    }
+
+    // Số tiền của một bên. "Phụ cấp / thưởng / phạt" = phần chênh còn lại, để 4 cột luôn khớp:
+    // Lương cơ bản + Phụ cấp/thưởng/phạt − Tạm ứng = Thực lĩnh (đúng số nhân viên đã nhận).
+    function sideMoney(details, fallbackNet) {
+        const num = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; };
+        let net = num(details && details.netPay);
+        if (net === null) net = num(fallbackNet) || 0;
+        const base = num(details && details.baseSalary) || 0;
+        const advance = num(details && details.advance) || 0;
+        return { base, advance, other: net - base + advance, net };
+    }
+
+    function collectPayroll(allSettings, userMap, scope, statusMode) {
+        const allowed = statusAllowedFor(statusMode);
+        const people = [];
+        const skipped = [];   // {name, why}
+
+        Object.keys(allSettings || {}).forEach(staffId => {
+            const pub = (allSettings[staffId] || {}).published;
+            const u = userMap[staffId];
+            const staffName = (u && (u.name || u.username)) || (pub && pub.details && pub.details.staffName) || staffId;
+            const account = (u && u.username) || '';
+
+            if (!pub) { return; } // chưa từng tính lương → không phải lỗi, bỏ im lặng
+            if (!u) { skipped.push({ name: staffName, why: 'không tìm thấy nhân viên trong Nhân Sự' }); return; }
+
+            // Hai bên vai trò tách riêng: người làm cả 2 có mặt ở cả 2 danh sách, không trộn số liệu
+            const lifecycle = DBService.getPayslipLifecycleState(pub);
+            const gvDetails = pub.details_gv || (pub.role !== 'tiep-tan' && pub.role !== 'dual' ? pub.details : null);
+            const ttDetails = pub.details_tt || (pub.role === 'tiep-tan' ? pub.details : null);
+            const all = [];
+            if (gvDetails) all.push(Object.assign({}, ROLE_SIDES['giao-vien'], { details: gvDetails, status: lifecycle.has_gv ? lifecycle.status_gv : null }));
+            if (ttDetails) all.push(Object.assign({}, ROLE_SIDES['tiep-tan'], { details: ttDetails, status: lifecycle.has_tt ? lifecycle.status_tt : null }));
+            const single = all.length === 1;
+            all.forEach(side => { side.money = sideMoney(side.details, single ? pub.netPay : null); });
+
+            const inScope = all.filter(side => scope === 'all' || scope === side.key);
+            if (inScope.length === 0) {
+                if (scope === 'all') skipped.push({ name: staffName, why: 'chưa tính lương bên nào' });
+                return;
+            }
+            const sides = [];
+            inScope.forEach(side => {
+                if (allowed(side.status)) sides.push(side);
+                else skipped.push({ name: `${staffName} (${side.roleShow})`, why: side.status === 'draft' ? 'đã tính nhưng CHƯA GỬI' : 'chưa tính lương' });
+            });
+            if (sides.length === 0) return;
+
+            people.push({ staffId, u, pub, staffName, account, msnv: msnvOf(u), allSides: all, sides });
+        });
+
+        people.sort(compareStaff);
+
+        // STT riêng cho từng danh sách, từ 1 trở đi theo thứ tự MSNV
+        const lists = { 'giao-vien': [], 'tiep-tan': [] };
+        people.forEach(person => {
+            person.sides.forEach(side => {
+                const list = lists[side.key];
+                side.stt = list.length + 1;
+                list.push({ person, side });
+            });
+        });
+        return { people, lists, skipped };
+    }
+
+    async function loadMonthPayroll(monthStr) {
+        DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+        const [allSettings, users, sysSettings] = await Promise.all([
+            DBService.getAllMonthlySalarySettings(monthStr, { strict: true }),
+            DBService.getUsers(),
+            DBService.getSystemSettings().catch(() => null)
+        ]);
+        const userMap = {};
+        (users || []).forEach(u => { if (u && u.id) userMap[u.id] = u; });
+        return { allSettings, userMap, companyName: (sysSettings && sysSettings.companyName) || '' };
+    }
+
+    function currentMonthInfo() {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        return { year, month, monthStr: `${year}-${String(month + 1).padStart(2, '0')}` };
+    }
+
+    function triggerDownload(blob, fileName) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }
+
+    function fmtMoney(n) {
+        const v = Math.round(Number(n) || 0);
+        return (v < 0 ? '-' : '') + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + 'đ';
+    }
+
+    // ---------- File Excel (.xlsx) viết tay, không thư viện ngoài ----------
+    // .xlsx thực chất là một file ZIP chứa vài file XML → dùng lại buildZip ở trên.
+    const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    function xmlEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function colName(i) {
+        let s = '';
+        i += 1;
+        while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); }
+        return s;
+    }
+
+    // Kiểu ô (chỉ số trong cellXfs của styles.xml bên dưới)
+    const ST = { title: 1, sub: 2, head: 3, text: 4, center: 5, money: 6, totalLabel: 7, totalMoney: 8, note: 9, net: 10, totalCenter: 11 };
+
+    const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0;[Red]\\-#,##0"/></numFmts>'
+        + '<fonts count="5">'
+        + '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+        + '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+        + '<font><b/><sz val="15"/><color rgb="FF047857"/><name val="Calibri"/><family val="2"/></font>'
+        + '<font><i/><sz val="10"/><color rgb="FF5B6660"/><name val="Calibri"/><family val="2"/></font>'
+        + '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>'
+        + '</fonts>'
+        + '<fills count="4">'
+        + '<fill><patternFill patternType="none"/></fill>'
+        + '<fill><patternFill patternType="gray125"/></fill>'
+        + '<fill><patternFill patternType="solid"><fgColor rgb="FF047857"/><bgColor indexed="64"/></patternFill></fill>'
+        + '<fill><patternFill patternType="solid"><fgColor rgb="FFECFDF5"/><bgColor indexed="64"/></patternFill></fill>'
+        + '</fills>'
+        + '<borders count="2">'
+        + '<border><left/><right/><top/><bottom/><diagonal/></border>'
+        + '<border><left style="thin"><color rgb="FFC9D3CE"/></left><right style="thin"><color rgb="FFC9D3CE"/></right>'
+        + '<top style="thin"><color rgb="FFC9D3CE"/></top><bottom style="thin"><color rgb="FFC9D3CE"/></bottom><diagonal/></border>'
+        + '</borders>'
+        + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        + '<cellXfs count="12">'
+        + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        + '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        + '<xf numFmtId="0" fontId="4" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        + '<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>'
+        + '<xf numFmtId="164" fontId="1" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
+        + '<xf numFmtId="164" fontId="1" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        + '</cellXfs>'
+        + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        + '</styleSheet>';
+
+    // cell: { v, s, f } — v là số → ô số; chuỗi → ô chữ; f = công thức (v là giá trị tính sẵn)
+    function cellXml(ref, cell) {
+        if (cell == null) return '';
+        const s = cell.s != null ? ` s="${cell.s}"` : '';
+        if (cell.f) return `<c r="${ref}"${s}><f>${xmlEsc(cell.f)}</f><v>${Number(cell.v) || 0}</v></c>`;
+        if (typeof cell.v === 'number' && Number.isFinite(cell.v)) return `<c r="${ref}"${s}><v>${cell.v}</v></c>`;
+        if (cell.v == null || cell.v === '') return `<c r="${ref}"${s}/>`;
+        return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(cell.v)}</t></is></c>`;
+    }
+
+    // sheet: { name, widths:[], rows:[{ cells:[cell], ht? }], merges:[ 'A1:K1' ], headerRow }
+    function sheetXml(sheet) {
+        const lastCol = colName(sheet.widths.length - 1);
+        const cols = sheet.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+        const rows = sheet.rows.map((row, ri) => {
+            const r = ri + 1;
+            const ht = row.ht ? ` ht="${row.ht}" customHeight="1"` : '';
+            const cells = (row.cells || []).map((c, ci) => cellXml(colName(ci) + r, c)).join('');
+            return `<row r="${r}"${ht}>${cells}</row>`;
+        }).join('');
+        const h = sheet.headerRow;
+        const pane = h ? `<pane ySplit="${h}" topLeftCell="A${h + 1}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A${h + 1}" sqref="A${h + 1}"/>` : '';
+        const merges = sheet.merges && sheet.merges.length
+            ? `<mergeCells count="${sheet.merges.length}">${sheet.merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            + '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+            + `<dimension ref="A1:${lastCol}${Math.max(1, sheet.rows.length)}"/>`
+            + `<sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews>`
+            + '<sheetFormatPr defaultRowHeight="18"/>'
+            + `<cols>${cols}</cols>`
+            + `<sheetData>${rows}</sheetData>`
+            + merges
+            + '<printOptions horizontalCentered="1"/>'
+            + '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>'
+            + '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+            + '</worksheet>';
+    }
+
+    function buildXlsx(sheets) {
+        const ctSheets = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
+        const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            + '<Default Extension="xml" ContentType="application/xml"/>'
+            + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            + ctSheets
+            + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            + '</Types>';
+        const rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            + '</Relationships>';
+        const printTitles = sheets.map((sh, i) => sh.headerRow
+            ? `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">'${sh.name.replace(/'/g, "''")}'!$${sh.headerRow}:$${sh.headerRow}</definedName>` : '').join('');
+        const workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            + '<bookViews><workbookView activeTab="0"/></bookViews><sheets>'
+            + sheets.map((sh, i) => `<sheet name="${xmlEsc(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')
+            + '</sheets>'
+            + (printTitles ? `<definedNames>${printTitles}</definedNames>` : '')
+            + '</workbook>';
+        const wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
+            + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
+            + '</Relationships>';
+
+        const entries = [
+            { name: '[Content_Types].xml', text: contentTypes },
+            { name: '_rels/.rels', text: rootRels },
+            { name: 'xl/workbook.xml', text: workbook },
+            { name: 'xl/_rels/workbook.xml.rels', text: wbRels },
+            { name: 'xl/styles.xml', text: STYLES_XML }
+        ].concat(sheets.map((sh, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, text: sheetXml(sh) })));
+        return buildZip(entries, XLSX_MIME);
+    }
+
+    // MSNV là số (không có số 0 đứng đầu) → ghi thành ô số cho Excel khỏi báo "số dạng chữ"
+    function msnvCell(msnv) {
+        return { v: /^[1-9]\d*$/.test(msnv) ? Number(msnv) : (msnv || '—'), s: ST.center };
+    }
+
+    function stampText(d) {
+        const p = n => String(n).padStart(2, '0');
+        return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function roleSheet(roleKey, list, ctx) {
+        const role = ROLE_SIDES[roleKey];
+        const other = ROLE_SIDES[roleKey === 'giao-vien' ? 'tiep-tan' : 'giao-vien'];
+        const head = ['STT', 'MSNV', 'Họ và tên', 'Tài khoản', 'Lương cơ bản', 'Phụ cấp / Thưởng / Phạt', 'Tạm ứng', 'Thực lĩnh', 'Trạng thái', 'Ghi chú', 'Ký nhận'];
+        const widths = [6, 9, 28, 16, 15, 17, 13, 16, 19, 38, 14];
+        const lastCol = colName(head.length - 1);
+        const rows = [
+            { cells: [{ v: `DANH SÁCH LƯƠNG ${role.roleShow.toUpperCase()} - THÁNG ${ctx.month + 1}/${ctx.year}`, s: ST.title }], ht: 26 },
+            { cells: [{ v: `${ctx.companyName ? ctx.companyName + ' · ' : ''}Xuất lúc ${ctx.stamp} · Lọc: ${ctx.statusLabel}`, s: ST.sub }] },
+            { cells: [{ v: `Số thứ tự xếp theo MSNV từ nhỏ đến lớn. Người kiêm 2 chức vụ có tên ở cả 2 danh sách; mỗi danh sách chỉ ghi phần lương ${role.roleShow}. Thực lĩnh = Lương cơ bản + Phụ cấp/Thưởng/Phạt − Tạm ứng.`, s: ST.sub }] },
+            { cells: head.map(h => ({ v: h, s: ST.head })), ht: 32 }
+        ];
+        const headerRow = rows.length;
+        const firstData = headerRow + 1;
+
+        list.forEach(({ person, side }) => {
+            const m = side.money;
+            let note = '';
+            const otherSide = person.allSides.find(s => s.key === other.key);
+            if (otherSide) {
+                const listed = person.sides.find(s => s.key === other.key);
+                note = listed
+                    ? `Kiêm ${other.roleShow} (STT ${listed.stt} bên sheet "${other.sheet}", ${fmtMoney(listed.money.net)}). Tổng 2 bên: ${fmtMoney(m.net + listed.money.net)}`
+                    : `Kiêm ${other.roleShow} — phần đó ${otherSide.status === 'draft' ? 'chưa gửi' : 'không nằm trong bộ lọc'}, chưa tính vào đây`;
+            }
+            rows.push({
+                cells: [
+                    { v: side.stt, s: ST.center },
+                    msnvCell(person.msnv),
+                    { v: person.staffName, s: ST.text },
+                    { v: person.account, s: ST.text },
+                    { v: m.base, s: ST.money },
+                    { v: m.other, s: ST.money },
+                    { v: m.advance, s: ST.money },
+                    { v: m.net, s: ST.net },
+                    { v: statusText(side.status), s: ST.center },
+                    { v: note, s: ST.note },
+                    { v: '', s: ST.text }
+                ]
+            });
+        });
+
+        const lastData = rows.length;
+        const sum = (col, key) => ({
+            f: list.length ? `SUM(${col}${firstData}:${col}${lastData})` : '',
+            v: list.reduce((t, it) => t + it.side.money[key], 0),
+            s: ST.totalMoney
+        });
+        rows.push({
+            cells: [
+                { v: `TỔNG CỘNG (${list.length} người)`, s: ST.totalLabel },
+                { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel },
+                sum('E', 'base'), sum('F', 'other'), sum('G', 'advance'), sum('H', 'net'),
+                { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }
+            ],
+            ht: 22
+        });
+        const totalRow = rows.length;
+        return {
+            name: role.sheet, widths, rows, headerRow,
+            merges: [`A1:${lastCol}1`, `A2:${lastCol}2`, `A3:${lastCol}3`, `A${totalRow}:D${totalRow}`]
+        };
+    }
+
+    // Tổng chi theo người: mỗi người 1 dòng, cộng cả 2 bên — tiện chuyển khoản 1 lần/người
+    function summarySheet(people, ctx) {
+        const head = ['STT', 'MSNV', 'Họ và tên', 'Tài khoản', 'Chức vụ', 'Lương Giáo viên / Trợ giảng', 'Lương Tiếp tân', 'Tổng thực lĩnh', 'Trạng thái', 'Ký nhận'];
+        const widths = [6, 9, 28, 16, 30, 18, 16, 17, 34, 14];
+        const lastCol = colName(head.length - 1);
+        const rows = [
+            { cells: [{ v: `TỔNG CHI LƯƠNG THEO NGƯỜI - THÁNG ${ctx.month + 1}/${ctx.year}`, s: ST.title }], ht: 26 },
+            { cells: [{ v: `${ctx.companyName ? ctx.companyName + ' · ' : ''}Xuất lúc ${ctx.stamp} · Lọc: ${ctx.statusLabel}`, s: ST.sub }] },
+            { cells: [{ v: 'Mỗi người 1 dòng; người kiêm 2 chức vụ được cộng cả 2 bên. Chi tiết từng bên xem 2 sheet "Giáo viên - Trợ giảng" và "Tiếp tân".', s: ST.sub }] },
+            { cells: head.map(h => ({ v: h, s: ST.head })), ht: 32 }
+        ];
+        const headerRow = rows.length;
+        const firstData = headerRow + 1;
+        let tGv = 0, tTt = 0;
+        people.forEach((person, i) => {
+            const gv = person.sides.find(s => s.key === 'giao-vien');
+            const tt = person.sides.find(s => s.key === 'tiep-tan');
+            const gvNet = gv ? gv.money.net : 0;
+            const ttNet = tt ? tt.money.net : 0;
+            tGv += gvNet; tTt += ttNet;
+            const roleText = gv && tt ? 'Giáo viên / Trợ giảng + Tiếp tân' : (gv ? ROLE_SIDES['giao-vien'].roleShow : ROLE_SIDES['tiep-tan'].roleShow);
+            const st = gv && tt
+                ? (gv.status === tt.status ? statusText(gv.status) : `GV/TG: ${statusText(gv.status)} · TT: ${statusText(tt.status)}`)
+                : statusText((gv || tt).status);
+            rows.push({
+                cells: [
+                    { v: i + 1, s: ST.center },
+                    msnvCell(person.msnv),
+                    { v: person.staffName, s: ST.text },
+                    { v: person.account, s: ST.text },
+                    { v: roleText, s: ST.text },
+                    gv ? { v: gvNet, s: ST.money } : { v: '', s: ST.center },
+                    tt ? { v: ttNet, s: ST.money } : { v: '', s: ST.center },
+                    { v: gvNet + ttNet, s: ST.net },
+                    { v: st, s: ST.note },
+                    { v: '', s: ST.text }
+                ]
+            });
+        });
+        const lastData = rows.length;
+        const f = col => people.length ? `SUM(${col}${firstData}:${col}${lastData})` : '';
+        rows.push({
+            cells: [
+                { v: `TỔNG CỘNG (${people.length} người)`, s: ST.totalLabel },
+                { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel },
+                { f: f('F'), v: tGv, s: ST.totalMoney }, { f: f('G'), v: tTt, s: ST.totalMoney }, { f: f('H'), v: tGv + tTt, s: ST.totalMoney },
+                { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }
+            ],
+            ht: 22
+        });
+        const totalRow = rows.length;
+        return {
+            name: 'Tổng chi theo người', widths, rows, headerRow,
+            merges: [`A1:${lastCol}1`, `A2:${lastCol}2`, `A3:${lastCol}3`, `A${totalRow}:E${totalRow}`]
+        };
+    }
+
+    function buildPayrollListXlsx(collected, ctx, scope) {
+        const sheets = [];
+        if (scope !== 'tiep-tan') sheets.push(roleSheet('giao-vien', collected.lists['giao-vien'], ctx));
+        if (scope !== 'giao-vien') sheets.push(roleSheet('tiep-tan', collected.lists['tiep-tan'], ctx));
+        if (scope === 'all') sheets.push(summarySheet(collected.people, ctx));
+        return buildXlsx(sheets);
+    }
+
+    function listFileName(ctx) {
+        return safeFilePart(`Danh sach luong thang ${ctx.month + 1}-${ctx.year}`) + '.xlsx';
+    }
+
+    function skippedText(skipped) {
+        if (!skipped.length) return '';
+        const show = skipped.slice(0, 12).map(s => `• ${s.name} — ${s.why}`).join('\n');
+        let msg = `\n\nBỏ qua ${skipped.length} mục:\n${show}`;
+        if (skipped.length > 12) msg += `\n… và ${skipped.length - 12} mục nữa (xem Console).`;
+        console.warn('[Xuất bảng lương] Bỏ qua:', skipped);
+        return msg;
+    }
+
+    // Test tự động gọi được mà không cần Firestore
+    window.SalaryBulkExport = { collectPayroll, buildPayrollListXlsx, buildXlsx, buildZip, msnvOf, sideMoney };
+
+    // ---------- Nút "Tải danh sách lương" (Excel) ----------
+    window.exportPayrollList = async function exportPayrollList() {
+        const btn = document.getElementById('btn-export-payroll-list');
+        const label = document.getElementById('btn-export-payroll-list-label');
+        const setLabel = (t) => { if (label) label.innerText = t; };
+        const scope = document.getElementById('export-scope')?.value || 'all';
+        const statusMode = document.getElementById('export-status')?.value || 'sent';
+        const { year, month, monthStr } = currentMonthInfo();
+
+        try {
+            if (btn) btn.disabled = true;
+            setLabel('Đang lấy dữ liệu...');
+            UIService.showLoading('Đang lập danh sách lương...');
+            const data = await loadMonthPayroll(monthStr);
+            const collected = collectPayroll(data.allSettings, data.userMap, scope, statusMode);
+            const gvCount = collected.lists['giao-vien'].length;
+            const ttCount = collected.lists['tiep-tan'].length;
+
+            if (gvCount + ttCount === 0) {
+                UIService.hideLoading();
+                await UIService.notice(
+                    `Không có ai khớp điều kiện đang chọn (tháng ${month + 1}/${year}).\n` +
+                    `Hãy đổi bộ lọc "Xuất" / trạng thái, hoặc tính & gửi lương trước đã.`,
+                    'Chưa có gì để xuất', 'warning'
+                );
+                return;
+            }
+
+            const ctx = { year, month, companyName: data.companyName, stamp: stampText(new Date()), statusLabel: statusModeText(statusMode) };
+            const fileName = listFileName(ctx);
+            triggerDownload(buildPayrollListXlsx(collected, ctx, scope), fileName);
+            UIService.hideLoading();
+
+            const dual = collected.people.filter(p => p.sides.length > 1).length;
+            const parts = [];
+            if (scope !== 'tiep-tan') parts.push(`Giáo viên / Trợ giảng: ${gvCount} người`);
+            if (scope !== 'giao-vien') parts.push(`Tiếp tân: ${ttCount} người`);
+            let msg = `Đã tải "${fileName}".\n${parts.join(' · ')}`
+                + (scope === 'all' ? `\nSheet "Tổng chi theo người": ${collected.people.length} người${dual ? ` (${dual} người kiêm 2 chức vụ đã cộng 2 bên)` : ''}.` : '')
+                + '\nSố thứ tự xếp theo MSNV từ nhỏ đến lớn.';
+            msg += skippedText(collected.skipped);
+            await UIService.notice(msg, 'Tải danh sách lương xong', 'success');
+        } catch (e) {
+            console.error('[Danh sách lương] Lỗi:', e);
+            UIService.hideLoading();
+            UIService.toast('Tải danh sách lương thất bại: ' + (e.message || e), 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+            setLabel('Tải danh sách lương (Excel)');
+        }
+    };
+
+    // ---------- Nút "Xuất file bảng lương" (ZIP từng người) ----------
     window.exportAllPayslips = async function exportAllPayslips() {
         const btn = document.getElementById('btn-export-all-payslips');
         const label = document.getElementById('btn-export-all-payslips-label');
@@ -240,82 +729,38 @@
 
         const scope = document.getElementById('export-scope')?.value || 'all';
         const statusMode = document.getElementById('export-status')?.value || 'sent';
-
-        const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+        const { year, month, monthStr } = currentMonthInfo();
 
         try {
             if (btn) { btn.disabled = true; }
             setLabel('Đang lấy dữ liệu...');
             UIService.showLoading('Đang chuẩn bị file bảng lương...');
 
-            DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
-            const [allSettings, users, sysSettings] = await Promise.all([
-                DBService.getAllMonthlySalarySettings(monthStr, { strict: true }),
-                DBService.getUsers(),
-                DBService.getSystemSettings().catch(() => null)
-            ]);
-            const companyName = (sysSettings && sysSettings.companyName) || '';
-
-            const userMap = {};
-            (users || []).forEach(u => { if (u && u.id) userMap[u.id] = u; });
-
-            const statusAllowed = (st) => {
-                if (!st) return false;
-                if (statusMode === 'received') return st === 'received';
-                if (statusMode === 'sent') return st === 'published' || st === 'received';
-                return st === 'draft' || st === 'published' || st === 'received'; // any = đã tính
-            };
+            const data = await loadMonthPayroll(monthStr);
+            const collected = collectPayroll(data.allSettings, data.userMap, scope, statusMode);
+            const companyName = data.companyName;
 
             const entries = [];
             const usedNames = new Set();
-            const skipped = [];   // {name, why}
             const peopleDone = new Set();
+            const sttWidth = Math.max(2, String(Math.max(collected.lists['giao-vien'].length, collected.lists['tiep-tan'].length)).length);
 
-            Object.keys(allSettings || {}).forEach(staffId => {
-                const pub = (allSettings[staffId] || {}).published;
-                const u = userMap[staffId];
-                const staffName = (u && (u.name || u.username)) || (pub && pub.details && pub.details.staffName) || staffId;
-                const account = (u && u.username) || '';
-                const msnv = (u && u.msnvStr) || '';
-
-                if (!pub) { return; } // chưa từng tính lương → không phải lỗi, bỏ im lặng
-                if (!u) { skipped.push({ name: staffName, why: 'không tìm thấy nhân viên trong Nhân Sự' }); return; }
-
-                // Hai bên vai trò tách riêng: người làm cả 2 ra 2 file, không trộn số liệu
-                const sides = [];
-                const lifecycle = DBService.getPayslipLifecycleState(pub);
-                const gvStatus = lifecycle.has_gv ? lifecycle.status_gv : null;
-                const ttStatus = lifecycle.has_tt ? lifecycle.status_tt : null;
-                const gvDetails = pub.details_gv || (pub.role !== 'tiep-tan' && pub.role !== 'dual' ? pub.details : null);
-                const ttDetails = pub.details_tt || (pub.role === 'tiep-tan' ? pub.details : null);
-
-                // folder: mỗi bên vai trò một thư mục riêng trong file ZIP (yêu cầu GĐ 07/08/2026)
-                if (scope !== 'tiep-tan' && gvDetails) sides.push({ key: 'giao-vien', folder: 'Giao Vien', roleLabel: 'Giao Vien', roleShow: 'Giáo Viên / Trợ Giảng', details: gvDetails, status: gvStatus });
-                if (scope !== 'giao-vien' && ttDetails) sides.push({ key: 'tiep-tan', folder: 'Tiep Tan', roleLabel: 'Tiep Tan', roleShow: 'Tiếp Tân', details: ttDetails, status: ttStatus });
-
-                if (sides.length === 0) {
-                    if (scope === 'all') skipped.push({ name: staffName, why: 'chưa tính lương bên nào' });
-                    return;
-                }
-
+            collected.people.forEach(person => {
+                const { staffName, account, msnv, pub } = person;
                 // Đã có thư mục riêng cho từng bên nên tên file không cần đuôi vai trò nữa;
                 // chỉ giữ lại khi người này có cả 2 bên (để lỡ ai copy 2 file ra cùng một chỗ
                 // thì vẫn phân biệt được, không ghi đè nhau).
-                const withRole = sides.length > 1;
-                sides.forEach(side => {
-                    if (!statusAllowed(side.status)) {
-                        skipped.push({ name: `${staffName} (${side.roleShow})`, why: side.status === 'draft' ? 'đã tính nhưng CHƯA GỬI' : 'chưa tính lương' });
-                        return;
-                    }
+                const withRole = person.sides.length > 1;
+                person.sides.forEach(side => {
                     // details.role quyết định mẫu form (tiếp tân / giáo viên) — bảo đảm đúng vai trò
                     const details = Object.assign({}, side.details);
                     if (!details.role) details.role = side.key;
                     if (!details.staffName) details.staffName = staffName;
                     if (!details.employeeId) details.employeeId = String(account || '').toUpperCase();
 
-                    let name = side.folder + '/' + buildFileName(monthStr, staffName, account, side.roleLabel, withRole);
+                    // Số thứ tự đứng đầu tên file = STT trong danh sách lương (xếp theo MSNV)
+                    const stt = String(side.stt).padStart(sttWidth, '0');
+                    let name = side.folder + '/' + stt + ' - ' + buildFileName(monthStr, staffName, account, side.roleLabel, withRole);
                     if (usedNames.has(name)) {
                         let n = 2;
                         const stem = name.replace(/\.html$/, '');
@@ -335,7 +780,7 @@
                             companyName
                         })
                     });
-                    peopleDone.add(staffId);
+                    peopleDone.add(person.staffId);
                 });
             });
 
@@ -356,19 +801,16 @@
             // Trình giải nén nào cũng tự tạo thư mục từ đường dẫn, nhưng khai rõ thì thư mục
             // vẫn hiện đúng ngay cả khi một bên không có file nào.
             const folders = [...new Set(entries.map(e => e.name.split('/')[0]))].sort();
-            const zipEntries = folders.map(f => ({ name: f + '/', text: '' })).concat(entries);
+            const ctx = { year, month, companyName, stamp: stampText(new Date()), statusLabel: statusModeText(statusMode) };
+            const listBlob = buildPayrollListXlsx(collected, ctx, scope);
+            const listBytes = new Uint8Array(await listBlob.arrayBuffer());
+            const zipEntries = [{ name: listFileName(ctx), bytes: listBytes }]
+                .concat(folders.map(f => ({ name: f + '/', text: '' })))
+                .concat(entries);
 
             const blob = buildZip(zipEntries);
-
             const zipName = safeFilePart(`Bang luong thang ${month + 1}-${year}`) + '.zip';
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = zipName;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            triggerDownload(blob, zipName);
 
             UIService.hideLoading();
 
@@ -376,13 +818,9 @@
             // ở đây truyền CHỮ THUẦN, chỉ dùng \n để xuống dòng.
             const perFolder = folders.map(f => `${f}: ${entries.filter(e => e.name.startsWith(f + '/')).length} file`).join(' · ');
             let msg = `Đã xuất ${entries.length} file của ${peopleDone.size} nhân viên vào "${zipName}".\n`
-                    + `Chia thư mục — ${perFolder}.`;
-            if (skipped.length) {
-                const show = skipped.slice(0, 12).map(s => `• ${s.name} — ${s.why}`).join('\n');
-                msg += `\n\nBỏ qua ${skipped.length} mục:\n${show}`;
-                if (skipped.length > 12) msg += `\n… và ${skipped.length - 12} mục nữa (xem Console).`;
-                console.warn('[Xuất bảng lương] Bỏ qua:', skipped);
-            }
+                    + `Chia thư mục — ${perFolder}.\n`
+                    + `Kèm file danh sách "${listFileName(ctx)}"; số đầu tên file = STT trong danh sách.`;
+            msg += skippedText(collected.skipped);
             await UIService.notice(msg, 'Xuất file xong', 'success');
         } catch (e) {
             console.error('[Xuất bảng lương] Lỗi:', e);

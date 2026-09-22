@@ -1,7 +1,7 @@
 // Service Worker v194 - inherited schedule deletion recovery.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v199-web-push-20260923';
+const CACHE_NAME = 'tdt-chamcong-v200-payroll-list-20260922';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -42,7 +42,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
     '/js/db-service.js?v=20260923-web-push-v1',
     '/js/meeting-attendance-policy.js?v=20260923-web-push-v1',
-    '/js/report.js?v=20260923-web-push-v1',
+    '/js/report.js?v=20260922-payroll-list-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -68,7 +68,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
     '/js/timekeeping.js?v=20260919-resume-schedule-v1',
-    '/js/salary-bulk-export.js?v=20260908-payroll-review-v2',
+    '/js/salary-bulk-export.js?v=20260922-payroll-list-v1',
     '/images/TUDUYTRE.jpg',
     '/images/lotus_bg.png',
     '/manifest.json'
