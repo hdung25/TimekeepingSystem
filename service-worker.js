@@ -1,7 +1,7 @@
 // Service Worker v194 - inherited schedule deletion recovery.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v197-makeup-dedupe-20260922';
+const CACHE_NAME = 'tdt-chamcong-v198-notify-resume-20260923';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -37,12 +37,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20260922-makeup-dedupe-v1',
+    '/js/main.js?v=20260923-notify-resume-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260922-makeup-dedupe-v1',
-    '/js/meeting-attendance-policy.js?v=20260922-makeup-dedupe-v1',
-    '/js/report.js?v=20260922-makeup-dedupe-v1',
+    '/js/db-service.js?v=20260923-notify-resume-v1',
+    '/js/meeting-attendance-policy.js?v=20260923-notify-resume-v1',
+    '/js/report.js?v=20260923-notify-resume-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -61,9 +61,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/auth-guard.js?v=20260919-review-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
-    '/js/analytics.js?v=20260922-makeup-dedupe-v1',
+    '/js/analytics.js?v=20260923-notify-resume-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260922-makeup-dedupe-v1',
+    '/js/schedule.js?v=20260923-notify-resume-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
@@ -184,12 +184,19 @@ self.addEventListener('fetch', event => {
 
 self.addEventListener('notificationclick', event => {
     event.notification.close();
+    // Thông báo có thể mang trang đích (vd. cham-bu.html khi chấm bù bị từ chối). Chỉ nhận
+    // đường dẫn nội bộ cùng origin.
+    const wanted = String(event.notification.data?.url || '');
+    const target = /^[a-z0-9-]+\.html(\?[\w=&%-]*)?$/i.test(wanted) ? '/' + wanted : '/nhan-vien.html';
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
             for (const client of clientList) {
-                if ('focus' in client) return client.focus();
+                if ('focus' in client) {
+                    if (wanted && 'navigate' in client) return client.navigate(target).then(c => (c || client).focus());
+                    return client.focus();
+                }
             }
-            if (self.clients.openWindow) return self.clients.openWindow('/nhan-vien.html');
+            if (self.clients.openWindow) return self.clients.openWindow(target);
         })
     );
 });

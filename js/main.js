@@ -529,6 +529,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Timekeeping System Loaded (Login Page)');
         loginForm.addEventListener('submit', handleLogin);
         signalCoreBootstrapReady();
+        resumeSavedSession();
     } else {
         // Wait for Firebase Auth to restore session (critical for Firestore permissions)
         let firebaseUser = null;
@@ -1008,9 +1009,62 @@ async function loadStaffNotifications() {
         return;
     }
 
+    // Nghe thông báo chưa đọc theo thời gian thực: quản lý từ chối chấm bù, gửi bảng lương…
+    // thì chuông cập nhật ngay và điện thoại hiện thông báo hệ thống (nếu đã bật thông báo).
+    // Thông báo tạo lúc app đang đóng sẽ hiện ra ở lần mở app kế tiếp, mỗi thông báo một lần.
+    if (typeof db !== 'undefined' && db.collection && !window.__staffNotificationWatch) {
+        const seenKey = `notif_seen_${staffId}`;
+        let seen = [];
+        try { seen = JSON.parse(localStorage.getItem(seenKey) || '[]'); } catch (_) { seen = []; }
+        window.__staffNotificationWatch = db.collection('admin_notifications')
+            .where('staffId', '==', staffId).where('read', '==', false)
+            .onSnapshot(snapshot => {
+                const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                renderStaffNotificationBell(notifications);
+                const recentSeconds = Date.now() / 1000 - 3 * 24 * 3600;
+                notifications.filter(n => !seen.includes(n.id) && (n.createdAt?.seconds || Date.now() / 1000) >= recentSeconds)
+                    .slice(0, 5).reverse().forEach(n => {
+                        window.showLocalNotification(n.title || staffNotificationTitle(n), stripNotificationHtml(n.details),
+                            `staff_notif_${n.id}`, n.link || '');
+                        seen.push(n.id);
+                    });
+                seen = seen.slice(-200);
+                try { localStorage.setItem(seenKey, JSON.stringify(seen)); } catch (_) { /* best effort */ }
+            }, error => {
+                console.warn('[Notif Bell] Không nghe được thông báo mới:', error?.message || error);
+                window.__staffNotificationWatch = null;
+            });
+        return;
+    }
+
     try {
-        const notifications = await DBService.getStaffNotifications(staffId);
-        if (notifications.length === 0) return;
+        renderStaffNotificationBell(await DBService.getStaffNotifications(staffId));
+    } catch (e) {
+        console.error('[Notif Bell] Error:', e);
+    }
+}
+
+function stripNotificationHtml(value) {
+    const box = document.createElement('div');
+    box.innerHTML = String(value || '');
+    return (box.textContent || '').trim();
+}
+
+function staffNotificationTitle(n) {
+    return ({
+        add_session: 'Quản lý đã thêm ca làm', edit_session: 'Quản lý đã sửa giờ làm', delete_session: 'Quản lý đã xoá ca',
+        select_role: 'Quản lý đã chọn vai trò ca', makeup_approved: 'Chấm bù đã được duyệt', makeup_rejected: 'Chấm bù bị từ chối',
+        makeup_covered: 'Ca đã có công', payslip_published: 'Đã có bảng lương', overtime_approved: 'Tăng ca được duyệt',
+        overtime_rejected: 'Tăng ca không được duyệt', bonus10_approved: '+10 phút được duyệt',
+        revoke_makeup_approval: 'Chấm bù đã bị huỷ duyệt', announcement: 'Thông báo'
+    })[n.action] || 'Thông báo mới';
+}
+
+function renderStaffNotificationBell(notifications) {
+    document.getElementById('notif-bell')?.remove();
+    try {
+        if (!notifications.length) return;
 
         // Create floating bell
         const bell = document.createElement('div');
@@ -1082,14 +1136,19 @@ function showNotificationPopup(notifications) {
                 <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Từ: ${esc(n.adminName) || 'Admin'}</div>
             </div>`;
         }
+        const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const label = actionLabels[n.action] || esc(n.title || staffNotificationTitle(n));
+        const isWarning = ['makeup_rejected', 'overtime_rejected', 'revoke_makeup_approval'].includes(n.action);
+        const safeLink = /^[a-z0-9-]+\.html$/i.test(String(n.link || '')) ? n.link : '';
         return `
-            <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6">
+            <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6;${isWarning ? 'border-left:4px solid #F59E0B;' : ''}">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
-                    <span style="font-size:0.85rem;font-weight:600;color:#3B82F6">${actionLabel}</span>
+                    <span style="font-size:0.85rem;font-weight:600;color:${isWarning ? '#B45309' : '#3B82F6'}">${label}</span>
                     <span style="font-size:0.75rem;color:#9CA3AF">${timeStr}</span>
                 </div>
                 <div style="font-size:0.85rem;color:#374151">${n.details || ''}</div>
-                <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Ngày: ${n.dateKey || ''} · Bởi: ${n.adminName || 'Admin'}</div>
+                <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Ngày: ${esc(n.dateKey)} · Bởi: ${esc(n.adminName || 'Admin')}</div>
+                ${safeLink ? `<a href="${safeLink}" style="display:inline-block;margin-top:0.5rem;font-size:0.8rem;font-weight:700;color:#059669;text-decoration:none">Mở trang liên quan →</a>` : ''}
             </div>
         `;
     }).join('');
@@ -1260,6 +1319,33 @@ async function handleLogin(e) {
     }
 }
 
+// App cài lên màn hình chính (PWA) luôn mở ở start_url = index.html. Firebase vẫn giữ phiên
+// đăng nhập, nhưng trang này trước đây luôn hiện form → nhân viên phải đăng nhập lại mỗi lần
+// mở app. Nay: còn phiên hợp lệ thì xác minh lại hồ sơ qua UID và vào thẳng trang chính.
+function loginHomeFor(roles) {
+    const list = Array.isArray(roles) && roles.length ? roles : [];
+    return list.some(r => r === 'admin' || r === 'senior_assistant') ? 'admin.html' : 'nhan-vien.html';
+}
+
+async function resumeSavedSession() {
+    if (!window.waitAuth || typeof DBService === 'undefined' || typeof DBService.getAuthenticatedProfile !== 'function') return;
+    const hintedUser = localStorage.getItem('currentUser');
+    const hintedId = localStorage.getItem('currentUserId');
+    // Có dấu phiên đã lưu → che form ngay để không nhấp nháy form rồi mới chuyển trang.
+    if (hintedUser && hintedId) showLoginTransition(localStorage.getItem('userFullName') || '', 'Đang mở lại phiên đăng nhập…');
+    try {
+        const firebaseUser = await window.waitAuth();
+        if (!firebaseUser || loginInFlight) throw new Error('no-session');
+        const profile = await DBService.getAuthenticatedProfile(firebaseUser, hintedUser && hintedId ? { userId: hintedId, username: hintedUser } : {});
+        persistAuthenticatedSession(profile, firebaseUser.uid);
+        const roles = Array.isArray(profile.roles) && profile.roles.length ? profile.roles : [profile.role];
+        window.location.replace(loginHomeFor(roles));
+    } catch (error) {
+        if (error?.message !== 'no-session') console.warn('[Login] Không mở lại được phiên đã lưu:', error?.message || error);
+        document.querySelector('.login-transition')?.remove();
+    }
+}
+
 function setLoginButtonLoading(btn, label) {
     if (!btn) return;
     btn.disabled = true;
@@ -1269,15 +1355,16 @@ function setLoginButtonLoading(btn, label) {
     btn.lastChild.textContent = label;
 }
 
-function showLoginTransition(name) {
+function showLoginTransition(name, subtitle) {
     if (document.querySelector('.login-transition')) return;
     const overlay = document.createElement('div');
     overlay.className = 'login-transition';
     overlay.setAttribute('role', 'status');
     overlay.innerHTML = '<img src="images/TUDUYTRE.jpg" alt=""><div class="login-transition-title"></div>'
-        + '<div class="login-transition-sub">Đang mở hệ thống, vui lòng chờ…</div>'
+        + '<div class="login-transition-sub"></div>'
         + '<div class="login-progress" aria-hidden="true"><span></span></div>';
     overlay.querySelector('.login-transition-title').textContent = name ? `Xin chào, ${name}!` : 'Đăng nhập thành công!';
+    overlay.querySelector('.login-transition-sub').textContent = subtitle || 'Đang mở hệ thống, vui lòng chờ…';
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
 }
@@ -2559,8 +2646,8 @@ window.isUserMatchingMeeting = function(user, meeting) {
     return false;
 };
 
-window.showLocalNotification = function(title, body, tag) {
-    if (Notification.permission === 'granted') {
+window.showLocalNotification = function(title, body, tag, url) {
+    if ('Notification' in window && Notification.permission === 'granted') {
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
             navigator.serviceWorker.ready.then(registration => {
                 registration.showNotification(title, {
@@ -2569,7 +2656,8 @@ window.showLocalNotification = function(title, body, tag) {
                     badge: 'images/TUDUYTRE.jpg',
                     tag: tag || undefined,
                     renotify: true,
-                    vibrate: [200, 100, 200]
+                    vibrate: [200, 100, 200],
+                    data: url ? { url } : undefined
                 });
             }).catch(err => {
                 console.warn("Service Worker notification failed, falling back to window Notification:", err);
@@ -2629,6 +2717,62 @@ window.setupMeetingsNotificationListener = function() {
     });
 };
 
+// Chỉ các ca ĐẦU CHUỖI mới cần nhắc: một ca nối tiếp ngay sau (hoặc chồng giờ với) ca trước
+// của cùng người thì dùng chung một lần vào ca, giống cách Bảng Công ghép phiên.
+function teachingShiftsNeedingCheckIn(classes) {
+    const minutes = value => { const [h, m] = String(value || '').split(':').map(Number); return h * 60 + m; };
+    const sorted = (classes || []).filter(item => item.start && item.end).slice()
+        .sort((a, b) => minutes(a.start) - minutes(b.start) || minutes(a.end) - minutes(b.end));
+    // Chuỗi chỉ nối trong CÙNG cơ sở: chuyển cơ sở là phải chấm công lại theo vị trí mới.
+    const leaders = [];
+    const chainEndByBranch = new Map();
+    sorted.forEach(item => {
+        const branch = item.branch || '';
+        const chainEnd = chainEndByBranch.get(branch);
+        if (chainEnd !== undefined && minutes(item.start) <= chainEnd) {
+            chainEndByBranch.set(branch, Math.max(chainEnd, minutes(item.end)));
+            return;
+        }
+        leaders.push(item);
+        chainEndByBranch.set(branch, minutes(item.end));
+    });
+    return leaders;
+}
+window.teachingShiftsNeedingCheckIn = teachingShiftsNeedingCheckIn;
+
+async function remindUpcomingTeachingShifts(userId, dateKey, now) {
+    if (typeof isAssignedToClass !== 'function') return;
+    const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+    const days = await Promise.all(['cs1', 'cs2', 'cs3'].map(branch =>
+        DBService.getSchedule(`${branch}__${dateKey}`).then(day => ({ branch, day: day || {} }), () => ({ branch, day: {} }))));
+    const classes = [];
+    days.forEach(({ branch, day }) => sections.forEach(section => (day[section] || []).forEach(row => {
+        if (!row || row.isClosed === true || !isAssignedToClass(row, userId)) return;
+        if (window.TeacherShiftState?.isMainTeacherAbsent?.(row, userId)) return;
+        classes.push({ branch, start: row.start, end: row.end, lop: row.lop || 'Ca dạy' });
+    })));
+    const [y, m, d] = dateKey.split('-').map(Number);
+    for (const item of teachingShiftsNeedingCheckIn(classes)) {
+        const [h, min] = String(item.start).split(':').map(Number);
+        const start = new Date(y, m - 1, d, h, min, 0, 0);
+        const diffMins = (start.getTime() - now.getTime()) / 60000;
+        if (diffMins > 15 || diffMins < -30) continue;
+        const key = `notified_teaching_checkin_${dateKey}_${item.branch}_${item.start}`;
+        if (localStorage.getItem(key)) continue;
+        const attendance = await DBService.getPersonalAttendance(dateKey, userId);
+        const checkedIn = (attendance?.sessions || []).some(session => session && !session.isAbsent && session.checkIn &&
+            (!session.checkOut || new Date(session.checkOut).getTime() > start.getTime()));
+        localStorage.setItem(key, 'true');
+        if (checkedIn) continue;
+        window.showLocalNotification(
+            `Nhắc vào ca dạy lúc ${item.start}`,
+            `${item.lop} · ${item.branch.toUpperCase()} (${item.start}–${item.end}). Vui lòng Chấm Công để Vào ca!`,
+            `teaching_checkin_${dateKey}_${item.branch}_${item.start}`,
+            'cham-cong.html'
+        );
+    }
+}
+
 window.checkUpcomingMeetingsAndShifts = async function() {
     const currentUserId = localStorage.getItem('currentUserId');
     if (!currentUserId || typeof db === 'undefined' || typeof DBService === 'undefined') return;
@@ -2668,6 +2812,10 @@ window.checkUpcomingMeetingsAndShifts = async function() {
                 }
             }
         }
+
+        // 1b. Nhắc vào ca DẠY. Chuỗi ca liên tiếp (18:00–19:30 rồi 19:30–21:00) hoặc hai lớp
+        // cùng giờ chỉ cần vào ca MỘT lần → chỉ nhắc ca đầu chuỗi.
+        await remindUpcomingTeachingShifts(currentUserId, dateKey, now);
 
         // 2. Check operational shift reminders (receptionist + office schedules)
         const userRolesArr = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : ['staff']);

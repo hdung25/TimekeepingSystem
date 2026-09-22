@@ -5992,17 +5992,20 @@ const DBService = {
     // ================= ADMIN NOTIFICATIONS =================
 
     // Create notification for staff when admin modifies their data
-    createAdminNotification: async (staffId, staffName, action, dateKey, details) => {
+    createAdminNotification: async (staffId, staffName, action, dateKey, details, extra = {}) => {
         try {
             const currentUser = firebase.auth().currentUser;
-            const adminName = currentUser ? (currentUser.displayName || currentUser.email || 'Admin') : 'Admin';
+            const adminName = localStorage.getItem('userFullName')
+                || (currentUser ? (currentUser.displayName || currentUser.email || 'Admin') : 'Admin');
 
             await db.collection('admin_notifications').add({
                 staffId: staffId,
                 staffName: staffName || 'N/A',
-                action: action, // 'add_session', 'edit_session', 'delete_session', 'select_role'
+                action: action, // 'add_session', 'edit_session', 'makeup_rejected', 'payslip_published', ...
                 dateKey: dateKey,
                 details: details,
+                ...(extra.title ? { title: String(extra.title).slice(0, 120) } : {}),
+                ...(extra.link ? { link: String(extra.link).slice(0, 200) } : {}),
                 adminName: adminName,
                 read: false,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -6115,21 +6118,28 @@ const DBService = {
                 throw err;
             }
         }
-        // MỘT CA CHỈ ĐƯỢC XIN CHẤM BÙ MỘT LẦN. Đối chiếu với dữ liệu máy chủ (không tin
-        // danh sách đang hiển thị): trùng khung giờ với đơn đang chờ/đã duyệt, với đơn ca
-        // có lịch đã bị từ chối, hoặc với công đã có trong Bảng Công → không cho gửi.
-        await DBService._assertMakeupRequestsAreNew(list);
+        // MỘT CA CHỈ CÓ MỘT ĐƠN ĐANG XỬ LÝ. Đối chiếu với dữ liệu máy chủ (không tin danh
+        // sách đang hiển thị): trùng khung giờ với đơn đang chờ/đã duyệt, hoặc với công đã có
+        // trong Bảng Công → không cho gửi. Đơn đã bị TỪ CHỐI thì được gửi lại (lần gửi mới
+        // ghi rõ là gửi lại của đơn nào để quản lý xem cả lịch sử).
+        const previousRejections = await DBService._assertMakeupRequestsAreNew(list);
         const batchId = `mk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const batch = db.batch();
-        list.forEach(r => {
-            // Ca có lịch dùng mã cố định theo đúng ca nguồn: bấm gửi hai lần (hai tab, mạng
-            // chậm) thì lần sau là ghi đè lên đơn đã có, và rules chỉ cho quản lý sửa đơn,
-            // nên nhân viên không thể tạo đơn thứ hai cho cùng một ca.
-            const fixedId = DBService._makeupRequestFixedId(r);
+        list.forEach((r, index) => {
+            // Ca có lịch dùng mã cố định theo đúng ca nguồn + số lần gửi lại: bấm gửi hai lần
+            // (hai tab, mạng chậm) thì lần sau là ghi đè lên đơn đã có, và rules chỉ cho quản
+            // lý sửa đơn, nên nhân viên không thể tạo hai đơn cho cùng một lần gửi.
+            const rejected = previousRejections[index] || [];
+            const fixedId = DBService._makeupRequestFixedId(r, rejected.length);
             const ref = fixedId
                 ? db.collection('makeup_requests').doc(fixedId)
                 : db.collection('makeup_requests').doc();
-            batch.set(ref, { ...r, batchId, status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+            const data = { ...r, batchId, status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+            if (rejected.length) {
+                data.resubmissionOf = rejected.map(item => item.id);
+                data.resubmissionCount = rejected.length;
+            }
+            batch.set(ref, data);
         });
         try {
             await batch.commit();
@@ -6144,7 +6154,7 @@ const DBService = {
         return { batchId, count: list.length };
     },
 
-    _makeupRequestFixedId: (r) => {
+    _makeupRequestFixedId: (r, attempt = 0) => {
         if (r?.type !== 'scheduled') return '';
         const staffId = String(r.staffId || '').trim();
         const locators = (Array.isArray(r.scheduleLocators) ? r.scheduleLocators : [])
@@ -6154,7 +6164,8 @@ const DBService = {
             .sort();
         if (!/^[A-Za-z0-9_-]{1,80}$/.test(staffId) || !/^\d{4}-\d{2}-\d{2}$/.test(String(r.dateKey || '')) || !locators.length) return '';
         const identity = [staffId, r.dateKey, ...locators].join('|');
-        return `mks_${r.dateKey}_${staffId}_${_scheduleRegistrationHash(identity, 2166136261)}${_scheduleRegistrationHash(identity, 3335557771)}`;
+        const suffix = Number.isInteger(attempt) && attempt > 0 ? `_r${attempt}` : '';
+        return `mks_${r.dateKey}_${staffId}_${_scheduleRegistrationHash(identity, 2166136261)}${_scheduleRegistrationHash(identity, 3335557771)}${suffix}`;
     },
 
     // Khoảng [start,end] (ms) của một yêu cầu chấm bù; null nếu là phiên vắng / thiếu giờ.
@@ -6187,6 +6198,7 @@ const DBService = {
             error.code = 'MAKEUP_DUPLICATE';
             throw error;
         };
+        const rejectionsByIndex = list.map(() => []);
         list.forEach((request, index) => {
             const span = DBService._makeupRequestSpan(request);
             const label = request.shiftLabel || `${request.dateKey}`;
@@ -6198,20 +6210,19 @@ const DBService = {
                 return overlaps(span, { start, end });
             });
             if (worked) fail(`Ca ${label} đã có công trong Bảng Công nên không cần chấm bù.`);
-            const previous = existing.find(item => {
-                if (item.dateKey !== request.dateKey || !overlaps(span, DBService._makeupRequestSpan(item))) return false;
-                if (['pending', 'approved'].includes(item.status)) return true;
-                return item.status === 'rejected' && request.type === 'scheduled' && item.type === 'scheduled';
-            });
+            const sameHours = existing.filter(item => item.dateKey === request.dateKey &&
+                overlaps(span, DBService._makeupRequestSpan(item)));
+            const previous = sameHours.find(item => ['pending', 'approved'].includes(item.status));
             if (previous) {
-                const state = previous.status === 'pending' ? 'đang chờ duyệt'
-                    : previous.status === 'approved' ? 'đã được duyệt' : 'đã bị từ chối';
-                fail(`Ca ${label} đã có yêu cầu chấm bù ${state}. Mỗi ca chỉ gửi một lần${previous.status === 'rejected' ? '; nếu cần xem lại, vui lòng liên hệ quản lý' : ''}.`);
+                const state = previous.status === 'pending' ? 'đang chờ duyệt' : 'đã được duyệt';
+                fail(`Ca ${label} đã có yêu cầu chấm bù ${state}. Mỗi ca chỉ có một yêu cầu đang xử lý.`);
             }
+            rejectionsByIndex[index] = sameHours.filter(item => item.status === 'rejected');
             const twin = list.find((other, otherIndex) => otherIndex !== index && other.dateKey === request.dateKey &&
                 overlaps(span, DBService._makeupRequestSpan(other)));
             if (twin) fail(`Hai ca đang chọn (${label} và ${twin.shiftLabel || ''}) trùng khung giờ; chỉ gửi một yêu cầu.`);
         });
+        return rejectionsByIndex;
     },
 
     // Admin đã thêm/sửa công trong Bảng Công (trang Tính lương) phủ TRỌN khung giờ của một
@@ -6246,7 +6257,12 @@ const DBService = {
                 });
                 return request.id;
             });
-            if (done) resolved.push(done);
+            if (done) {
+                resolved.push(done);
+                DBService.createAdminNotification(id, request.staffName, 'makeup_covered', dateKey,
+                    `Ca ${request.shiftLabel || dateKey} đã được quản lý ghi công trực tiếp trong Bảng Công, không cần duyệt chấm bù nữa.`,
+                    { title: 'Ca đã có công', link: 'bao-cao.html' }).catch(() => {});
+            }
         }
         return resolved;
     },
@@ -6655,6 +6671,10 @@ const DBService = {
                 overtimeMinutes: Number(s.overtimeMinutes) || 0
             }
         });
+        const paidLater = sessionData.payoutMonth ? ` Tiền ca này được trả vào lương tháng ${sessionData.payoutMonth}.` : '';
+        DBService.createAdminNotification(req.staffId, req.staffName, 'makeup_approved', req.dateKey,
+            `Yêu cầu chấm bù ${req.shiftLabel || req.dateKey} đã được duyệt và ghi vào Bảng Công.${paidLater}`,
+            { title: 'Chấm bù đã được duyệt', link: 'cham-bu.html' }).catch(() => {});
         return sid;
     },
 
@@ -6768,10 +6788,18 @@ const DBService = {
     },
 
     rejectMakeupRequest: async (reqId, adminName, reason) => {
-        await db.collection('makeup_requests').doc(reqId).update({
+        const ref = db.collection('makeup_requests').doc(reqId);
+        const before = await ref.get();
+        await ref.update({
             status: 'rejected', reviewedBy: adminName || 'Admin',
             reviewedAt: firebase.firestore.FieldValue.serverTimestamp(), rejectReason: reason || ''
         });
+        const request = before.exists ? before.data() : null;
+        if (request?.staffId) {
+            DBService.createAdminNotification(request.staffId, request.staffName, 'makeup_rejected', request.dateKey,
+                `Yêu cầu chấm bù ${request.shiftLabel || request.dateKey} bị từ chối${reason ? `: ${reason}` : ''}. Bạn có thể bổ sung lý do và gửi lại ở trang Chấm Công Bù.`,
+                { title: 'Chấm bù bị từ chối', link: 'cham-bu.html' }).catch(() => {});
+        }
     },
 
     // ================= BROADCAST ANNOUNCEMENTS (Thông báo nội bộ) =================
@@ -7856,6 +7884,15 @@ const DBService = {
 
     // Publish selected components from the current stored calculation. Used by
     // bulk publish so a stale modal cannot lower `received` back to `published`.
+    _notifyPayslipPublished(staffId, monthStr, components) {
+        if (!Array.isArray(components) || !components.length) return;
+        const [year, month] = String(monthStr).split('-');
+        const part = components.length === 1 ? (components[0] === 'tt' ? ' (phần Tiếp Tân / Văn Phòng)' : ' (phần Giảng dạy)') : '';
+        DBService.createAdminNotification(staffId, '', 'payslip_published', monthStr,
+            `Bảng lương tháng ${Number(month)}/${year}${part} đã được gửi. Vui lòng xem và bấm xác nhận đã nhận lương.`,
+            { title: 'Đã có bảng lương', link: 'nhan-vien.html' }).catch(() => {});
+    },
+
     async publishPayslipComponents(staffId, monthStr, targets = {}, message = '') {
         if (!staffId || !monthStr) {
             throw new Error('[PublishPayslipComponents] staffId and monthStr are required.');
@@ -7883,6 +7920,7 @@ const DBService = {
                 }
             });
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            DBService._notifyPayslipPublished(staffId, monthStr, transition.publishedComponents);
             return {
                 ok: transition.publishedComponents.length > 0 || transition.lockedComponents.length > 0,
                 status: transition.state.overallStatus,
@@ -7935,6 +7973,7 @@ const DBService = {
                 }
             });
             DBService._invalidate(`all_monthly_salary_settings_${monthStr}`);
+            DBService._notifyPayslipPublished(staffId, monthStr, transition.publishedComponents);
             return {
                 ok: true,
                 status: transition.state.overallStatus,
@@ -8235,6 +8274,10 @@ const DBService = {
             });
         });
         DBService._invalidate('overtime_requests_staff_');
+        const minutes = Number(identity.duration || identity.minutes || 0);
+        DBService.createAdminNotification(identity.staffId, identity.staffName, `overtime_${status}`, identity.dateKey,
+            `Tăng ca ngày ${identity.dateKey}${minutes ? ` (${minutes} phút)` : ''} ${status === 'approved' ? 'đã được duyệt' : 'không được duyệt'}.`,
+            { title: status === 'approved' ? 'Tăng ca được duyệt' : 'Tăng ca không được duyệt', link: 'bao-cao.html' }).catch(() => {});
     },
 
     saveAdminOvertimeConfig: async (staffId, staffName, dateKey, sessionId, minutes) => {
@@ -9211,6 +9254,9 @@ const DBService = {
             });
             DBService._invalidate('bonus10_requests_');
             console.log('[Bonus10] Approved exact teaching shift:', normalizedRequestId, resolved.targetShiftKey);
+            DBService.createAdminNotification(staffId, '', 'bonus10_approved', dateKey,
+                `Phụ cấp vào sớm +10 phút ngày ${dateKey} đã được duyệt.`,
+                { title: '+10 phút được duyệt', link: 'bao-cao.html' }).catch(() => {});
         } catch (e) {
             console.error('[Bonus10] Error approving:', e);
             throw e;

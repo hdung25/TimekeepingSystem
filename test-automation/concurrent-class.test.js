@@ -96,7 +96,7 @@ const cutFrom = (src, start, file) => {
     vm.runInContext('const OVERLAP_MIN=10*60*1000;\n' +
         cutFrom(src, 'function mergeConcurrentTeaching(shifts){', 'cham-bu.html') +
         cutFrom(src, 'function attendanceOverlaps(sessions,aStart,aEnd){', 'cham-bu.html') +
-        cutFrom(src, 'function requestFor(reqs,aStart,aEnd){', 'cham-bu.html') +
+        cutFrom(src, 'function requestFor(reqs,aStart,aEnd,includeRejected){', 'cham-bu.html') +
         cutFrom(src, 'function mergeConsecutiveOpen(list){', 'cham-bu.html'), context);
 
     const gv = (start, end, label, extra) => Object.assign(
@@ -180,10 +180,10 @@ const cutFrom = (src, start, file) => {
         assert.equal(context.requestFor(pend, at('07:30'), at('09:00')).status, 'pending');
         assert.equal(context.requestFor(pend, at('09:15'), at('10:45')), null, 'ca khác giờ không bị chặn');
         assert.equal(context.requestFor([{ status: 'approved', type: 'scheduled', session }], at('07:30'), at('09:00')).status, 'approved');
-        assert.equal(context.requestFor([{ status: 'rejected', type: 'scheduled', session }], at('07:30'), at('09:00')).status, 'rejected',
-            'ca có lịch đã bị từ chối không được gửi lại lần hai');
-        assert.equal(context.requestFor([{ status: 'rejected', type: 'unscheduled', session }], at('07:30'), at('09:00')), null,
-            'đơn ngoài lịch bị từ chối không chặn ca có lịch');
+        assert.equal(context.requestFor([{ status: 'rejected', type: 'scheduled', session }], at('07:30'), at('09:00')), null,
+            'đơn bị từ chối không khoá ca: nhân viên được gửi lại');
+        assert.equal(context.requestFor([{ status: 'rejected', type: 'scheduled', session, rejectReason: 'x' }], at('07:30'), at('09:00'), true).rejectReason, 'x',
+            'lý do từ chối vẫn hiện cho nhân viên'); 
     }
 
     {

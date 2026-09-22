@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260922-makeup-dedupe-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260923-notify-resume-v1'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260914-autoclose-subject-v1'></script>
     <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
@@ -242,13 +242,12 @@ function attendanceOverlaps(sessions,aStart,aEnd){
     });
 }
 
-// Yêu cầu chấm bù ĐÃ GỬI phủ khung giờ này (mỗi ca chỉ gửi một lần): đang chờ, đã duyệt,
-// hoặc ca có lịch đã bị từ chối. Đơn ngoài lịch bị từ chối không chặn ca có lịch.
-function requestFor(reqs,aStart,aEnd){
+// Yêu cầu chấm bù ĐÃ GỬI phủ khung giờ này: đang chờ / đã duyệt thì khoá ca; đơn bị từ chối
+// (includeRejected) chỉ để hiện lý do — nhân viên được sửa lại và gửi lại.
+function requestFor(reqs,aStart,aEnd,includeRejected){
     const hits=(reqs||[]).filter(r=>{
         if(!r)return false;
-        if(r.status==='rejected'&&r.type!=='scheduled')return false;
-        if(!['pending','approved','rejected'].includes(r.status))return false;
+        if(!['pending','approved'].concat(includeRejected?['rejected']:[]).includes(r.status))return false;
         const s=r.session||{};
         if(!s.checkIn)return false;
         const b1=new Date(s.checkIn).getTime();
@@ -256,7 +255,8 @@ function requestFor(reqs,aStart,aEnd){
         return Math.min(aEnd,b2)-Math.max(aStart,b1)>=OVERLAP_MIN;
     });
     const rank={pending:0,approved:1,rejected:2};
-    return hits.sort((a,b)=>rank[a.status]-rank[b.status])[0]||null;
+    const seconds=r=>(r.reviewedAt&&r.reviewedAt.seconds)||(r.createdAt&&r.createdAt.seconds)||0;
+    return hits.sort((a,b)=>rank[a.status]-rank[b.status]||seconds(b)-seconds(a))[0]||null;
 }
 
 // CA LIÊN TIẾP: hai ca dạy cùng cơ sở nối đúng mốc giờ (18:00–19:30 rồi 19:30–21:00) là MỘT
@@ -420,13 +420,14 @@ async function loadMonth(options={}){
                     s.done=true; s.coveredByOther=true;
                 }
                 s.request=s.done?null:requestFor(reqMap[k],ms(k,s.start),ms(k,s.end));
+                s.lastRejected=s.done||s.request?null:requestFor(reqMap[k],ms(k,s.start),ms(k,s.end),true);
                 s.locked=!!s.absenceState?.isAbsent;
             });
             const shown=mergeConsecutiveOpen(merged);
             shown.forEach(s=>{
                 s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
                 s.pending=!!s.request&&s.request.status==='pending';
-                s.rejected=!!s.request&&s.request.status==='rejected';
+                s.rejected=!!s.lastRejected;
             });
             if(shown.length)monthMap[k]={shifts:shown,
                 miss:shown.filter(s=>!s.done&&!s.request&&!s.locked).length,
@@ -476,9 +477,10 @@ function renderDay(){
              if(s.coveredByOther)act='<div class="warnbox" style="margin:0">Bảng Công đã có ca <b>chồng khung giờ</b> này rồi nên không cần chấm bù. Nếu bạn thấy thiếu lớp, báo quản lý sửa tên lớp của ca đã có — xin thêm một ca nữa sẽ thành tính công hai lần.</div>'}
         else if(s.pending){bdg='<span class="bdg b-i">Chờ duyệt</span>';cls=' off'}
         else if(s.request&&s.request.status==='approved'){bdg='<span class="bdg b-g">Đã duyệt</span>';cls=' off'}
-        else if(s.rejected){
-             bdg='<span class="bdg b-r">Đã từ chối</span>';cls=' off';
-             act='<div class="warnbox" style="margin:0">Ca này đã gửi yêu cầu và bị từ chối'+(s.request.rejectReason?': <b>'+esc(s.request.rejectReason)+'</b>':'')+'. Mỗi ca chỉ gửi một lần — nếu cần xem lại, vui lòng liên hệ quản lý.</div>'}
+        else if(s.rejected&&!s.locked){
+             bdg='<span class="bdg b-r">Bị từ chối</span>';
+             act='<div class="warnbox" style="margin:0 0 .6rem">Yêu cầu trước đã bị từ chối'+(s.lastRejected.rejectReason?': <b>'+esc(s.lastRejected.rejectReason)+'</b>':'')+'. Bạn có thể bổ sung lý do rõ hơn và gửi lại.</div>'+
+                 '<button class="btn b-pick'+(on?' on':'')+'" onclick="togglePick('+i+')">'+(on?'Đã chọn':'Chọn gửi lại')+'</button>'}
         else if(s.locked){
              // Vắng đã có xác nhận (phép / đột xuất / quản lý cập nhật) → KHÔNG cho chấm bù
              bdg='<span class="bdg b-r">'+esc(s.excuse)+'</span>';cls=' off';

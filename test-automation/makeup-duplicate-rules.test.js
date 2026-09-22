@@ -84,6 +84,21 @@ const scheduled = (start, end, extra = {}) => ({
         await assert.rejects(staff.createMakeupRequests([scheduled('07:30', '09:00', { scheduleLocators: [{ kind: 'gv', compositeKey: `cs1__${dateKey}`, section: 'morning1', rowIndex: 1, start: '07:30', end: '09:00' }] })]),
             { code: 'MAKEUP_DUPLICATE' }, 'a shift that already has attendance cannot be requested');
         console.log('PASS admin-added attendance closes fully covered requests only, without writing attendance');
+
+        // Rejected → the staff member may send again (new fixed id _r1), but only once at a time.
+        const eveningId = (await adminDb.collection('makeup_requests').where('staffId', '==', staffId).get()).docs
+            .find(item => item.data().shiftStart === '18:00').id;
+        await adminDb.collection('makeup_requests').doc(eveningId).update({ status: 'rejected', rejectReason: 'Thiếu lý do' });
+        await env.withSecurityRulesDisabled(context => context.firestore().collection('attendance_logs').doc(`${dateKey}_${staffId}`)
+            .update({ sessions: [{ id: 'admin-morning', type: 'admin_add', checkIn: iso('07:30'), checkOut: iso('09:00') }] }));
+        await staff.createMakeupRequests([scheduled('18:00', '21:00', { reason: 'Quên mang điện thoại, đã dạy đủ 2 lớp' })]);
+        const again = (await adminDb.collection('makeup_requests').where('staffId', '==', staffId).get()).docs
+            .find(item => item.data().status === 'pending' && item.data().shiftStart === '18:00');
+        assert.ok(again.id.endsWith('_r1'), 'a resubmission gets its own fixed id');
+        assert.deepEqual(again.data().resubmissionOf, [eveningId]);
+        await assert.rejects(staff.createMakeupRequests([scheduled('18:00', '21:00')]), { code: 'MAKEUP_DUPLICATE' },
+            'the resubmission itself cannot be duplicated');
+        console.log('PASS a rejected request can be sent again exactly once while pending');
         console.log('makeup-duplicate-rules.test.js: all assertions passed');
     } finally {
         await env.cleanup();
