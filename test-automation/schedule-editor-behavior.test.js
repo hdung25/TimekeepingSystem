@@ -200,6 +200,41 @@ test('delete and subject edit follow the rendered row instead of a reused array 
     assert.deepEqual(h.store.get(`schedules/${key}`).morning1.map(item => item.shiftId), ['b']);
 });
 
+const attendanceAdminSource = fs.readFileSync(path.join(root, 'js/schedule-attendance-admin.js'), 'utf8');
+const pastKey = 'cs1__2026-09-07';
+const workedSession = (extra = {}) => ({ id: 'worked', checkIn: '2026-09-07T07:25:00+07:00',
+    checkOut: '2026-09-07T09:00:00+07:00', start: '2026-09-07T07:25:00+07:00', ...extra });
+
+test('a started class without worked attendance can be deleted', async () => {
+    const h = harness(), a = row('past-a'), b = row('past-b', { start: '09:15', end: '10:45' });
+    h.run(attendanceAdminSource);
+    h.store.set(`schedules/${pastKey}`, { morning1: [a, b] });
+    h.store.set('attendance_logs/2026-09-07_teacher-1', { userId: 'teacher-1',
+        sessions: [workedSession({ id: 'absent', isAbsent: true })] });
+    await h.context.deleteRow(pastKey, 'morning1', 0, h.locator(a));
+    assert.deepEqual(h.store.get(`schedules/${pastKey}`).morning1.map(item => item.shiftId), ['past-b']);
+    assert.equal(h.messages.filter(message => message.type === 'error').length, 0);
+});
+
+test('a started class with worked attendance is never deleted', async () => {
+    const h = harness(), a = row('past-worked');
+    h.run(attendanceAdminSource);
+    h.store.set(`schedules/${pastKey}`, { morning1: [a] });
+    h.store.set('attendance_logs/2026-09-07_teacher-1', { userId: 'teacher-1', sessions: [workedSession()] });
+    await h.context.deleteRow(pastKey, 'morning1', 0, h.locator(a));
+    assert.equal(h.store.get(`schedules/${pastKey}`).morning1.length, 1);
+    assert.equal(h.writes.length, 0);
+    assert.match(h.messages.at(-1).text, /đã có chấm công/);
+});
+
+test('started-class delete fails closed when the attendance resolver is unavailable', async () => {
+    const h = harness(), a = row('past-no-resolver');
+    h.store.set(`schedules/${pastKey}`, { morning1: [a] });
+    await h.context.deleteRow(pastKey, 'morning1', 0, h.locator(a));
+    assert.equal(h.store.get(`schedules/${pastKey}`).morning1.length, 1);
+    assert.equal(h.messages.at(-1).type, 'error');
+});
+
 test('invalid time windows and negative/fractional student counts never persist', async () => {
     for (const [field, value] of [['start', ''], ['end', '07:00'], ['start', '25:00'], ['soHS', -1], ['soHS', 1.5]]) {
         const h = harness(), a = row('a');

@@ -3609,7 +3609,33 @@ const DBService = {
         }
     },
 
-    mutateScheduleSectionAtomic: async (compositeKey, section, applyRows, fallbackDayData = null) => {
+    // A started/past class can be deleted only when nobody on its roster has a
+    // worked attendance session for it. The attendance docs are read in the
+    // same transaction as the delete, so a check-in cannot slip in between.
+    _assertScheduleRowHasNoWorkedAttendance: async (transaction, compositeKey, section, row) => {
+        const { dateKey } = DBService._parseBranchKey(compositeKey);
+        const rosterIds = Array.from(new Set([
+            ...getScheduledMainTeacherIds(row),
+            ...getScheduledSubstituteIds(row),
+            ...(row?.registeredTeachers || []).map(item => item?.id)
+        ].map(id => String(id || '').trim()).filter(Boolean)));
+        if (rosterIds.length > 100 || rosterIds.some(id => !/^[A-Za-z0-9_-]{1,80}$/.test(id))) {
+            throw new Error('Danh sách nhân sự của lớp chưa hợp lệ. Đã dừng xóa lớp.');
+        }
+        if (!rosterIds.length) return;
+        const resolver = window.ScheduleAttendanceAdmin?.workedAttendanceConflictForShift;
+        if (typeof resolver !== 'function') throw new Error('Chưa tải được bộ đối chiếu công. Đã dừng xóa lớp.');
+        const records = await Promise.all(rosterIds.map(staffId =>
+            transaction.get(db.collection('attendance_logs').doc(`${dateKey}_${staffId}`))));
+        const shift = { dateKey, start: row.start, end: row.end, shiftId: row.shiftId, compositeKey, section };
+        if (records.some(record => record.exists && resolver(record.data(), shift)?.conflict)) {
+            const error = new Error('Lớp này đã có chấm công nên không thể xóa (để giữ giờ làm và lương). Nếu lớp không diễn ra, hãy tích ô Bật/Tắt để ghi nhận lớp nghỉ, hoặc xử lý công trong Bảng Công trước.');
+            error.code = 'schedule/delete-work-conflict';
+            throw error;
+        }
+    },
+
+    mutateScheduleSectionAtomic: async (compositeKey, section, applyRows, fallbackDayData = null, options = {}) => {
         if (!section || typeof applyRows !== 'function') {
             throw new Error('Thiếu thông tin danh sách ca cần cập nhật.');
         }
@@ -3626,6 +3652,8 @@ const DBService = {
             const rows = Array.isArray(source?.[section])
                 ? source[section].map(row => JSON.parse(JSON.stringify(row)))
                 : [];
+            // Transaction reads (e.g. attendance evidence) must happen before any write.
+            if (typeof options.beforeApply === 'function') await options.beforeApply(transaction, rows);
             const nextRows = applyRows(rows);
             if (!Array.isArray(nextRows)) throw new Error('Danh sách ca sau cập nhật không hợp lệ.');
             nextRows.forEach(row => {

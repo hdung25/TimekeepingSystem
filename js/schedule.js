@@ -873,17 +873,12 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
                             style="cursor: pointer; width: 14px; height: 14px; margin: 0;">
                         <span>${isClassClosed ? 'Tắt' : 'Bật'}</span>
                     </label>
-                    ${rowIsAdmin ? `<button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index}, this.closest('tr').dataset.rowLocator)" title="Xóa lớp">
+                    <button class="btn-icon" style="color: #EF4444; padding: 2px;" onclick="deleteRow('${compositeKey}', '${caType}', ${index}, this.closest('tr').dataset.rowLocator)" title="Xóa lớp">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                         </svg>
-                    </button>` : `<button type="button" class="btn-icon schedule-delete-locked" style="color: #9CA3AF; padding: 2px; border-color: #E5E7EB !important; background: #F9FAFB !important;" onclick="UIService.toast('Lớp đã bắt đầu hoặc đã qua nên không thể xóa (để giữ dữ liệu công/lương). Nếu lớp không diễn ra, hãy tích ô Bật/Tắt để ghi nhận lớp nghỉ.', 'warning')" title="Lớp đã bắt đầu — không thể xóa" aria-label="Lớp đã bắt đầu, không thể xóa">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
-                            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
-                        </svg>
-                    </button>`}
+                    </button>
                 </div>
             </td>`;
     } else {
@@ -1020,20 +1015,34 @@ window.deleteRow = async function (compositeKey, caType, index, renderedLocator)
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
         const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
-        if (isScheduleTimePast(compositeKey, row.start)) throw new Error('Ca đã bắt đầu hoặc đã qua và không thể xóa.');
-        if (!await UIService.confirm(`Xóa lớp ${scheduleEscapeHTML(row.lop || '(chưa chọn môn)')} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)} ngày ${scheduleEscapeHTML(compositeKey.split('__').pop())}?`)) return;
-        await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => {
+        const classLabel = `${scheduleEscapeHTML(row.lop || '(chưa chọn môn)')} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)} ngày ${scheduleEscapeHTML(compositeKey.split('__').pop())}`;
+        // A started/past class may be removed only while it has no worked
+        // attendance; that is verified again inside the delete transaction.
+        const startedClass = isScheduleTimePast(compositeKey, row.start);
+        const question = startedClass
+            ? `Lớp ${classLabel} đã bắt đầu hoặc đã qua. Hệ thống chỉ xóa khi chưa có ai chấm công cho lớp này. Xóa lớp?`
+            : `Xóa lớp ${classLabel}?`;
+        if (!await UIService.confirm(question)) return;
+        const findLatest = rows => {
             const latestIndex = resolveScheduleRowIndex(rows, locator);
             if (latestIndex < 0) throw scheduleRowConflictError();
             assertScheduleRowIdentity(rows[latestIndex], locator);
             if (scheduleRowContentFingerprint(rows[latestIndex]) !== scheduleRowContentFingerprint(row)) throw scheduleRowConflictError();
-            if (isScheduleTimePast(compositeKey, rows[latestIndex].start)) {
-                const error = new Error('Ca đã bắt đầu hoặc đã qua và không thể xóa.');
-                error.code = 'schedule/past';
-                throw error;
-            }
+            return latestIndex;
+        };
+        await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => {
+            const latestIndex = findLatest(rows);
             return rows.filter((_, rowIndex) => rowIndex !== latestIndex);
-        }, dayData);
+        }, dayData, {
+            beforeApply: async (transaction, rows) => {
+                const latestRow = rows[findLatest(rows)];
+                // Re-check the clock at commit time: a class that started while the
+                // confirm dialog was open gets the attendance check too.
+                if (startedClass || isScheduleTimePast(compositeKey, latestRow.start)) {
+                    await DBService._assertScheduleRowHasNoWorkedAttendance(transaction, compositeKey, caType, latestRow);
+                }
+            }
+        });
         scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);

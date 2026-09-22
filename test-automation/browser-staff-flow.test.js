@@ -201,7 +201,7 @@ async function main() {
                     await page.evaluate(date=>goToDatePickerDate(date),payrollDate);
                     const toggle='input[data-row-locator*="fixture-closure"]';
                     await page.waitForSelector(toggle,{timeout:30000});
-                    assert.equal(await page.$eval(toggle,el=>!!el.closest('tr').querySelector('button[title="Xóa lớp"]')),false);
+                    assert.equal(await page.$eval(toggle,el=>!!el.closest('tr').querySelector('button[title="Xóa lớp"]')),true,'a started class without attendance can be deleted by a schedule manager');
                     for(const closed of [true,false]) {
                         await page.waitForFunction(s => { const el = document.querySelector(s); return el && !el.closest('tbody').inert; }, {}, toggle);
                         await page.click(toggle);
@@ -217,7 +217,7 @@ async function main() {
                         assert.equal(row.gvId,'fixture-staff');
                         assert.equal(row.classClosureHistory.length,closed?1:2);
                     }
-                    console.log('PASS past class closure/reopen through actual manager UI preserves notes/assignment/audit; delete stays locked');
+                    console.log('PASS past class closure/reopen through actual manager UI preserves notes/assignment/audit; delete stays available');
 
                     // Reproduce the production report: personnel is added after the
                     // schedule page already cached its directory. Opening the shift

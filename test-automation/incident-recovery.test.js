@@ -111,7 +111,10 @@ async function main() {
     const schedule = fs.readFileSync(path.join(root, 'js/schedule.js'), 'utf8');
     const action = schedule.slice(schedule.indexOf('// === ACTION CELL ==='), schedule.indexOf('// === CỘT LỚP'));
     assert.match(action, /if \(isAdmin\)/, 'past closures must remain manager-accessible');
-    assert.match(action, /rowIsAdmin \? `<button/, 'historical delete must remain disabled');
+    // Historical delete is allowed only when the transaction proves no worked attendance.
+    const deleteHandler = schedule.slice(schedule.indexOf('window.deleteRow'), schedule.indexOf('window.saveScheduleManual'));
+    assert.match(deleteHandler, /isScheduleTimePast\(compositeKey, latestRow\.start\)[\s\S]*_assertScheduleRowHasNoWorkedAttendance\(transaction/,
+        'historical delete must verify attendance inside the delete transaction');
     assert.match(source, /delete newRow\.classClosureHistory/, 'daily closure audit must not inherit into another date');
     console.log('incident-recovery.test.js: exact-time, cache retry/scope, class close/restore/race checks passed');
 }
