@@ -878,7 +878,12 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                         </svg>
-                    </button>` : ''}
+                    </button>` : `<button type="button" class="btn-icon schedule-delete-locked" style="color: #9CA3AF; padding: 2px; border-color: #E5E7EB !important; background: #F9FAFB !important;" onclick="UIService.toast('Lớp đã bắt đầu hoặc đã qua nên không thể xóa (để giữ dữ liệu công/lương). Nếu lớp không diễn ra, hãy tích ô Bật/Tắt để ghi nhận lớp nghỉ.', 'warning')" title="Lớp đã bắt đầu — không thể xóa" aria-label="Lớp đã bắt đầu, không thể xóa">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+                            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+                        </svg>
+                    </button>`}
                 </div>
             </td>`;
     } else {

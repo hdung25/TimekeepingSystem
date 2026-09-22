@@ -397,10 +397,10 @@ assert.match(report,
 const earlyIndex = html.indexOf('js/early10.js?v=20260912-early10-nanos-v1');
 const helperIndex = html.indexOf('js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1');
 const dbIndex = html.indexOf('js/db-service.js?v=');
-const scheduleIndex = html.indexOf('js/schedule.js?v=20260922-inherited-delete-v1');
+const scheduleIndex = html.indexOf('js/schedule.js?v=20260922-delete-lock-hint-v1');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v194-inherited-delete-20260922/);
+assert.match(serviceWorker, /tdt-chamcong-v195-delete-lock-hint-20260922/);
 assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260906-early10-recovery-v1/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');
