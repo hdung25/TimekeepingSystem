@@ -1210,11 +1210,9 @@ async function handleLogin(e) {
 
     // UI Loading State
     const originalText = btn?.innerText || 'Đăng Nhập';
+    let redirecting = false;
     loginInFlight = true;
-    if (btn) {
-        btn.innerText = 'Đang kiểm tra...';
-        btn.disabled = true;
-    }
+    setLoginButtonLoading(btn, 'Đang xác thực…');
 
     // Hide previous error
     const errorDiv = document.getElementById('login-error');
@@ -1234,11 +1232,11 @@ async function handleLogin(e) {
 
             // Redirect
             const loginRoles = Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : [user.role];
-            if (loginRoles.some(r => r === 'admin' || r === 'senior_assistant')) {
-                window.location.href = 'admin.html';
-            } else {
-                window.location.href = 'nhan-vien.html';
-            }
+            const target = loginRoles.some(r => r === 'admin' || r === 'senior_assistant') ? 'admin.html' : 'nhan-vien.html';
+            redirecting = true;
+            setLoginButtonLoading(btn, 'Đang mở hệ thống…');
+            showLoginTransition(user.name || user.fullName || '');
+            window.location.href = target;
         }
     } catch (error) {
         console.error(error);
@@ -1252,12 +1250,45 @@ async function handleLogin(e) {
         }
     } finally {
         loginInFlight = false;
-        if (btn) {
-            btn.innerText = originalText;
+        // Khi đang chuyển trang thì giữ nguyên trạng thái chờ — trả nút về "Đăng Nhập"
+        // ngay trước khi trang mới hiện ra trông như đăng nhập thất bại.
+        if (btn && !redirecting) {
+            btn.classList.remove('is-loading');
+            btn.textContent = originalText;
             btn.disabled = false;
         }
     }
 }
+
+function setLoginButtonLoading(btn, label) {
+    if (!btn) return;
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.setAttribute('aria-busy', 'true');
+    btn.innerHTML = '<span class="login-spinner" aria-hidden="true"></span><span></span>';
+    btn.lastChild.textContent = label;
+}
+
+function showLoginTransition(name) {
+    if (document.querySelector('.login-transition')) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'login-transition';
+    overlay.setAttribute('role', 'status');
+    overlay.innerHTML = '<img src="images/TUDUYTRE.jpg" alt=""><div class="login-transition-title"></div>'
+        + '<div class="login-transition-sub">Đang mở hệ thống, vui lòng chờ…</div>'
+        + '<div class="login-progress" aria-hidden="true"><span></span></div>';
+    overlay.querySelector('.login-transition-title').textContent = name ? `Xin chào, ${name}!` : 'Đăng nhập thành công!';
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('show'));
+}
+
+// Quay lại trang đăng nhập bằng nút Back (trang lấy từ bfcache) thì bỏ lớp chờ cũ.
+window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    document.querySelector('.login-transition')?.remove();
+    const btn = document.querySelector('#login-form .login-btn');
+    if (btn) { btn.classList.remove('is-loading'); btn.removeAttribute('aria-busy'); btn.textContent = 'Đăng Nhập'; btn.disabled = false; }
+});
 
 async function handleLogout(event, trigger) {
     if (event) event.preventDefault();

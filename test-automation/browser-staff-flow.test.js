@@ -267,6 +267,11 @@ async function main() {
                     await page.$eval(oldMain,input=>input.click());
                     assert.equal(await page.$eval(oldMain,input=>input.checked),false);
                     await page.click('[data-action="save-manager"]');
+                    // Admin saves keep the manager open so attendance for the newly
+                    // assigned teacher can be reviewed; wait for the committed write.
+                    await page.waitForFunction(()=>teacherShiftManagerState && !teacherShiftManagerState.saving &&
+                        teacherShiftManagerState.originalRow?.gvList?.some(item=>item.id==='fixture-thanh-thuy'),{timeout:30000});
+                    await page.click('[data-action="close-manager"]');
                     await page.waitForFunction(()=>!document.getElementById('gv-picker-overlay'),{timeout:30000});
                     let rosterSaved;
                     await env.withSecurityRulesDisabled(async c=>{

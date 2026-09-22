@@ -36,7 +36,7 @@ assert.match(timekeeping, /visibilitychange[\s\S]*refreshTimekeepingAfterResume/
     'resuming the mobile app must refresh schedule chips instead of retaining an old in-memory roster');
 assert.match(timekeeping, /todayTeachingScheduleRead/,
     'chips and class cards must share the same fresh schedule read to avoid duplicate load');
-assert.match(makeupPage, /loadMonth\(options=\{\}\)[\s\S]*scheduleReadOptions=fresh\?\{source:'server',readCache:new Map\(\)\}[\s\S]*getSchedule\(b\+'__'\+k,scheduleReadOptions\)/,
+assert.match(makeupPage, /loadMonth\(options=\{\}\)[\s\S]*scheduleReadOptions=Object\.assign\(fresh\?\{source:'server'\}:\{\},\{readCache:new Map\(\)\}[\s\S]*getSchedule\(b\+'__'\+k,scheduleReadOptions\)/,
     'make-up detection must be able to re-read newly assigned admin schedules from the server');
 assert.match(makeupPage, /visibilitychange[\s\S]*refreshMakeupAfterResume/,
     'resuming the make-up page must not keep classifying a newly assigned shift as outside schedule');

@@ -6221,6 +6221,19 @@ async function saveEditedTimeOperation() {
             await DBService.saveAdminOvertimeConfig(staffId, staffName, dateKey, finalSessionId, newOtMinutes);
         }
 
+        // Ca vừa thêm/sửa đã phủ trọn khung giờ một yêu cầu chấm bù đang chờ → đóng yêu cầu
+        // đó (chỉ đổi trạng thái đơn), để trang Tường Trình không còn hiện và không ai duyệt
+        // thêm thành lương đôi. Lỗi ở bước này không ảnh hưởng ca đã lưu.
+        try {
+            const resolvedRequests = await DBService.resolveMakeupRequestsCoveredByAttendance(
+                staffId, dateKey, localStorage.getItem('userFullName') || 'Admin');
+            if (resolvedRequests.length) {
+                savedMessage += `\nĐã tự đóng ${resolvedRequests.length} yêu cầu chấm bù của ngày này vì ca đã có công.`;
+            }
+        } catch (resolveError) {
+            console.warn('[Makeup] Không tự đóng được yêu cầu chấm bù đã có công:', resolveError);
+        }
+
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore after edit
         alert(savedMessage);
@@ -9584,8 +9597,8 @@ async function loadSalaryDashboard() {
     unsubscribeSalaryDashboard = null;
     salaryDashboardWatchMonth = '';
     const body = document.getElementById('dash-table-body');
-    if (body) body.innerHTML = '<tr><td colspan="8">Đang tải bảng lương đúng tháng…</td></tr>';
-    ['dash-total-payroll', 'dash-total-paid', 'dash-total-unpaid'].forEach(id => {
+    if (body) body.innerHTML = '<tr><td colspan="9" style="padding:1.5rem;text-align:center;color:#6B7280;">Đang tải bảng lương đúng tháng…</td></tr>';
+    ['dash-total-payroll', 'dash-total-paid', 'dash-total-unpaid', 'dash-total-draft'].forEach(id => {
         const element = document.getElementById(id); if (element) element.innerText = '…';
     });
     
@@ -9609,7 +9622,7 @@ async function loadSalaryDashboard() {
     } catch (e) {
         if (generation !== salaryDashboardGeneration) return;
         console.error("Error loading salary dashboard:", e);
-        if (body) body.innerHTML = '<tr><td colspan="8">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="9" style="padding:1.5rem;text-align:center;">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
         UIService.toast("Lỗi khi tải dữ liệu dashboard: " + e.message, "error");
     } finally {
         UIService.hideLoading();
@@ -9628,14 +9641,30 @@ function renderSalaryDashboardTable() {
     let totalPayroll = 0;
     let totalPaid = 0;
     let totalUnpaid = 0;
-    
+    let totalDraft = 0;
+
     const searchText = (document.getElementById('dash-search')?.value || '').toLowerCase().trim();
     const statusFilter = document.getElementById('dash-filter-status')?.value || 'all';
     const roleFilter = document.getElementById('dash-filter-role')?.value || 'all';
-    
+
     const rows = [];
-    
-    staffList.forEach(u => {
+
+    // Người đã có phiếu lương tháng này nhưng không còn trong danh sách nhân sự (đã nghỉ,
+    // đổi tài khoản…) vẫn phải nằm trong tổng quỹ lương — thiếu họ là sổ chi lệch.
+    const listedIds = new Set(staffList.map(u => String(u.id)));
+    const outsideList = Object.keys(allSettings)
+        .filter(staffId => !listedIds.has(String(staffId)) && allSettings[staffId]?.published)
+        .map(staffId => {
+            const pub = allSettings[staffId].published;
+            const lifecycle = DBService.getPayslipLifecycleState(pub);
+            const detailName = [pub.details_gv, pub.details_tt, pub.details].map(item => item?.staffName).find(Boolean);
+            return {
+                id: staffId, name: detailName || staffId, username: '', msnvStr: '', outsideList: true,
+                roles: [lifecycle.has_gv ? 'teacher' : '', lifecycle.has_tt ? 'receptionist' : ''].filter(Boolean)
+            };
+        });
+
+    [...staffList, ...outsideList].forEach(u => {
         const name = (u.name || '').toLowerCase();
         const username = (u.username || '').toLowerCase();
         const msnv = (u.msnvStr || '').toLowerCase();
@@ -9656,6 +9685,7 @@ function renderSalaryDashboardTable() {
         if (isTeacher && isRecep) primaryRole = isOffice ? 'Kiêm nhiệm (GV & Văn Phòng)' : 'Dual (GV & TT)';
         else if (isTeacher) primaryRole = 'Giáo Viên';
         else if (isRecep) primaryRole = isOffice ? 'Nhân Viên Văn Phòng' : 'Tiếp Tân';
+        if (u.outsideList) primaryRole += ' · không còn trong danh sách';
         
         if (roleFilter === 'giao-vien' && !isTeacher) return;
         if (roleFilter === 'tiep-tan' && !isRecep) return;
@@ -9673,7 +9703,8 @@ function renderSalaryDashboardTable() {
         let canConfirmPaid = false;
         let hasReceivedComponent = false;
         let hasDraftComponent = false;
-        
+        let money = { total: 0, received: 0, sent: 0, draft: 0 };
+
         if (pub) {
             const lifecycle = typeof DBService.getPayslipLifecycleState === 'function'
                 ? DBService.getPayslipLifecycleState(pub)
@@ -9693,15 +9724,8 @@ function renderSalaryDashboardTable() {
             advance = pub.advance || 0;
             netPay = pub.netPay || 0;
             
-            const paymentBreakdown = typeof DBService.getPayslipPaymentBreakdown === 'function'
-                ? DBService.getPayslipPaymentBreakdown(pub)
-                : {
-                    total: netPay,
-                    paid: status === 'received' ? netPay : 0,
-                    unpaid: status === 'received' ? 0 : netPay
-                };
-            totalPayroll += paymentBreakdown.total;
-            netPay = paymentBreakdown.total;
+            money = DBService.getPayslipAccountingBreakdown(pub);
+            netPay = money.total;
             const detailedComponents = [pub.details_gv, pub.details_tt].filter(Boolean);
             if (detailedComponents.length) {
                 const sumField = (field, fallback) => detailedComponents.every(item => Number.isFinite(Number(item[field])))
@@ -9710,9 +9734,7 @@ function renderSalaryDashboardTable() {
                 totalBonus = sumField('totalBonus', totalBonus);
                 advance = sumField('advance', advance);
             }
-            totalPaid += paymentBreakdown.paid;
-            totalUnpaid += paymentBreakdown.unpaid;
-            
+                        
             // Aggregate fields alone cannot describe a dual-role payslip whose two
             // halves were sent (or confirmed) on different days by different people.
             const timeline = typeof DBService.getPayslipStatusTimeline === 'function'
@@ -9757,7 +9779,13 @@ function renderSalaryDashboardTable() {
         if (statusFilter !== 'all' && status !== statusFilter) {
             return;
         }
-        
+
+        // Tổng cộng theo ĐÚNG các dòng đang hiển thị, để số trên thẻ khớp với bảng khi lọc.
+        totalPayroll += money.total;
+        totalPaid += money.received;
+        totalUnpaid += money.sent;
+        totalDraft += money.draft;
+                
         rows.push({
             user: u,
             primaryRole: primaryRole,
@@ -9774,9 +9802,19 @@ function renderSalaryDashboardTable() {
         });
     });
     
-    document.getElementById('dash-total-payroll').innerText = formatNumberWithCommas(totalPayroll) + 'đ';
-    document.getElementById('dash-total-paid').innerText = formatNumberWithCommas(totalPaid) + 'đ';
-    document.getElementById('dash-total-unpaid').innerText = formatNumberWithCommas(totalUnpaid) + 'đ';
+    const money = value => (value < 0 ? '-' : '') + formatNumberWithCommas(Math.abs(Math.round(value))) + 'đ';
+    document.getElementById('dash-total-payroll').innerText = money(totalPayroll);
+    document.getElementById('dash-total-paid').innerText = money(totalPaid);
+    document.getElementById('dash-total-unpaid').innerText = money(totalUnpaid);
+    const draftCard = document.getElementById('dash-total-draft');
+    if (draftCard) draftCard.innerText = money(totalDraft);
+    const scopeNote = document.getElementById('dash-total-scope');
+    if (scopeNote) {
+        const filtered = searchText || statusFilter !== 'all' || roleFilter !== 'all';
+        scopeNote.innerText = filtered
+            ? `Đang lọc: tổng theo ${rows.length} người trong bảng bên dưới.`
+            : `Toàn bộ ${rows.length} người của tháng này.`;
+    }
     
     if (rows.length === 0) {
         tableBody.innerHTML = `<tr><td colspan="9" style="padding:2rem;text-align:center;color:#9CA3AF;">Không tìm thấy kết quả phù hợp</td></tr>`;
@@ -9832,7 +9870,7 @@ function renderSalaryDashboardTable() {
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.baseSalary > 0 ? formatNumberWithCommas(row.baseSalary) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.totalBonus > 0 ? formatNumberWithCommas(row.totalBonus) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#EF4444;">${row.advance > 0 ? '-' + formatNumberWithCommas(row.advance) + 'đ' : '—'}</td>
-                <td style="padding:0.75rem 0.75rem;text-align:right;font-weight:700;color:var(--primary-color);">${row.netPay > 0 ? formatNumberWithCommas(row.netPay) + 'đ' : '—'}</td>
+                <td style="padding:0.75rem 0.75rem;text-align:right;font-weight:700;color:${row.netPay < 0 ? '#DC2626' : 'var(--primary-color)'};">${row.netPay !== 0 && row.status !== 'uncalculated' ? (row.netPay < 0 ? '-' : '') + formatNumberWithCommas(Math.abs(row.netPay)) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:center;">${row.statusBadge}</td>
                 <td style="padding:0.75rem 0.75rem;">${row.infoStr}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:center;">

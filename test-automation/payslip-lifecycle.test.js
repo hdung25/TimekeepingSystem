@@ -20,6 +20,7 @@ vm.runInContext(dbServiceSource.slice(start, end + endMarker.length), context);
 const {
     _getPayslipLifecycleState,
     _getPayslipPaymentBreakdown,
+    _getPayslipAccountingBreakdown,
     _preparePayslipComponentPublish,
     _preparePayslipPublishUpdate,
     _preparePayslipConfirmation,
@@ -55,6 +56,26 @@ const {
         { total: legacy.total, paid: legacy.paid, unpaid: legacy.unpaid },
         { total: 80, paid: 80, unpaid: 0 }
     );
+
+    // Accounting view: a draft component is not yet money owed, so it must not be
+    // reported as "đã gửi · chờ chi".
+    const accounting = _getPayslipAccountingBreakdown({
+        role: 'dual', status: 'published', status_gv: 'published', status_tt: 'draft',
+        details_gv: { netPay: 100 }, details_tt: { netPay: 60 }, netPay: 160
+    });
+    assert.deepEqual({ total: accounting.total, received: accounting.received, sent: accounting.sent, draft: accounting.draft },
+        { total: 160, received: 0, sent: 100, draft: 60 });
+    const accountingSplit = _getPayslipAccountingBreakdown({
+        status: 'published', status_gv: 'received', status_tt: 'published',
+        details_gv: { netPay: 100 }, details_tt: { netPay: 50 }, netPay: 150
+    });
+    assert.equal(accountingSplit.received + accountingSplit.sent + accountingSplit.draft, accountingSplit.total,
+        'the three buckets always add up to the payroll total');
+    assert.equal(accountingSplit.received, 100);
+    assert.equal(accountingSplit.sent, 50);
+    const legacyDraft = _getPayslipAccountingBreakdown({ role: 'giao-vien', status: 'draft', details: { netPay: -20 }, netPay: -20 });
+    assert.deepEqual({ total: legacyDraft.total, draft: legacyDraft.draft }, { total: -20, draft: -20 },
+        'negative net pay (advance above salary) is kept, not hidden');
 }
 
 {
@@ -340,7 +361,11 @@ const {
     const dashboardSource = reportSource.slice(dashboardStart, dashboardEnd);
     assert.doesNotMatch(dashboardSource, /const isRecep\s*=.*unfilteredAllMonthChips/);
     assert.match(dashboardSource, /const isRecep\s*=\s*hasReceptionistEmploymentRole\(uRoles\)/);
-    assert.match(dashboardSource, /getPayslipPaymentBreakdown\(pub\)/);
+    assert.match(dashboardSource, /getPayslipAccountingBreakdown\(pub\)/);
+    assert.match(dashboardSource, /totalDraft \+= money\.draft/,
+        'draft payslips are reported separately from money already sent');
+    assert.match(dashboardSource, /outsideList/,
+        'payslips of people no longer in the staff list still count in the month total');
     assert.match(dashboardSource, /\^#\[0-9a-f\]\{6\}\$/i,
         'schedule colors must be allow-listed before entering inline styles');
     assert.doesNotMatch(dashboardSource, /onclick="(?:adminConfirmPaid|viewPersonalReportFromDash)/,

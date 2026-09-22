@@ -20,7 +20,7 @@
     <!-- App Config -->
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script> <!-- Security Guard -->
-<script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/early10.js?v=20260912-early10-nanos-v1'></script> <script src='js/db-service.js?v=20260922-started-class-delete-v1'></script>
+<script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/early10.js?v=20260912-early10-nanos-v1'></script> <script src='js/db-service.js?v=20260922-makeup-dedupe-v1'></script>
     <!-- Chart.js CDN -->
     <script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
     <script src='js/chart-service.js?v=20260906-early10-recovery-v1'></script>
@@ -442,17 +442,35 @@
                         letter-spacing: 0.3px;
                     }
 
+                    /* Hai cột cố định: auto-fit tạo cột thứ 3 trống trên màn hình rộng vì
+                       khung "Phân tích cá nhân" trải hết hàng nên cột đó không được thu lại. */
                     .charts-grid {
                         display: grid;
-                        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
                         gap: 1.25rem;
                     }
 
-                    /* Leaderboard */
+                    .charts-grid > .chart-panel { min-width: 0; }
+
+                    @media (max-width: 1100px) {
+                        .charts-grid { grid-template-columns: minmax(0, 1fr); }
+                    }
+
+                    /* Leaderboard — minmax(0,…) cho phép cột co lại; tên dài tự rút gọn "…"
+                       thay vì đẩy "4 trễ · 41 vắng" tràn ra ngoài khung. */
                     .lb-wrap {
                         display: grid;
-                        grid-template-columns: 1fr 1fr;
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
                         gap: 1.25rem;
+                    }
+
+                    .lb-col { min-width: 0; }
+
+                    /* Khung xếp hạng hẹp (laptop 13", sidebar mở) → hai danh sách xếp chồng thay
+                       vì cắt tên còn vài chữ. */
+                    .chart-panel:has(.lb-wrap) { container-type: inline-size; }
+                    @container (max-width: 560px) {
+                        .lb-wrap { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
                     }
 
                     .lb-title {
@@ -507,11 +525,11 @@
                         text-overflow: ellipsis;
                     }
 
-                    .lb-val { font-size: 0.82rem; font-weight: 700; color: var(--text-color); white-space: nowrap; }
+                    .lb-val { font-size: 0.82rem; font-weight: 700; color: var(--text-color); white-space: nowrap; flex-shrink: 0; }
                     .lb-val.warn { color: #DC2626; }
                     .lb-empty { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0.4rem; list-style: none; }
 
-                    @media (max-width: 600px) { .lb-wrap { grid-template-columns: 1fr; gap: 1rem; } }
+                    @media (max-width: 600px) { .lb-wrap { grid-template-columns: minmax(0, 1fr); gap: 1rem; } }
 
                     /* Khối chọn nhân viên so sánh (thu gọn mặc định) */
                     .cmp-picker { margin-bottom: 1.1rem; }
@@ -935,8 +953,8 @@
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/note-repair.js?v=20260805-note-owner-fix-v1"></script> <!-- Dọn ghi chú lộn người -->
-    <script src="js/analytics.js?v=20260906-early10-recovery-v1"></script> <!-- Charts -->
-    <script src="js/main.js?v=20260922-started-class-delete-v1"></script>
+    <script src="js/analytics.js?v=20260922-makeup-dedupe-v1"></script> <!-- Charts -->
+    <script src="js/main.js?v=20260922-makeup-dedupe-v1"></script>
     <script src="js/salary-review-policy.js?v=20260919-review-v1"></script>
     <script src="js/salary-review-service.js?v=20260919-review-v1"></script>
     <script src="js/salary-review-notifications.js?v=20260919-review-v1"></script>

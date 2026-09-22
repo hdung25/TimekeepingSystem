@@ -12,11 +12,11 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260922-started-class-delete-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260922-makeup-dedupe-v1'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260914-autoclose-subject-v1'></script>
     <script src='js/ui-service.js?v=20260912-schedule-blank-guard-v1'></script>
-    <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
+    <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F1F5F9;
               --warn:#F59E0B;--warn-s:#FFFBEB;--info:#3B82F6;--info-s:#EFF6FF;--dan:#EF4444;--dan-s:#FEE2E2;
@@ -403,7 +403,10 @@ async function buildVerdicts(reqs){
         (byStaffMonth[k]=byStaffMonth[k]||[]).push(r);
     });
 
-    for(const key of Object.keys(byStaffMonth)){
+    // Mỗi nhân viên/tháng và mỗi ngày đọc SONG SONG (trước đây tuần tự từng ngày × từng
+    // cơ sở nên trang đứng hình vài chục giây khi có nhiều đơn). getSchedule tự dùng lại
+    // bộ nhớ đệm nên hai người cùng ngày không đọc lại cùng một lịch.
+    await Promise.all(Object.keys(byStaffMonth).map(async key=>{
         const [staffId,mStr]=key.split('|');
         const group=byStaffMonth[key];
         let attMap={},cancelledSet=new Set();
@@ -418,11 +421,11 @@ async function buildVerdicts(reqs){
 
         const dates=[...new Set(group.map(r=>r.dateKey).filter(Boolean))];
         const schedByDate={},recepByDate={};
-        for(const dkey of dates){
+        await Promise.all(dates.map(async dkey=>{
             const rows=[];
-            for(const b of BRS_TT){
-                let v=null; try{ v=await DBService.getSchedule(b+'__'+dkey) }catch(e){}
-                if(!v)continue;
+            const daySchedules=await Promise.all(BRS_TT.map(b=>DBService.getSchedule(b+'__'+dkey).then(v=>({b,v}),()=>({b,v:null}))));
+            daySchedules.forEach(({b,v})=>{
+                if(!v)return;
                 SECS_TT.forEach(sec=>(v[sec]||[]).forEach((row,rowIndex)=>{
                     if(!row.start||!row.end)return;
                     // isAssignedToClass (db-service.js) đọc ĐỦ gvList + gvThayTeList + gvThayTheList
@@ -432,17 +435,18 @@ async function buildVerdicts(reqs){
                         compositeKey:b+'__'+dkey,shiftId:row.shiftId||'',
                         cancelKey:b+'__'+dkey+'_'+sec+'_'+rowIndex});
                 }));
-            }
+            });
             schedByDate[dkey]=rows;
 
             const d=new Date(dkey+'T12:00:00'),w=d.getDay(),mo=new Date(d);
             mo.setDate(d.getDate()-w+(w===0?-6:1));
             const mk=dkOf(mo),dayk=DK_TT[w===0?6:w-1];
             const rshifts=[];
-            for(const b of BRS_TT){
-                const sources=[];
-                try{ sources.push({kind:'tt',v:await DBService.getReceptionistSchedule(b+'__'+mk)}) }catch(e){}
-                try{ sources.push({kind:'vp',v:await DBService.getOfficeSchedule(b+'__'+mk)}) }catch(e){}
+            const weekSources=await Promise.all(BRS_TT.map(b=>Promise.all([
+                DBService.getReceptionistSchedule(b+'__'+mk).then(v=>({kind:'tt',v}),()=>null),
+                DBService.getOfficeSchedule(b+'__'+mk).then(v=>({kind:'vp',v}),()=>null)
+            ]).then(sources=>({b,sources:sources.filter(Boolean)}))));
+            weekSources.forEach(({b,sources})=>{
                 sources.forEach(src=>{
                     const v=src.v;if(!v)return;
                     Object.keys(RS_TT).forEach(sk=>{
@@ -455,9 +459,9 @@ async function buildVerdicts(reqs){
                             cancelKey:(src.kind==='vp'?'office_':'')+b+'_'+mk+'_'+sk+'_'+dayk});
                     });
                 });
-            }
+            });
             recepByDate[dkey]=rshifts;
-        }
+        }));
 
         group.forEach(r=>{
             const s=r.session||{};
@@ -596,9 +600,12 @@ async function buildVerdicts(reqs){
                 if(anyClassAtTime)reasons.push('Khung giờ này trung tâm CÓ lớp đang diễn ra (hợp lý).');
                 else reasons.push('Khung giờ này không có lớp nào trên lịch — nên hỏi lại.');
             }
-            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted,missing:missing};
+            // Công đã phủ TRỌN khung giờ đơn (thường do quản lý thêm ca ở trang Tính lương)
+            // → đơn không còn cần duyệt; loadTab sẽ đóng đơn này.
+            const covered=!missing.length&&!!DBService._sessionsCoveringSpan(sess,DBService._makeupRequestSpan(r),r.id);
+            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted,missing:missing,covered:covered};
         });
-    }
+    }));
     return out;
 }
 
@@ -759,7 +766,7 @@ function askPayout(list){
 // Hộp TỪ CHỐI: có 4 lý do bấm nhanh, khỏi gõ lại mỗi lần
 function askReject(n){
     return new Promise(resolve=>{
-        const quick=['Đã có công trong Bảng Công rồi','Thiếu thông tin, vui lòng khai lại',
+        const quick=['Đã có công trong Bảng Công rồi','Thiếu thông tin, không đủ căn cứ duyệt',
                      'Không đúng ca trên lịch','Đã gộp với ca khác cùng khung giờ'];
         const bd=document.createElement('div');
         bd.className='custom-modal-backdrop tt-modal';
@@ -790,6 +797,8 @@ function askReject(n){
 
 /* ================= NẠP DỮ LIỆU ================= */
 async function refreshPendingCount(){
+    // Tab "Chờ duyệt" vừa tải lại đã đặt đúng số đếm — không đọc danh sách lần thứ hai.
+    if(curTab==='pending')return;
     try{ const p=await DBService.getMakeupRequestsByStatus('pending');
          document.getElementById('c-pending').innerText=p.length; }catch(e){}
 }
@@ -810,10 +819,27 @@ window.loadTab=async function(tab){
         document.getElementById('rows').innerHTML='<div class="empty"><i data-lucide="loader-2" class="animate-spin"></i><div class="t">Đang đối chiếu lịch &amp; bảng công...</div><div class="s">Kiểm tra ca có trên lịch, đúng người, đã có công chưa.</div></div>';
         if(window.lucide)lucide.createIcons();
         try{ curVerdicts=await buildVerdicts(curReqs) }catch(e){ console.warn('[Verdict]',e); toast('Không đối chiếu được dữ liệu lịch, vẫn duyệt tay được.','warning') }
+        await closeCoveredRequests();
     }
     buildFilterOptions();
     render();
 };
+
+// Đơn chờ duyệt mà Bảng Công ĐÃ có công phủ trọn khung giờ (quản lý đã thêm ca trực tiếp)
+// → đóng đơn (kiểm lại trên máy chủ trong transaction), ẩn khỏi danh sách chờ duyệt.
+async function closeCoveredRequests(){
+    const pairs=new Map();
+    curReqs.forEach(r=>{ if(curVerdicts[r.id]&&curVerdicts[r.id].covered)pairs.set(r.staffId+'|'+r.dateKey,{staffId:r.staffId,dateKey:r.dateKey}) });
+    if(!pairs.size)return;
+    const closed=new Set();
+    await Promise.all([...pairs.values()].map(p=>DBService.resolveMakeupRequestsCoveredByAttendance(p.staffId,p.dateKey,adminName())
+        .then(ids=>ids.forEach(id=>closed.add(id)),e=>console.warn('[Makeup] không tự đóng được đơn đã có công:',e))));
+    if(!closed.size)return;
+    curReqs=curReqs.filter(r=>!closed.has(r.id));
+    closed.forEach(id=>delete curVerdicts[id]);
+    document.getElementById('c-pending').innerText=curReqs.length;
+    toast('Đã tự đóng '+closed.size+' yêu cầu vì Bảng Công đã có công cho đúng ca đó (xem ở tab Từ chối).','info');
+}
 
 /* ================= BỘ LỌC ================= */
 function kindOf(r){

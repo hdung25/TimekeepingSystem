@@ -2092,7 +2092,21 @@ const DBService = {
         return { branch: 'cs1', dateKey: compositeKey, docId: compositeKey };
     },
 
+    // One owner-scoped read of every registration of a staff member. Pages that
+    // read a whole month of schedules only for that person (Chấm bù) pass it as
+    // options.prefetchedRegistrations instead of one query per schedule day.
+    getMyScheduleRegistrations: async (userId, options = {}) => {
+        const id = String(userId || '').trim();
+        if (!id) return [];
+        const query = db.collection('schedule_registrations').where('userId', '==', id);
+        const snapshot = options.source === 'server' ? await query.get({ source: 'server' }) : await query.get();
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    },
+
     _getScheduleRegistrations: async (compositeKey, options = {}) => {
+        if (Array.isArray(options.prefetchedRegistrations)) {
+            return options.prefetchedRegistrations.filter(item => String(item?.scheduleKey || '') === String(compositeKey));
+        }
         const userId = String(localStorage.getItem('currentUserId') || '').trim();
         if (!userId) return [];
         let roles = [];
@@ -6101,14 +6115,161 @@ const DBService = {
                 throw err;
             }
         }
+        // MỘT CA CHỈ ĐƯỢC XIN CHẤM BÙ MỘT LẦN. Đối chiếu với dữ liệu máy chủ (không tin
+        // danh sách đang hiển thị): trùng khung giờ với đơn đang chờ/đã duyệt, với đơn ca
+        // có lịch đã bị từ chối, hoặc với công đã có trong Bảng Công → không cho gửi.
+        await DBService._assertMakeupRequestsAreNew(list);
         const batchId = `mk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const batch = db.batch();
         list.forEach(r => {
-            const ref = db.collection('makeup_requests').doc();
+            // Ca có lịch dùng mã cố định theo đúng ca nguồn: bấm gửi hai lần (hai tab, mạng
+            // chậm) thì lần sau là ghi đè lên đơn đã có, và rules chỉ cho quản lý sửa đơn,
+            // nên nhân viên không thể tạo đơn thứ hai cho cùng một ca.
+            const fixedId = DBService._makeupRequestFixedId(r);
+            const ref = fixedId
+                ? db.collection('makeup_requests').doc(fixedId)
+                : db.collection('makeup_requests').doc();
             batch.set(ref, { ...r, batchId, status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
         });
-        await batch.commit();
+        try {
+            await batch.commit();
+        } catch (error) {
+            if (error?.code === 'permission-denied') {
+                const duplicate = new Error('Ca này đã có yêu cầu chấm bù rồi (có thể vừa gửi ở cửa sổ khác). Vui lòng tải lại trang để xem trạng thái.');
+                duplicate.code = 'MAKEUP_DUPLICATE';
+                throw duplicate;
+            }
+            throw error;
+        }
         return { batchId, count: list.length };
+    },
+
+    _makeupRequestFixedId: (r) => {
+        if (r?.type !== 'scheduled') return '';
+        const staffId = String(r.staffId || '').trim();
+        const locators = (Array.isArray(r.scheduleLocators) ? r.scheduleLocators : [])
+            .map(locator => [locator?.kind || 'gv', locator?.compositeKey || '', locator?.section || '',
+                Number.isInteger(locator?.rowIndex) ? locator.rowIndex : '', locator?.dayKey || '',
+                locator?.start || '', locator?.end || ''].join(':'))
+            .sort();
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(staffId) || !/^\d{4}-\d{2}-\d{2}$/.test(String(r.dateKey || '')) || !locators.length) return '';
+        const identity = [staffId, r.dateKey, ...locators].join('|');
+        return `mks_${r.dateKey}_${staffId}_${_scheduleRegistrationHash(identity, 2166136261)}${_scheduleRegistrationHash(identity, 3335557771)}`;
+    },
+
+    // Khoảng [start,end] (ms) của một yêu cầu chấm bù; null nếu là phiên vắng / thiếu giờ.
+    _makeupRequestSpan: (r) => {
+        const s = r?.session || {};
+        if (s.isAbsent || !s.checkIn || !s.checkOut) return null;
+        const start = new Date(s.checkIn).getTime();
+        const end = new Date(s.checkOut).getTime();
+        return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+    },
+
+    _assertMakeupRequestsAreNew: async (list) => {
+        const staffIds = Array.from(new Set(list.map(r => String(r.staffId || '').trim())));
+        if (staffIds.length !== 1 || !staffIds[0]) throw new Error('Mỗi lần gửi chỉ được cho đúng một nhân viên.');
+        const staffId = staffIds[0];
+        const dates = Array.from(new Set(list.map(r => String(r.dateKey || '')))).filter(Boolean);
+        const OVERLAP = 10 * 60 * 1000;
+        const overlaps = (a, b) => !!a && !!b && Math.min(a.end, b.end) - Math.max(a.start, b.start) >= OVERLAP;
+        const [existingSnap, attendanceSnaps] = await Promise.all([
+            // Chỉ lọc một trường (staffId) để không cần chỉ mục ghép trên Firestore.
+            db.collection('makeup_requests').where('staffId', '==', staffId).get({ source: 'server' }),
+            Promise.all(dates.map(dateKey => db.collection('attendance_logs').doc(`${dateKey}_${staffId}`).get({ source: 'server' })
+                .then(snapshot => ({ dateKey, sessions: snapshot.exists ? (snapshot.data()?.sessions || []) : [] }))))
+        ]);
+        const existing = existingSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(item => dates.includes(String(item.dateKey || '')));
+        const sessionsByDate = new Map(attendanceSnaps.map(item => [item.dateKey, item.sessions]));
+        const fail = (message) => {
+            const error = new Error(message);
+            error.code = 'MAKEUP_DUPLICATE';
+            throw error;
+        };
+        list.forEach((request, index) => {
+            const span = DBService._makeupRequestSpan(request);
+            const label = request.shiftLabel || `${request.dateKey}`;
+            if (!span) return;
+            const worked = (sessionsByDate.get(request.dateKey) || []).some(session => {
+                if (!session || session.isAbsent || !(session.checkIn || session.start)) return false;
+                const start = new Date(session.checkIn || session.start).getTime();
+                const end = session.checkOut ? new Date(session.checkOut).getTime() : start;
+                return overlaps(span, { start, end });
+            });
+            if (worked) fail(`Ca ${label} đã có công trong Bảng Công nên không cần chấm bù.`);
+            const previous = existing.find(item => {
+                if (item.dateKey !== request.dateKey || !overlaps(span, DBService._makeupRequestSpan(item))) return false;
+                if (['pending', 'approved'].includes(item.status)) return true;
+                return item.status === 'rejected' && request.type === 'scheduled' && item.type === 'scheduled';
+            });
+            if (previous) {
+                const state = previous.status === 'pending' ? 'đang chờ duyệt'
+                    : previous.status === 'approved' ? 'đã được duyệt' : 'đã bị từ chối';
+                fail(`Ca ${label} đã có yêu cầu chấm bù ${state}. Mỗi ca chỉ gửi một lần${previous.status === 'rejected' ? '; nếu cần xem lại, vui lòng liên hệ quản lý' : ''}.`);
+            }
+            const twin = list.find((other, otherIndex) => otherIndex !== index && other.dateKey === request.dateKey &&
+                overlaps(span, DBService._makeupRequestSpan(other)));
+            if (twin) fail(`Hai ca đang chọn (${label} và ${twin.shiftLabel || ''}) trùng khung giờ; chỉ gửi một yêu cầu.`);
+        });
+    },
+
+    // Admin đã thêm/sửa công trong Bảng Công (trang Tính lương) phủ TRỌN khung giờ của một
+    // yêu cầu chấm bù đang chờ → yêu cầu đó không còn cần duyệt (duyệt thêm là lương đôi).
+    // Chỉ đổi TRẠNG THÁI ĐƠN, không ghi gì vào công/lương. Phủ một phần thì giữ nguyên để
+    // quản lý xem tay.
+    resolveMakeupRequestsCoveredByAttendance: async (staffId, dateKey, actorName) => {
+        const id = String(staffId || '').trim();
+        if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return [];
+        const snapshot = await db.collection('makeup_requests')
+            .where('staffId', '==', id).get({ source: 'server' });
+        const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(item => item.dateKey === dateKey && item.status === 'pending' && DBService._makeupRequestSpan(item));
+        if (!pending.length) return [];
+        const attendanceRef = db.collection('attendance_logs').doc(`${dateKey}_${id}`);
+        const resolved = [];
+        for (const request of pending) {
+            const requestRef = db.collection('makeup_requests').doc(request.id);
+            const done = await db.runTransaction(async transaction => {
+                const [liveRequest, attendance] = await Promise.all([transaction.get(requestRef), transaction.get(attendanceRef)]);
+                if (!liveRequest.exists || liveRequest.data()?.status !== 'pending' || !attendance.exists) return null;
+                const span = DBService._makeupRequestSpan(liveRequest.data());
+                const covering = DBService._sessionsCoveringSpan(attendance.data()?.sessions || [], span, request.id);
+                if (!covering) return null;
+                transaction.update(requestRef, {
+                    status: 'rejected',
+                    resolution: 'covered_by_attendance',
+                    resolvedSessionIds: covering,
+                    rejectReason: 'Đã có công: quản lý đã ghi nhận ca này trực tiếp trong Bảng Công, không cần duyệt chấm bù.',
+                    reviewedBy: actorName || 'Admin',
+                    reviewedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                return request.id;
+            });
+            if (done) resolved.push(done);
+        }
+        return resolved;
+    },
+
+    // Trả về danh sách id phiên công phủ trọn span (cho phép hở tối đa 10 phút), hoặc null.
+    _sessionsCoveringSpan: (sessions, span, requestId = '') => {
+        if (!span) return null;
+        const worked = (Array.isArray(sessions) ? sessions : [])
+            .filter(session => session && !session.isAbsent && session.checkOut && (session.checkIn || session.start) &&
+                (!requestId || String(session.makeupRequestId || '') !== String(requestId)))
+            .map(session => ({ id: String(session.id || ''), start: new Date(session.checkIn || session.start).getTime(), end: new Date(session.checkOut).getTime() }))
+            .filter(item => Number.isFinite(item.start) && Number.isFinite(item.end) && item.end > item.start &&
+                Math.min(item.end, span.end) > Math.max(item.start, span.start))
+            .sort((a, b) => a.start - b.start);
+        if (!worked.length) return null;
+        let uncovered = 0;
+        let cursor = span.start;
+        worked.forEach(item => {
+            if (item.start > cursor) uncovered += Math.min(item.start, span.end) - cursor;
+            cursor = Math.max(cursor, item.end);
+        });
+        if (cursor < span.end) uncovered += span.end - cursor;
+        return uncovered <= 10 * 60 * 1000 ? worked.map(item => item.id) : null;
     },
 
     getMyMakeupRequests: async (staffId, options = {}) => {
@@ -7478,6 +7639,12 @@ const DBService = {
 
     getPayslipPaymentBreakdown(published = {}) {
         return _getPayslipPaymentBreakdown(published);
+    },
+
+    // Kế toán tháng: tách tiền theo đúng vòng đời phiếu lương — đã nhận (đã chi), đã gửi
+    // nhưng chưa nhận (phải chi), và còn nháp (chưa chốt, chưa phải nghĩa vụ chi).
+    getPayslipAccountingBreakdown(published = {}) {
+        return _getPayslipAccountingBreakdown(published);
     },
 
     getPayslipStatusTimeline(published = {}) {
@@ -9877,6 +10044,31 @@ function _getPayslipPaymentBreakdown(published = {}) {
     }
 
     return { total, paid, unpaid, lifecycle };
+}
+
+function _getPayslipAccountingBreakdown(published = {}) {
+    const base = _getPayslipPaymentBreakdown(published);
+    const lifecycle = base.lifecycle;
+    const components = [];
+    if (lifecycle.has_gv) components.push({ status: lifecycle.status_gv, details: published.details_gv });
+    if (lifecycle.has_tt) components.push({ status: lifecycle.status_tt, details: published.details_tt });
+    if (components.length === 1 && !components[0].details && published.details) components[0].details = published.details;
+    const bucket = { received: 0, sent: 0, draft: 0 };
+    const add = (status, value) => {
+        if (status === 'received') bucket.received += value;
+        else if (status === 'published') bucket.sent += value;
+        else bucket.draft += value;
+    };
+    let known = 0;
+    components.forEach(component => {
+        const value = Number(component.details?.netPay);
+        if (!Number.isFinite(value)) return;
+        known += value;
+        add(component.status, value);
+    });
+    const unallocated = base.total - known;
+    if (Math.abs(unallocated) > 0.0001) add(lifecycle.overallStatus, unallocated);
+    return { total: base.total, received: bucket.received, sent: bucket.sent, draft: bucket.draft, lifecycle };
 }
 
 function _payslipStampValue(value) {

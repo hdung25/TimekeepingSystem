@@ -589,7 +589,7 @@ function renderLbList(id, rows, valFn, warn) {
     el.innerHTML = rows.map((r, i) => `
         <li class="lb-item${i === 0 ? ' top' : ''}">
             <span class="lb-rank">${i + 1}</span>
-            <span class="lb-name">${lbEsc(r.name)}</span>
+            <span class="lb-name" title="${lbEsc(r.name).replace(/"/g, '&quot;')}">${lbEsc(r.name)}</span>
             <span class="lb-val${warn ? ' warn' : ''}">${valFn(r)}</span>
         </li>`).join('');
 }

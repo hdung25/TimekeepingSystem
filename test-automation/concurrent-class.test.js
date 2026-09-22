@@ -96,7 +96,8 @@ const cutFrom = (src, start, file) => {
     vm.runInContext('const OVERLAP_MIN=10*60*1000;\n' +
         cutFrom(src, 'function mergeConcurrentTeaching(shifts){', 'cham-bu.html') +
         cutFrom(src, 'function attendanceOverlaps(sessions,aStart,aEnd){', 'cham-bu.html') +
-        cutFrom(src, 'function anyPendingOverlaps(reqs,aStart,aEnd){', 'cham-bu.html'), context);
+        cutFrom(src, 'function requestFor(reqs,aStart,aEnd){', 'cham-bu.html') +
+        cutFrom(src, 'function mergeConsecutiveOpen(list){', 'cham-bu.html'), context);
 
     const gv = (start, end, label, extra) => Object.assign(
         { kind: 'gv', branch: 'cs1', start, end, label, noSubject: false, excuse: '' }, extra || {});
@@ -174,10 +175,34 @@ const cutFrom = (src, start, file) => {
             [{ checkIn: '2026-08-04T07:30:00', checkOut: '2026-08-04T09:00:00', isAbsent: true }],
             at('07:30'), at('09:00')), false, 'phiên VẮNG không phải là đã có công');
 
-        const pend = [{ status: 'pending', session: { checkIn: '2026-08-04T07:30:00', checkOut: '2026-08-04T09:00:00' } }];
-        assert.equal(context.anyPendingOverlaps(pend, at('07:30'), at('09:00')), true);
-        assert.equal(context.anyPendingOverlaps(
-            [{ status: 'rejected', session: pend[0].session }], at('07:30'), at('09:00')), false);
+        const session = { checkIn: '2026-08-04T07:30:00', checkOut: '2026-08-04T09:00:00' };
+        const pend = [{ status: 'pending', type: 'scheduled', session }];
+        assert.equal(context.requestFor(pend, at('07:30'), at('09:00')).status, 'pending');
+        assert.equal(context.requestFor(pend, at('09:15'), at('10:45')), null, 'ca khác giờ không bị chặn');
+        assert.equal(context.requestFor([{ status: 'approved', type: 'scheduled', session }], at('07:30'), at('09:00')).status, 'approved');
+        assert.equal(context.requestFor([{ status: 'rejected', type: 'scheduled', session }], at('07:30'), at('09:00')).status, 'rejected',
+            'ca có lịch đã bị từ chối không được gửi lại lần hai');
+        assert.equal(context.requestFor([{ status: 'rejected', type: 'unscheduled', session }], at('07:30'), at('09:00')), null,
+            'đơn ngoài lịch bị từ chối không chặn ca có lịch');
+    }
+
+    {
+        // Ca liên tiếp đang cần chấm bù → một mục duy nhất; ca đã có công hoặc cách giờ giữ riêng.
+        const open = (start, end, label, extra) => gv(start, end, label, Object.assign({ done: false, request: null, locked: false,
+            scheduleLocators: [{ start, end }], classIds: [label], classNames: [label] }, extra || {}));
+        const out = context.mergeConsecutiveOpen([
+            open('15:30', '17:00', 'E3'),
+            open('18:00', '19:30', 'E4'),
+            open('19:30', '21:00', 'E5')
+        ]);
+        assert.equal(out.length, 2, 'khoảng nghỉ 17:00–18:00 không bị gộp');
+        assert.equal(out[1].start + '-' + out[1].end, '18:00-21:00');
+        assert.equal(out[1].label, 'E4 + E5');
+        assert.equal(out[1].scheduleLocators.length, 2, 'giữ đủ định danh cả hai ca để duyệt đối chiếu');
+        const kept = context.mergeConsecutiveOpen([open('18:00', '19:30', 'E4', { done: true }), open('19:30', '21:00', 'E5')]);
+        assert.equal(kept.length, 2, 'ca đã có công không bị kéo vào đơn chấm bù');
+        const otherBranch = context.mergeConsecutiveOpen([open('18:00', '19:30', 'E4'), open('19:30', '21:00', 'E5', { branch: 'cs2' })]);
+        assert.equal(otherBranch.length, 2, 'khác cơ sở không gộp');
     }
 }
 

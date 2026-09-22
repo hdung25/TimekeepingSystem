@@ -1,7 +1,7 @@
 // Service Worker v194 - inherited schedule deletion recovery.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v196-started-class-delete-20260922';
+const CACHE_NAME = 'tdt-chamcong-v197-makeup-dedupe-20260922';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -27,7 +27,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',
     '/css/style.css?v=20260906-early10-recovery-v1',
-    '/css/login.css?v=20260621-font',
+    '/css/login.css?v=20260922-login-loading-v1',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
     '/css/salary-review.css?v=20260921-overview-v1',
     '/js/salary-review-policy.js?v=20260919-review-v1',
@@ -37,12 +37,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20260922-started-class-delete-v1',
+    '/js/main.js?v=20260922-makeup-dedupe-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260922-started-class-delete-v1',
-    '/js/meeting-attendance-policy.js?v=20260922-started-class-delete-v1',
-    '/js/report.js?v=20260922-started-class-delete-v1',
+    '/js/db-service.js?v=20260922-makeup-dedupe-v1',
+    '/js/meeting-attendance-policy.js?v=20260922-makeup-dedupe-v1',
+    '/js/report.js?v=20260922-makeup-dedupe-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -61,9 +61,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/auth-guard.js?v=20260919-review-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
-    '/js/analytics.js?v=20260906-early10-recovery-v1',
+    '/js/analytics.js?v=20260922-makeup-dedupe-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260922-started-class-delete-v1',
+    '/js/schedule.js?v=20260922-makeup-dedupe-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',

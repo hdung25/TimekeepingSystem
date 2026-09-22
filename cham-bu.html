@@ -12,10 +12,10 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260922-started-class-delete-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260922-makeup-dedupe-v1'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260914-autoclose-subject-v1'></script>
-    <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
+    <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F0FDF4;
               --warn:#F59E0B;--warn-s:#FFFBEB;--info:#3B82F6;--info-s:#EFF6FF;--dan:#EF4444;}
@@ -183,7 +183,7 @@ const BRS=['cs1','cs2','cs3'];
 const RS={morning:{l:'SÁNG',s:'07:00',e:'11:30'},afternoon:{l:'CHIỀU',s:'14:00',e:'18:00'},evening:{l:'TỐI',s:'18:00',e:'21:30'}};
 const DK=['mon','tue','wed','thu','fri','sat','sun'];
 const DOW=['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
-let curY,curM,selDate=null,monthMap={},picked=new Set(),reasonCache='';
+let curY,curM,selDate=null,monthMap={},picked=new Set(),reasonCache='',monthLoadSeq=0,sending=false;
 
 const uid=()=>localStorage.getItem('currentUserId');
 const uname=()=>localStorage.getItem('userFullName')||localStorage.getItem('currentUser')||'N/A';
@@ -242,16 +242,43 @@ function attendanceOverlaps(sessions,aStart,aEnd){
     });
 }
 
-// Đã có yêu cầu chấm bù đang chờ duyệt phủ khung giờ này chưa?
-function anyPendingOverlaps(reqs,aStart,aEnd){
-    return (reqs||[]).some(r=>{
-        if(!r||r.status!=='pending')return false;
+// Yêu cầu chấm bù ĐÃ GỬI phủ khung giờ này (mỗi ca chỉ gửi một lần): đang chờ, đã duyệt,
+// hoặc ca có lịch đã bị từ chối. Đơn ngoài lịch bị từ chối không chặn ca có lịch.
+function requestFor(reqs,aStart,aEnd){
+    const hits=(reqs||[]).filter(r=>{
+        if(!r)return false;
+        if(r.status==='rejected'&&r.type!=='scheduled')return false;
+        if(!['pending','approved','rejected'].includes(r.status))return false;
         const s=r.session||{};
         if(!s.checkIn)return false;
         const b1=new Date(s.checkIn).getTime();
         const b2=s.checkOut?new Date(s.checkOut).getTime():b1;
         return Math.min(aEnd,b2)-Math.max(aStart,b1)>=OVERLAP_MIN;
     });
+    const rank={pending:0,approved:1,rejected:2};
+    return hits.sort((a,b)=>rank[a.status]-rank[b.status])[0]||null;
+}
+
+// CA LIÊN TIẾP: hai ca dạy cùng cơ sở nối đúng mốc giờ (18:00–19:30 rồi 19:30–21:00) là MỘT
+// lần vào ca — Bảng Công ghép một phiên cho cả chuỗi. Gộp thành một mục chấm bù duy nhất,
+// chỉ khi cả hai đều đang cần chấm bù (ca đã có công/đã gửi đơn giữ nguyên riêng).
+function mergeConsecutiveOpen(list){
+    const open=s=>s.kind==='gv'&&!s.done&&!s.request&&!s.locked&&!s.noSubject;
+    const out=[];
+    list.forEach(s=>{
+        const prev=out[out.length-1];
+        if(prev&&open(prev)&&open(s)&&prev.branch===s.branch&&prev.end===s.start){
+            prev.end=s.end;
+            prev.scheduleLocators=[...(prev.scheduleLocators||[]),...(s.scheduleLocators||[])];
+            prev.classIds=[...new Set([...(prev.classIds||[]),...(s.classIds||[])])];
+            prev.chain=[...(prev.chain||[prev.label]),s.label];
+            prev.classNames=[...new Set([...(prev.classNames||[]),...(s.classNames||[])])];
+            prev.label=prev.chain.join(' + ');
+            return;
+        }
+        out.push({...s});
+    });
+    return out;
 }
 
 window.switchMode=function(m){
@@ -300,35 +327,41 @@ async function loadMonth(options={}){
     grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#6B7280;padding:1.5rem;font-size:.85rem">Đang tải lịch...</div>';
     monthMap={};
     const me=uid(), todayK=dk(new Date()), daysIn=new Date(curY,curM+1,0).getDate();
+    const loadId=++monthLoadSeq;
     try{
         const fresh=options.fresh===true;
-        const logs=await DBService.getMonthlyAttendance(mStr,me,fresh,fresh?{strict:true}:{});
-        const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
-        const reqs=await DBService.getMyMakeupRequests(me,fresh?{source:'server'}:{});
-        const reqMap={}; reqs.forEach(r=>{if(!reqMap[r.dateKey])reqMap[r.dateKey]=[];reqMap[r.dateKey].push(r)});
         // QUY TẮC GĐ: chấm công bù chỉ dành cho ca thiếu công chưa được ghi nhận
         // VP/VĐX. Mọi bằng chứng phải khớp đúng ca; daily_notes chỉ phân loại một
         // bằng chứng vắng legacy, không được tự biến cả ngày thành Vắng phép.
         if(!window.ShiftAbsenceState)throw new Error('Không tải được bộ đối chiếu trạng thái vắng theo ca. Vui lòng tải lại trang.');
-        let cancelled=[],notes={};
-        try{ cancelled=await DBService.getCancelledShifts(mStr,me) }catch(e){}
-        try{ notes=await DBService.getDailyNotes(me)||{} }catch(e){}
-        const cancelledSet=new Set(cancelled);
         const dates=[];
         for(let d=1;d<=daysIn;d++){const k=mStr+'-'+String(d).padStart(2,'0'); if(k<=todayK)dates.push(k)}
-        const scheduleReadOptions=fresh?{source:'server',readCache:new Map()}:{readCache:new Map()};
-        const schedRes=await Promise.all(dates.flatMap(k=>BRS.map(b=>
-            DBService.getSchedule(b+'__'+k,scheduleReadOptions).then(v=>({k:k,b:b,v:v||{}})).catch(()=>({k:k,b:b,v:{}})))));
         const mons=new Set();
         dates.forEach(k=>{const d=new Date(k+'T12:00:00'),w=d.getDay(),m=new Date(d);m.setDate(d.getDate()-w+(w===0?-6:1));mons.add(dk(m))});
-        const recRes=await Promise.all([...mons].flatMap(mk=>BRS.flatMap(b=>[
-            DBService.getReceptionistSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'tt',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'tt',v:{}})),
-            DBService.getOfficeSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
-        ])));
+        // TẤT CẢ nguồn đọc song song (trước đây nối đuôi từng bước) + đăng ký nhận lớp đọc
+        // MỘT lần cho cả tháng thay vì một truy vấn cho mỗi ngày × cơ sở.
+        const registrations=await DBService.getMyScheduleRegistrations(me,fresh?{source:'server'}:{}).catch(()=>null);
+        const scheduleReadOptions=Object.assign(fresh?{source:'server'}:{},{readCache:new Map()},
+            registrations?{prefetchedRegistrations:registrations}:{});
+        const [logs,reqs,cancelled,notes,schedRes,recRes]=await Promise.all([
+            DBService.getMonthlyAttendance(mStr,me,fresh,fresh?{strict:true}:{}),
+            DBService.getMyMakeupRequests(me,fresh?{source:'server'}:{}),
+            Promise.resolve().then(()=>DBService.getCancelledShifts(mStr,me)).catch(()=>[]),
+            Promise.resolve().then(()=>DBService.getDailyNotes(me)).then(v=>v||{}).catch(()=>({})),
+            Promise.all(dates.flatMap(k=>BRS.map(b=>
+                DBService.getSchedule(b+'__'+k,scheduleReadOptions).then(v=>({k:k,b:b,v:v||{}})).catch(()=>({k:k,b:b,v:{}}))))),
+            Promise.all([...mons].flatMap(mk=>BRS.flatMap(b=>[
+                DBService.getReceptionistSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'tt',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'tt',v:{}})),
+                DBService.getOfficeSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
+            ])))
+        ]);
+        if(loadId!==monthLoadSeq)return; // người dùng đã chuyển sang tháng khác
+        const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
+        const reqMap={}; reqs.forEach(r=>{if(!reqMap[r.dateKey])reqMap[r.dateKey]=[];reqMap[r.dateKey].push(r)});
+        const cancelledSet=new Set(cancelled||[]);
 
         dates.forEach(k=>{
             const sess=attMap[k]||[];
-            const busy=new Set((reqMap[k]||[]).filter(r=>r.status==='pending').map(r=>r.shiftLabel));
             const shifts=[];
             schedRes.filter(r=>r.k===k).forEach(r=>SECS.forEach(sec=>(r.v[sec]||[]).forEach((row,idx)=>{
                 if(!row.start||!row.end)return;
@@ -380,19 +413,24 @@ async function loadMonth(options={}){
             const merged=mergeConcurrentTeaching(shifts);
             const coverage=window.matchScheduledShiftCoverage(merged,sess,k);
             merged.forEach((s,i)=>{
-                s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
                 s.done=!!coverage[i];
-                s.pending=busy.has(s.lbl)||anyPendingOverlaps(reqMap[k],ms(k,s.start),ms(k,s.end));
                 // Lưới an toàn: khung giờ này đã có công trong Bảng Công (dù ghép ca không
                 // nhận ra) thì tuyệt đối không mở chấm bù — duyệt vào là lương đôi.
                 if(!s.done&&attendanceOverlaps(sess,ms(k,s.start),ms(k,s.end))){
                     s.done=true; s.coveredByOther=true;
                 }
+                s.request=s.done?null:requestFor(reqMap[k],ms(k,s.start),ms(k,s.end));
                 s.locked=!!s.absenceState?.isAbsent;
             });
-            if(merged.length)monthMap[k]={shifts:merged,
-                miss:merged.filter(s=>!s.done&&!s.pending&&!s.locked).length,
-                pend:merged.filter(s=>s.pending).length};
+            const shown=mergeConsecutiveOpen(merged);
+            shown.forEach(s=>{
+                s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
+                s.pending=!!s.request&&s.request.status==='pending';
+                s.rejected=!!s.request&&s.request.status==='rejected';
+            });
+            if(shown.length)monthMap[k]={shifts:shown,
+                miss:shown.filter(s=>!s.done&&!s.request&&!s.locked).length,
+                pend:shown.filter(s=>s.pending).length};
         });
         renderCal();
     }catch(e){console.error(e);grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#EF4444;padding:1.2rem;font-size:.82rem">Lỗi tải lịch: '+esc(e.message||e)+'</div>'}
@@ -437,6 +475,10 @@ function renderDay(){
              bdg='<span class="bdg b-g">Đã chấm công</span>';cls=' off';
              if(s.coveredByOther)act='<div class="warnbox" style="margin:0">Bảng Công đã có ca <b>chồng khung giờ</b> này rồi nên không cần chấm bù. Nếu bạn thấy thiếu lớp, báo quản lý sửa tên lớp của ca đã có — xin thêm một ca nữa sẽ thành tính công hai lần.</div>'}
         else if(s.pending){bdg='<span class="bdg b-i">Chờ duyệt</span>';cls=' off'}
+        else if(s.request&&s.request.status==='approved'){bdg='<span class="bdg b-g">Đã duyệt</span>';cls=' off'}
+        else if(s.rejected){
+             bdg='<span class="bdg b-r">Đã từ chối</span>';cls=' off';
+             act='<div class="warnbox" style="margin:0">Ca này đã gửi yêu cầu và bị từ chối'+(s.request.rejectReason?': <b>'+esc(s.request.rejectReason)+'</b>':'')+'. Mỗi ca chỉ gửi một lần — nếu cần xem lại, vui lòng liên hệ quản lý.</div>'}
         else if(s.locked){
              // Vắng đã có xác nhận (phép / đột xuất / quản lý cập nhật) → KHÔNG cho chấm bù
              bdg='<span class="bdg b-r">'+esc(s.excuse)+'</span>';cls=' off';
@@ -446,7 +488,9 @@ function renderDay(){
         if(s.noSubject)act='<div class="warnbox" style="margin:0">Lịch ca này <b>chưa điền Môn/Lớp</b> nên hệ thống không tính được lương. Vui lòng báo người xếp lịch bổ sung trước khi xin chấm bù.</div>'+act;
         // Nhiều lớp cùng khung giờ → nói rõ đây là MỘT ca công, tránh nhân viên thắc mắc
         // sao không thấy lớp thứ hai để chọn riêng.
-        if((s.classNames||[]).length>1)act='<div class="note" style="margin:0 0 .6rem">'+
+        if((s.chain||[]).length>1&&!s.done&&!s.request)act='<div class="note" style="margin:0 0 .6rem">'+
+            '<b>'+esc(s.chain.length)+' ca liên tiếp</b> '+esc(s.chain.join(' → '))+' — bạn chỉ vào ca một lần cho cả chuỗi nên xin chấm bù <b>một lần</b> cho '+esc(s.start)+'–'+esc(s.end)+'.</div>'+act;
+        else if((s.classNames||[]).length>1)act='<div class="note" style="margin:0 0 .6rem">'+
             '<b>'+esc(s.classNames.length)+' lớp cùng khung giờ này</b>'+
             esc(s.classNames.join(', '))+' — bạn chỉ vào ca một lần nên đây là <b>một ca công</b>, xin chấm bù một lần cho cả '+esc(s.classNames.length)+' lớp.</div>'+act;
         const letter=s.kind==='tt'?'T':(s.kind==='vp'?'V':String(s.label||'C').trim().charAt(0).toUpperCase());
@@ -472,6 +516,7 @@ function renderDay(){
 window.togglePick=function(i){ picked.has(i)?picked.delete(i):picked.add(i); renderDay(); };
 
 window.submitSched=async function(){
+    if(sending)return;
     const ta=document.getElementById('s-reason');
     const reason=(ta&&ta.value?ta.value:'').trim();
     if(!picked.size){alert('Vui lòng chọn ít nhất 1 ca.');return}
@@ -480,9 +525,10 @@ window.submitSched=async function(){
     const sel=[...picked].map(i=>info.shifts[i]);
     const blocked=sel.find(s=>s.locked);
     if(blocked){alert('Ca '+blocked.lbl+' đã được ghi nhận "'+blocked.excuse+'" nên không chấm bù được.');return}
-    const dup=sel.find(s=>s.done||s.pending);
-    if(dup){alert('Ca '+dup.lbl+' đã có công (hoặc đang chờ duyệt) trong khung giờ này nên không xin chấm bù thêm được.');return}
+    const dup=sel.find(s=>s.done||s.request);
+    if(dup){alert('Ca '+dup.lbl+' đã có công hoặc đã gửi yêu cầu chấm bù rồi. Mỗi ca chỉ gửi một lần.');return}
     if(!confirm('Gửi yêu cầu chấm bù '+sel.length+' ca ngày '+selDate+'?'))return;
+    sending=true; setSendingUI(true);
     try{
         await DBService.createMakeupRequests(sel.map(function(s){
             const scheduleLocators=(s.scheduleLocators||[]).map(locator=>({...locator}));
@@ -507,11 +553,23 @@ window.submitSched=async function(){
         }));
         alert('Đã gửi '+sel.length+' yêu cầu. Chờ admin duyệt.');
         const keep=selDate; picked.clear(); reasonCache='';
-        await loadMonth(); pickDay(keep); loadMy();
-    }catch(e){alert('Lỗi gửi: '+(e.message||e))}
+        await loadMonth({fresh:true}); pickDay(keep); loadMy({fresh:true});
+    }catch(e){
+        alert((e&&e.code==='MAKEUP_DUPLICATE'?'':'Lỗi gửi: ')+(e.message||e));
+        if(e&&e.code==='MAKEUP_DUPLICATE'){const keep=selDate;picked.clear();await loadMonth({fresh:true});if(keep)pickDay(keep);loadMy({fresh:true})}
+    }finally{sending=false;setSendingUI(false)}
 };
 
+// Khoá nút gửi trong lúc đang gửi: bấm hai lần không tạo hai yêu cầu.
+function setSendingUI(on){
+    document.querySelectorAll('.b-main').forEach(b=>{
+        if(on){b.dataset.label=b.innerHTML;b.disabled=true;b.innerHTML='Đang gửi...'}
+        else if(b.dataset.label){b.innerHTML=b.dataset.label;b.disabled=false;delete b.dataset.label}
+    });
+}
+
 window.submitExtra=async function(){
+    if(sending)return;
     const d=document.getElementById('ex-date').value,st=document.getElementById('ex-status').value;
     const rv=document.getElementById('ex-role').value;
     const br=document.getElementById('ex-branch').value;
@@ -559,10 +617,18 @@ window.submitExtra=async function(){
         }
     }
 
+    // Ca CÓ TRÊN LỊCH thì phải xin ở tab "Ca có lịch" (đối chiếu được, không trùng đơn).
+    if(st==='worked'&&monthMap[d]){
+        const a1=ms(d,ti),a2=ms(d,to);
+        const onSchedule=monthMap[d].shifts.find(s=>s.branch===br&&Math.min(a2,ms(d,s.end))-Math.max(a1,ms(d,s.start))>=OVERLAP_MIN);
+        if(onSchedule){alert('Khung giờ này trùng ca có trên lịch của bạn ('+onSchedule.lbl+'). Vui lòng dùng tab "Ca Có Lịch" — mỗi ca chỉ gửi một yêu cầu.');return}
+    }
+
     const SHIFT_VN={morning:'Sáng',afternoon:'Chiều',evening:'Tối'};
     const what=operational?((vp?'Văn Phòng':'Tiếp Tân')+' ca '+(SHIFT_VN[shk]||shk)):(matched?matched.name:subj);
     const label=(st==='absent'?'Vắng':(ti+'–'+to))+' '+br.toUpperCase()+' ('+what+')'+(room?' – '+room:'');
     if(!confirm('Gửi yêu cầu ca ngoài lịch ngày '+d+'?\n'+label))return;
+    sending=true; setSendingUI(true);
     try{
         await DBService.createMakeupRequests([{
             staffId:uid(),staffName:uname(),type:'unscheduled',dateKey:d,branch:br,
@@ -579,8 +645,9 @@ window.submitExtra=async function(){
         alert('Đã gửi yêu cầu. Chờ admin duyệt.');
         document.getElementById('ex-reason').value='';document.getElementById('ex-ot').value='';
         document.getElementById('ex-approver').value='';document.getElementById('ex-room').value='';
-        document.getElementById('ex-b10').checked=false; loadMy();
-    }catch(e){alert('Lỗi gửi: '+(e.message||e))}
+        document.getElementById('ex-b10').checked=false; loadMy({fresh:true});
+    }catch(e){alert((e&&e.code==='MAKEUP_DUPLICATE'?'':'Lỗi gửi: ')+(e.message||e))}
+    finally{sending=false;setSendingUI(false)}
 };
 
 async function loadMy(options={}){
@@ -588,12 +655,12 @@ async function loadMy(options={}){
     try{
         const list=await DBService.getMyMakeupRequests(uid(),options.fresh?{source:'server'}:{});
         if(!list.length){el.innerHTML='<div class="empty">Chưa có yêu cầu nào.</div>';return}
-        const M={pending:['Chờ duyệt','b-i'],approved:['Đã duyệt','b-g'],rejected:['Từ chối','b-r']};
-        el.innerHTML=list.slice(0,30).map(function(r){const s=M[r.status]||M.pending;
+        const M={pending:['Chờ duyệt','b-i'],approved:['Đã duyệt','b-g'],rejected:['Từ chối','b-r'],covered:['Đã có công','b-g']};
+        el.innerHTML=list.slice(0,30).map(function(r){const s=(r.resolution==='covered_by_attendance'?M.covered:M[r.status])||M.pending;
             return '<div class="req"><div>'+
                 '<div style="font-weight:600;font-size:.86rem">'+esc(r.dateKey)+' — '+esc(r.shiftLabel||'')+'</div>'+
                 '<div style="font-size:.72rem;color:var(--mut)">'+(r.type==='scheduled'?'Ca có lịch':'Ca ngoài lịch')+' · '+esc(r.reason||'')+'</div>'+
-                (r.status==='rejected'&&r.rejectReason?'<div style="font-size:.72rem;color:#991B1B">Lý do từ chối: '+esc(r.rejectReason)+'</div>':'')+
+                (r.status==='rejected'&&r.rejectReason?'<div style="font-size:.72rem;color:'+(r.resolution==='covered_by_attendance'?'#047857':'#991B1B')+'">'+(r.resolution==='covered_by_attendance'?'':'Lý do từ chối: ')+esc(r.rejectReason)+'</div>':'')+
             '</div><span class="bdg '+s[1]+'">'+s[0]+'</span></div>'}).join('');
     }catch(e){el.innerHTML='<div class="empty">Lỗi tải danh sách.</div>'}
 }
