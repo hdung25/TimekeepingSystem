@@ -9,9 +9,9 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260921-meeting-review-v2';
-const serviceWorkerCacheName = 'tdt-chamcong-v193-meeting-review-20260921';
+const serviceWorkerCacheName = 'tdt-chamcong-v194-inherited-delete-20260922';
 const reportVersion = '20260921-meeting-review-v2';
-const scheduleVersion = '20260919-attendance-roster-v1';
+const scheduleVersion = '20260922-inherited-delete-v1';
 const attendanceVersion = '20260921-meeting-review-v2';
 const timekeepingVersion = '20260919-resume-schedule-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
@@ -71,7 +71,7 @@ const digest = value => crypto.createHash('sha256')
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260921-meeting-review-v2')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260921-meeting-review-v2')) &&
-                !!(await cache.match('/js/schedule.js?v=20260919-attendance-roster-v1'));
+                !!(await cache.match('/js/schedule.js?v=20260922-inherited-delete-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request
         // interception. Chromium can hold Cache.addAll() requests when an

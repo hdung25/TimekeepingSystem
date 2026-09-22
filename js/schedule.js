@@ -1259,10 +1259,44 @@ function assertScheduleRowIdentity(row, locator) {
 
 function resolveScheduleEditTarget(dayData, section, index, renderedLocator) {
     const locator = renderedLocator ? JSON.parse(renderedLocator) : scheduleRowLocator(dayData?.[section]?.[index], index);
-    const resolvedIndex = resolveScheduleRowIndex(dayData?.[section], locator);
+    const rows = dayData?.[section];
+    let resolvedIndex = resolveScheduleRowIndex(rows, locator);
+
+    // An inherited class gets a deterministic target-date ID that includes its
+    // row position. If an earlier class is removed while this table is open, a
+    // fresh server projection can legitimately give the unchanged class a new
+    // inherited ID. Recover only when the complete rendered edit snapshot still
+    // identifies exactly one inherited row. Ordinary/replacement IDs remain
+    // strict so a deleted class can never target a newly-created replacement.
+    if (resolvedIndex < 0 && isInheritedScheduleShiftId(locator.shiftId)) {
+        const matching = (Array.isArray(rows) ? rows : [])
+            .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
+            .filter(({ candidate }) => isInheritedScheduleShiftId(candidate?.shiftId) &&
+                scheduleRowSignature(candidate) === locator.signature &&
+                scheduleRenderedValuesMatch(candidate, locator.values));
+        if (matching.length === 1) resolvedIndex = matching[0].candidateIndex;
+    }
     const row = dayData?.[section]?.[resolvedIndex];
-    assertScheduleRowIdentity(row, locator);
-    return { row, locator: { ...locator, index: resolvedIndex } };
+    if (!row) throw scheduleRowConflictError();
+    if (String(row.shiftId || '') === String(locator.shiftId || '')) {
+        assertScheduleRowIdentity(row, locator);
+    } else if (scheduleRowSignature(row) !== locator.signature ||
+        !scheduleRenderedValuesMatch(row, locator.values)) {
+        throw scheduleRowConflictError();
+    }
+    return { row, locator: { ...locator, index: resolvedIndex,
+        shiftId: String(row.shiftId || ''), signature: scheduleRowSignature(row) } };
+}
+
+function isInheritedScheduleShiftId(value) {
+    return /^shift_inherited_[a-z0-9]+_[a-z0-9]+$/i.test(String(value || '').trim());
+}
+
+function scheduleRenderedValuesMatch(row, values) {
+    if (!values || typeof values !== 'object') return false;
+    return ['start', 'end', 'phong', 'note', 'soHS', 'lopId'].every(field =>
+        String(row?.[field] ?? '') === String(values[field] ?? '')
+    );
 }
 
 function scheduleRowContentFingerprint(row) {

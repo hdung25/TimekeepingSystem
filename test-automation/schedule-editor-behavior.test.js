@@ -154,6 +154,28 @@ test('a replaced row with the same signature cannot receive the old row edit on 
     assert.equal(h.messages.at(-1).type, 'error');
 });
 
+test('delete safely recovers when an unchanged inherited row is re-keyed after an earlier class moves', async () => {
+    const h = harness();
+    const rendered = row('shift_inherited_old_key', { note: 'keep identity', soHS: 8 });
+    const refreshed = row('shift_inherited_new_key', { note: 'keep identity', soHS: 8 });
+    h.store.set(`schedules/${key}`, { morning1: [refreshed] });
+    await h.context.deleteRow(key, 'morning1', 0, h.locator(rendered));
+    assert.deepEqual(h.store.get(`schedules/${key}`).morning1, []);
+    assert.equal(h.messages.filter(message => message.type === 'error').length, 0);
+});
+
+test('delete never guesses between multiple inherited rows with the same rendered identity', async () => {
+    const h = harness();
+    const rendered = row('shift_inherited_old_key', { note: 'same', soHS: 8 });
+    h.store.set(`schedules/${key}`, { morning1: [
+        row('shift_inherited_new_one', { note: 'same', soHS: 8 }),
+        row('shift_inherited_new_two', { note: 'same', soHS: 8 })
+    ] });
+    await h.context.deleteRow(key, 'morning1', 0, h.locator(rendered));
+    assert.equal(h.store.get(`schedules/${key}`).morning1.length, 2);
+    assert.equal(h.messages.at(-1).type, 'error');
+});
+
 test('same-field concurrent changes conflict; unrelated fields survive', async () => {
     const h = harness(), a = row('a');
     h.store.set(`schedules/${key}`, { morning1: [a] });
