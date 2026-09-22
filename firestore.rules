@@ -1351,6 +1351,26 @@ service cloud.firestore {
       allow update, delete: if isAuthenticated() && isAdmin();
     }
 
+    // Web push device tokens. Document id = sha256(token). A device belongs to the
+    // staff profile that signed in on it most recently (re-login on a shared phone
+    // moves it); only the signed-in owner can write it, only managers can list them.
+    // Cloud Functions (Admin SDK) read these to send and delete stale tokens.
+    match /push_tokens/{tokenId} {
+      allow get: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow list: if isAuthenticated() && isAdmin();
+      allow create, update: if isAuthenticated()
+        && tokenId.matches('[a-f0-9]{64}')
+        && ownsStaffId(request.resource.data.get('staffId', ''))
+        && request.resource.data.get('authUid', '') == request.auth.uid
+        && request.resource.data.get('token', '') is string
+        && request.resource.data.get('token', '').size() > 20
+        && request.resource.data.get('token', '').size() < 4096
+        && request.resource.data.keys().hasOnly(['staffId', 'authUid', 'token', 'enabled', 'userAgent', 'updatedAt']);
+      allow delete: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+    }
+    // Reminder de-duplication markers: written by Cloud Functions only.
+    match /push_reminders/{markerId} { allow read, write: if false; }
+
     match /{document=**} { allow read, write: if false; }
   }
 }

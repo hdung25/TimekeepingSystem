@@ -1025,8 +1025,13 @@ async function loadStaffNotifications() {
                 const recentSeconds = Date.now() / 1000 - 3 * 24 * 3600;
                 notifications.filter(n => !seen.includes(n.id) && (n.createdAt?.seconds || Date.now() / 1000) >= recentSeconds)
                     .slice(0, 5).reverse().forEach(n => {
-                        window.showLocalNotification(n.title || staffNotificationTitle(n), stripNotificationHtml(n.details),
-                            `staff_notif_${n.id}`, n.link || '');
+                        // Thiết bị đã bật thông báo đẩy: máy chủ đã hiện thông báo hệ thống → chỉ toast.
+                        if (isPushActiveOnThisDevice()) {
+                            if (document.visibilityState === 'visible' && typeof UIService !== 'undefined') UIService.toast(stripNotificationHtml(n.details), 'info');
+                        } else {
+                            window.showLocalNotification(n.title || staffNotificationTitle(n), stripNotificationHtml(n.details),
+                                `staff_notif_${n.id}`, n.link || '');
+                        }
                         seen.push(n.id);
                     });
                 seen = seen.slice(-200);
@@ -1387,6 +1392,8 @@ async function handleLogout(event, trigger) {
         trigger.style.pointerEvents = 'none';
     }
 
+    // Thiết bị đã đăng xuất không được nhận thông báo đẩy của người vừa dùng nó.
+    await unregisterPushNotifications();
     await signOutAndClearSession();
     window.location.replace('index.html');
     return false;
@@ -2581,6 +2588,72 @@ function syncNotificationPermissionButton() {
     button.title = 'Bật thông báo hệ thống khi bạn chủ động chọn.';
 }
 
+// ================= WEB PUSH (FCM) =================
+// Thông báo đẩy khi app đang TẮT: máy chủ (Cloud Functions) gửi qua FCM tới mã thiết bị lưu
+// ở push_tokens. SDK Messaging chỉ tải khi người dùng đã cho phép thông báo.
+const FIREBASE_MESSAGING_SDK = 'https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging-compat.js';
+let messagingSdkPromise = null;
+
+function loadMessagingSdk() {
+    if (typeof firebase !== 'undefined' && firebase.messaging) return Promise.resolve();
+    if (messagingSdkPromise) return messagingSdkPromise;
+    messagingSdkPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = FIREBASE_MESSAGING_SDK;
+        script.onload = resolve;
+        script.onerror = () => { messagingSdkPromise = null; reject(new Error('Không tải được Firebase Messaging.')); };
+        document.head.appendChild(script);
+    });
+    return messagingSdkPromise;
+}
+
+async function sha256Hex(text) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function isPushActiveOnThisDevice() {
+    const staffId = localStorage.getItem('currentUserId');
+    return !!staffId && localStorage.getItem('push_token_owner') === staffId && !!localStorage.getItem('push_token_id');
+}
+window.isPushActiveOnThisDevice = isPushActiveOnThisDevice;
+
+window.registerPushNotifications = async function() {
+    try {
+        const staffId = localStorage.getItem('currentUserId');
+        const authUid = window.auth?.currentUser?.uid;
+        if (!staffId || !authUid || typeof db === 'undefined') return false;
+        if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return false;
+        if (Notification.permission !== 'granted') return false;
+        await loadMessagingSdk();
+        if (typeof firebase.messaging.isSupported === 'function' && !(await firebase.messaging.isSupported())) return false;
+        const registration = await navigator.serviceWorker.ready;
+        const token = await firebase.messaging().getToken({ serviceWorkerRegistration: registration });
+        if (!token) return false;
+        const tokenId = await sha256Hex(token);
+        await db.collection('push_tokens').doc(tokenId).set({
+            staffId, authUid, token, enabled: true,
+            userAgent: String(navigator.userAgent || '').slice(0, 200),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        localStorage.setItem('push_token_id', tokenId);
+        localStorage.setItem('push_token_owner', staffId);
+        return true;
+    } catch (error) {
+        console.warn('[Push] Chưa bật được thông báo đẩy:', error?.code || error?.message || error);
+        return false;
+    }
+};
+
+async function unregisterPushNotifications() {
+    const tokenId = localStorage.getItem('push_token_id');
+    localStorage.removeItem('push_token_id');
+    localStorage.removeItem('push_token_owner');
+    if (!tokenId || typeof db === 'undefined') return;
+    try { await db.collection('push_tokens').doc(tokenId).delete(); }
+    catch (error) { console.warn('[Push] Không gỡ được mã thiết bị:', error?.code || error); }
+}
+
 window.initPWANotifications = function() {
     const currentUser = localStorage.getItem('currentUser');
     const currentUserId = localStorage.getItem('currentUserId');
@@ -2590,6 +2663,8 @@ window.initPWANotifications = function() {
     // automatic prompt on page load can be mistaken for attendance permission
     // and competes with a mobile browser's check-in location prompt.
     syncNotificationPermissionButton();
+    // Đã cho phép từ trước → làm mới mã thiết bị (FCM có thể xoay mã) mà không hỏi lại.
+    if ('Notification' in window && Notification.permission === 'granted') window.registerPushNotifications();
 
     // Set up real-time listener for new meetings
     window.setupMeetingsNotificationListener();
@@ -2619,8 +2694,14 @@ window.requestNotificationPermission = async function(button = null) {
     try {
         const permission = await Notification.requestPermission();
         const enabled = permission === 'granted';
-        if (enabled && typeof UIService !== 'undefined' && UIService.toast) {
-            UIService.toast("Đã bật nhận thông báo hệ thống!", "success");
+        if (enabled) {
+            const pushReady = await window.registerPushNotifications();
+            if (typeof UIService !== 'undefined' && UIService.toast) {
+                UIService.toast(pushReady
+                    ? 'Đã bật thông báo: bạn sẽ nhận nhắc vào ca và thông báo cả khi đã tắt app.'
+                    : 'Đã bật thông báo khi app đang mở. Máy này chưa hỗ trợ thông báo khi tắt app (iPhone cần cài app lên màn hình chính).',
+                    pushReady ? 'success' : 'warning');
+            }
         }
         return enabled;
     } catch (error) {
@@ -2741,7 +2822,8 @@ function teachingShiftsNeedingCheckIn(classes) {
 window.teachingShiftsNeedingCheckIn = teachingShiftsNeedingCheckIn;
 
 async function remindUpcomingTeachingShifts(userId, dateKey, now) {
-    if (typeof isAssignedToClass !== 'function') return;
+    // Máy chủ đã nhắc qua thông báo đẩy cho thiết bị này.
+    if (typeof isAssignedToClass !== 'function' || isPushActiveOnThisDevice()) return;
     const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
     const days = await Promise.all(['cs1', 'cs2', 'cs3'].map(branch =>
         DBService.getSchedule(`${branch}__${dateKey}`).then(day => ({ branch, day: day || {} }), () => ({ branch, day: {} }))));
@@ -2822,7 +2904,7 @@ window.checkUpcomingMeetingsAndShifts = async function() {
         const isReceptionist = window.RolePolicy.hasReceptionistEmploymentRole(userRolesArr);
         const isOffice = window.RolePolicy.hasOfficeEmploymentRole(userRolesArr);
 
-        if (isReceptionist || isOffice) {
+        if ((isReceptionist || isOffice) && !isPushActiveOnThisDevice()) {
             const SHIFT_KEYS = ['morning', 'afternoon', 'evening'];
             const DAY_KEYS_MAP = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
             const BRANCHES = ['cs1', 'cs2', 'cs3'];

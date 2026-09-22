@@ -18,8 +18,8 @@ const makeup = read('cham-bu.html');
 
 assert.match(main, /officeRoles = new Set\(\['office_staff', 'van-phong', 'van_phong'\]\)/);
 assert.match(main, /Lịch Văn Phòng[\s\S]*?lich-van-phong\.html/);
-assert.match(main, /const isOffice = window\.RolePolicy\.hasOfficeEmploymentRole\(userRolesArr\);[\s\S]*?if \(isReceptionist \|\| isOffice\)/,
-    'Pure office staff must enter the operational shift-reminder flow');
+assert.match(main, /const isOffice = window\.RolePolicy\.hasOfficeEmploymentRole\(userRolesArr\);[\s\S]*?if \(\(isReceptionist \|\| isOffice\) && !isPushActiveOnThisDevice\(\)\)/,
+    'Pure office staff must enter the operational shift-reminder flow (server push sends it when enabled)');
 const teachingScheduleMenu = main.match(/\{ name: scheduleName, link: 'lich-lam\.html',[\s\S]*?\},/)?.[0] || '';
 assert.doesNotMatch(teachingScheduleMenu, /office_staff/,
     'A pure office account must use its separate roster page, not the teaching schedule page');

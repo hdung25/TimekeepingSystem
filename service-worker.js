@@ -1,7 +1,7 @@
 // Service Worker v194 - inherited schedule deletion recovery.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v198-notify-resume-20260923';
+const CACHE_NAME = 'tdt-chamcong-v199-web-push-20260923';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -37,12 +37,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20260923-notify-resume-v1',
+    '/js/main.js?v=20260923-web-push-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260923-notify-resume-v1',
-    '/js/meeting-attendance-policy.js?v=20260923-notify-resume-v1',
-    '/js/report.js?v=20260923-notify-resume-v1',
+    '/js/db-service.js?v=20260923-web-push-v1',
+    '/js/meeting-attendance-policy.js?v=20260923-web-push-v1',
+    '/js/report.js?v=20260923-web-push-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -61,9 +61,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/auth-guard.js?v=20260919-review-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
-    '/js/analytics.js?v=20260923-notify-resume-v1',
+    '/js/analytics.js?v=20260923-web-push-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260923-notify-resume-v1',
+    '/js/schedule.js?v=20260923-web-push-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
@@ -180,6 +180,25 @@ self.addEventListener('fetch', event => {
             });
         })
     );
+});
+
+// Thông báo đẩy (FCM, gói dữ liệu) — hiện được cả khi app đang tắt. Trình duyệt bắt buộc
+// mỗi lần đẩy phải hiện một thông báo, nên luôn hiện kể cả khi thiếu nội dung.
+self.addEventListener('push', event => {
+    let payload = {};
+    try { payload = event.data ? event.data.json() : {}; }
+    catch (_) { payload = { data: { body: event.data ? event.data.text() : '' } }; }
+    const data = payload.data || payload.notification || payload || {};
+    const tag = String(data.tag || '').slice(0, 120);
+    event.waitUntil(self.registration.showNotification(String(data.title || 'Chấm Công TDT').slice(0, 120), {
+        body: String(data.body || 'Bạn có thông báo mới.').slice(0, 400),
+        icon: '/images/TUDUYTRE.jpg',
+        badge: '/images/TUDUYTRE.jpg',
+        tag: tag || undefined,
+        renotify: !!tag,
+        vibrate: [200, 100, 200],
+        data: { url: String(data.link || '') }
+    }));
 });
 
 self.addEventListener('notificationclick', event => {

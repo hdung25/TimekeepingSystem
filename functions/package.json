@@ -1,0 +1,14 @@
+{
+  "name": "timekeeping-push-functions",
+  "private": true,
+  "description": "FCM web push for the timekeeping PWA (staff notifications + check-in reminders).",
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "scripts": {
+    "test": "node test/reminders.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  }
+}
