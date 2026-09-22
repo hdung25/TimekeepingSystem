@@ -3,7 +3,7 @@
   "private": true,
   "description": "FCM web push for the timekeeping PWA (staff notifications + check-in reminders).",
   "main": "index.js",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "scripts": {
     "test": "node test/reminders.test.js"
   },
