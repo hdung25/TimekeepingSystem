@@ -49,9 +49,9 @@ assert(scheduleTeachingPolicy && !scheduleTeachingPolicy[1].includes('senior_ass
 assert.match(rules, /isReceptionistOperator\(\)[\s\S]*?hasRole\('senior_assistant'\)/,
     'Firestore receptionist operations must allow senior assistant');
 
-assert.match(worker, /tdt-chamcong-v200-payroll-list-20260922/,
+assert.match(worker, /tdt-chamcong-v201-student-count-20260923/,
     'Service worker cache must be bumped');
-assert.match(read('bao-cao.html'), /report\.js\?v=20260922-payroll-list-v1/,
+assert.match(read('bao-cao.html'), /report\.js\?v=20260923-student-count-save-v1/,
     'Report page must load the new role policy bundle');
 
 console.log('✓ Senior assistant receptionist-role regression tests passed');

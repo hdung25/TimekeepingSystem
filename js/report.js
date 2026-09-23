@@ -743,8 +743,47 @@ function getCurrentPayslipComponentStatus(component = 'gv') {
 
 window.isStudentCountSelectMode = false;
 window.selectedStudentCountChips = {}; // key: "dateKey_sessionId", value: { dateStr, sessionId, studentCount, status }
+// Ca đã có sĩ số lúc vào chế độ chọn. Chỉ những ca này mới được xoá sĩ số khi
+// giáo viên bỏ chọn; ca không có trong ảnh chụp này không bao giờ bị xoá ngầm.
+window.studentCountOriginalKeys = new Set();
+window.studentCountSaveInFlight = false;
+
+// Mỗi lần chạm chip, Bảng Công tải lại từ server và làm rỗng danh sách chip trong
+// lúc chờ. Bấm Lưu đúng lúc đó từng không ghi gì mà vẫn báo "thành công"
+// (Mỹ Yến, 09/2026). Chỉ chọn/lưu sĩ số khi bảng công đúng người + tháng đã tải xong.
+function isStudentCountReportReady() {
+    const month = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const scope = `${getTargetStaffId() || 'none'}__${month}`;
+    return window.payrollReadyScope === scope && window.currentReportScope === scope;
+}
+
+async function waitForStudentCountReportReady() {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        const pending = window.currentReportRenderPromise;
+        if (!pending) break;
+        await pending; // renderMonthReport never rejects
+        if (pending === window.currentReportRenderPromise) break;
+    }
+    return isStudentCountReportReady();
+}
+
+// Mọi ca dạy có phiên chấm công của tháng (không phụ thuộc bộ lọc hiển thị).
+// Nhiều chip (ca gộp) có thể trỏ cùng một phiên: mỗi phiên chỉ lấy một lần.
+function getStudentCountEligibleChips() {
+    const chipsByKey = new Map();
+    (window.unfilteredAllMonthChips || []).forEach(chip => {
+        if (!chip || !chip.sessionId || chip.isReceptionist || !chip.dateStr) return;
+        const key = chip.dateStr + '_' + chip.sessionId;
+        if (!chipsByKey.has(key)) chipsByKey.set(key, chip);
+    });
+    return chipsByKey;
+}
 
 window.toggleStudentCountSelectMode = function () {
+    if (!window.isStudentCountSelectMode && !isStudentCountReportReady()) {
+        if (typeof UIService !== 'undefined') UIService.toast('Bảng công đang tải, vui lòng đợi tải xong rồi chọn ca.', 'warning');
+        return;
+    }
     window.isStudentCountSelectMode = !window.isStudentCountSelectMode;
     const btn = document.getElementById('btn-select-student-count-mode');
     const bar = document.getElementById('student-count-select-bar');
@@ -769,11 +808,13 @@ window.toggleStudentCountSelectMode = function () {
 
         // Initialize selections
         window.selectedStudentCountChips = {};
+        window.studentCountOriginalKeys = new Set();
         if (!isAdminViewer) {
             // Teacher mode: pre-populate with existing pending/approved/rejected tags of the month
-            window.allMonthChips.forEach(chip => {
-                if (chip.sessionId && chip.studentCount > 0) {
-                    window.selectedStudentCountChips[chip.dateStr + '_' + chip.sessionId] = {
+            getStudentCountEligibleChips().forEach((chip, key) => {
+                if (chip.studentCount > 0) {
+                    window.studentCountOriginalKeys.add(key);
+                    window.selectedStudentCountChips[key] = {
                         dateStr: chip.dateStr,
                         sessionId: chip.sessionId,
                         studentCount: chip.studentCount,
@@ -811,17 +852,21 @@ window.toggleStudentCountSelectMode = function () {
         if (teacherPanel) teacherPanel.style.display = 'none';
         if (adminPanel) adminPanel.style.display = 'none';
         window.selectedStudentCountChips = {};
+        window.studentCountOriginalKeys = new Set();
     }
 
     renderMonthReport(currentDate);
 };
 
 window.exitStudentCountSelectMode = function () {
-    window.isStudentCountSelectMode = false;
+    // toggle() đảo trạng thái: đặt true trước để lần đảo này THOÁT chế độ chọn.
+    // Trước đây đặt false nên "Hủy"/sau khi lưu lại bật chế độ chọn với danh sách cũ.
+    window.isStudentCountSelectMode = true;
     window.toggleStudentCountSelectMode();
 };
 
 window.saveStudentCountSelections = async function () {
+    if (window.studentCountSaveInFlight) return;
     const pubStatus = getCurrentPayslipComponentStatus('gv');
     const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
     if (isMonthLocked) {
@@ -837,52 +882,72 @@ window.saveStudentCountSelections = async function () {
     // reject the otherwise valid self-report.
     const updaterId = staffId;
 
+    window.studentCountSaveInFlight = true;
+    let savedCount = 0;
+    let totalWrites = 0;
     try {
         if (typeof UIService !== 'undefined') UIService.showLoading('Đang lưu sĩ số học sinh...');
-        // Nhiều chip (ca gộp) có thể trỏ cùng một phiên chấm công: mỗi phiên chỉ ghi một lần.
-        const seenStudentCountKeys = new Set();
 
-        const promises = [];
-        
-        for (const chip of window.allMonthChips) {
-            if (!chip.sessionId || chip.isReceptionist) continue;
-            
-            const key = chip.dateStr + '_' + chip.sessionId;
-            if (seenStudentCountKeys.has(key)) continue;
-            seenStudentCountKeys.add(key);
-            const selection = window.selectedStudentCountChips[key];
+        // Chạm chip làm Bảng Công tải lại; đợi xong rồi mới đối chiếu, tránh
+        // danh sách chip rỗng khiến không ghi gì mà vẫn báo thành công.
+        const ready = await waitForStudentCountReportReady();
+        if (!ready || getTargetStaffId() !== staffId) {
+            throw new Error('Bảng công chưa tải xong nên chưa lưu được sĩ số. Vui lòng đợi bảng công hiện đủ rồi bấm Lưu lại.');
+        }
+
+        const chipsByKey = getStudentCountEligibleChips();
+        const selections = window.selectedStudentCountChips || {};
+        const missingKeys = Object.keys(selections).filter(key => !chipsByKey.has(key));
+        if (missingKeys.length > 0) {
+            throw new Error(`Không tìm thấy ${missingKeys.length} ca đã chọn trên Bảng Công. Vui lòng tải lại trang rồi chọn lại.`);
+        }
+        const originalKeys = window.studentCountOriginalKeys instanceof Set
+            ? window.studentCountOriginalKeys
+            : new Set();
+
+        const writes = [];
+        chipsByKey.forEach((chip, key) => {
+            const selection = selections[key];
             const originalCount = chip.studentCount || null;
             const originalStatus = chip.studentCountStatus || null;
+            if (originalStatus === 'rejected') return; // Cannot edit rejected
 
             if (selection) {
                 if (selection.studentCount !== originalCount || originalStatus !== 'approved') {
-                    if (originalStatus === 'rejected') {
-                        continue; // Cannot edit rejected
-                    }
-                    promises.push(
-                        () => DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, selection.studentCount, 'approved', updaterId, 'staff')
-                    );
+                    writes.push({ chip, studentCount: selection.studentCount });
                 }
-            } else {
-                if (originalCount !== null) {
-                    if (originalStatus === 'rejected') {
-                        continue; // Cannot edit rejected
-                    }
-                    promises.push(
-                        () => DBService.updateSessionStudentCount(staffId, chip.dateStr, chip.sessionId, null, null, updaterId, 'staff')
-                    );
-                }
+            } else if (originalCount !== null && originalKeys.has(key)) {
+                // Chỉ xoá sĩ số của ca đã có lúc vào chế độ chọn và giáo viên bỏ chọn.
+                writes.push({ chip, studentCount: null });
             }
+        });
+        totalWrites = writes.length;
+
+        if (totalWrites === 0) {
+            if (typeof UIService !== 'undefined') {
+                UIService.hideLoading();
+                UIService.toast('Không có thay đổi sĩ số nào cần lưu. Hãy chạm vào ca dạy để chọn trước khi bấm Lưu.', 'warning');
+            }
+            return;
         }
 
         // Ghi tuần tự: các ca cùng ngày nằm chung một tài liệu chấm công, ghi song
         // song sẽ tranh chấp transaction và dễ báo lỗi dù dữ liệu hợp lệ.
-        for (const writeStudentCount of promises) {
-            await writeStudentCount();
+        for (const write of writes) {
+            await DBService.updateSessionStudentCount(
+                staffId,
+                write.chip.dateStr,
+                write.chip.sessionId,
+                write.studentCount,
+                write.studentCount === null ? null : 'approved',
+                updaterId,
+                'staff'
+            );
+            savedCount++;
         }
         if (typeof UIService !== 'undefined') {
             UIService.hideLoading();
-            UIService.toast('Đã lưu sĩ số học sinh thành công!', 'success');
+            UIService.toast(`Đã lưu sĩ số học sinh cho ${savedCount} ca thành công!`, 'success');
         }
 
         window.exitStudentCountSelectMode();
@@ -890,8 +955,13 @@ window.saveStudentCountSelections = async function () {
         console.error("Error saving student counts:", error);
         if (typeof UIService !== 'undefined') {
             UIService.hideLoading();
-            UIService.toast(error.message || 'Lỗi khi lưu.', 'error');
+            const prefix = savedCount > 0 ? `Đã lưu ${savedCount}/${totalWrites} ca. ` : '';
+            UIService.toast(prefix + (error.message || 'Lỗi khi lưu.'), 'error');
         }
+        // Một phần có thể đã ghi: tải lại để nhãn sĩ số khớp dữ liệu thật.
+        if (savedCount > 0) renderMonthReport(currentDate, true);
+    } finally {
+        window.studentCountSaveInFlight = false;
     }
 };
 
@@ -1102,13 +1172,18 @@ function renderPersonalTimesheet() {
 
 async function renderMonthReport(date, forceServer = false) {
     const requestedRenderEpoch = _reportRenderEpoch + 1;
-    try {
-        return await _renderMonthReport(date, forceServer);
-    } catch (error) {
-        // A stale request must not overwrite the result of a newer staff/month.
-        if (_reportRenderEpoch === requestedRenderEpoch) renderReportLoadFailure(error);
-        return null;
-    }
+    const renderPromise = (async () => {
+        try {
+            return await _renderMonthReport(date, forceServer);
+        } catch (error) {
+            // A stale request must not overwrite the result of a newer staff/month.
+            if (_reportRenderEpoch === requestedRenderEpoch) renderReportLoadFailure(error);
+            return null;
+        }
+    })();
+    // Actions that read the rendered chips (e.g. saving student counts) wait on this.
+    window.currentReportRenderPromise = renderPromise;
+    return renderPromise;
 }
 
 async function _renderMonthReport(date, forceServer = false) {
@@ -1190,6 +1265,7 @@ async function _renderMonthReport(date, forceServer = false) {
         if (teacherPanel) teacherPanel.style.display = 'none';
         if (adminPanel) adminPanel.style.display = 'none';
         window.selectedStudentCountChips = {};
+        window.studentCountOriginalKeys = new Set();
     }
 
     // 0. Fetch User Context for Name Matching
