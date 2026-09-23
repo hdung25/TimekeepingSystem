@@ -400,7 +400,7 @@ const dbIndex = html.indexOf('js/db-service.js?v=');
 const scheduleIndex = html.indexOf('js/schedule.js?v=20260923-remind8-v1');
 assert.ok(earlyIndex >= 0 && helperIndex > earlyIndex && dbIndex > helperIndex && scheduleIndex > dbIndex,
     'policy/helper/db/schedule scripts must load in a deterministic order');
-assert.match(serviceWorker, /tdt-chamcong-v201-student-count-20260923/);
+assert.match(serviceWorker, /tdt-chamcong-v202-remind8-20260923/);
 assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260906-early10-recovery-v1/);
 
 console.log('schedule-admin-attendance-integration.test.js: all assertions passed');

@@ -1,7 +1,7 @@
 // Service Worker v194 - inherited schedule deletion recovery.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v201-student-count-20260923';
+const CACHE_NAME = 'tdt-chamcong-v202-remind8-20260923';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
