@@ -60,8 +60,10 @@ const response = body => ({ ok: true, body, clone() { return response(body + ':c
         const event = sw.dispatch(asset);
         const served = await withTimeout(event.responded, 'script có ?v= không được chờ mạng khi đã có bản lưu');
         assert.equal(served.body, 'cached');
-        assert.deepEqual(sw.network.calls, [asset], 'vẫn cập nhật bản lưu ở nền');
-        assert.equal(event.extended.length, 1, 'cập nhật nền phải giữ service worker sống tới khi xong');
+        // ?v= là bất biến: đã có bản lưu thì KHÔNG hỏi lại mạng. Trước đây mỗi lần mở trang
+        // vẫn tải lại toàn bộ script ở nền, làm nghẽn mạng đúng lúc trang đang cần tải.
+        assert.deepEqual(sw.network.calls, [], 'script có ?v= đã lưu thì không tải lại');
+        assert.equal(event.extended.length, 0, 'không còn việc chạy nền nào');
     }
     {
         const sw = loadWorker();
@@ -70,7 +72,14 @@ const response = body => ({ ok: true, body, clone() { return response(body + ':c
         const event = sw.dispatch(asset);
         assert.equal((await event.responded).body, 'cached');
         await Promise.all(event.extended);
-        assert.equal(sw.store.get(asset).body, 'fresh:copy', 'lần mở sau nhận bản mới đã tải ở nền');
+        assert.equal(sw.store.get(asset).body, 'cached', 'bản lưu giữ nguyên; bản mới có ?v= khác nên là tệp khác');
+    }
+    {
+        // Bản phát hành mới chỉ tải tệp có ?v= thay đổi, phần còn lại dùng lại kho cũ.
+        const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'service-worker.js'), 'utf8');
+        assert.match(source, /const CACHE_NAME = 'tdt-chamcong-assets'/, 'kho đệm dùng tên cố định giữa các bản phát hành');
+        assert.match(source, /if \(!\(await cache\.match\(asset\)\)\) missing\.push\(asset\)/, 'chỉ tải tệp chưa có trong kho');
+        assert.match(source, /url\.searchParams\.has\('v'\) && !wanted\.has\(url\.href\) \? cache\.delete\(request\)/, 'dọn phiên bản ?v= cũ');
     }
     {
         const sw = loadWorker();

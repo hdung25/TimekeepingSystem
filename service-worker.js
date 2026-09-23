@@ -1,7 +1,12 @@
 // Service Worker v194 - inherited schedule deletion recovery.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
-const CACHE_NAME = 'tdt-chamcong-v202-remind8-20260923';
+// Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
+const APP_RELEASE = 'tdt-chamcong-v203-fast-login-20260923';
+// TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
+// phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
+// nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
+const CACHE_NAME = 'tdt-chamcong-assets';
 
 // Cache.addAll() rejects a batch containing the same request more than once in
 // some browsers. Keep this Set boundary so a future page-specific release list
@@ -27,7 +32,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',
     '/css/style.css?v=20260906-early10-recovery-v1',
-    '/css/login.css?v=20260922-login-loading-v1',
+    '/css/login.css?v=20260923-light-bg-v1',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
     '/css/salary-review.css?v=20260921-overview-v1',
     '/js/salary-review-policy.js?v=20260919-review-v1',
@@ -37,11 +42,11 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20260923-remind8-v1',
+    '/js/main.js?v=20260923-fast-login-v1',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260923-remind8-v1',
-    '/js/meeting-attendance-policy.js?v=20260923-remind8-v1',
+    '/js/db-service.js?v=20260923-fast-login-v1',
+    '/js/meeting-attendance-policy.js?v=20260923-fast-login-v1',
     '/js/report.js?v=20260923-student-count-save-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
@@ -61,25 +66,32 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/auth-guard.js?v=20260919-review-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
-    '/js/analytics.js?v=20260923-remind8-v1',
+    '/js/analytics.js?v=20260923-fast-login-v1',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260923-remind8-v1',
+    '/js/schedule.js?v=20260923-fast-login-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
     '/js/timekeeping.js?v=20260919-resume-schedule-v1',
     '/js/salary-bulk-export.js?v=20260922-payroll-list-v1',
     '/images/TUDUYTRE.jpg',
-    '/images/lotus_bg.png',
+    '/images/lotus_bg.webp',
     '/manifest.json'
 ]));
 
 self.addEventListener('install', event => {
     event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(STATIC_ASSETS))
-            // Download now, activate after old tabs close. Forcing activation
-            // would make pre-fix clients reload in the middle of a live write.
+        caches.open(CACHE_NAME).then(async cache => {
+            // Chỉ tải những tệp chưa có trong kho (tệp đổi ?v= mới coi là chưa có).
+            const missing = [];
+            for (const asset of STATIC_ASSETS) {
+                if (!(await cache.match(asset))) missing.push(asset);
+            }
+            // Một tệp lỗi (CDN chặn, mạng rớt) không được làm hỏng cả lần cài đặt.
+            await Promise.all(missing.map(asset => cache.add(asset).catch(() => undefined)));
+        })
+        // Download now, activate after old tabs close. Forcing activation
+        // would make pre-fix clients reload in the middle of a live write.
     );
 });
 
@@ -89,12 +101,22 @@ self.addEventListener('activate', event => {
             .then(keys => Promise.all(
                 keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
             ))
+            // Dọn các phiên bản ?v= cũ trong kho dùng chung để kho không phình mãi.
+            .then(() => caches.open(CACHE_NAME))
+            .then(async cache => {
+                const wanted = new Set(STATIC_ASSETS.map(asset => new URL(asset, self.location.origin).href));
+                const stored = await cache.keys();
+                await Promise.all(stored.map(request => {
+                    const url = new URL(request.url);
+                    return url.searchParams.has('v') && !wanted.has(url.href) ? cache.delete(request) : undefined;
+                }));
+            })
             .then(() => self.clients.claim())
             .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
             .then(clients => {
                 clients.forEach(client => client.postMessage({
                     type: 'APP_UPDATED',
-                    version: CACHE_NAME
+                    version: APP_RELEASE
                 }));
             })
     );
@@ -120,23 +142,21 @@ self.addEventListener('fetch', event => {
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
-    // Script/CSS có ?v= đổi mã mỗi khi đổi nội dung (kèm CACHE_NAME mới), nên trả ngay
-    // bản đã lưu thay vì chờ mạng cho ~1,5MB script ở mỗi lần mở trang; vẫn tải lại ở nền
-    // để lần mở sau luôn có nội dung mới nhất. HTML và tệp không có ?v= vẫn ưu tiên mạng.
+    // Script/CSS mang ?v= là BẤT BIẾN: nội dung đổi thì mã ?v= đổi theo (kèm bản phát hành
+    // mới). Vì vậy có trong kho là dùng luôn, KHÔNG tải lại ở nền nữa — trước đây mỗi lần mở
+    // trang vẫn âm thầm tải lại ~1,5MB script, làm nghẽn mạng đúng lúc trang đang cần tải.
+    // HTML và tệp không có ?v= vẫn ưu tiên mạng để luôn mới.
     const isVersionedAsset = url.searchParams.has('v') &&
         (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'));
     if (isVersionedAsset) {
-        const network = fetch(event.request);
-        const stored = network.then(response => {
-            if (!response.ok) return undefined;
-            const copy = response.clone();
-            return caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-        }).catch(() => undefined);
-        event.waitUntil(stored);
         event.respondWith(
-            caches.open(CACHE_NAME)
-                .then(cache => cache.match(event.request))
-                .then(cached => cached || network)
+            caches.open(CACHE_NAME).then(async cache => {
+                const cached = await cache.match(event.request);
+                if (cached) return cached;
+                const response = await fetch(event.request);
+                if (response.ok) cache.put(event.request, response.clone()).catch(() => undefined);
+                return response;
+            })
         );
         return;
     }

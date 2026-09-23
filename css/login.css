@@ -27,7 +27,11 @@ body {
 .login-bg {
     position: absolute;
     inset: 0;
+    /* Ảnh nền gốc nặng 1,24 MB nên lần mở đầu tiên (sau mỗi bản cập nhật) rất lâu trên 4G.
+       Bản .webp 900px chỉ 174 KB; .png giữ lại cho trình duyệt quá cũ không đọc được webp. */
     background-image: url('../images/lotus_bg.png');
+    background-image: -webkit-image-set(url('../images/lotus_bg.webp') 1x, url('../images/lotus_bg.png') 1x);
+    background-image: image-set(url('../images/lotus_bg.webp') type('image/webp'), url('../images/lotus_bg.png') type('image/png'));
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
