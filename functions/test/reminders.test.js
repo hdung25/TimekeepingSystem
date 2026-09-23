@@ -35,14 +35,18 @@ assert.deepEqual(R.chainLeaders(byStaff.get('recep-1')).map(shift => shift.start
     'receptionist evening (17:30) overlaps the afternoon shift: no second reminder');
 
 const at = hm => { const [h, m] = hm.split(':').map(Number); return h * 60 + m; };
-let due = R.dueReminders({ dateKey, nowMinutes: at('17:50'), byStaff });
+// Nhắc sớm 8 phút (mặc định).
+assert.equal(R.dueReminders({ dateKey, nowMinutes: at('17:50'), byStaff }).length, 0, 'sớm hơn 8 phút thì chưa nhắc');
+let due = R.dueReminders({ dateKey, nowMinutes: at('17:52'), byStaff });
 assert.deepEqual(due.map(item => `${item.staffId} ${item.shift.start}`), ['teacher-a 18:00']);
 assert.equal(due[0].tag, 'teaching_checkin_2026-09-23_cs1_18:00', 'tag matches the in-app reminder');
 assert.equal(R.dueReminders({ dateKey, nowMinutes: at('19:25'), byStaff }).some(item => item.staffId === 'teacher-a'), false,
     'the consecutive 19:30 class is never reminded');
-due = R.dueReminders({ dateKey, nowMinutes: at('19:20'), byStaff, staffFilter: new Set(['teacher-b']) });
+due = R.dueReminders({ dateKey, nowMinutes: at('19:24'), byStaff, staffFilter: new Set(['teacher-b']) });
 assert.deepEqual(due.map(item => `${item.staffId} ${item.shift.branch} ${item.shift.start}`), ['teacher-b cs2 19:30']);
-assert.equal(R.dueReminders({ dateKey, nowMinutes: at('17:00'), byStaff }).length, 0, 'more than 15 minutes early: not yet');
+assert.equal(R.dueReminders({ dateKey, nowMinutes: at('18:08'), byStaff }).some(item => item.shift.start === '18:00'), true,
+    'vẫn nhắc tới 10 phút sau giờ vào nếu chưa chấm công');
+assert.equal(R.dueReminders({ dateKey, nowMinutes: at('18:12'), byStaff }).some(item => item.shift.start === '18:00'), false);
 
 assert.equal(R.alreadyCheckedIn([{ checkIn: '2026-09-23T10:55:00Z' }], dateKey, '18:00'), true, 'open session = checked in');
 assert.equal(R.alreadyCheckedIn([{ checkIn: '2026-09-23T01:00:00Z', checkOut: '2026-09-23T04:30:00Z' }], dateKey, '18:00'), false,

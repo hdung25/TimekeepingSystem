@@ -34,6 +34,7 @@ for (const action of ['makeup_approved', 'makeup_rejected', 'makeup_covered', 'p
     assert.match(db, new RegExp(`createAdminNotification\\([^)]*'${action.includes('$') ? '' : action}`), `db-service notifies ${action}`);
 }
 assert.match(sw, /event\.notification\.data\?\.url/, 'tapping a notification opens the related page');
+assert.match(main, /if \(diffMins > 8 \|\| diffMins < -30\) continue;/, 'in-app reminder also uses the 8-minute lead');
 assert.match(sw, /\^\[a-z0-9-\]\+\\\.html/, 'only same-origin page names are navigated to');
 
 const resume = main.slice(main.indexOf('async function resumeSavedSession'), main.indexOf('function setLoginButtonLoading'));

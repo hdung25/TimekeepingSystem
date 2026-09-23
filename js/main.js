@@ -2665,6 +2665,7 @@ window.initPWANotifications = function() {
     syncNotificationPermissionButton();
     // Đã cho phép từ trước → làm mới mã thiết bị (FCM có thể xoay mã) mà không hỏi lại.
     if ('Notification' in window && Notification.permission === 'granted') window.registerPushNotifications();
+    else setTimeout(maybePromptNotifications, 2500);
 
     // Set up real-time listener for new meetings
     window.setupMeetingsNotificationListener();
@@ -2675,6 +2676,33 @@ window.initPWANotifications = function() {
     setInterval(window.checkUpcomingMeetingsAndShifts, 60000);
     console.log('[Notification] System initialized');
 };
+
+// Nút "Bật thông báo" chỉ nằm ở trang Bảng Cá Nhân nên nhiều người không thấy. Mời một lần
+// mỗi 3 ngày, ngay trên trang đang mở; trình duyệt bắt buộc phải bấm tay mới hỏi quyền.
+function maybePromptNotifications() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    if (!localStorage.getItem('currentUserId') || document.getElementById('notif-cta')) return;
+    const snoozed = Number(localStorage.getItem('notif_prompt_snoozed_at') || 0);
+    if (Date.now() - snoozed < 3 * 24 * 3600 * 1000) return;
+    const box = document.createElement('div');
+    box.id = 'notif-cta';
+    box.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:1rem;z-index:998;max-width:min(420px,92vw);'
+        + 'background:#fff;border:1px solid #A7F3D0;border-left:4px solid #059669;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:.9rem 1rem;font-size:.88rem;color:#111827';
+    box.innerHTML = '<div style="font-weight:800;color:#047857;margin-bottom:.25rem">🔔 Bật nhắc vào ca</div>'
+        + '<div style="color:#4B5563;line-height:1.35">Nhận nhắc trước giờ vào ca 8 phút và thông báo chấm bù, bảng lương — kể cả khi đã tắt app.</div>'
+        + '<div style="display:flex;gap:.5rem;margin-top:.7rem"><button type="button" data-act="on" style="flex:1;border:none;border-radius:10px;padding:.6rem;background:#059669;color:#fff;font-weight:700;cursor:pointer">Bật thông báo</button>'
+        + '<button type="button" data-act="later" style="border:1px solid #E5E7EB;border-radius:10px;padding:.6rem .9rem;background:#fff;color:#6B7280;font-weight:600;cursor:pointer">Để sau</button></div>';
+    box.querySelector('[data-act="later"]').onclick = () => {
+        localStorage.setItem('notif_prompt_snoozed_at', String(Date.now()));
+        box.remove();
+    };
+    box.querySelector('[data-act="on"]').onclick = async () => {
+        box.remove();
+        localStorage.setItem('notif_prompt_snoozed_at', String(Date.now()));
+        await window.requestNotificationPermission();
+    };
+    document.body.appendChild(box);
+}
 
 window.requestNotificationPermission = async function(button = null) {
     if (!('Notification' in window)) {
@@ -2838,7 +2866,7 @@ async function remindUpcomingTeachingShifts(userId, dateKey, now) {
         const [h, min] = String(item.start).split(':').map(Number);
         const start = new Date(y, m - 1, d, h, min, 0, 0);
         const diffMins = (start.getTime() - now.getTime()) / 60000;
-        if (diffMins > 15 || diffMins < -30) continue;
+        if (diffMins > 8 || diffMins < -30) continue;
         const key = `notified_teaching_checkin_${dateKey}_${item.branch}_${item.start}`;
         if (localStorage.getItem(key)) continue;
         const attendance = await DBService.getPersonalAttendance(dateKey, userId);
@@ -2956,8 +2984,8 @@ window.checkUpcomingMeetingsAndShifts = async function() {
                         const shiftStart = new Date(_acy, _acm - 1, _acd, _ssh, _ssm, 0, 0);
                         const timeDiffMins = (shiftStart.getTime() - now.getTime()) / (60 * 1000);
 
-                        // Trigger if shift starts in 15 mins OR started but <= 30 mins ago
-                        if (timeDiffMins <= 15 && timeDiffMins >= -30) {
+                        // Trigger if shift starts in 8 mins OR started but <= 30 mins ago
+                        if (timeDiffMins <= 8 && timeDiffMins >= -30) {
                             const notifiedKey = `notified_shift_checkin_${source.type}_${dateKey}_${branch}_${shiftKey}`;
                             if (!localStorage.getItem(notifiedKey)) {
                                 const attendance = await DBService.getPersonalAttendance(dateKey, currentUserId);

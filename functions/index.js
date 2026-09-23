@@ -91,7 +91,8 @@ async function resolveDaySchedule(branch, dateKey) {
     return projected;
 }
 
-exports.shiftCheckInReminders = onSchedule({ schedule: '*/5 6-21 * * *', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 0 }, async () => {
+// Chạy mỗi 2 phút để mốc "trước 8 phút" không bị trễ thành 3-4 phút như nhịp 5 phút.
+exports.shiftCheckInReminders = onSchedule({ schedule: '*/2 6-21 * * *', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 0 }, async () => {
     const tokenSnapshot = await db.collection('push_tokens').get();
     const staffWithPush = new Set(tokenSnapshot.docs.filter(doc => doc.data().enabled !== false).map(doc => String(doc.data().staffId)));
     if (!staffWithPush.size) return;

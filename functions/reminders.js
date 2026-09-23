@@ -107,7 +107,9 @@ function reminderTag(dateKey, shift) {
 }
 
 // nowMinutes: minutes since local midnight (Asia/Ho_Chi_Minh).
-function dueReminders({ dateKey, nowMinutes, byStaff, staffFilter, leadMinutes = 15, lateMinutes = 10 }) {
+// Nhắc trước giờ vào ca 8 phút (quy định 23/09/2026); vẫn nhắc tới 10 phút sau giờ vào
+// nếu người đó chưa chấm công.
+function dueReminders({ dateKey, nowMinutes, byStaff, staffFilter, leadMinutes = 8, lateMinutes = 10 }) {
     const due = [];
     byStaff.forEach((shifts, staffId) => {
         if (staffFilter && !staffFilter.has(staffId)) return;
