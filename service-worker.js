@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v203-fast-login-20260923';
+const APP_RELEASE = 'tdt-chamcong-v204-fast-login-20260923';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -42,11 +42,11 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20260923-fast-login-v1',
+    '/js/main.js?v=20260923-fast-login-v2',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260906-early10-recovery-v1',
-    '/js/db-service.js?v=20260923-fast-login-v1',
-    '/js/meeting-attendance-policy.js?v=20260923-fast-login-v1',
+    '/js/db-service.js?v=20260923-fast-login-v2',
+    '/js/meeting-attendance-policy.js?v=20260923-fast-login-v2',
     '/js/report.js?v=20260923-student-count-save-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
@@ -66,15 +66,16 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/auth-guard.js?v=20260919-review-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
-    '/js/analytics.js?v=20260923-fast-login-v1',
+    '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260923-fast-login-v1',
+    '/js/schedule.js?v=20260923-fast-login-v2',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260908-payroll-review-v2',
     '/js/timekeeping.js?v=20260919-resume-schedule-v1',
     '/js/salary-bulk-export.js?v=20260922-payroll-list-v1',
     '/images/TUDUYTRE.jpg',
+    '/images/logo-192.webp',
     '/images/lotus_bg.webp',
     '/manifest.json'
 ]));
@@ -212,8 +213,8 @@ self.addEventListener('push', event => {
     const tag = String(data.tag || '').slice(0, 120);
     event.waitUntil(self.registration.showNotification(String(data.title || 'Chấm Công TDT').slice(0, 120), {
         body: String(data.body || 'Bạn có thông báo mới.').slice(0, 400),
-        icon: '/images/TUDUYTRE.jpg',
-        badge: '/images/TUDUYTRE.jpg',
+        icon: '/images/logo-192.webp',
+        badge: '/images/logo-192.webp',
         tag: tag || undefined,
         renotify: !!tag,
         vibrate: [200, 100, 200],

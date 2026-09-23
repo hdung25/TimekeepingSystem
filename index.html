@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Đăng Nhập - Hệ Thống Chấm Công</title>
-    <link rel="icon" type="image/jpg" href="images/TUDUYTRE.jpg">
+    <link rel="icon" type="image/webp" href="images/logo-192.webp">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#059669">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,14 +14,12 @@
     <link rel="stylesheet" href="css/login.css?v=20260923-light-bg-v1">
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
-    <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js"></script>
     <script src="js/firebase-config.js?v=20260906-early10-recovery-v1"></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src="js/db-service.js?v=20260923-fast-login-v1"></script>
-    <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src="js/db-service.js?v=20260923-fast-login-v2"></script>
 </head>
 
 <body>
@@ -35,7 +33,7 @@
         <!-- Login Card -->
         <section class="login-card">
             <div class="login-header">
-                <img src="images/TUDUYTRE.jpg" alt="Logo Ngoại Ngữ & Toán Tư Duy Trẻ" class="login-logo">
+                <img src="images/logo-192.webp" width="72" height="72" alt="Logo Ngoại Ngữ &amp; Toán Tư Duy Trẻ" class="login-logo">
                 <p class="login-kicker">Ngoại Ngữ & Toán Tư Duy Trẻ</p>
                 <h1>CHÀO MỪNG TRỞ LẠI!</h1>
                 <p>Hệ thống Chấm công & Tính lương Tự động</p>
@@ -51,8 +49,8 @@
                     <label for="password">Mật khẩu</label>
                     <div class="password-field">
                         <input type="password" id="password" class="form-input" placeholder="password" required autocomplete="current-password">
-                        <button type="button" id="toggle-password" aria-label="Hiện mật khẩu" title="Hiện mật khẩu">
-                            <i data-lucide="eye"></i>
+                        <button type="button" id="toggle-password" aria-label="Hiện mật khẩu" title="Hiện mật khẩu" onclick="togglePasswordVisibility('password', this)">
+                            <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                         </button>
                     </div>
                 </div>
@@ -69,7 +67,7 @@
     </main>
 
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260923-fast-login-v1"></script>
+    <script src="js/main.js?v=20260923-fast-login-v2"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 </body>
 

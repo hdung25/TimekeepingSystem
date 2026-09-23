@@ -1365,7 +1365,7 @@ function showLoginTransition(name, subtitle) {
     const overlay = document.createElement('div');
     overlay.className = 'login-transition';
     overlay.setAttribute('role', 'status');
-    overlay.innerHTML = '<img src="images/TUDUYTRE.jpg" alt=""><div class="login-transition-title"></div>'
+    overlay.innerHTML = '<img src="images/logo-192.webp" alt=""><div class="login-transition-title"></div>'
         + '<div class="login-transition-sub"></div>'
         + '<div class="login-progress" aria-hidden="true"><span></span></div>';
     overlay.querySelector('.login-transition-title').textContent = name ? `Xin chào, ${name}!` : 'Đăng nhập thành công!';
@@ -2426,6 +2426,17 @@ window.checkInToMeeting = async function(meetingId, btn) {
 window.togglePasswordVisibility = function(inputId, btn) {
     const input = document.getElementById(inputId);
     if (!input) return;
+    // Trang đăng nhập dùng SVG gắn sẵn (không tải thư viện icon) → chỉ đổi qua lại 2 hình.
+    const inlineOpen = btn.querySelector('.eye-open');
+    const inlineOff = btn.querySelector('.eye-off');
+    if (inlineOpen && inlineOff) {
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        inlineOpen.hidden = show;
+        inlineOff.hidden = !show;
+        btn.setAttribute('aria-label', show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
+        return;
+    }
     const icon = btn.querySelector('i');
     if (input.type === 'password') {
         input.type = 'text';
@@ -2761,8 +2772,8 @@ window.showLocalNotification = function(title, body, tag, url) {
             navigator.serviceWorker.ready.then(registration => {
                 registration.showNotification(title, {
                     body: body,
-                    icon: 'images/TUDUYTRE.jpg',
-                    badge: 'images/TUDUYTRE.jpg',
+                    icon: 'images/logo-192.webp',
+                    badge: 'images/logo-192.webp',
                     tag: tag || undefined,
                     renotify: true,
                     vibrate: [200, 100, 200],
@@ -2770,10 +2781,10 @@ window.showLocalNotification = function(title, body, tag, url) {
                 });
             }).catch(err => {
                 console.warn("Service Worker notification failed, falling back to window Notification:", err);
-                new Notification(title, { body: body, icon: 'images/TUDUYTRE.jpg' });
+                new Notification(title, { body: body, icon: 'images/logo-192.webp' });
             });
         } else {
-            new Notification(title, { body: body, icon: 'images/TUDUYTRE.jpg' });
+            new Notification(title, { body: body, icon: 'images/logo-192.webp' });
         }
     }
     
