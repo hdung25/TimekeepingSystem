@@ -2,7 +2,7 @@
 // Web push (FCM) for the timekeeping PWA.
 //  - pushStaffNotification: every new admin_notifications doc (make-up decision,
 //    payslip sent, announcement…) is pushed to that staff member's devices.
-//  - shiftCheckInReminders: every 5 minutes in working hours, remind staff who have
+//  - shiftCheckInReminders: every 2 minutes in working hours, remind staff who have
 //    push enabled about the first shift of each chain that has not been checked in.
 // Only reads schedules/attendance and writes push_tokens cleanup + push_reminders
 // dedupe markers. Never writes attendance, payroll or schedules.
@@ -34,8 +34,25 @@ async function tokensFor(staffId) {
     return snapshot.docs.filter(doc => doc.data().enabled !== false && doc.data().token).map(doc => ({ ref: doc.ref, token: doc.data().token }));
 }
 
-async function pushToStaff(staffId, { title, body, link, tag }) {
-    const tokens = await tokensFor(staffId);
+// Enabled tokens for several staff in one pass ('in' accepts at most 30 values per query).
+async function tokensForMany(staffIds) {
+    const ids = [...new Set(staffIds.map(String))];
+    const byStaff = new Map();
+    for (let i = 0; i < ids.length; i += 30) {
+        const snapshot = await db.collection('push_tokens').where('staffId', 'in', ids.slice(i, i + 30)).get();
+        snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.enabled === false || !data.token) return;
+            const key = String(data.staffId);
+            if (!byStaff.has(key)) byStaff.set(key, []);
+            byStaff.get(key).push({ ref: doc.ref, token: data.token });
+        });
+    }
+    return byStaff;
+}
+
+async function pushToStaff(staffId, { title, body, link, tag }, knownTokens) {
+    const tokens = knownTokens || await tokensFor(staffId);
     if (!tokens.length) return { sent: 0, devices: 0 };
     const response = await getMessaging().sendEachForMulticast({
         tokens: tokens.map(item => item.token),
@@ -92,10 +109,9 @@ async function resolveDaySchedule(branch, dateKey) {
 }
 
 // Chạy mỗi 2 phút để mốc "trước 8 phút" không bị trễ thành 3-4 phút như nhịp 5 phút.
+// Chi phí: trước đây mỗi lượt đọc CẢ bộ push_tokens (≈30 tài liệu × 450 lượt/ngày ≈ 13k lượt đọc,
+// tăng theo số người bật thông báo). Nay chỉ đọc token của những người thật sự sắp vào ca.
 exports.shiftCheckInReminders = onSchedule({ schedule: '*/2 6-21 * * *', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 0 }, async () => {
-    const tokenSnapshot = await db.collection('push_tokens').get();
-    const staffWithPush = new Set(tokenSnapshot.docs.filter(doc => doc.data().enabled !== false).map(doc => String(doc.data().staffId)));
-    if (!staffWithPush.size) return;
     const { dateKey, nowMinutes } = R.vietnamClock();
     const branches = ['cs1', 'cs2', 'cs3'];
     const { mondayKey } = R.mondayOf(dateKey);
@@ -116,7 +132,10 @@ exports.shiftCheckInReminders = onSchedule({ schedule: '*/2 6-21 * * *', timeZon
     }));
     const byStaff = R.collectShifts({ dateKey, schedules: Object.fromEntries(daySchedules), operational,
         closures: settings.centerClosures || {}, shiftState: TeacherShiftState });
-    const due = R.dueReminders({ dateKey, nowMinutes, byStaff, staffFilter: staffWithPush });
+    const candidates = R.dueReminders({ dateKey, nowMinutes, byStaff });
+    if (!candidates.length) return;
+    const tokensByStaff = await tokensForMany(candidates.map(reminder => reminder.staffId));
+    const due = candidates.filter(reminder => tokensByStaff.has(String(reminder.staffId)));
     let sent = 0;
     for (const reminder of due) {
         const marker = db.collection('push_reminders').doc(`${reminder.tag}_${reminder.staffId}`.replace(/[^A-Za-z0-9_:-]/g, '_'));
@@ -127,7 +146,7 @@ exports.shiftCheckInReminders = onSchedule({ schedule: '*/2 6-21 * * *', timeZon
         } catch (error) {
             continue; // already reminded (ALREADY_EXISTS)
         }
-        const result = await pushToStaff(reminder.staffId, reminder);
+        const result = await pushToStaff(reminder.staffId, reminder, tokensByStaff.get(String(reminder.staffId)));
         sent += result.sent || 0;
     }
     logger.info('shiftCheckInReminders', { dateKey, nowMinutes, candidates: due.length, sent });

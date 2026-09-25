@@ -9,8 +9,10 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260923-fast-login-v2';
-const serviceWorkerCacheName = 'tdt-chamcong-v200-payroll-list-20260922';
-const reportVersion = '20260922-payroll-list-v1';
+const mainVersion = '20260925-landscape-v1';
+// Fixed cache name since v203; the release string is APP_RELEASE in service-worker.js.
+const serviceWorkerCacheName = 'tdt-chamcong-assets';
+const reportVersion = '20260923-student-count-save-v1';
 const scheduleVersion = '20260923-fast-login-v2';
 const attendanceVersion = '20260923-fast-login-v2';
 const timekeepingVersion = '20260919-resume-schedule-v1';
@@ -41,11 +43,11 @@ const digest = value => crypto.createHash('sha256')
     const html = await response.text();
     assert.ok(html.includes('js/payroll-review.js?v=' + payrollVersion));
     assert.ok(html.includes('js/report.js?v=' + reportVersion));
-    assert.ok(html.includes('js/main.js?v=' + version) && html.includes(pinnedLucide) && !html.includes('lucide@latest'));
+    assert.ok(html.includes('js/main.js?v=' + mainVersion) && html.includes(pinnedLucide) && !html.includes('lucide@latest'));
     assert.ok(html.includes('js/admin-payroll-override-ui.js?v=' + adminOverrideVersion));
     const chamCongHtml = await (await fetch(origin + '/cham-cong.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) })).text();
     assert.ok(chamCongHtml.includes('js/timekeeping.js?v=' + timekeepingVersion) &&
-        chamCongHtml.includes('js/db-service.js?v=' + attendanceVersion) && chamCongHtml.includes('js/main.js?v=' + version) &&
+        chamCongHtml.includes('js/db-service.js?v=' + attendanceVersion) && chamCongHtml.includes('js/main.js?v=' + mainVersion) &&
         chamCongHtml.includes('js/evaluation-service.js?v=20260914-autoclose-subject-v1') && chamCongHtml.includes(pinnedLucide));
     const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
     assert.equal(scheduleResponse.status, 200);
@@ -66,7 +68,7 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/main.js?v=20260923-fast-login-v2')) &&
+            return !!(await cache.match('/js/main.js?v=20260925-landscape-v1')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20260919-resume-schedule-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260923-fast-login-v2')) &&

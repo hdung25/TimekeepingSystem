@@ -11,7 +11,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260906-early10-recovery-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1">
     <style>
         /* ========== Branch Tabs ========== */
         .branch-tabs {
@@ -405,6 +405,23 @@
                 width: 42px;
                 font-size: 0.72rem;
                 padding: 2px 1px;
+            }
+
+            /* style.css (≤768px) ép mọi ô chữ về 16px (tránh iOS tự phóng to khi gõ), nên ô giờ
+               rộng 42px bị cắt còn "07:0". Xếp giờ vào / giờ ra thành 2 dòng cho đủ chỗ. */
+            .shift-time-inputs {
+                flex-direction: column;
+            }
+
+            .shift-time-inputs .shift-dash {
+                display: none;
+            }
+
+            .shift-time-inputs input.time-text {
+                width: 68px;
+                min-height: 34px;
+                padding: 2px 0;
+                letter-spacing: 0;
             }
 
             .shift-time-display {
@@ -1018,6 +1035,156 @@
                 transition: none !important;
             }
         }
+
+        /* Điện thoại xoay ngang (cao ~390px): gom cơ sở + nút lưu vào một hàng, bỏ dòng mô tả,
+           để bảng tuần hiện ngay. Cùng điều kiện với khối PHONE LANDSCAPE trong css/style.css. */
+        @media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+            .work-schedule-page .main-content {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                align-content: flex-start;
+                column-gap: 0.5rem;
+                row-gap: 0.45rem;
+            }
+
+            .work-schedule-page .main-content > * {
+                flex: 1 1 100%;
+                min-width: 0;
+            }
+
+            .work-schedule-page .page-header {
+                display: contents !important;
+            }
+
+            /* Tên trang đã có trên menu ☰; nhường chỗ cho bảng lịch. */
+            .work-schedule-page .page-header > div:first-child {
+                display: none;
+            }
+
+            .work-schedule-page .branch-tabs {
+                order: 1;
+                flex: 0 1 auto;
+                flex-wrap: nowrap;
+                gap: 0.35rem;
+                margin-bottom: 0;
+                padding: 0;
+                overflow-x: auto;
+            }
+
+            .work-schedule-page .branch-tab {
+                flex: 0 0 auto;
+                min-height: 38px;
+                padding: 0.3rem 0.8rem;
+                font-size: 0.8rem;
+                white-space: nowrap;
+            }
+
+            .work-schedule-page #save-area {
+                order: 2;
+                flex: 0 1 auto;
+                margin-left: auto;
+            }
+
+            .work-schedule-page #save-area:not(.schedule-actions-hidden) {
+                display: flex !important;
+                flex-wrap: nowrap;
+                gap: 0.35rem !important;
+                width: auto;
+            }
+
+            .work-schedule-page #save-area .btn {
+                min-height: 38px;
+                padding: 0.3rem 0.7rem !important;
+                font-size: 0.8rem !important;
+                white-space: nowrap;
+            }
+
+            .work-schedule-page .week-picker {
+                order: 3;
+                flex-wrap: nowrap;
+                gap: 0.5rem;
+                margin-bottom: 0;
+            }
+
+            .work-schedule-page .week-label {
+                order: 0;
+                width: auto;
+                font-size: 0.9rem;
+            }
+
+            .work-schedule-page .week-picker button {
+                min-width: 44px;
+                min-height: 38px;
+            }
+
+            .work-schedule-page #inherit-banner,
+            .work-schedule-page .work-schedule-panel {
+                order: 4;
+            }
+
+            .work-schedule-page #inherit-banner {
+                margin-bottom: 0 !important;
+                padding: 0.5rem 0.8rem !important;
+            }
+
+            /* Hộp phân công ca: trước đây chỉ còn chỗ cho 1 dòng nhân viên. Đầu/cuối gọn lại,
+               bỏ dòng hướng dẫn, và để cả thân hộp cuộn một lần thay vì danh sách cuộn lồng. */
+            .cell-modal {
+                align-items: center;
+                padding: 0.4rem;
+            }
+
+            .cell-modal-content {
+                width: min(760px, 100%);
+                max-height: calc(100dvh - 0.8rem);
+                border-radius: 14px;
+            }
+
+            .cell-modal-header {
+                align-items: center;
+                padding: 0.4rem 0.6rem 0.4rem 1rem;
+            }
+
+            .cell-modal-kicker,
+            .cell-modal-description {
+                display: none;
+            }
+
+            .cell-modal-title {
+                font-size: 1rem;
+            }
+
+            .cell-modal-close {
+                width: 40px;
+                height: 40px;
+            }
+
+            .cell-modal-body {
+                padding: 0.5rem 1rem 0.7rem;
+            }
+
+            .cell-modal .modal-field-label {
+                margin: 0.5rem 0 0.3rem;
+            }
+
+            .cell-modal .modal-field-label:first-of-type {
+                margin-top: 0;
+            }
+
+            .staff-checkbox-list {
+                max-height: none;
+            }
+
+            .cell-modal-footer {
+                padding: 0.4rem 1rem calc(0.4rem + env(safe-area-inset-bottom, 0px));
+            }
+
+            .cell-modal-footer .btn,
+            .cell-modal-footer .btn-primary {
+                min-height: 40px;
+            }
+        }
     </style>
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
@@ -1154,7 +1321,7 @@
         </section>
     </div>
 
-    <script src="js/main.js?v=20260923-fast-login-v2"></script>
+    <script src="js/main.js?v=20260925-landscape-v1"></script>
     <script src="js/receptionist-schedule.js?v=20260908-payroll-review-v2"></script>
 
     <script>

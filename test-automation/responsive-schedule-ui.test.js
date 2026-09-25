@@ -62,4 +62,41 @@ for (const [name, page] of [
         `${name} wide roster table must scroll inside its own container`);
 }
 
+// Phone turned sideways (~844×390): must use the slide-in menu and compact schedule editors,
+// not the desktop sidebar that used to cover a third of the width and all of the height.
+const LANDSCAPE = '@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse)';
+const landscapeBlock = (source, label) => {
+    const start = source.indexOf(LANDSCAPE);
+    assert.ok(start >= 0, `${label} must have the phone-landscape block`);
+    return source.slice(start);
+};
+const styleSheet = read('css/style.css');
+const mainScript = read('js/main.js');
+const globalLandscape = landscapeBlock(styleSheet, 'css/style.css');
+assert.match(globalLandscape, /\.mobile-header\s*\{[\s\S]*?display:\s*flex\s*!important/,
+    'landscape phones must show the ☰ header');
+assert.match(globalLandscape, /\.sidebar\s*\{[\s\S]*?position:\s*fixed[\s\S]*?left:\s*-300px/,
+    'landscape phones must hide the sidebar off-canvas');
+assert.match(globalLandscape, /\.sidebar\.open\s*\{\s*left:\s*0/, 'the ☰ button must still open the menu');
+assert.ok(mainScript.includes("const DRAWER_NAV_QUERY = '(max-width: 768px), (orientation: landscape) and (max-height: 540px) and (pointer: coarse)'"),
+    'main.js must close the drawer on the same devices the CSS turns it into a drawer');
+assert.match(mainScript, /if \(_isDrawerNav\(\)\) _closeMobileSidebar\(\)/);
+assert.match(styleSheet, /^\.stats-grid\s*\{[\s\S]*?display:\s*grid/m, 'stat cards must be styled outside the phone-only block');
+
+const teacherLandscape = landscapeBlock(teacherPage, 'lich-lam.html');
+assert.match(teacherLandscape, /\.main-content > header\s*\{\s*display:\s*contents\s*!important/,
+    'inline display:flex on the header must not undo the one-row landscape toolbar');
+assert.match(teacherLandscape, /#admin-actions\s*\{[\s\S]*?display:\s*flex\s*!important[\s\S]*?flex-wrap:\s*nowrap\s*!important/,
+    'save / copy / absence buttons must stay on one row sideways');
+assert.match(teacherLandscape, /\.day-tabs\s*\{[\s\S]*?order:\s*4/);
+assert.match(teacherLandscape, /\.teacher-shift-dialog\s*\{[\s\S]*?height:\s*100dvh[\s\S]*?border-radius:\s*0/,
+    'teacher manager must use the full short screen');
+for (const [name, page] of [['receptionist', receptionistPage], ['office', officePage]]) {
+    const block = landscapeBlock(page, name);
+    assert.match(block, /\.work-schedule-page \.page-header\s*\{\s*display:\s*contents\s*!important/, `${name}: compact header row`);
+    assert.match(block, /#save-area:not\(\.schedule-actions-hidden\)\s*\{\s*display:\s*flex\s*!important/, `${name}: action buttons stay in a row`);
+    assert.match(block, /\.staff-checkbox-list\s*\{\s*max-height:\s*none/, `${name}: assignment dialog scrolls as one body`);
+    assert.match(page, /\.shift-time-inputs\s*\{\s*flex-direction:\s*column/, `${name}: 16px time inputs must not be clipped on phones`);
+}
+
 console.log('responsive-schedule-ui.test.js: all assertions passed');

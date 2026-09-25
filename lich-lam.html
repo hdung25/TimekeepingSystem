@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260906-early10-recovery-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1">
     <style>
         /* Specific Styles for Schedule Page */
         .branch-tabs {
@@ -2233,6 +2233,240 @@
                 font-size: 0.8rem;
             }
         }
+
+        /* Điện thoại xoay ngang: màn chỉ cao ~390px nên gom cơ sở + nút thao tác vào một hàng,
+           tuần + 7 ngày vào hàng thứ hai, để bảng lịch hiện ngay mà không phải cuộn qua phần đầu.
+           Cùng điều kiện với khối PHONE LANDSCAPE trong css/style.css. */
+        @media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+            .main-content {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                align-content: flex-start;
+                column-gap: 0.5rem;
+                row-gap: 0.4rem;
+            }
+
+            /* !important: thẻ header có display:flex viết trực tiếp trong HTML. */
+            .main-content > header {
+                display: contents !important;
+            }
+
+            /* Tên trang đã có trên thanh menu; ở màn ngang nhường chỗ cho lịch. */
+            .main-content > header h1 {
+                display: none;
+            }
+
+            .branch-tabs {
+                order: 1;
+                flex-wrap: nowrap;
+                gap: 0.35rem;
+                margin-bottom: 0;
+            }
+
+            .branch-tab {
+                min-height: 38px;
+                padding: 0.3rem 0.75rem;
+                font-size: 0.8rem;
+                border-width: 1.5px;
+                white-space: nowrap;
+            }
+
+            /* style.css (≤768px) biến div cuối của header thành lưới 1 cột → 3 nút xếp chồng. */
+            #admin-actions {
+                order: 2;
+                display: flex !important;
+                width: auto !important;
+                margin-left: auto;
+                flex-wrap: nowrap !important;
+                gap: 0.35rem !important;
+            }
+
+            #admin-actions .btn {
+                min-height: 38px;
+                padding: 0.3rem 0.7rem;
+                font-size: 0.8rem;
+                white-space: nowrap;
+            }
+
+            .week-picker {
+                order: 3;
+                flex-wrap: nowrap !important;
+                gap: 0.2rem !important;
+                margin-bottom: 0;
+                padding: 0.15rem 0.35rem;
+            }
+
+            .week-picker .btn-icon {
+                width: 38px;
+                height: 38px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .week-display {
+                min-width: 104px;
+                font-size: 0.92rem;
+            }
+
+            .date-picker-btn-wrapper {
+                margin-left: 0.2rem !important;
+            }
+
+            .date-picker-btn-wrapper .btn {
+                min-height: 36px;
+                padding: 4px 9px !important;
+                font-size: 0.78rem !important;
+                white-space: nowrap;
+            }
+
+            .day-tabs {
+                order: 4;
+                flex: 1 1 380px;
+                min-width: 0;
+                gap: 4px;
+                margin-bottom: 0;
+                padding-bottom: 0;
+                overflow-x: visible;
+            }
+
+            .day-tab {
+                flex: 1 1 0;
+                min-width: 0;
+                min-height: 40px;
+                padding: 0.2rem 0.1rem;
+                font-size: 0.78rem;
+                line-height: 1.2;
+            }
+
+            .day-tab .day-tab-name {
+                white-space: nowrap;
+                font-weight: 600;
+            }
+
+            .day-tab .day-tab-date {
+                font-size: 0.64rem !important;
+                white-space: nowrap;
+            }
+
+            .schedule-table-container {
+                order: 5;
+                flex: 1 1 100%;
+                min-width: 0;
+                padding: 0.5rem;
+            }
+
+            .schedule-toolbar {
+                flex-wrap: nowrap !important;
+                margin-bottom: 0.4rem !important;
+            }
+
+            #current-day-label {
+                min-width: 0;
+                overflow: hidden;
+                font-size: 0.92rem !important;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+
+            #schedule-shift-filter {
+                flex: 0 0 auto;
+                min-height: 36px;
+                padding: 4px 8px !important;
+            }
+
+            .schedule-table th,
+            .schedule-table td {
+                padding: 0.35rem 0.35rem;
+            }
+
+            .section-header {
+                padding: 0.4rem !important;
+            }
+
+            /* Bảng điều khiển ca dạy: phủ toàn màn hình, đầu/cuối gọn để còn chỗ cho 2 cột nội dung
+               (mỗi cột tự cuộn). Trước đây đầu + cảnh báo + chân chiếm ~270/390px. */
+            .teacher-shift-overlay {
+                padding: 0;
+            }
+
+            .teacher-shift-dialog {
+                width: 100%;
+                max-width: none;
+                height: 100vh;
+                height: 100dvh;
+                max-height: none;
+                border-width: 0;
+                border-radius: 0;
+            }
+
+            .teacher-shift-header {
+                align-items: center;
+                gap: 12px;
+                padding: 6px 12px 6px 16px;
+            }
+
+            .teacher-shift-header::after,
+            .teacher-shift-kicker {
+                display: none;
+            }
+
+            .teacher-shift-title-wrap {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                column-gap: 10px;
+                row-gap: 4px;
+            }
+
+            .teacher-shift-header h3 {
+                max-width: 42vw;
+                font-size: 1.02rem;
+            }
+
+            .teacher-shift-context {
+                gap: 4px;
+                margin-top: 0;
+            }
+
+            .teacher-shift-context span {
+                padding: 2px 7px;
+                font-size: 0.64rem;
+            }
+
+            .teacher-shift-close {
+                width: 40px;
+                height: 40px;
+                flex-basis: 40px;
+                font-size: 1.3rem;
+            }
+
+            .teacher-shift-alert {
+                padding: 4px 16px;
+                font-size: 0.68rem;
+                line-height: 1.35;
+            }
+
+            .teacher-shift-workspace {
+                grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.8fr);
+            }
+
+            .teacher-command-column {
+                padding: 12px 14px 16px;
+            }
+
+            .teacher-shift-footer {
+                gap: 10px;
+                padding: 6px 12px max(6px, env(safe-area-inset-bottom));
+            }
+
+            .btn-manager-cancel,
+            .btn-manager-save {
+                min-height: 40px;
+                padding: 7px 14px;
+            }
+        }
     </style>
 
     <!-- Firebase SDK (Compat) -->
@@ -2386,7 +2620,7 @@
         </main>
     </div>
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260923-fast-login-v2"></script>
+    <script src="js/main.js?v=20260925-landscape-v1"></script>
     <script src="js/schedule.js?v=20260923-fast-login-v2"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 

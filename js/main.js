@@ -1580,12 +1580,19 @@ function renderSidebar() {
     // ===== Close sidebar when clicking a nav link on mobile =====
     document.querySelectorAll('.sidebar .nav-link').forEach(link => {
         link.addEventListener('click', () => {
-            if (window.innerWidth <= 768) _closeMobileSidebar();
+            if (_isDrawerNav()) _closeMobileSidebar();
         });
     });
 }
 
 // ===== Mobile Nav Setup =====
+// The sidebar becomes a slide-in drawer on portrait phones and on phones turned sideways
+// (short landscape touch screens). Keep in sync with the PHONE LANDSCAPE block in css/style.css.
+const DRAWER_NAV_QUERY = '(max-width: 768px), (orientation: landscape) and (max-height: 540px) and (pointer: coarse)';
+function _isDrawerNav() {
+    return window.matchMedia ? window.matchMedia(DRAWER_NAV_QUERY).matches : window.innerWidth <= 768;
+}
+
 function _setupMobileNav(role) {
     // Only create once
     if (document.querySelector('.mobile-header')) return;

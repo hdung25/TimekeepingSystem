@@ -938,6 +938,39 @@ button {
     }
 }
 
+/* ================== QUICK STAT CARDS (Bảng Cá Nhân) ==================
+   Only the ≤768px block styled these, so on a laptop or a phone turned sideways the three
+   numbers rendered as bare stacked headings. Same card look at every width. */
+.stats-grid {
+    display: grid;
+    /* nhan-vien has 3 cards, the hop-dinh-ky stats tab has 4 */
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+}
+
+.stat-card {
+    min-width: 0;
+    padding: 1rem 1.1rem;
+    background: rgba(255, 255, 255, 0.84);
+    border: 1px solid rgba(5, 150, 105, 0.12);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+.stat-card h3 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--text-muted);
+}
+
+.stat-number {
+    margin-top: 0.4rem;
+    font-size: 1.5rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
 /* ================== LIST SEARCH INPUTS ================== */
 .list-search-input {
     width: 100%;
@@ -1710,5 +1743,123 @@ button {
         min-height: 40px;
         white-space: normal;
         padding-inline: 0.65rem !important;
+    }
+}
+
+/* ================== PHONE LANDSCAPE ==================
+   A phone turned sideways is 740–960px wide but only ~360–440px tall, so it used to get the
+   desktop layout: a 260px sidebar plus a tall page header filled the whole screen before any
+   content. Touch devices with a short landscape viewport now get the slide-in menu (same as
+   portrait) and a compact header; wide desktop windows and tablets keep the desktop layout.
+   Keep this query in sync with DRAWER_NAV_QUERY in js/main.js. */
+@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+    .admin-container {
+        min-height: 0;
+    }
+
+    .mobile-header {
+        display: flex !important;
+        align-items: center;
+        gap: 0.6rem !important;
+        min-height: 0 !important;
+        padding: 0.3rem 1rem !important;
+        background: var(--bg-surface);
+        border-bottom: 1px solid var(--border-color);
+        /* Not sticky: on a ~390px-tall screen a pinned bar costs 12% of the height for good. */
+        position: relative;
+        z-index: 200;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    .mobile-header .hamburger-btn {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 40px !important;
+        height: 40px !important;
+        flex: 0 0 40px;
+        padding: 0;
+        border: none;
+        border-radius: 8px;
+        background: none;
+        color: var(--primary-color);
+        font-size: 1.3rem !important;
+        cursor: pointer;
+    }
+
+    .mobile-header .mobile-logo {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+        font-size: 0.8rem !important;
+        font-weight: 700;
+        color: var(--primary-color);
+        white-space: nowrap;
+    }
+
+    .mobile-header .mobile-logo img {
+        width: 30px !important;
+        height: 30px !important;
+        object-fit: cover;
+        border-radius: 4px;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: -300px;
+        width: 280px;
+        height: 100vh;
+        height: 100dvh;
+        padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom));
+        border-right: 1px solid var(--border-color);
+        z-index: 1000;
+        transition: left 0.3s ease;
+        overflow-y: auto;
+        background-color: var(--bg-surface);
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .sidebar.open {
+        left: 0;
+    }
+
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 999;
+        backdrop-filter: blur(2px);
+    }
+
+    .sidebar-overlay.active {
+        display: block;
+    }
+
+    .logo-area .hamburger-btn {
+        display: none !important;
+    }
+
+    .main-content {
+        width: 100%;
+        min-width: 0;
+        padding: 0.6rem 1rem calc(1rem + env(safe-area-inset-bottom)) !important;
+    }
+
+    .main-content > header,
+    .page-header {
+        margin-bottom: 0.6rem !important;
+    }
+
+    .main-content h1,
+    .page-header h1 {
+        font-size: 1.2rem !important;
+        line-height: 1.2 !important;
+    }
+
+    #live-clock {
+        font-size: 1.4rem !important;
     }
 }
