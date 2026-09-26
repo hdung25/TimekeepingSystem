@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             signalTimekeepingBootstrapReady();
             updateClock();
             setInterval(updateClock, 1000);
+            setInterval(refreshCheckinElapsed, 30000);
         }
     } catch (error) {
         console.error('Timekeeping initialization failed:', error);
@@ -111,6 +112,13 @@ function isCenterClosed(dateStr, shiftKey, centerClosures) {
 
 // 1. Global Check-in Rendering
 let attendanceRenderGeneration = 0;
+// "Đã làm 1 giờ 25 phút" trên thẻ đang trong ca; cập nhật mỗi 30 giây bằng refreshCheckinElapsed.
+function formatCheckinElapsed(since, now = new Date()) {
+    const minutes = Math.max(0, Math.floor((now.getTime() - new Date(since).getTime()) / 60000));
+    if (!Number.isFinite(minutes)) return '--';
+    const hours = Math.floor(minutes / 60);
+    return hours > 0 ? `${hours} giờ ${String(minutes % 60).padStart(2, '0')} phút` : `${minutes} phút`;
+}
 async function renderGlobalCheckIn(options = {}) {
     const container = document.getElementById('global-checkin-container');
     if (!container) return;
@@ -123,7 +131,7 @@ async function renderGlobalCheckIn(options = {}) {
     }
 
     // Loading state
-    container.innerHTML = '<button class="btn btn-secondary" disabled>Đang tải...</button>';
+    container.innerHTML = '<div class="tk-hero"><span class="tk-hero-status tk-hero-status--idle">Đang tải trạng thái…</span><button class="btn tk-action tk-action--in" disabled>Đang tải...</button></div>';
 
     // Look up Cloud Data
     const now = new Date();
@@ -170,17 +178,17 @@ async function renderGlobalCheckIn(options = {}) {
         if (isActiveSession) {
             const timeStr = lastCheckInTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
             const overnightText = getLocalDateKey(lastCheckInTime) !== dateKey
-                ? '<div style="font-size:0.82rem;color:#92400E;margin-bottom:0.75rem;font-weight:700;">Ca bắt đầu từ ngày hôm trước</div>'
+                ? '<div class="tk-hero-note">Ca bắt đầu từ ngày hôm trước</div>'
                 : '';
             container.innerHTML = `
-                <div class="glass-panel" style="background: #ECFDF5; border: 2px solid var(--primary-color); padding: 2rem; text-align: center;">
-                    <h2 style="color: var(--primary-color); font-weight: 700; margin-bottom: 0.5rem;">ĐANG TRONG CA</h2>
-                    <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">(Ca hiện tại)</div>
+                <div class="tk-hero tk-hero--active">
+                    <span class="tk-hero-status"><span class="tk-dot"></span>ĐANG TRONG CA</span>
                     ${overnightText}
-                    <p style="font-size: 1.5rem; margin-bottom: 1.5rem;">Giờ vào: <strong>${timeStr}</strong></p>
-                    <button class="btn" style="background: #EF4444; color: white; padding: 1rem 3rem; font-size: 1.25rem;" onclick="globalCheckOut(this)">
-                        RA CA
-                    </button>
+                    <div class="tk-hero-grid">
+                        <div><span class="tk-label">Giờ vào</span><strong class="tk-value">${timeStr}</strong></div>
+                        <div><span class="tk-label">Đã làm</span><strong class="tk-value tk-elapsed" data-since="${lastCheckInTime.toISOString()}">${formatCheckinElapsed(lastCheckInTime)}</strong></div>
+                    </div>
+                    <button class="btn tk-action tk-action--out" onclick="globalCheckOut(this)">RA CA</button>
                 </div>
             `;
         } else {
@@ -194,13 +202,12 @@ async function renderGlobalCheckIn(options = {}) {
             }
 
             container.innerHTML = `
-                <div class="glass-panel" style="padding: 2rem; text-align: center;">
-                    <h2 style="color: var(--primary-color); font-weight: 700; margin-bottom: 0.5rem;">${title}</h2>
-                    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">${sub}</p>
-                    <button class="btn btn-primary" style="padding: 1rem 3rem; font-size: 1.25rem; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);" onclick="globalCheckIn(this)">
-                        VÀO CA
-                    </button>
-                    <p class="checkin-permission-hint" style="color: var(--text-muted); font-size: 0.85rem; margin: 1rem 0 0;">Nếu điện thoại hỏi quyền, hãy chọn <strong>Cho phép</strong>.</p>
+                <div class="tk-hero">
+                    <span class="tk-hero-status tk-hero-status--idle">Chưa vào ca</span>
+                    <h2 class="tk-hero-title">${title}</h2>
+                    <p class="tk-hero-sub">${sub}</p>
+                    <button class="btn btn-primary tk-action tk-action--in" onclick="globalCheckIn(this)">VÀO CA</button>
+                    <p class="checkin-permission-hint">Nếu điện thoại hỏi quyền, hãy chọn <strong>Cho phép</strong>.</p>
                 </div>
             `;
         }
@@ -225,9 +232,9 @@ async function renderGlobalCheckIn(options = {}) {
             ? getStaffAttendanceErrorMessage(e)
             : 'Chưa thể tải trạng thái chấm công. Vui lòng kiểm tra kết nối rồi thử lại.';
         container.innerHTML = `
-            <div class="glass-panel" style="padding:1.25rem;text-align:center;color:#92400E;">
-                <p id="attendance-load-error" style="margin:0 0 0.9rem;font-weight:600;"></p>
-                <button type="button" class="btn btn-primary" onclick="renderGlobalCheckIn()">Tải lại</button>
+            <div class="tk-hero">
+                <p id="attendance-load-error" class="tk-hero-error"></p>
+                <button type="button" class="btn btn-primary tk-action" onclick="renderGlobalCheckIn()">Tải lại</button>
             </div>
         `;
         const errorText = container.querySelector('#attendance-load-error');
@@ -236,6 +243,12 @@ async function renderGlobalCheckIn(options = {}) {
 
     // Call history render separate
     fetchAndRenderHistory(dateKey, currentUserId);
+}
+
+function refreshCheckinElapsed() {
+    document.querySelectorAll('.tk-elapsed[data-since]').forEach(el => {
+        el.textContent = formatCheckinElapsed(el.dataset.since);
+    });
 }
 
 // 2. Render History
@@ -248,25 +261,20 @@ async function fetchAndRenderHistory(dateKey, userId) {
         const sessions = getAttendanceSessions(record);
 
         if (sessions.length === 0) {
-            historyContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem; font-style: italic;">Chưa có dữ liệu chấm công hôm nay.</p>';
+            historyContainer.innerHTML = '<p class="tk-history-empty">Chưa có lượt vào/ra nào hôm nay.</p>';
         } else {
-            let html = '<table class="history-table"><thead><tr><th>Vào</th><th>Ra</th><th>Trạng thái</th></tr></thead><tbody>';
-            // Show latest first
-            [...sessions].reverse().forEach(session => {
-                const inTime = new Date(session.checkIn || session.start).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                const outTime = session.checkOut
-                    ? new Date(session.checkOut).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-                    : '<span style="color: var(--primary-color); font-weight: bold;">---</span>';
-
+            const fmt = value => new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            // Mới nhất lên đầu
+            historyContainer.innerHTML = '<ul class="tk-history">' + [...sessions].reverse().map(session => {
+                const inTime = fmt(session.checkIn || session.start);
+                const outTime = session.checkOut ? fmt(session.checkOut) : '...';
                 const status = session.isAbsent
-                    ? '<span style="color:#BE123C;font-weight:700;">Vắng</span>'
+                    ? '<span class="tk-status tk-status--absent">Vắng</span>'
                     : (session.checkOut
-                        ? '<span style="color:#047857;font-weight:700;">Đã kết thúc</span>'
-                        : '<span style="color:#1D4ED8;font-weight:700;">Đang trong ca</span>');
-                html += `<tr><td>${inTime}</td><td>${outTime}</td><td>${status}</td></tr>`;
-            });
-            html += '</tbody></table>';
-            historyContainer.innerHTML = html;
+                        ? '<span class="tk-status tk-status--done">Đã kết thúc</span>'
+                        : '<span class="tk-status tk-status--live">Đang trong ca</span>');
+                return `<li><span class="tk-history-time">${inTime} <span>–</span> ${outTime}</span>${status}</li>`;
+            }).join('') + '</ul>';
         }
 
     } catch (e) { console.error(e); }
@@ -321,9 +329,9 @@ async function renderTodayClasses(options = {}) {
 
         if (classes.length === 0) {
             container.innerHTML = `
-                <div style="text-align: center; color: var(--text-muted); padding: 3rem;">
+                <div class="tk-empty">
                     <p>Bạn chưa nhận lớp nào hôm nay.</p>
-                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">Vào <strong>Lịch Làm</strong> để nhận lớp.</p>
+                    <p style="margin-top:0.35rem;">Vào <strong>Lịch Làm</strong> để nhận lớp.</p>
                 </div>
             `;
             return;
@@ -339,8 +347,8 @@ async function renderTodayClasses(options = {}) {
     }).catch(error => {
         console.error('Error loading today classes:', error);
         container.innerHTML = `
-            <div style="text-align:center;color:#92400E;padding:1.25rem;">
-                <p style="margin:0 0 0.75rem;">Chưa tải được lịch mới nhất.</p>
+            <div class="tk-empty">
+                <p style="margin:0 0 0.75rem;color:#93370D;">Chưa tải được lịch mới nhất.</p>
                 <button type="button" class="btn btn-primary" onclick="renderTodayClasses({ fresh: true })">Tải lại lịch</button>
             </div>`;
     });
@@ -348,23 +356,12 @@ async function renderTodayClasses(options = {}) {
 
 function createClassCard(cls, compositeKey) {
     const el = document.createElement('div');
-    el.className = 'glass-panel class-card';
-    el.style.marginBottom = '1.5rem';
-    el.style.padding = '1.5rem';
-    el.style.display = 'flex';
-    el.style.justifyContent = 'space-between';
-    el.style.alignItems = 'center';
+    el.className = 'glass-panel class-card tk-class';
 
     const isSectionClosed = isCenterClosed(cls._dateKey, cls.section, window.centerClosures);
     const isClassClosed = cls.isClosed === true;
     const isClosed = isSectionClosed || isClassClosed;
-    
-    if (isClosed) {
-        el.style.borderLeft = isClassClosed ? '5px solid #EF4444' : '5px solid #9CA3AF';
-        el.style.backgroundColor = isClassClosed ? '#FEF2F2' : '#F9FAFB';
-    } else {
-        el.style.borderLeft = '5px solid var(--primary-color)';
-    }
+    if (isClosed) el.classList.add(isClassClosed ? 'is-cancelled' : 'is-closed');
 
     const currentUserId = localStorage.getItem('currentUserId');
     const registeredTeachers = cls.registeredTeachers || [];
@@ -377,52 +374,52 @@ function createClassCard(cls, compositeKey) {
     const isDeclaredAbsent = isScheduledMain && isMainTeacherAbsentFromClass(cls, currentUserId);
 
     // Branch badge
-    const branchLabel = cls._branch ? cls._branch.toUpperCase() : 'CS1';
-    const branchColors = { cs1: { bg: '#F0FDF4', fg: '#059669' }, cs2: { bg: '#EFF6FF', fg: '#3B82F6' }, cs3: { bg: '#FEF3C7', fg: '#D97706' } };
-    const bColor = branchColors[cls._branch] || branchColors.cs1;
-    const branchBadge = `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:0.7rem; font-weight:700; background:${bColor.bg}; color:${bColor.fg}; margin-left:0.5rem;">${branchLabel}</span>`;
+    const branchKey = ['cs1', 'cs2', 'cs3'].includes(cls._branch) ? cls._branch : 'cs1';
+    const branchBadge = `<span class="tk-branch tk-branch--${branchKey}">${timekeepingEscapeHTML(branchKey.toUpperCase())}</span>`;
+    const icon = (name, size = 16) => (typeof window.tdtIcon === 'function' ? window.tdtIcon(name, size) : '');
 
-    let statusBadge = '<span style="color: var(--text-muted);">Chưa nhận</span>';
+    let statusBadge = '<span class="tk-pill tk-pill--none">Chưa nhận</span>';
     let actionBtn = `<button class="btn btn-primary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Nhận Lớp</button>`;
 
     if (isClosed) {
         if (isClassClosed) {
-            statusBadge = '<span style="color: #EF4444; font-weight: bold;">Lớp nghỉ</span>';
-            actionBtn = '<span style="color: #EF4444; font-size: 0.875rem; font-weight: 500;">Lớp đã bị Admin tắt</span>';
+            statusBadge = '<span class="tk-pill tk-pill--closed">Lớp nghỉ</span>';
+            actionBtn = '<span class="tk-class-note">Lớp đã bị Admin tắt</span>';
         } else {
-            statusBadge = '<span style="color: #9CA3AF; font-weight: bold;">Lịch nghỉ trung tâm</span>';
-            actionBtn = '<span style="color: #9CA3AF; font-size: 0.875rem;">Lớp đã bị tắt do trung tâm nghỉ</span>';
+            statusBadge = '<span class="tk-pill tk-pill--center">Lịch nghỉ trung tâm</span>';
+            actionBtn = '<span class="tk-class-note">Lớp đã bị tắt do trung tâm nghỉ</span>';
         }
     } else if (isDeclaredAbsent) {
-        const typeLabel = String(absenceRecord?.type || '').toUpperCase() === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất';
+        const isVP = String(absenceRecord?.type || '').toUpperCase() === 'VP';
+        const typeLabel = isVP ? 'Vắng có phép' : 'Vắng đột xuất';
         const replacementIds = window.TeacherShiftState
             ? TeacherShiftState.getReplacementIdsForTeacher(cls, currentUserId)
             : (absenceRecord?.replacementIds || []);
-        statusBadge = `<span style="color:${absenceRecord?.type === 'VP' ? '#1D4ED8' : '#BE123C'};font-weight:800;">${typeLabel}</span>`;
-        actionBtn = `<span style="color:#6B7280;font-size:0.78rem;">${replacementIds.length ? 'Đã điều phối GV thay' : 'Đang chờ GV thay'}</span>`;
+        statusBadge = `<span class="tk-pill ${isVP ? 'tk-pill--vp' : 'tk-pill--vdx'}">${typeLabel}</span>`;
+        actionBtn = `<span class="tk-class-note">${replacementIds.length ? 'Đã điều phối GV thay' : 'Đang chờ GV thay'}</span>`;
     } else if (isScheduledSubstitute) {
-        statusBadge = '<span style="color:#B45309;font-weight:800;">GV dạy thay</span>';
-        actionBtn = '<span style="color:#6B7280;font-size:0.78rem;">Được người xếp lịch phân công</span>';
+        statusBadge = '<span class="tk-pill tk-pill--sub">GV dạy thay</span>';
+        actionBtn = '<span class="tk-class-note">Được người xếp lịch phân công</span>';
     } else if (isScheduledMain) {
-        statusBadge = '<span style="color:#047857;font-weight:800;">GV chính</span>';
-        actionBtn = '<span style="color:#6B7280;font-size:0.78rem;">Được người xếp lịch phân công</span>';
+        statusBadge = '<span class="tk-pill tk-pill--main">GV chính</span>';
+        actionBtn = '<span class="tk-class-note">Được người xếp lịch phân công</span>';
     } else if (isSelfRegistered) {
-        statusBadge = '<span style="color: var(--secondary-color); font-weight: bold;">Đã tự nhận lớp</span>';
-        actionBtn = `<button class="btn btn-secondary" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;
+        statusBadge = '<span class="tk-pill tk-pill--self">Đã tự nhận lớp</span>';
+        actionBtn = `<button class="btn btn-ghost" onclick="registerClass('${compositeKey}', '${cls.section}', ${cls.index}, this, '${cls.end}')">Hủy Nhận</button>`;
     }
 
     el.innerHTML = `
-        <div>
-            <h3 style="font-size: 1.25rem; font-weight: 700;">${timekeepingEscapeHTML(cls.lop || 'Lớp chưa nhập tên')}${branchBadge}</h3>
-            <div style="color: var(--text-muted); margin-top: 0.25rem;">
-                <span style="display:inline-block; margin-right: 1rem;">🕒 ${timekeepingEscapeHTML(cls.start)} - ${timekeepingEscapeHTML(cls.end)}</span>
-                <span>🚪 ${timekeepingEscapeHTML(cls.phong || 'Chưa xếp phòng')}</span>
+        <div class="tk-class-body">
+            <h3 class="tk-class-title">${timekeepingEscapeHTML(cls.lop || 'Lớp chưa nhập tên')}${branchBadge}</h3>
+            <div class="tk-class-meta">
+                <span>${icon('clock')}${timekeepingEscapeHTML(cls.start)} – ${timekeepingEscapeHTML(cls.end)}</span>
+                <span>${icon('door')}${timekeepingEscapeHTML(cls.phong || 'Chưa xếp phòng')}</span>
             </div>
-            <div style="margin-top: 0.5rem; font-size: 0.875rem;">
+            <div class="tk-class-people">
                  ${registeredTeachers.length > 0 ? `GV tự nhận: ${timekeepingEscapeHTML(registeredTeachers.map(t => t.name).join(', '))}` : 'Nhân sự theo lịch đã xếp'}
             </div>
         </div>
-        <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+        <div class="tk-class-side">
             ${statusBadge}
             ${actionBtn}
         </div>
@@ -536,8 +533,8 @@ async function renderTodayChips(options = {}) {
 
             if (chips.length === 0) {
                 container.innerHTML = `
-                    <div style="text-align: center; color: var(--text-muted); padding: 1.5rem; background: #f9fafb; border-radius: 8px;">
-                        <p style="font-size: 0.9rem;">Không có lớp nào hôm nay</p>
+                    <div class="tk-empty">
+                        <p>Không có lớp nào hôm nay</p>
                     </div>
                 `;
                 return;
@@ -547,15 +544,12 @@ async function renderTodayChips(options = {}) {
             chips.forEach(chip => {
                 const chipEl = document.createElement('div');
                 chipEl.className = `schedule-chip ${chip.class}`;
-                chipEl.style.cssText = `
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 0.75rem;
-                    padding: 0.75rem 1rem;
-                    border-radius: 8px;
-                `;
-                chipEl.innerHTML = `<span>${timekeepingEscapeHTML(chip.text)}</span>`;
+                // Ký hiệu ⏱ (tăng ca) / ★ (+10p) trong nhãn → icon SVG lúc hiển thị (nhãn gốc giữ nguyên).
+                let chipHtml = timekeepingEscapeHTML(chip.text);
+                if (typeof window.tdtIcon === 'function') {
+                    chipHtml = chipHtml.replace(/\u23F1\uFE0F?/g, window.tdtIcon('timer', 14)).replace(/\u2605/g, window.tdtIcon('star', 14));
+                }
+                chipEl.innerHTML = `<span>${chipHtml}</span>`;
                 
                 // Show tooltip on hover
                 if (chip.tooltip) {

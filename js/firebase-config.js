@@ -78,11 +78,22 @@ window.waitAuth = function() {
         let resolved = false;
         let timeoutId = null;
         let unsubscribe = null;
+        // Khi mở app, Firebase gọi mạng kiểm tra tài khoản TRƯỚC khi báo phiên (điện thoại mạng chậm
+        // có thể mất tới 60 giây). Hết 15 giây mà chưa xong KHÔNG có nghĩa là đã đăng xuất: vẫn nghe
+        // tiếp và báo 'tdt:auth-restored' khi có kết quả thật, để trang không tự đăng xuất nhân viên.
+        const announceLateRestore = user => {
+            window.__tdtAuthRestorePending = false;
+            if (typeof unsubscribe === 'function') unsubscribe();
+            if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+                window.dispatchEvent(new CustomEvent('tdt:auth-restored', { detail: { user: user || null } }));
+            }
+        };
         const finish = (user, timedOut = false) => {
             if (resolved) return;
             resolved = true;
             if (timeoutId) clearTimeout(timeoutId);
-            if (typeof unsubscribe === 'function') unsubscribe();
+            if (timedOut && !user) window.__tdtAuthRestorePending = true;
+            else if (typeof unsubscribe === 'function') unsubscribe();
             if (window.UIService && typeof window.UIService.hideLoading === 'function') {
                 window.UIService.hideLoading();
             }
@@ -97,7 +108,13 @@ window.waitAuth = function() {
 
         try {
             unsubscribe = authInstance.onAuthStateChanged(
-                user => finish(user),
+                user => {
+                    if (resolved) {
+                        if (window.__tdtAuthRestorePending) announceLateRestore(user);
+                        return;
+                    }
+                    finish(user);
+                },
                 error => {
                     console.error('Firebase Auth restore failed:', error);
                     finish(null);

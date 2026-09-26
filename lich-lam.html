@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-mobile-ui-v1">
     <style>
         /* Specific Styles for Schedule Page */
         .branch-tabs {
@@ -2475,7 +2475,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
+    <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/early10.js?v=20260912-early10-nanos-v1'></script>
     <script src='js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1'></script>
@@ -2538,9 +2538,9 @@
 
             <!-- Branch Tabs -->
             <div class="branch-tabs">
-                <button class="branch-tab active" data-branch="cs1" onclick="switchBranch('cs1')">📍 Cơ Sở 1</button>
-                <button class="branch-tab" data-branch="cs2" onclick="switchBranch('cs2')">📍 Cơ Sở 2</button>
-                <button class="branch-tab" data-branch="cs3" onclick="switchBranch('cs3')">📍 Cơ Sở 3</button>
+                <button class="branch-tab active" data-branch="cs1" onclick="switchBranch('cs1')"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg> Cơ Sở 1</button>
+                <button class="branch-tab" data-branch="cs2" onclick="switchBranch('cs2')"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg> Cơ Sở 2</button>
+                <button class="branch-tab" data-branch="cs3" onclick="switchBranch('cs3')"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg> Cơ Sở 3</button>
             </div>
 
             <!-- Week Picker -->
@@ -2559,7 +2559,7 @@
                 
                 <div class="date-picker-btn-wrapper" style="position: relative; display: inline-flex; align-items: center; margin-left: 0.5rem;">
                     <button class="btn btn-secondary" style="display: flex; align-items: center; gap: 0.25rem; padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; background: #EEF2FF; border: 1.5px solid #C7D2FE; color: #4338CA; cursor: pointer; font-weight: 600;">
-                        📅 Chọn ngày
+                        <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Chọn ngày
                     </button>
                     <input type="date" id="schedule-date-picker" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;" onchange="goToDatePickerDate(this.value)">
                 </div>
@@ -2620,8 +2620,8 @@
         </main>
     </div>
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260925-landscape-v1"></script>
-    <script src="js/schedule.js?v=20260923-fast-login-v2"></script>
+    <script src="js/main.js?v=20260926-mobile-ui-v1"></script>
+    <script src="js/schedule.js?v=20260926-mobile-ui-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

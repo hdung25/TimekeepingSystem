@@ -303,7 +303,7 @@ function renderDayTabs() {
 
         let holidayHtml = '';
         if (holiday) {
-            holidayHtml = `<div style="font-size: 0.65rem; color: #EF4444; font-weight: bold; margin-top: 2px;">🚩 ${holiday}</div>`;
+            holidayHtml = `<div style="font-size: 0.65rem; color: #EF4444; font-weight: bold; margin-top: 2px; display:flex; align-items:center; gap:3px;"><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg> ${holiday}</div>`;
             if (index !== selectedDayIndex) btn.style.backgroundColor = '#FEF2F2';
         }
 
@@ -476,7 +476,7 @@ async function renderTable() {
                             onchange="toggleSectionClosure('${dateKey}', '${section.key}', this.checked)"
                             style="cursor: ${isPast ? 'not-allowed' : 'pointer'}; width: 15px; height: 15px;">
                         <span style="${isClosed ? 'color: #DC2626; font-weight: bold;' : 'color: #047857; font-weight: bold;'}">
-                            <span class="shift-state-dot">${isClosed ? '🔴' : '🟢'}</span> ${isClosed ? 'Đã tắt ca' : 'Ca hoạt động'} · Tất cả cơ sở
+                            <span class="shift-state-dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:1px;background:${isClosed ? '#EF4444' : '#10B981'}"></span> ${isClosed ? 'Đã tắt ca' : 'Ca hoạt động'} · Tất cả cơ sở
                         </span>
                     </label>
                 </div>
@@ -485,7 +485,7 @@ async function renderTable() {
             if (isClosed) {
                 toggleHtml = `
                     <span style="font-size: 0.8rem; font-weight: bold; color: #DC2626; vertical-align: middle;">
-                        🔴 Đã tắt ca
+                        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#EF4444;vertical-align:1px;"></span> Đã tắt ca
                     </span>
                 `;
             }
@@ -796,7 +796,7 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
                 suffix = ' · Chưa xác minh chấm công';
             }
             const fixedBadge = g.pendingFixed
-                ? ` <span title="Chuẩn bị cố định từ tuần sau" style="color:#9A3412;font-weight:700;">⏳</span>`
+                ? ` <span title="Chuẩn bị cố định từ tuần sau" style="color:#9A3412;font-weight:700;display:inline-flex;vertical-align:-2px;"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg></span>`
                 : '';
             const safeName = scheduleEscapeHTML(g.name || '');
             const safeTitle = scheduleEscapeAttr(`${g.name || ''}${suffix}${declaredAbsence?.reason ? ` · ${declaredAbsence.reason}` : ''}`);
@@ -817,7 +817,7 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
     const label = isGV ? 'GV chính' : 'GV thay thế';
     return `<td data-field="${isGV ? 'gv' : 'gvtt'}" data-label="${label}"><div class="gv-multi-btn" onclick="${clickFn}">
         <div class="gv-name-display">${nameHtml}</div>
-        ${isAdmin ? '<span class="gv-edit-icon">✏</span>' : ''}
+        ${isAdmin ? '<span class="gv-edit-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></span>' : ''}
     </div></td>`;
 }
 
@@ -898,7 +898,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
         (data.registeredTeachers || []).length > 0);
     const _missingSubject = !String(data.lop || '').trim() && _hasAnyTeacher;
     const _missingBadge = _missingSubject
-        ? `<div style="margin-top:3px;font-size:0.68rem;font-weight:700;color:#B91C1C;background:#FEE2E2;border-radius:4px;padding:1px 5px;display:inline-block;">⚠ Thiếu Môn/Lớp — không tính lương được</div>`
+        ? `<div style="margin-top:3px;font-size:0.68rem;font-weight:700;color:#B91C1C;background:#FEE2E2;border-radius:4px;padding:1px 5px;display:inline-block;"><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> Thiếu Môn/Lớp — không tính lương được</div>`
         : '';
     let lopCell = '';
     if (rowIsAdmin) {
@@ -1664,7 +1664,7 @@ function teacherStatusCard(teacher) {
             <label><span>Thời điểm báo</span><input type="datetime-local" data-action="reported-at" data-teacher-id="${id}" value="${scheduleEscapeAttr(toLocalDateTimeInput(status.reportedAt))}"></label>
             <label class="reason-field"><span>Lý do / ghi chú điều phối</span><input type="text" maxlength="300" data-action="absence-reason" data-teacher-id="${id}" value="${scheduleEscapeAttr(status.reason || '')}" placeholder="Ví dụ: báo bệnh, việc gia đình..."></label>
         </div>${coverageActions}` : ''}
-        <button type="button" class="fixed-next-week-btn${pendingFixed ? ' is-active' : ''}" data-action="toggle-fixed" data-teacher-id="${id}">⏳ ${pendingFixed ? 'Đã đánh dấu cố định tuần sau' : 'Đánh dấu cố định từ tuần sau'}</button>
+        <button type="button" class="fixed-next-week-btn${pendingFixed ? ' is-active' : ''}" data-action="toggle-fixed" data-teacher-id="${id}"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg> ${pendingFixed ? 'Đã đánh dấu cố định tuần sau' : 'Đánh dấu cố định từ tuần sau'}</button>
     </article>`;
 }
 
@@ -2245,7 +2245,7 @@ function teacherShiftManagerMarkup() {
                     : (state.directoryError
                         ? `Đang giữ danh sách cũ · ${scheduleEscapeHTML(state.directoryError)}`
                         : `${Number(state.directorySourceCount || 0)} nhân sự giảng dạy · dữ liệu máy chủ`)}</span>
-                <button type="button" data-action="refresh-roster" ${state.directoryRefreshing ? 'disabled' : ''}>${state.directoryRefreshing ? 'Đang tải…' : '↻ Làm mới'}</button>
+                <button type="button" data-action="refresh-roster" ${state.directoryRefreshing ? 'disabled' : ''}>${state.directoryRefreshing ? 'Đang tải…' : '<svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Làm mới'}</button>
             </div>
             <div class="roster-pane ${state.activeTab === 'main' ? 'is-active' : ''}" data-roster-pane="main">
                 <label class="teacher-search"><span aria-hidden="true">⌕</span><input type="search" data-action="roster-search" data-kind="main" value="${scheduleEscapeAttr(state.search.main)}" placeholder="Tìm GV chính..."></label>
@@ -3328,7 +3328,7 @@ window.showGVPopup = function (triggerEl, encodedList) {
         if (g?.pendingFixed) {
             const badge = document.createElement('span');
             badge.style.cssText = 'margin-left:4px;background:#FFEDD5;color:#9A3412;border-radius:99px;padding:1px 6px;font-size:0.62rem;font-weight:700;white-space:nowrap;';
-            badge.textContent = '⏳ CĐ tuần sau';
+            badge.textContent = 'CĐ tuần sau';
             item.appendChild(badge);
         }
         popup.appendChild(item);

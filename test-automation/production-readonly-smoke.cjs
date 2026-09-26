@@ -9,13 +9,13 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260923-fast-login-v2';
-const mainVersion = '20260925-landscape-v1';
+const mainVersion = '20260926-mobile-ui-v1';
 // Fixed cache name since v203; the release string is APP_RELEASE in service-worker.js.
 const serviceWorkerCacheName = 'tdt-chamcong-assets';
-const reportVersion = '20260923-student-count-save-v1';
-const scheduleVersion = '20260923-fast-login-v2';
+const reportVersion = '20260926-mobile-ui-v1';
+const scheduleVersion = '20260926-mobile-ui-v1';
 const attendanceVersion = '20260923-fast-login-v2';
-const timekeepingVersion = '20260919-resume-schedule-v1';
+const timekeepingVersion = '20260926-mobile-ui-v1';
 const payrollVersion = '20260912-payroll-recall-v1';
 const pinnedLucide = 'https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js';
 const adminOverrideVersion = '20260910-admin-override-default-v1';
@@ -68,12 +68,12 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/main.js?v=20260925-landscape-v1')) &&
-                !!(await cache.match('/js/timekeeping.js?v=20260919-resume-schedule-v1')) &&
+            return !!(await cache.match('/js/main.js?v=20260926-mobile-ui-v1')) &&
+                !!(await cache.match('/js/timekeeping.js?v=20260926-mobile-ui-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260923-fast-login-v2')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260923-fast-login-v2')) &&
-                !!(await cache.match('/js/schedule.js?v=20260923-fast-login-v2'));
+                !!(await cache.match('/js/schedule.js?v=20260926-mobile-ui-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request
         // interception. Chromium can hold Cache.addAll() requests when an

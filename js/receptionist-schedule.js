@@ -76,7 +76,7 @@ window.toggleScheduleFixedShiftMode = function() {
         btn.style.background = '#E0E7FF';
         btn.style.borderColor = '#C7D2FE';
         btn.style.color = '#4F46E5';
-        btn.innerText = '⭐ Đánh dấu Ca Cố Định';
+        btn.innerText = 'Đánh dấu Ca Cố Định';
         if (typeof UIService !== 'undefined') UIService.toast('Đã tắt chế độ Ca Cố Định.', 'info');
     }
     renderTable();
@@ -614,7 +614,7 @@ function renderTable() {
                     const customLabel = isCustomTime ? ` ${s.customStart}` : '';
 
                     const isFixed = s.isFixedShift ? true : false;
-                    const fixedLabel = isFixed ? ' ⭐' : '';
+                    const fixedLabel = isFixed ? ' ★' : '';
 
                     const tooltipBase = isCustomTime ? `${s.name} (${s.customStart}–${s.customEnd || ''})` : s.name;
                     const tooltip = tooltipBase + (isFixed ? ' [Ca Cố Định]' : '');
@@ -791,8 +791,8 @@ function showAbsentConfirmPopup(event, staffEntry, shift, dayKey, dayDateStr, mo
         <div class="absent-popup-title" id="absent-popup-title">${escapeHtml(shortName)} — ${escapeHtml(shiftLabel)} ${escapeHtml(displayDate)}</div>
         <div class="absent-popup-description">${isCancelled ? 'Ca đang được đánh dấu vắng. Có thể khôi phục khi nhân viên đi làm lại.' : 'Chọn thao tác phù hợp cho ca này.'}</div>
         <div class="absent-popup-actions">
-            <button type="button" class="absent-popup-button ${isCancelled ? 'is-restore' : 'is-absence'}" data-popup-action="absence-toggle">${isCancelled ? '↩ Khôi phục ca làm' : '&#10003; Xác nhận vắng'}</button>
-            <button type="button" class="absent-popup-button is-edit" data-popup-action="edit">✏️ Chỉnh sửa phân công</button>
+            <button type="button" class="absent-popup-button ${isCancelled ? 'is-restore' : 'is-absence'}" data-popup-action="absence-toggle">${isCancelled ? '<svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> Khôi phục ca làm' : '&#10003; Xác nhận vắng'}</button>
+            <button type="button" class="absent-popup-button is-edit" data-popup-action="edit"><svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg> Chỉnh sửa phân công</button>
             <button type="button" class="absent-popup-button is-cancel" data-popup-action="cancel">Đóng</button>
         </div>
     `;
@@ -980,7 +980,7 @@ function openCellModal(shift, dayKey, triggerElement = document.activeElement) {
                     <input type="checkbox" value="${escapeHtml(userId)}" data-name="${escapeHtml(userName)}" data-color="${color}" ${checked}>
                     <span class="staff-color-dot" style="background:${color};color:${fg}">${escapeHtml(initial)}</span>
                     <span class="staff-pick-name">${escapeHtml(userName)}</span>
-                    <button type="button" class="btn-custom-time" onclick="toggleCustomTime(this)" title="Giờ làm đặc biệt" aria-label="Đặt giờ làm đặc biệt cho ${escapeHtml(userName)}" aria-expanded="${hasCustom}" style="opacity:${hasCustom ? '1' : '0.45'}">⏰</button>
+                    <button type="button" class="btn-custom-time" onclick="toggleCustomTime(this)" title="Giờ làm đặc biệt" aria-label="Đặt giờ làm đặc biệt cho ${escapeHtml(userName)}" aria-expanded="${hasCustom}" style="opacity:${hasCustom ? '1' : '0.45'}"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
                 </label>
                 <div class="custom-time-row" data-open="${hasCustom}" style="display:${hasCustom ? 'flex' : 'none'};">
                     <span class="custom-time-label">Giờ đặc biệt:</span>
@@ -1118,7 +1118,7 @@ window.toggleCustomTime = function (btn) {
 async function clearCurrentWeek() {
     // Confirmation dialog
     const confirmed = typeof UIService !== 'undefined'
-        ? await UIService.confirm(`⚠️ Bạn có chắc muốn XÓA TOÀN BỘ lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()} tuần này?\n\n(Dữ liệu chỉ bị xóa trên màn hình. Bấm "Lưu Lịch Tuần" để xác nhận.)`)
+        ? await UIService.confirm(`Bạn có chắc muốn XÓA TOÀN BỘ lịch ${WORK_SCHEDULE_CONTEXT.label.toLowerCase()} tuần này?\n\n(Dữ liệu chỉ bị xóa trên màn hình. Bấm "Lưu Lịch Tuần" để xác nhận.)`)
         : confirm('Bạn có chắc muốn xóa toàn bộ lịch tuần này?');
 
     if (!confirmed) return;

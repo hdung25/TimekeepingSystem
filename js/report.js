@@ -101,6 +101,18 @@ function normalizeReportChipDisplayText(value) {
 }
 // REPORT_CHIP_TEXT_NORMALIZER_END
 
+// Chỉ lúc HIỂN THỊ: đổi ký hiệu ⏱ / ★ trong nhãn chip (đã escape) thành icon SVG cùng bộ,
+// để điện thoại không vẽ emoji màu. Nhãn gốc và dữ liệu lưu trữ giữ nguyên.
+function reportIcon(name, size = 14, fallback = '') {
+    return typeof window.tdtIcon === 'function' ? window.tdtIcon(name, size) : fallback;
+}
+function decorateReportChipGlyphs(safeHtml) {
+    if (typeof window.tdtIcon !== 'function') return safeHtml;
+    return String(safeHtml)
+        .replace(/\u23F1\uFE0F?/g, window.tdtIcon('timer', 13))
+        .replace(/\u2605/g, window.tdtIcon('star', 13));
+}
+
 // REPORT_COLOR_SANITIZER_START
 // Only persisted six-digit hex colors may reach inline style properties. This
 // keeps profile data from becoming an arbitrary CSS injection surface.
@@ -669,10 +681,10 @@ window.toggleBonus10SelectMode = function () {
             selectBtn.style.borderColor = '#FECACA';
         }
         if (approveBtn) approveBtn.style.display = 'inline-flex';
-        if (typeof UIService !== 'undefined') UIService.toast('Tick ☑ vào các ca muốn duyệt, rồi bấm "Duyệt đã chọn"', 'info');
+        if (typeof UIService !== 'undefined') UIService.toast('Tick vào các ca muốn duyệt, rồi bấm "Duyệt đã chọn"', 'info');
     } else {
         if (selectBtn) {
-            selectBtn.innerHTML = '☑ Chọn để duyệt';
+            selectBtn.innerHTML = `${reportIcon('checkCircle', 15)} Chọn để duyệt`;
             selectBtn.style.background = '#E0E7FF';
             selectBtn.style.color = '#4F46E5';
             selectBtn.style.borderColor = '#C7D2FE';
@@ -1991,6 +2003,9 @@ async function _renderMonthReport(date, forceServer = false) {
         const cell = document.createElement('div');
         cell.className = 'calendar-cell';
         cell.id = 'calendar-cell-' + dateStr;
+        cell.dataset.weekday = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][new Date(year, month, d).getDay()];
+        cell.style.setProperty('--cal-weekday', JSON.stringify(cell.dataset.weekday));
+        if (typeof getLocalDateKeyFromDate === 'function' && getLocalDateKeyFromDate(new Date()) === dateStr) cell.classList.add('is-today');
 
         // Header
         const dateHeader = document.createElement('div');
@@ -2004,7 +2019,7 @@ async function _renderMonthReport(date, forceServer = false) {
 
         if (hasNote) {
             // Highlighted date number with pin
-            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);">📌 ${d}</span>`;
+            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);"><span class="cal-day-pin">${reportIcon('pin', 14, '•')}</span>${d}</span>`;
             // Highlight entire cell background
             cell.style.backgroundColor = '#EFF6FF'; // Light blue
             cell.style.borderLeft = '3px solid var(--primary-color)';
@@ -2111,6 +2126,7 @@ async function _renderMonthReport(date, forceServer = false) {
         // Có quyền xác nhận vắng cho tiếp tân
         const canConfirmAbsent = currentRolesArr.some(r => ['admin', 'senior_assistant', 'assistant', 'receptionist_assistant'].includes(r));
 
+        if (filteredChips.length === 0) cell.classList.add('is-empty-day');
         filteredChips.forEach(chip => {
             const div = document.createElement('div');
             div.className = `schedule-chip report-schedule-chip ${chip.class}`;
@@ -2141,7 +2157,7 @@ async function _renderMonthReport(date, forceServer = false) {
             }
 
             const chipDisplayText = absenceChipDisplayText(chip, _cachedStaffNotes);
-            const safeChipDisplayText = escapeReportHtml(normalizeReportChipDisplayText(chipDisplayText));
+            const safeChipDisplayText = decorateReportChipGlyphs(escapeReportHtml(normalizeReportChipDisplayText(chipDisplayText)));
 
             div.innerHTML = `<span class="report-chip-main" style="min-width:0">${safeChipDisplayText}${editedHtml}${badgeHtml}${observationNoteHtml}</span>`;
 
@@ -2734,7 +2750,7 @@ async function _renderMonthReport(date, forceServer = false) {
                 editBtn.type = 'button';
                 editBtn.className = 'report-chip-action';
                 editBtn.dataset.editSessionId = String(chip.sessionId);
-                editBtn.textContent = '✎ Sửa công';
+                editBtn.innerHTML = `${reportIcon('pencil', 13, '✎')} Sửa công`;
                 editBtn.title = 'Sửa giờ, loại công, đơn giá và +10 phút bằng quyền Admin';
                 editBtn.style.cursor = 'pointer';
                 editBtn.style.fontSize = '0.8em';
@@ -2787,6 +2803,7 @@ async function _renderMonthReport(date, forceServer = false) {
             const m = Math.floor(dailyTotalMinutes % 60);
 
             const footer = document.createElement('div');
+            footer.className = 'cal-day-total';
             // Remove margin-top auto to test visibility
             footer.style.marginTop = '0.5rem';
             footer.style.padding = '4px 8px';
@@ -3152,11 +3169,11 @@ function renderEvaluationTable(savedData = []) {
         const noteBtnColor = note ? 'var(--primary-color)' : '#9ca3af';
         const noteButtonHtml = isRecep ? `
             <span title="${note || 'Không có ghi chú'}" style="font-size: 0.85rem; color: #4B5563;">
-                ${note ? '📝' : '—'}
+                ${note ? reportIcon('note', 16, '•') : '—'}
             </span>
         ` : `
-            <button type="button" onclick="openEvalNoteModal(${index})" style="background: none; border: none; cursor: pointer; color: ${noteBtnColor};" title="${note || 'Thêm ghi chú'}">
-               📝
+            <button type="button" onclick="openEvalNoteModal(${index})" style="background: none; border: none; cursor: pointer; color: ${noteBtnColor}; min-width: 36px; min-height: 36px;" title="${note || 'Thêm ghi chú'}" aria-label="Ghi chú">
+               ${reportIcon('note', 18, 'Ghi chú')}
             </button>
         `;
 
@@ -5885,7 +5902,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                         `;
                 } else if (b10Status === 'pending') {
                     b10Actions.innerHTML = `
-                        <span style="color: #D97706; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">⏱️ Chờ duyệt</span>
+                        <span style="color: #D97706; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">${reportIcon('timer', 14)} Chờ duyệt</span>
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveBonus10('${chip.bonus10Id}', '${chip.bonus10EvidenceSessionId || sessionId}', '${dateKey}', '${staffId}')">Duyệt</button>
                         <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalRejectBonus10('${chip.bonus10Id}')">Từ chối</button>
                     `;
@@ -5915,13 +5932,13 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
 
             if (chip.overtimePending && chip.overtimeId) {
                 const otMinutesRequested = sessionData ? sessionData.overtimeMinutes : '';
-                otPendingStatus.innerHTML = `⚠️ Nhân viên yêu cầu tăng ca: <strong>${otMinutesRequested || '??'} phút</strong>`;
+                otPendingStatus.innerHTML = `${reportIcon('alert', 15)} Nhân viên yêu cầu tăng ca: <strong>${otMinutesRequested || '??'} phút</strong>`;
                 otActions.innerHTML = `
                     <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 4px;" onclick="modalApproveOvertime('${chip.overtimeId}')">Duyệt</button>
                     <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalRejectOvertime('${chip.overtimeId}')">Từ chối</button>
                 `;
             } else if (chip.overtimeMinutes > 0) {
-                otPendingStatus.innerHTML = `✅ Đã duyệt tăng ca: <strong>${chip.overtimeMinutes} phút</strong>`;
+                otPendingStatus.innerHTML = `${reportIcon('checkCircle', 15)} Đã duyệt tăng ca: <strong>${chip.overtimeMinutes} phút</strong>`;
                 otActions.innerHTML = `
                     <button type="button" class="btn" style="padding: 4px 10px; font-size: 0.8rem; background: #EF4444; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="modalCancelApprovedOvertime('${chip.overtimeId || ''}', '${staffId}', '${dateKey}', '${sessionId}')">Hủy tăng ca</button>
                 `;
@@ -6579,13 +6596,13 @@ async function renderDebugInfo(staffId, year, month) {
         title.parentNode.insertBefore(debugContainer, title.nextSibling);
     }
 
-    debugContainer.innerText = `🔄 DEBUGGING...\nUserID: ${staffId}\nMonth: ${year}-${month + 1}`;
+    debugContainer.innerText = `DEBUGGING...\nUserID: ${staffId}\nMonth: ${year}-${month + 1}`;
 
     try {
         const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
         const records = await DBService.getMonthlyAttendance(monthStr, staffId);
 
-        let msg = `✅ DATA FETCHED: ${records.length} records found.\n`;
+        let msg = `DATA FETCHED: ${records.length} records found.\n`;
         records.forEach(r => {
             msg += `Date: ${r.date} | Sessions: ${r.sessions ? r.sessions.length : 0} | CheckIn: ${r.checkIn || 'N/A'}\n`;
             if (r.sessions) {
@@ -6597,12 +6614,12 @@ async function renderDebugInfo(staffId, year, month) {
 
         // Check specific date Feb 1
         const feb1 = records.find(r => r.date === '2026-02-01');
-        if (!feb1) msg += `⚠️ WARNING: No record found for 2026-02-01 in query results!\n`;
-        else msg += `✅ FEB 1 RECORD FOUND. Check Logic.\n`;
+        if (!feb1) msg += `WARNING: No record found for 2026-02-01 in query results!\n`;
+        else msg += `FEB 1 RECORD FOUND. Check Logic.\n`;
 
         debugContainer.innerText += '\n' + msg;
     } catch (e) {
-        debugContainer.innerText += `\n❌ ERROR: ${e.message}\n${e.stack}`;
+        debugContainer.innerText += `\nERROR: ${e.message}\n${e.stack}`;
         debugContainer.style.color = 'red';
     }
 }
@@ -6674,7 +6691,7 @@ async function openRoleSelectModal(dateKey, session) {
         btn.style.cursor = 'pointer';
         btn.style.background = '#EFF6FF';
         btn.style.transition = '0.2s';
-        btn.innerHTML = `<strong>💼 Tiếp Tân</strong> <span style="float:right; color:#1E40AF">${new Intl.NumberFormat('vi-VN').format(recRate)}đ/h</span>`;
+        btn.innerHTML = `<strong>${reportIcon('briefcase', 15)} Tiếp Tân</strong> <span style="float:right; color:#1E40AF">${new Intl.NumberFormat('vi-VN').format(recRate)}đ/h</span>`;
 
         btn.onmouseover = () => { btn.style.background = '#DBEAFE'; btn.style.borderColor = '#3B82F6'; };
         btn.onmouseout = () => { btn.style.background = '#EFF6FF'; btn.style.borderColor = '#DBEAFE'; };
@@ -6688,7 +6705,7 @@ async function openRoleSelectModal(dateKey, session) {
         const officeRole = { id: 'van-phong', name: 'Văn Phòng', rate: officeRate, isReceptionist: true, isOffice: true };
         const btn = document.createElement('div');
         btn.style.cssText = 'padding:1rem;border:2px solid #C7D2FE;border-radius:var(--radius-md);cursor:pointer;background:#EEF2FF;transition:0.2s;';
-        btn.innerHTML = `<strong>💼 Văn Phòng</strong> <span style="float:right;color:#4338CA">${new Intl.NumberFormat('vi-VN').format(officeRate)}đ/h</span>`;
+        btn.innerHTML = `<strong>${reportIcon('briefcase', 15)} Văn Phòng</strong> <span style="float:right;color:#4338CA">${new Intl.NumberFormat('vi-VN').format(officeRate)}đ/h</span>`;
         btn.onmouseover = () => { btn.style.background = '#E0E7FF'; btn.style.borderColor = '#6366F1'; };
         btn.onmouseout = () => { btn.style.background = '#EEF2FF'; btn.style.borderColor = '#C7D2FE'; };
         btn.onclick = () => selectRoleForSession(officeRole);
@@ -7945,7 +7962,7 @@ async function populateModalCurrentTab() {
 
         const toggle = document.createElement('button');
         toggle.type = 'button';
-        toggle.textContent = '🔧 Chi tiết kỹ thuật (debug) — bấm để xem';
+        toggle.textContent = 'Chi tiết kỹ thuật (debug) — bấm để xem';
         toggle.style.cssText = 'font-size:0.72rem;color:#9CA3AF;background:transparent;border:1px dashed #D1D5DB;border-radius:6px;padding:4px 8px;cursor:pointer;';
 
         const pre = document.createElement('pre');
@@ -7956,10 +7973,10 @@ async function populateModalCurrentTab() {
             if (pre.style.display === 'none') {
                 if (!built) { pre.textContent = buildSalaryDebugText(); built = true; }
                 pre.style.display = 'block';
-                toggle.textContent = '🔧 Chi tiết kỹ thuật (debug) — bấm để ẩn';
+                toggle.textContent = 'Chi tiết kỹ thuật (debug) — bấm để ẩn';
             } else {
                 pre.style.display = 'none';
-                toggle.textContent = '🔧 Chi tiết kỹ thuật (debug) — bấm để xem';
+                toggle.textContent = 'Chi tiết kỹ thuật (debug) — bấm để xem';
             }
         };
 

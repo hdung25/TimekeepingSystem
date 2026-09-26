@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-mobile-ui-v1">
     <script src="js/startup-recovery.js?v=20260906-early10-recovery-v1"></script>
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
@@ -19,7 +19,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
 
     <!-- App Config -->
-    <script src='js/firebase-config.js?v=20260906-early10-recovery-v1'></script>
+    <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260923-fast-login-v2'></script>
     <!-- Chart.js CDN -->
     <script async src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>
@@ -44,19 +44,15 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <div>
-                    <h1 style="font-size: 1.5rem; font-weight: 700;">Bảng Điều Khiển Cá Nhân</h1>
-                    <p style="color: var(--text-muted);">Xin chào, <span id="user-display-name">Trợ giảng</span></p>
+            <header class="nv-hero">
+                <div class="nv-hero-text">
+                    <p class="nv-hello">Xin chào,</p>
+                    <h1 id="user-display-name">bạn</h1>
+                    <p class="nv-sub" id="nv-today-label"></p>
                 </div>
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <button id="btn-enable-notifications" type="button" class="btn" hidden
-                        style="background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;"
-                        onclick="requestNotificationPermission(this)">
-                        🔔 Bật thông báo
-                    </button>
-                    <button id="btn-change-password" class="btn" style="background-color: var(--primary-color); color: white;" onclick="openChangePasswordModal()">
-                        <i data-lucide="key" style="margin-right: 0.5rem; width: 16px; height: 16px;"></i> Đổi mật khẩu
+                <div class="nv-hero-actions">
+                    <button id="btn-change-password" type="button" class="btn btn-ghost" onclick="openChangePasswordModal()" title="Đổi mật khẩu" aria-label="Đổi mật khẩu">
+                        <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg> <span class="btn-label">Đổi mật khẩu</span>
                     </button>
                     <!-- Button to switch back to admin, hidden by default -->
                     <button id="btn-back-admin" class="btn btn-primary" style="display: none; background-color: #4B5563;"
@@ -66,22 +62,45 @@
                 </div>
             </header>
 
+            <!-- Lối tắt nhanh (điền theo vai trò bởi main.js) -->
+            <nav class="nv-quick" id="nv-quick-actions" aria-label="Lối tắt" hidden></nav>
+
+            <!-- Thông báo trên máy này (main.js: renderNotificationStatusCard) -->
+            <section class="nv-notif" id="notif-status-card" data-state="loading" hidden>
+                <div class="nv-notif-icon"><svg class="ui-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></div>
+                <div class="nv-notif-body">
+                    <h2 class="nv-notif-title" id="notif-status-title">Thông báo nhắc vào ca</h2>
+                    <p class="nv-notif-text" id="notif-status-text">Đang kiểm tra máy này…</p>
+                    <ol class="nv-notif-steps" id="notif-status-steps" hidden></ol>
+                </div>
+                <div class="nv-notif-actions">
+                    <button id="btn-enable-notifications" type="button" class="btn btn-primary" hidden
+                        onclick="requestNotificationPermission(this)">
+                        Bật thông báo
+                    </button>
+                    <button id="btn-reconnect-notifications" type="button" class="btn btn-primary" hidden
+                        onclick="reconnectPushNotifications(this)">Kết nối lại</button>
+                    <button id="btn-test-notification" type="button" class="btn btn-ghost" hidden
+                        onclick="sendTestNotification(this)">Hiện thông báo thử</button>
+                </div>
+            </section>
+
             <!-- Meeting Banner Container -->
             <div id="meeting-banner-container" style="margin-bottom: 1.5rem; display: none;"></div>
 
             <!-- Quick Stats Row -->
             <div class="stats-grid" style="margin-bottom: 2rem;">
                 <div class="stat-card">
-                    <h3>Ngày công tháng này</h3>
+                    <h3>Ngày đi làm tháng này</h3>
                     <p class="stat-number" id="p-stat-workdays" style="color: var(--primary-color);">--</p>
                 </div>
                 <div class="stat-card">
-                    <h3>Đi muộn</h3>
+                    <h3>Đi muộn (ca dạy)</h3>
                     <p class="stat-number" id="p-stat-late" style="color: #F59E0B;">--</p>
                 </div>
                 <div class="stat-card">
-                    <h3>Phép còn lại</h3>
-                    <p class="stat-number" id="p-stat-leave" style="color: var(--text-muted);">--</p>
+                    <h3>Giờ làm tháng này</h3>
+                    <p class="stat-number" id="p-stat-hours" style="color: #1D4ED8;">--</p>
                 </div>
             </div>
 
@@ -89,12 +108,12 @@
             <div class="glass-panel" id="personal-salary-panel" style="padding: 1.5rem; margin-bottom: 2rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
                     <h2 style="font-size: 1.25rem; font-weight: 600; color: var(--text-color); display: flex; align-items: center; gap: 0.5rem; margin: 0;">
-                        <i data-lucide="banknote" style="color: var(--primary-color);"></i> Bảng Lương Cá Nhân
+                        <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg> Bảng Lương Cá Nhân
                     </h2>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <button class="btn btn-sm" onclick="changePersonalSalaryMonth(-1)" style="padding: 4px 8px;">&lt;</button>
+                        <button class="btn btn-sm btn-ghost" onclick="changePersonalSalaryMonth(-1)" aria-label="Tháng trước" style="padding: 4px 8px;"><svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                         <span style="font-weight: 700; min-width: 100px; text-align: center;" id="personal-salary-month-title">Tháng --, ----</span>
-                        <button class="btn btn-sm" onclick="changePersonalSalaryMonth(1)" style="padding: 4px 8px;">&gt;</button>
+                        <button class="btn btn-sm btn-ghost" onclick="changePersonalSalaryMonth(1)" aria-label="Tháng sau" style="padding: 4px 8px;"><svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
                     </div>
                 </div>
                 
@@ -180,14 +199,14 @@
             </div>
 
             <div class="glass-panel" style="padding: 1.5rem;">
-                <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem;">Lịch sử chấm công gần đây</h2>
-                <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                <h2 class="nv-panel-title" style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.75rem;"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg> Chấm công gần đây</h2>
+                <table class="nv-history-table">
                     <thead>
-                        <tr style="border-bottom: 1px solid var(--border-color);">
-                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Ngày</th>
-                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Giờ vào</th>
-                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Giờ ra</th>
-                            <th style="padding: 1rem 0; font-weight: 500; color: var(--text-muted);">Trạng thái</th>
+                        <tr>
+                            <th>Ngày</th>
+                            <th>Giờ vào</th>
+                            <th>Giờ ra</th>
+                            <th>Trạng thái</th>
                         </tr>
                     </thead>
                     <tbody id="personal-history-tbody">
@@ -202,18 +221,16 @@
 
             <!-- Personal Analytics Section -->
             <div class="glass-panel" style="padding: 1.5rem; margin-top: 1.5rem;">
-                <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1.5rem;"><i data-lucide="bar-chart-2"></i> Thống Kê Tháng Này</h2>
+                <h2 class="nv-panel-title" style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.25rem;"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg> Thống Kê Tháng Này</h2>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
                     <div>
-                        <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">🍩 Tỷ Lệ Đúng
-                            Giờ</h4>
+                        <h4 class="nv-chart-title"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg> Tỷ Lệ Đúng Giờ</h4>
                         <div style="position: relative; height: 240px; display: flex; justify-content: center;">
                             <canvas id="staff-chart-punctuality"></canvas>
                         </div>
                     </div>
                     <div>
-                        <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;"><i data-lucide="trending-up"></i> Giờ Làm Theo
-                            Tuần</h4>
+                        <h4 class="nv-chart-title"><svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> Giờ Làm Theo Tuần</h4>
                         <div style="position: relative; height: 240px;">
                             <canvas id="staff-chart-weekly"></canvas>
                         </div>
@@ -271,7 +288,7 @@
     </div>
 
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260925-landscape-v1"></script>
+    <script src="js/main.js?v=20260926-mobile-ui-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

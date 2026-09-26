@@ -43,6 +43,53 @@ if (!window.RolePolicy) {
     });
 }
 
+// Bộ icon SVG nội tuyến (nét lucide) dùng cho giao diện thay emoji: hiển thị giống nhau trên
+// mọi điện thoại, không phụ thuộc thư viện icon tải chậm từ CDN.
+const TDT_ICON_PATHS = Object.freeze({
+    menu: '<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    clipboard: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
+    report: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="10" x2="16" y2="18"/><line x1="8" y1="10" x2="12" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/><line x1="8" y1="18" x2="12" y2="18"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    bellOff: '<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    checkCircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+    share: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" x2="12" y1="2" y2="15"/>',
+    plusSquare: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 12h8"/><path d="M12 8v8"/>',
+    external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+    pie: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+    trending: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    mapPin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+    door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z"/>',
+    flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/>',
+    pin: '<line x1="12" x2="12" y1="17" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>',
+    timer: '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>',
+    star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
+    note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+    logIn: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/>',
+    logOut: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+    wifiOff: '<path d="M12 20h.01"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/><path d="M5 13a10 10 0 0 1 5.24-2.76"/><path d="m2 2 20 20"/>'
+});
+function tdtIcon(name, size = 20, extraClass = '') {
+    const body = TDT_ICON_PATHS[name];
+    if (!body) return '';
+    const px = Number(size) || 20;
+    return `<svg class="ui-icon${extraClass ? ' ' + extraClass : ''}" width="${px}" height="${px}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+}
+window.tdtIcon = tdtIcon;
+
 (function setupAppAutoUpdate() {
     if (!('serviceWorker' in navigator)) return;
 
@@ -167,6 +214,34 @@ async function signOutAndClearSession() {
     } finally {
         clearAuthSessionStorage();
     }
+}
+
+// Chỉ lỗi KẾT NỐI mới được coi là tạm thời. Mọi lỗi xác thực/hồ sơ (sai UID, hồ sơ không khớp,
+// thiếu phân quyền…) vẫn đăng xuất như cũ.
+function isTransientSessionVerificationError(error) {
+    const code = String(error?.code || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    if (['unavailable', 'deadline-exceeded', 'resource-exhausted', 'auth/network-request-failed', 'auth/database-unavailable'].includes(code)) return true;
+    if (code.startsWith('auth/') || code === 'permission-denied' || code === 'unauthenticated') return false;
+    return (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+        message.includes('client is offline') || message.includes('network');
+}
+
+function showSessionRetryScreen() {
+    if (document.getElementById('session-retry-screen')) return;
+    const screen = document.createElement('div');
+    screen.id = 'session-retry-screen';
+    screen.className = 'session-retry-screen';
+    screen.setAttribute('role', 'alert');
+    screen.innerHTML = `<div class="session-retry-card">
+        <div class="session-retry-icon">${tdtIcon('wifiOff', 28)}</div>
+        <h2>Chưa kết nối được máy chủ</h2>
+        <p>Mạng đang yếu hoặc máy chủ đang bận. Bạn vẫn đang đăng nhập — kiểm tra Wifi/4G rồi bấm Thử lại.</p>
+        <button type="button" class="btn btn-primary">Thử lại</button>
+    </div>`;
+    screen.querySelector('button').addEventListener('click', () => window.location.reload());
+    document.body.appendChild(screen);
+    window.addEventListener('online', () => window.location.reload(), { once: true });
 }
 
 let loginInFlight = false;
@@ -544,6 +619,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // AUTH GUARD: a browser role/user id is only a cache. Resolve the
         // profile again through the authenticated UID before rendering.
+        if (!firebaseUser && currentUser && currentUserId && window.__tdtAuthRestorePending) {
+            // Mạng chậm: Firebase chưa khôi phục xong phiên sau 15 giây. Trước đây nhánh dưới
+            // đăng xuất HẲN nhân viên (lý do nhiều người phải nhập lại mật khẩu). Nay chờ kết quả
+            // thật: còn phiên → tải lại trang; hết phiên thật → về trang đăng nhập như cũ.
+            console.warn('Auth restore is slow; waiting instead of signing out.');
+            showSessionRetryScreen();
+            window.addEventListener('tdt:auth-restored', async event => {
+                if (event.detail?.user) { window.location.reload(); return; }
+                await signOutAndClearSession();
+                window.location.replace('index.html');
+            }, { once: true });
+            return;
+        }
         if (!currentUser || !currentUserId || !firebaseUser) {
             console.warn("Auth session missing or mismatched. Redirecting to login.");
             await signOutAndClearSession();
@@ -570,6 +658,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentUser = verifiedProfile.username;
         } catch (error) {
             console.error('Auth profile verification failed:', error);
+            // Mạng yếu / Firestore tạm quá tải không có nghĩa là phiên sai. Trước đây mọi lỗi đều
+            // đăng xuất hẳn → nhân viên mạng chập chờn bị buộc nhập lại mật khẩu. Lỗi kết nối chỉ
+            // chặn màn hình và cho thử lại; giao diện không vẽ bằng quyền chưa xác minh.
+            if (isTransientSessionVerificationError(error)) {
+                showSessionRetryScreen();
+                return;
+            }
             await signOutAndClearSession();
             window.location.replace('index.html');
             return;
@@ -596,7 +691,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const roles = parseRoles(roleRaw);
         if (!roles.some(r => r === 'admin' || r === 'senior_assistant')) {
             loadStaffNotifications();
-            loadStaffPersonalCharts();
+            // Tuần tự để biểu đồ dùng lại dữ liệu tháng vừa đọc (không đọc Firestore hai lần).
+            loadStaffPersonalOverview().finally(() => loadStaffPersonalCharts());
             loadStaffPersonalSalary();
         }
         // Senior assistant uses admin dashboard, no personal charts needed
@@ -1071,18 +1167,21 @@ function renderStaffNotificationBell(notifications) {
     try {
         if (!notifications.length) return;
 
-        // Create floating bell
-        const bell = document.createElement('div');
+        // Chuông: trên điện thoại nằm gọn trong thanh trên (không che nội dung), máy tính nổi góc phải.
+        const bell = document.createElement('button');
+        bell.type = 'button';
         bell.id = 'notif-bell';
-        bell.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:999;cursor:pointer;background:white;border-radius:50%;width:48px;height:48px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,0.15);border:2px solid #3B82F6;transition:transform 0.2s';
-        bell.innerHTML = `
-            <span style="display:flex;align-items:center;">${window.getIconHtml('bell', {width: '22', height: '22', stroke: '#3B82F6'})}</span>
-            <span id="notif-badge" style="position:absolute;top:-4px;right:-4px;background:#EF4444;color:white;font-size:0.7rem;font-weight:700;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 4px">${notifications.length}</span>
-        `;
-        bell.onmouseover = () => { bell.style.transform = 'scale(1.1)'; };
-        bell.onmouseout = () => { bell.style.transform = 'scale(1)'; };
+        bell.className = 'notif-bell';
+        bell.setAttribute('aria-label', `${notifications.length} thông báo mới`);
+        bell.innerHTML = `${tdtIcon('bell', 22)}<span id="notif-badge" class="notif-badge">${notifications.length > 99 ? '99+' : notifications.length}</span>`;
         bell.onclick = () => showNotificationPopup(notifications);
-        document.body.appendChild(bell);
+        const headerSlot = document.getElementById('mobile-header-actions');
+        if (headerSlot && _isDrawerNav()) {
+            bell.classList.add('notif-bell--inline');
+            headerSlot.appendChild(bell);
+        } else {
+            document.body.appendChild(bell);
+        }
 
         // Pulse animation
         bell.animate([
@@ -1102,29 +1201,33 @@ function showNotificationPopup(notifications) {
     if (existing) existing.remove();
 
     const actionLabels = {
-        'add_session': window.getIconHtml('plus-circle', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Thêm ca',
-        'edit_session': window.getIconHtml('edit', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Sửa giờ',
-        'delete_session': window.getIconHtml('trash-2', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Xóa ca',
-        'select_role': window.getIconHtml('target', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px; color:#3B82F6;'}) + ' Chọn vai trò'
+        'add_session': 'Thêm ca',
+        'edit_session': 'Sửa giờ',
+        'delete_session': 'Xóa ca',
+        'select_role': 'Chọn vai trò'
     };
 
+    // Điện thoại: bảng trượt từ dưới lên (vùng ngón cái); máy tính: hộp giữa màn hình.
     const overlay = document.createElement('div');
     overlay.id = 'notif-popup-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding-top:5rem;animation:fadeIn 0.2s ease';
+    overlay.className = 'notif-sheet-overlay';
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
     const popup = document.createElement('div');
-    popup.style.cssText = 'background:white;border-radius:16px;max-width:450px;width:90%;max-height:70vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:slideUp 0.3s ease';
+    popup.className = 'notif-sheet';
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('aria-label', 'Thông báo');
 
     const header = `
-        <div style="padding:1.25rem;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:white;border-radius:16px 16px 0 0;z-index:1">
-            <h3 style="margin:0;font-size:1.1rem;font-weight:700;color:#1F2937;display:flex;align-items:center;gap:6px;">${window.getIconHtml('bell', {width: '20', height: '20', stroke: '#3B82F6'})} Thông Báo</h3>
-            <span style="color:#6B7280;font-size:0.85rem">${notifications.length} mới</span>
+        <div class="notif-sheet-head">
+            <span class="notif-sheet-grip" aria-hidden="true"></span>
+            <h3>${tdtIcon('bell', 20)} Thông báo</h3>
+            <span class="notif-sheet-count">${notifications.length} mới</span>
+            <button type="button" class="notif-sheet-close" aria-label="Đóng">${tdtIcon('x', 20)}</button>
         </div>
     `;
 
     const items = notifications.map(n => {
-        const actionLabel = actionLabels[n.action] || n.action;
         const timeStr = n.createdAt ? new Date(n.createdAt.seconds * 1000).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
 
         // Thông báo nội bộ (admin soạn gửi nhóm) — hiển thị theo màu + icon đã chọn
@@ -1132,13 +1235,13 @@ function showNotificationPopup(notifications) {
             const colorHex = ({ blue: '#3B82F6', green: '#10B981', amber: '#F59E0B', red: '#EF4444', violet: '#8B5CF6' })[n.color] || '#3B82F6';
             const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return `
-            <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6;border-left:4px solid ${colorHex}">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;gap:8px">
-                    <span style="font-size:0.9rem;font-weight:700;color:${colorHex};display:inline-flex;align-items:center;gap:5px">${window.getIconHtml(n.icon || 'bell', { width: '15', height: '15', stroke: colorHex })} ${esc(n.title) || 'Thông báo'}</span>
-                    <span style="font-size:0.75rem;color:#9CA3AF;flex-shrink:0">${timeStr}</span>
+            <div class="notif-item" style="--notif-accent:${colorHex}">
+                <div class="notif-item-head">
+                    <span class="notif-item-title">${window.getIconHtml(n.icon || 'bell', { width: '15', height: '15', stroke: colorHex })} ${esc(n.title) || 'Thông báo'}</span>
+                    <span class="notif-item-time">${timeStr}</span>
                 </div>
-                <div style="font-size:0.85rem;color:#374151;white-space:pre-wrap">${esc(n.details)}</div>
-                <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Từ: ${esc(n.adminName) || 'Admin'}</div>
+                <div class="notif-item-body" style="white-space:pre-wrap">${esc(n.details)}</div>
+                <div class="notif-item-meta">Từ: ${esc(n.adminName) || 'Admin'}</div>
             </div>`;
         }
         const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1146,27 +1249,28 @@ function showNotificationPopup(notifications) {
         const isWarning = ['makeup_rejected', 'overtime_rejected', 'revoke_makeup_approval'].includes(n.action);
         const safeLink = /^[a-z0-9-]+\.html$/i.test(String(n.link || '')) ? n.link : '';
         return `
-            <div style="padding:1rem 1.25rem;border-bottom:1px solid #F3F4F6;${isWarning ? 'border-left:4px solid #F59E0B;' : ''}">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">
-                    <span style="font-size:0.85rem;font-weight:600;color:${isWarning ? '#B45309' : '#3B82F6'}">${label}</span>
-                    <span style="font-size:0.75rem;color:#9CA3AF">${timeStr}</span>
+            <div class="notif-item${isWarning ? ' notif-item--warning' : ''}">
+                <div class="notif-item-head">
+                    <span class="notif-item-title">${label}</span>
+                    <span class="notif-item-time">${timeStr}</span>
                 </div>
-                <div style="font-size:0.85rem;color:#374151">${n.details || ''}</div>
-                <div style="font-size:0.75rem;color:#9CA3AF;margin-top:0.25rem">Ngày: ${esc(n.dateKey)} · Bởi: ${esc(n.adminName || 'Admin')}</div>
-                ${safeLink ? `<a href="${safeLink}" style="display:inline-block;margin-top:0.5rem;font-size:0.8rem;font-weight:700;color:#059669;text-decoration:none">Mở trang liên quan →</a>` : ''}
+                <div class="notif-item-body">${n.details || ''}</div>
+                <div class="notif-item-meta">Ngày: ${esc(n.dateKey)} · Bởi: ${esc(n.adminName || 'Admin')}</div>
+                ${safeLink ? `<a href="${safeLink}" class="notif-item-link">Mở trang liên quan ${tdtIcon('chevronRight', 16)}</a>` : ''}
             </div>
         `;
     }).join('');
 
     const footer = `
-        <div style="padding:1rem 1.25rem;border-top:1px solid #E5E7EB;text-align:center;position:sticky;bottom:0;background:white;border-radius:0 0 16px 16px">
-            <button id="btn-mark-all-read" style="background:#3B82F6;color:white;border:none;padding:0.6rem 1.5rem;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;transition:opacity 0.2s;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">${window.getIconHtml('check-circle', {width: '16', height: '16'})} Đã đọc tất cả</button>
+        <div class="notif-sheet-foot">
+            <button id="btn-mark-all-read" type="button" class="btn btn-primary">${tdtIcon('checkCircle', 18)} Đã đọc tất cả</button>
         </div>
     `;
 
-    popup.innerHTML = header + items + footer;
+    popup.innerHTML = header + '<div class="notif-sheet-list">' + items + '</div>' + footer;
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
+    popup.querySelector('.notif-sheet-close').onclick = () => overlay.remove();
 
     document.getElementById('btn-mark-all-read').onclick = async () => {
         const staffId = localStorage.getItem('currentUserId');
@@ -1177,11 +1281,64 @@ function showNotificationPopup(notifications) {
     };
 }
 
+// ================= STAFF PERSONAL OVERVIEW (Bảng Cá Nhân) =================
+// Ba ô thống kê + "Lịch sử chấm công gần đây" trước đây không có code nào điền nên luôn hiện
+// "--" / "Chưa có dữ liệu". Dùng lại đúng dữ liệu tháng mà biểu đồ đã đọc (ChartService có
+// bộ nhớ đệm) → không tốn thêm lượt đọc Firestore. Chỉ hiển thị, không ghi gì.
+async function loadStaffPersonalOverview() {
+    const nameEl = document.getElementById('user-display-name');
+    if (nameEl) nameEl.textContent = localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'bạn';
+    const workdaysEl = document.getElementById('p-stat-workdays');
+    const historyBody = document.getElementById('personal-history-tbody');
+    if ((!workdaysEl && !historyBody) || typeof ChartService === 'undefined') return;
+    const userId = localStorage.getItem('currentUserId');
+    if (!userId) return;
+    const now = new Date();
+    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    try {
+        const { allLogs, schedules } = await ChartService.loadMonthData(monthStr, userId);
+        const logs = (allLogs || []).filter(log => log._userId === userId && String(log.date || '').startsWith(monthStr));
+        const worked = logs.filter(log => (log.sessions || []).some(session => session && !session.isAbsent && (session.checkIn || session.start)));
+        const hours = ChartService.getWeeklyHours(allLogs, monthStr, userId).reduce((sum, week) => sum + (week.hours || 0), 0);
+        const late = ChartService.getStaffPunctuality(allLogs, schedules || {}, userId).late || 0;
+        const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+        setText('p-stat-workdays', `${worked.length} ngày`);
+        setText('p-stat-late', `${late} lần`);
+        setText('p-stat-hours', `${Math.round(hours * 10) / 10} giờ`);
+
+        if (historyBody) {
+            const fmt = value => value ? new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+            const rows = worked.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 6).map(log => {
+                const sessions = (log.sessions || []).filter(session => session && !session.isAbsent && (session.checkIn || session.start))
+                    .sort((a, b) => new Date(a.checkIn || a.start) - new Date(b.checkIn || b.start));
+                const first = sessions[0];
+                const last = sessions[sessions.length - 1];
+                const open = sessions.some(session => !session.checkOut);
+                const [y, m, d] = String(log.date).split('-');
+                const isToday = log.date === (typeof getLocalDateKeyFromDate === 'function' ? getLocalDateKeyFromDate(now) : '');
+                const status = open ? (isToday ? '<span class="nv-status nv-status--live">Đang trong ca</span>' : '<span class="nv-status nv-status--open">Chưa ra ca</span>')
+                    : `<span class="nv-status nv-status--done">${sessions.length > 1 ? `${sessions.length} lượt` : 'Đã ra ca'}</span>`;
+                return `<tr><td data-label="Ngày">${d}/${m}${y === String(now.getFullYear()) ? '' : '/' + y}</td>`
+                    + `<td data-label="Giờ vào">${fmt(first.checkIn || first.start)}</td>`
+                    + `<td data-label="Giờ ra">${open ? '—' : fmt(last.checkOut)}</td>`
+                    + `<td data-label="Trạng thái">${status}</td></tr>`;
+            });
+            if (rows.length) historyBody.innerHTML = rows.join('');
+        }
+    } catch (error) {
+        console.warn('[StaffOverview] Không tải được thống kê cá nhân:', error?.code || error?.message || error);
+    }
+}
+
 // ================= STAFF PERSONAL CHARTS =================
 async function loadStaffPersonalCharts() {
     const punctCanvas = document.getElementById('staff-chart-punctuality');
     const weeklyCanvas = document.getElementById('staff-chart-weekly');
     if (!punctCanvas || !weeklyCanvas) return;
+    // Chart.js tải bất đồng bộ từ CDN; trước đây nếu chưa tải xong thì biểu đồ không bao giờ hiện.
+    for (let waited = 0; typeof Chart === 'undefined' && waited < 12000; waited += 300) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+    }
     if (typeof Chart === 'undefined' || typeof ChartService === 'undefined') return;
 
     const userId = localStorage.getItem('currentUserId');
@@ -1332,16 +1489,25 @@ function loginHomeFor(roles) {
     return list.some(r => r === 'admin' || r === 'senior_assistant') ? 'admin.html' : 'nhan-vien.html';
 }
 
-async function resumeSavedSession() {
+async function resumeSavedSession(restoredUser = null) {
     if (!window.waitAuth || typeof DBService === 'undefined' || typeof DBService.getAuthenticatedProfile !== 'function') return;
     const hintedUser = localStorage.getItem('currentUser');
     const hintedId = localStorage.getItem('currentUserId');
     // Có dấu phiên đã lưu → che form ngay để không nhấp nháy form rồi mới chuyển trang.
     if (hintedUser && hintedId) showLoginTransition(localStorage.getItem('userFullName') || '', 'Đang mở lại phiên đăng nhập…');
     try {
-        const firebaseUser = await window.waitAuth();
+        const firebaseUser = restoredUser || await window.waitAuth();
+        if (!firebaseUser && window.__tdtAuthRestorePending && !lateSessionRestoreWatched) {
+            // Mạng chậm: hiện form để ai cần có thể đăng nhập, nhưng nếu Firebase khôi phục xong
+            // phiên cũ mà người dùng chưa bấm Đăng nhập thì vẫn tự vào app như bình thường.
+            lateSessionRestoreWatched = true;
+            window.addEventListener('tdt:auth-restored', event => {
+                if (event.detail?.user && !loginInFlight) resumeSavedSession(event.detail.user);
+            }, { once: true });
+        }
         if (!firebaseUser || loginInFlight) throw new Error('no-session');
         const profile = await DBService.getAuthenticatedProfile(firebaseUser, hintedUser && hintedId ? { userId: hintedId, username: hintedUser } : {});
+        if (loginInFlight) throw new Error('no-session');
         persistAuthenticatedSession(profile, firebaseUser.uid);
         const roles = Array.isArray(profile.roles) && profile.roles.length ? profile.roles : [profile.role];
         window.location.replace(loginHomeFor(roles));
@@ -1350,6 +1516,7 @@ async function resumeSavedSession() {
         document.querySelector('.login-transition')?.remove();
     }
 }
+let lateSessionRestoreWatched = false;
 
 function setLoginButtonLoading(btn, label) {
     if (!btn) return;
@@ -1385,6 +1552,13 @@ window.addEventListener('pageshow', event => {
 async function handleLogout(event, trigger) {
     if (event) event.preventDefault();
     if (logoutInFlight) return false;
+
+    // Đăng xuất gỡ mã nhận thông báo của máy này (đúng: máy đã đăng xuất không được nhận thông báo
+    // của người vừa dùng). Nhiều người quen bấm Đăng xuất sau mỗi ca nên mất nhắc vào ca → hỏi lại.
+    if (isPushActiveOnThisDevice() && typeof UIService !== 'undefined' && typeof UIService.confirm === 'function') {
+        const confirmed = await UIService.confirm('Đăng xuất sẽ TẮT nhắc vào ca trên điện thoại này. Chỉ nên đăng xuất khi đưa máy cho người khác dùng. Vẫn đăng xuất?');
+        if (!confirmed) return false;
+    }
 
     logoutInFlight = true;
     if (trigger) {
@@ -1524,6 +1698,7 @@ function renderSidebar() {
         setTimeout(() => clearInterval(checkBtnInterval), 5000);
     }
 
+    const visibleMenuItems = menuItems.filter(item => item.roles.some(r => roles.includes(r)));
     menuItems.forEach(item => {
         if (item.roles.some(r => roles.includes(r))) {
             const isActive = window.location.pathname.includes(item.link);
@@ -1574,8 +1749,9 @@ function renderSidebar() {
         }
     }
 
-    // ===== MOBILE: Header Bar + Slide-in Sidebar =====
-    _setupMobileNav(role);
+    // ===== MOBILE: Header Bar + Slide-in Sidebar + Bottom Tabs =====
+    _setupMobileNav(role, roles, visibleMenuItems);
+    renderStaffQuickActions(role, roles, visibleMenuItems);
 
     // ===== Close sidebar when clicking a nav link on mobile =====
     document.querySelectorAll('.sidebar .nav-link').forEach(link => {
@@ -1593,23 +1769,52 @@ function _isDrawerNav() {
     return window.matchMedia ? window.matchMedia(DRAWER_NAV_QUERY).matches : window.innerWidth <= 768;
 }
 
-function _setupMobileNav(role) {
+function _currentPageName() {
+    return (window.location.pathname.split('/').pop() || 'index.html').toLowerCase();
+}
+
+// Bốn đích đến chính theo vai trò cho thanh tab dưới đáy (vùng ngón cái). Chỉ lấy mục mà
+// menu đầy đủ của người đó đã có, nên quyền truy cập không thay đổi.
+function _primaryNavItems(role, roles, visibleItems) {
+    const has = r => roles.includes(r);
+    const byLink = new Map((visibleItems || []).filter(item => item.link && item.link !== '#').map(item => [item.link, item]));
+    let plan;
+    if (has('admin')) plan = [['admin.html', 'Tổng quan', 'grid'], ['lich-lam.html', 'Xếp lịch', 'calendar'], ['bao-cao.html', 'Tính lương', 'report'], ['nhan-su.html', 'Nhân sự', 'users']];
+    else if (has('senior_assistant')) plan = [['admin.html', 'Tổng quan', 'grid'], ['cham-cong.html', 'Chấm công', 'clock'], ['lich-lam.html', 'Xếp lịch', 'calendar'], ['bao-cao.html', 'Tính lương', 'report']];
+    else {
+        const teaches = ['teaching_assistant', 'staff', 'assistant'].some(has);
+        const scheduleLink = teaches ? 'lich-lam.html'
+            : (byLink.has('lich-tiep-tan.html') ? 'lich-tiep-tan.html' : (byLink.has('lich-van-phong.html') ? 'lich-van-phong.html' : 'lich-lam.html'));
+        const scheduleLabel = scheduleLink === 'lich-tiep-tan.html' ? 'Lịch trực' : (scheduleLink === 'lich-van-phong.html' ? 'Lịch VP' : (has('assistant') ? 'Xếp lịch' : 'Lịch làm'));
+        plan = [['nhan-vien.html', 'Trang chủ', 'home'], ['cham-cong.html', 'Chấm công', 'clock'], [scheduleLink, scheduleLabel, 'calendar'], ['bao-cao.html', 'Bảng công', 'report']];
+    }
+    return plan.filter(([link]) => byLink.has(link)).map(([link, label, icon]) => ({ link, label, icon }));
+}
+window._primaryNavItems = _primaryNavItems;
+
+function _setupMobileNav(role, roles = [role], visibleItems = []) {
     // Only create once
     if (document.querySelector('.mobile-header')) return;
 
-    const homePage = (role === 'admin' || role === 'assistant' || role === 'senior_assistant') ? 'admin.html' : 'nhan-vien.html';
+    const homePage = (role === 'admin' || role === 'senior_assistant') ? 'admin.html' : 'nhan-vien.html';
+    const pageName = _currentPageName();
+    const activeItem = (visibleItems || []).find(item => item.link && item.link !== '#' && pageName === item.link.toLowerCase());
+    const pageTitle = activeItem ? activeItem.name : (document.title.split(' - ')[0] || '').trim();
+    document.body.dataset.page = pageName.replace(/\.html$/, '');
 
     // Create mobile header bar
     const header = document.createElement('div');
     header.className = 'mobile-header';
     header.style.display = 'none'; // CSS shows it on mobile via !important
     header.innerHTML = `
-        <button class="hamburger-btn" onclick="_toggleMobileSidebar()" aria-label="Menu">☰</button>
+        <button type="button" class="hamburger-btn" onclick="_toggleMobileSidebar()" aria-label="Mở menu" aria-expanded="false">${tdtIcon('menu', 22)}</button>
         <a href="${homePage}" class="mobile-logo">
-            <img src="images/TUDUYTRE.jpg" alt="Logo">
-            <span>NGOẠI NGỮ & TOÁN TƯ DUY TRẺ</span>
+            <img src="images/logo-192.webp" alt="" width="32" height="32">
+            <span class="mobile-logo-text"><span class="mobile-brand">Tư Duy Trẻ</span><strong class="mobile-page-title"></strong></span>
         </a>
+        <div class="mobile-header-actions" id="mobile-header-actions"></div>
     `;
+    header.querySelector('.mobile-page-title').textContent = pageTitle || 'Chấm Công';
 
     // Create overlay
     const overlay = document.createElement('div');
@@ -1622,28 +1827,68 @@ function _setupMobileNav(role) {
         container.parentNode.insertBefore(header, container);
         container.parentNode.insertBefore(overlay, container);
     }
+
+    // Thanh tab dưới đáy: 4 mục chính + "Thêm" mở menu đầy đủ. CSS chỉ hiện trên điện thoại dọc.
+    const primary = _primaryNavItems(role, roles, visibleItems);
+    if (container && primary.length >= 2) {
+        const nav = document.createElement('nav');
+        nav.className = 'bottom-nav';
+        nav.setAttribute('aria-label', 'Điều hướng nhanh');
+        const isPrimaryPage = primary.some(item => item.link === pageName);
+        nav.innerHTML = primary.map(item => {
+            const active = item.link === pageName;
+            return `<a href="${item.link}" class="bottom-nav-item${active ? ' active' : ''}"${active ? ' aria-current="page"' : ''}>${tdtIcon(item.icon, 22)}<span>${item.label}</span></a>`;
+        }).join('') + `<button type="button" class="bottom-nav-item${isPrimaryPage ? '' : ' active'}" onclick="_toggleMobileSidebar()" aria-label="Mở menu đầy đủ">${tdtIcon('menu', 22)}<span>Thêm</span></button>`;
+        document.body.appendChild(nav);
+        document.body.classList.add('has-bottom-nav');
+    }
+}
+
+// Lối tắt trên Bảng Cá Nhân: cùng đích đến với thanh tab (trừ Trang chủ) + Chấm Công Bù.
+function renderStaffQuickActions(role, roles, visibleItems) {
+    const box = document.getElementById('nv-quick-actions');
+    if (!box) return;
+    const items = _primaryNavItems(role, roles, visibleItems).filter(item => item.link !== 'nhan-vien.html');
+    if ((visibleItems || []).some(item => item.link === 'cham-bu.html')) items.push({ link: 'cham-bu.html', label: 'Chấm bù', icon: 'history' });
+    if (!items.length) return;
+    box.innerHTML = items.slice(0, 4).map(item =>
+        `<a href="${item.link}" class="nv-quick-item"><span class="nv-quick-icon">${tdtIcon(item.icon, 22)}</span><span>${item.label}</span></a>`).join('');
+    box.style.gridTemplateColumns = `repeat(${Math.min(items.length, 4)}, minmax(0, 1fr))`;
+    box.hidden = false;
+    const today = document.getElementById('nv-today-label');
+    if (today) {
+        const d = new Date();
+        const weekday = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'][d.getDay()];
+        today.textContent = `${weekday}, ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    }
+}
+
+function _setMobileMenuButton(isOpen) {
+    const btn = document.querySelector('.mobile-header .hamburger-btn');
+    if (!btn) return;
+    btn.innerHTML = tdtIcon(isOpen ? 'x' : 'menu', 22);
+    btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    btn.setAttribute('aria-label', isOpen ? 'Đóng menu' : 'Mở menu');
 }
 
 function _toggleMobileSidebar() {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.querySelector('.sidebar-overlay');
-    const btn = document.querySelector('.mobile-header .hamburger-btn');
 
     if (sidebar) {
         const isOpen = sidebar.classList.toggle('open');
         if (overlay) overlay.classList.toggle('active', isOpen);
-        if (btn) btn.innerHTML = isOpen ? '✕' : '☰';
+        _setMobileMenuButton(isOpen);
     }
 }
 
 function _closeMobileSidebar() {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.querySelector('.sidebar-overlay');
-    const btn = document.querySelector('.mobile-header .hamburger-btn');
 
     if (sidebar) sidebar.classList.remove('open');
     if (overlay) overlay.classList.remove('active');
-    if (btn) btn.innerHTML = '☰';
+    _setMobileMenuButton(false);
 }
 
 
@@ -1659,6 +1904,11 @@ function updateClock() {
         // Format: HH:MM:SS - DD/MM/YYYY
         const timeStr = now.toLocaleTimeString('vi-VN', { hour12: false });
         const dateStr = now.toLocaleDateString('vi-VN');
+        // Trang Chấm Công đã có dòng ngày riêng → đồng hồ chỉ hiện giờ:phút cho gọn trên điện thoại.
+        if (clockElement.dataset && clockElement.dataset.format === 'time') {
+            clockElement.innerText = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+            return;
+        }
         clockElement.innerText = `${timeStr} - ${dateStr} `;
     }
 }
@@ -2584,6 +2834,7 @@ window.handleChangePassword = async function(event) {
 // ================= PWA SYSTEM NOTIFICATIONS =================
 
 function syncNotificationPermissionButton() {
+    if (typeof renderNotificationStatusCard === 'function') renderNotificationStatusCard();
     const button = document.getElementById('btn-enable-notifications');
     if (!button) return;
     if (!('Notification' in window)) {
@@ -2602,9 +2853,87 @@ function syncNotificationPermissionButton() {
         return;
     }
     button.disabled = false;
-    button.textContent = '🔔 Bật thông báo';
+    button.textContent = 'Bật thông báo';
     button.title = 'Bật thông báo hệ thống khi bạn chủ động chọn.';
 }
+
+// Trạng thái nhận thông báo của CHÍNH máy đang mở app — để nhân viên (và quản lý cầm máy họ)
+// biết ngay vì sao máy chưa nhận nhắc vào ca và phải làm gì.
+function getDeviceNotificationState() {
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    if (/Zalo|FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\//i.test(ua)) return 'inapp';
+    if (isIOS && !isStandalone) return 'ios-install';
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return 'unsupported';
+    if (Notification.permission === 'denied') return 'blocked';
+    if (Notification.permission !== 'granted') return 'off';
+    return isPushActiveOnThisDevice() ? 'on' : 'partial';
+}
+window.getDeviceNotificationState = getDeviceNotificationState;
+
+function renderNotificationStatusCard() {
+    const card = document.getElementById('notif-status-card');
+    if (!card) return;
+    const state = getDeviceNotificationState();
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+    const content = {
+        on: ['Máy này đang nhận nhắc vào ca', 'Nhắc trước giờ vào ca 8 phút, kèm thông báo chấm bù, tăng ca, bảng lương — kể cả khi đã tắt app. Không cần bấm Đăng xuất sau mỗi ca.', []],
+        partial: ['Mới nhận khi đang mở app', 'Máy đã cho phép thông báo nhưng chưa kết nối nhận thông báo khi tắt app. Bấm "Kết nối lại".', []],
+        off: ['Chưa bật nhắc vào ca', 'Bật để được nhắc trước giờ vào ca 8 phút và biết ngay khi chấm bù, bảng lương có kết quả.', []],
+        blocked: ['Thông báo đang bị chặn', 'Máy đã từ chối thông báo của app. Mở lại như sau:', isIOS
+            ? ['Mở Cài đặt của iPhone → Thông báo', 'Chọn "Chấm Công TDT"', 'Bật "Cho phép thông báo" (và Màn hình khoá, Biểu ngữ)']
+            : ['Bấm biểu tượng ổ khoá / cài đặt cạnh thanh địa chỉ (hoặc giữ biểu tượng app → Thông tin ứng dụng)', 'Chọn Thông báo → Cho phép', 'Mở lại app']],
+        'ios-install': ['iPhone: cần thêm app ra màn hình chính', 'iPhone chỉ nhận thông báo và giữ đăng nhập khi mở bằng biểu tượng app. Làm 1 lần:', [
+            'Mở trang này bằng Safari', 'Bấm nút Chia sẻ (ô vuông có mũi tên) ở thanh dưới', 'Chọn "Thêm vào MH chính" → Thêm',
+            'Mở app bằng biểu tượng "Chấm Công TDT", đăng nhập rồi bấm Bật thông báo. Xoá bớt biểu tượng cũ nếu có nhiều cái']],
+        inapp: ['Đang mở trong Zalo / Facebook', 'Trình duyệt trong Zalo, Facebook không nhận được thông báo và hay mất đăng nhập.', [
+            'Bấm dấu ba chấm ở góc trên', 'Chọn "Mở bằng trình duyệt" (Safari / Chrome)', isIOS ? 'Sau đó thêm app ra màn hình chính để nhận thông báo' : 'Đăng nhập và bấm Bật thông báo']],
+        unsupported: ['Trình duyệt này chưa hỗ trợ thông báo', 'Hãy dùng Chrome (Android) hoặc Safari rồi thêm app ra màn hình chính (iPhone).', []]
+    }[state];
+    card.hidden = false;
+    card.dataset.state = state;
+    const icon = card.querySelector('.nv-notif-icon');
+    if (icon) icon.innerHTML = tdtIcon(state === 'on' ? 'checkCircle' : (state === 'blocked' ? 'bellOff' : (state === 'ios-install' ? 'plusSquare' : (state === 'inapp' ? 'external' : 'bell'))), 22);
+    const title = card.querySelector('#notif-status-title');
+    const text = card.querySelector('#notif-status-text');
+    const steps = card.querySelector('#notif-status-steps');
+    if (title) title.textContent = content[0];
+    if (text) text.textContent = content[1];
+    if (steps) {
+        steps.innerHTML = '';
+        content[2].forEach(step => { const li = document.createElement('li'); li.textContent = step; steps.appendChild(li); });
+        steps.hidden = content[2].length === 0;
+    }
+    const retry = card.querySelector('#btn-reconnect-notifications');
+    if (retry) retry.hidden = state !== 'partial';
+    const test = card.querySelector('#btn-test-notification');
+    if (test) test.hidden = !(state === 'on' || state === 'partial');
+}
+window.renderNotificationStatusCard = renderNotificationStatusCard;
+
+window.reconnectPushNotifications = async function(button = null) {
+    if (button) button.disabled = true;
+    try {
+        const ok = await window.registerPushNotifications();
+        if (typeof UIService !== 'undefined' && UIService.toast) {
+            UIService.toast(ok ? 'Đã kết nối: máy này sẽ nhận nhắc vào ca cả khi tắt app.' : 'Chưa kết nối được. Kiểm tra mạng rồi thử lại.', ok ? 'success' : 'warning');
+        }
+    } finally {
+        if (button) button.disabled = false;
+        renderNotificationStatusCard();
+    }
+};
+
+// Hiện một thông báo NGAY TRÊN MÁY NÀY để kiểm tra điện thoại có cho hiện biểu ngữ/màn hình khoá
+// hay không (Không làm phiền, Tập trung… sẽ chặn). Không gửi gì cho người khác.
+window.sendTestNotification = function(button = null) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') { renderNotificationStatusCard(); return; }
+    if (button) { button.disabled = true; setTimeout(() => { button.disabled = false; }, 4000); }
+    window.showLocalNotification('Thông báo thử — Chấm Công TDT',
+        'Nếu bạn thấy dòng này ở đầu màn hình hoặc màn hình khoá, nhắc vào ca đã hoạt động trên máy này.',
+        'tdt_test_notification', 'nhan-vien.html');
+};
 
 // ================= WEB PUSH (FCM) =================
 // Thông báo đẩy khi app đang TẮT: máy chủ (Cloud Functions) gửi qua FCM tới mã thiết bị lưu
@@ -2682,8 +3011,9 @@ window.initPWANotifications = function() {
     // and competes with a mobile browser's check-in location prompt.
     syncNotificationPermissionButton();
     // Đã cho phép từ trước → làm mới mã thiết bị (FCM có thể xoay mã) mà không hỏi lại.
-    if ('Notification' in window && Notification.permission === 'granted') window.registerPushNotifications();
-    else setTimeout(maybePromptNotifications, 2500);
+    if ('Notification' in window && Notification.permission === 'granted') {
+        window.registerPushNotifications().then(() => renderNotificationStatusCard());
+    } else setTimeout(maybePromptNotifications, 2500);
 
     // Set up real-time listener for new meetings
     window.setupMeetingsNotificationListener();
@@ -2698,18 +3028,30 @@ window.initPWANotifications = function() {
 // Nút "Bật thông báo" chỉ nằm ở trang Bảng Cá Nhân nên nhiều người không thấy. Mời một lần
 // mỗi 3 ngày, ngay trên trang đang mở; trình duyệt bắt buộc phải bấm tay mới hỏi quyền.
 function maybePromptNotifications() {
-    if (!('Notification' in window) || Notification.permission !== 'default') return;
     if (!localStorage.getItem('currentUserId') || document.getElementById('notif-cta')) return;
+    const state = getDeviceNotificationState();
+    // 'off' → hỏi quyền ngay tại chỗ. iPhone chưa cài app / đang trong Zalo → không hỏi được quyền,
+    // chỉ dẫn tới hướng dẫn trên Bảng Cá Nhân (trước đây nhóm này không hề thấy lời mời nào).
+    if (!['off', 'ios-install', 'inapp'].includes(state)) return;
     const snoozed = Number(localStorage.getItem('notif_prompt_snoozed_at') || 0);
     if (Date.now() - snoozed < 3 * 24 * 3600 * 1000) return;
+    const onGuidePage = !!document.getElementById('notif-status-card');
+    if (state !== 'off' && onGuidePage) return; // thẻ hướng dẫn đã nằm ngay trên trang
     const box = document.createElement('div');
     box.id = 'notif-cta';
-    box.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:1rem;z-index:998;max-width:min(420px,92vw);'
-        + 'background:#fff;border:1px solid #A7F3D0;border-left:4px solid #059669;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:.9rem 1rem;font-size:.88rem;color:#111827';
-    box.innerHTML = '<div style="font-weight:800;color:#047857;margin-bottom:.25rem">🔔 Bật nhắc vào ca</div>'
-        + '<div style="color:#4B5563;line-height:1.35">Nhận nhắc trước giờ vào ca 8 phút và thông báo chấm bù, bảng lương — kể cả khi đã tắt app.</div>'
-        + '<div style="display:flex;gap:.5rem;margin-top:.7rem"><button type="button" data-act="on" style="flex:1;border:none;border-radius:10px;padding:.6rem;background:#059669;color:#fff;font-weight:700;cursor:pointer">Bật thông báo</button>'
-        + '<button type="button" data-act="later" style="border:1px solid #E5E7EB;border-radius:10px;padding:.6rem .9rem;background:#fff;color:#6B7280;font-weight:600;cursor:pointer">Để sau</button></div>';
+    box.className = 'notif-cta';
+    box.setAttribute('role', 'dialog');
+    const title = state === 'off' ? 'Bật nhắc vào ca' : (state === 'inapp' ? 'Mở bằng trình duyệt để nhận nhắc vào ca' : 'Thêm app ra màn hình chính');
+    const text = state === 'off'
+        ? 'Nhận nhắc trước giờ vào ca 8 phút và thông báo chấm bù, bảng lương — kể cả khi đã tắt app.'
+        : 'Máy này chưa nhận được thông báo và dễ mất đăng nhập. Xem cách làm 1 lần (khoảng 30 giây).';
+    box.innerHTML = `<div class="notif-cta-icon">${tdtIcon(state === 'off' ? 'bell' : (state === 'inapp' ? 'external' : 'plusSquare'), 22)}</div>
+        <div class="notif-cta-body"><div class="notif-cta-title"></div><div class="notif-cta-text"></div>
+        <div class="notif-cta-actions"><button type="button" data-act="on" class="btn btn-primary"></button>
+        <button type="button" data-act="later" class="btn btn-ghost">Để sau</button></div></div>`;
+    box.querySelector('.notif-cta-title').textContent = title;
+    box.querySelector('.notif-cta-text').textContent = text;
+    box.querySelector('[data-act="on"]').textContent = state === 'off' ? 'Bật thông báo' : 'Xem hướng dẫn';
     box.querySelector('[data-act="later"]').onclick = () => {
         localStorage.setItem('notif_prompt_snoozed_at', String(Date.now()));
         box.remove();
@@ -2717,7 +3059,8 @@ function maybePromptNotifications() {
     box.querySelector('[data-act="on"]').onclick = async () => {
         box.remove();
         localStorage.setItem('notif_prompt_snoozed_at', String(Date.now()));
-        await window.requestNotificationPermission();
+        if (state === 'off') await window.requestNotificationPermission();
+        else window.location.href = 'nhan-vien.html#notif-status-card';
     };
     document.body.appendChild(box);
 }
