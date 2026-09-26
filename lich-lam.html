@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-mobile-ui-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-staff-ui-v2">
     <style>
         /* Specific Styles for Schedule Page */
         .branch-tabs {
@@ -2502,7 +2502,7 @@
         <main class="main-content">
             <header style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
                 <h1 style="font-size: 1.5rem; font-weight: 700;">Quản Lý Lịch Học</h1>
-                <div id="admin-actions" style="display: none; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <div id="admin-actions" style="display: none; gap:0.5rem; flex-wrap:wrap;">
                     <button id="btn-gv-absence" class="btn" onclick="openGVAbsenceModal()"
                         style="display:none;align-items:center;gap:0.4rem;background:#FFF7ED;border:1.5px solid #FDBA74;color:#9A3412;font-weight:700;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -2558,10 +2558,10 @@
                 </button>
                 
                 <div class="date-picker-btn-wrapper" style="position: relative; display: inline-flex; align-items: center; margin-left: 0.5rem;">
-                    <button class="btn btn-secondary" style="display: flex; align-items: center; gap: 0.25rem; padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; background: #EEF2FF; border: 1.5px solid #C7D2FE; color: #4338CA; cursor: pointer; font-weight: 600;">
+                    <button class="btn btn-secondary" style="display: flex; align-items: center; gap: 0.25rem; padding: 6px 12px; font-size: 0.85rem; border-radius: 8px; background: #EEF2FF; border: 1.5px solid #C7D2FE; color: #4338CA; cursor: pointer; font-weight: 600;" aria-label="Chọn ngày" title="Chọn ngày">
                         <svg class="ui-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Chọn ngày
                     </button>
-                    <input type="date" id="schedule-date-picker" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;" onchange="goToDatePickerDate(this.value)">
+                    <input type="date" id="schedule-date-picker" aria-label="Chọn ngày" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;" onchange="goToDatePickerDate(this.value)">
                 </div>
             </div>
 
@@ -2620,7 +2620,7 @@
         </main>
     </div>
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260926-mobile-ui-v1"></script>
+    <script src="js/main.js?v=20260926-staff-ui-v2"></script>
     <script src="js/schedule.js?v=20260926-mobile-ui-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 

@@ -158,5 +158,47 @@ const between = (source, from, to) => {
         assert.equal(hit, undefined, `${file} còn emoji: ${hit && hit.trim().slice(0, 80)}`);
     }
 
+    // ---------- 6. Đợt 2 (ảnh iPhone của chủ hệ thống) ----------
+    const hop = read('hop-cua-toi.html');
+    assert.match(hop, /<div class="month-navigator ui-monthbar">[\s\S]*?onclick="myMeetChangeMonth\(-1\)"[\s\S]*?id="mymeet-month"[\s\S]*?onclick="myMeetChangeMonth\(1\)"/,
+        'Họp: thanh tháng một hàng, giữ nguyên id/onclick');
+    assert.doesNotMatch(hop, /<header[^>]*>[\s\S]{0,1600}month-navigator/, 'thanh tháng không được nằm trong <header> (CSS cũ ép 1 cột → nút dựng đứng)');
+    assert.match(css, /\.ui-monthbar \{[\s\S]*?grid-template-columns: var\(--ui-tap\) minmax\(0, 1fr\) var\(--ui-tap\)/);
+
+    const bc = read('bao-cao.html');
+    assert.match(bc, /<div id="personal-specific-header-controls" class="rp-actions"/);
+    for (const id of ['btn-manual-bonus', 'btn-mark-fixed', 'btn-save-fixed', 'btn-select-bonus10-mode', 'btn-approve-selected-bonus10',
+        'btn-approve-all-bonus10', 'btn-select-student-count-mode', 'admin-header-revenues', 'total-hours-display', 'page-title']) {
+        assert.equal((bc.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1, `Bảng Công giữ đúng 1 phần tử #${id}`);
+    }
+    assert.match(css, /#personal-specific-header-controls\.rp-actions:not\(\[style\*="display: none"\]\)/,
+        'khối nút dùng bộ chọn id (thắng CSS cũ) và tôn trọng trạng thái ẩn của report.js');
+
+    const chambu = read('cham-bu.html');
+    const chambuStyle = chambu.slice(chambu.indexOf('<style>'), chambu.indexOf('</style>'));
+    assert.match(chambuStyle, /\.g2\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/, 'form 2 cột luôn co giãn (iOS date/time không tràn)');
+    assert.match(chambuStyle, /-webkit-appearance:none;appearance:none/);
+    assert.match(chambuStyle, /::-webkit-date-and-time-value\{text-align:left/);
+    const chambuScript = chambu.slice(chambu.indexOf('</style>'));
+    const usedClasses = new Set([...chambuScript.matchAll(/class=\\?["']([^"'\\]+)/g)].flatMap(m => m[1].split(/\s+/)).filter(c => /^[a-z][\w-]*$/.test(c)));
+    for (const cls of usedClasses) {
+        if (['on', 'pick', 'off', 'sel', 'today', 'out', 'we', 'ui-icon'].includes(cls)) continue;
+        assert.ok(chambuStyle.includes('.' + cls), `Chấm Bù: lớp .${cls} dùng trong trang phải còn được định kiểu`);
+    }
+
+    assert.match(read('css/login.css'), /#toggle-password svg\[hidden\]\s*\{\s*display:\s*none;/, 'Safari: chỉ hiện 1 icon mắt');
+    assert.match(main, /inlineOpen\.toggleAttribute\('hidden', show\);\s*inlineOff\.toggleAttribute\('hidden', !show\);/);
+
+    const lichLam = read('lich-lam.html');
+    assert.match(lichLam, /<div id="admin-actions" style="display: none; gap:0\.5rem; flex-wrap:wrap;">/, 'Sao Chép/Lưu Lịch ẩn mặc định; schedule.js mở cho người xếp lịch');
+    assert.match(read('js/schedule.js'), /if \(adminActions\) adminActions\.style\.display = 'flex';/);
+    assert.match(css, /#admin-actions\[style\*="display: none"\] \{ display: none !important; \}/);
+
+    assert.match(css, /\.shift-segment \{\s*display: grid !important;\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/, 'Quan Sát Ca: 3 nút ca một hàng');
+    for (const page of ['lich-tiep-tan.html', 'lich-van-phong.html']) {
+        assert.match(read(page), /<div class="week-picker ui-weekbar">[\s\S]*?onclick="navigateWeek\(-1\)"[\s\S]*?id="week-label"[\s\S]*?onclick="navigateWeek\(1\)"/, `${page}: thanh tuần một hàng`);
+    }
+    assert.match(main, /bell\.classList\.add\('notif-bell--sidebar'\)/, 'máy tính: chuông không nổi đè lên nội dung trang');
+
     console.log('mobile-ui-session.test.js: all assertions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

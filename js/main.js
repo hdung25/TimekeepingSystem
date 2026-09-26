@@ -1176,9 +1176,14 @@ function renderStaffNotificationBell(notifications) {
         bell.innerHTML = `${tdtIcon('bell', 22)}<span id="notif-badge" class="notif-badge">${notifications.length > 99 ? '99+' : notifications.length}</span>`;
         bell.onclick = () => showNotificationPopup(notifications);
         const headerSlot = document.getElementById('mobile-header-actions');
+        const profileWidget = document.querySelector('.sidebar .user-profile-widget');
         if (headerSlot && _isDrawerNav()) {
             bell.classList.add('notif-bell--inline');
             headerSlot.appendChild(bell);
+        } else if (profileWidget) {
+            // Máy tính: đặt trong ô chào ở thanh bên — chuông nổi góc phải từng đè lên nút/đồng hồ của trang.
+            bell.classList.add('notif-bell--sidebar');
+            profileWidget.appendChild(bell);
         } else {
             document.body.appendChild(bell);
         }
@@ -2478,7 +2483,7 @@ window.checkAndRenderMeetingBanner = async function() {
                 const statusColor = isLate ? '#D97706' : '#059669';
                 
                 bannerHtml += `
-                    <div class="glass-panel" style="
+                    <div class="glass-panel meeting-banner" style="
                         background: linear-gradient(135deg, rgba(243, 244, 246, 0.9) 0%, rgba(249, 250, 251, 0.95) 100%);
                         border-left: 5px solid #7C3AED;
                         padding: 1.25rem;
@@ -2521,7 +2526,7 @@ window.checkAndRenderMeetingBanner = async function() {
                 `;
             } else {
                 bannerHtml += `
-                    <div class="glass-panel" style="
+                    <div class="glass-panel meeting-banner" style="
                         background: linear-gradient(135deg, rgba(245, 243, 255, 0.9) 0%, rgba(255, 255, 255, 0.95) 100%);
                         border-left: 5px solid #7C3AED;
                         padding: 1.25rem;
@@ -2551,7 +2556,7 @@ window.checkAndRenderMeetingBanner = async function() {
                                     : '')}
                         </div>
                         <div>
-                            <button class="btn" onclick="checkInToMeeting('${meeting.id}', this)" style="
+                            <button class="btn meeting-banner-btn" onclick="checkInToMeeting('${meeting.id}', this)" style="
                                 background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
                                 color: white;
                                 padding: 0.6rem 1.25rem;
@@ -2689,8 +2694,9 @@ window.togglePasswordVisibility = function(inputId, btn) {
     if (inlineOpen && inlineOff) {
         const show = input.type === 'password';
         input.type = show ? 'text' : 'password';
-        inlineOpen.hidden = show;
-        inlineOff.hidden = !show;
+        // SVG không có thuộc tính .hidden như phần tử HTML → phải đặt/bỏ thuộc tính thật.
+        inlineOpen.toggleAttribute('hidden', show);
+        inlineOff.toggleAttribute('hidden', !show);
         btn.setAttribute('aria-label', show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
         return;
     }

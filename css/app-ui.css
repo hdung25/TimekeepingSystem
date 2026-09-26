@@ -786,3 +786,385 @@ button, a, [role="button"], [onclick], label, summary { -webkit-tap-highlight-co
     .admin-stats h3 { font-size: 0.74rem !important; line-height: 1.25; }
     .admin-stats p { font-size: 1.55rem !important; margin-top: 0.3rem !important; font-variant-numeric: tabular-nums; }
 }
+
+/* =====================================================================
+   ĐỢT 2 (26/09/2026) — làm lại các trang nhân viên
+   Thành phần dùng chung + sửa lỗi Safari iOS. Chỉ trình bày.
+   ===================================================================== */
+
+/* ---------- Ô nhập ngày/giờ trên Safari iOS ----------
+   iOS vẽ input date/time với bề rộng tối thiểu riêng và canh chữ ra giữa → tràn khỏi lưới 2 cột,
+   ô trông "không viền". Ép về khối co giãn, chữ canh trái, cao bằng các ô khác. */
+input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"] {
+    min-width: 0;
+    max-width: 100%;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="month"]::-webkit-date-and-time-value { text-align: left; }
+
+/* ---------- Nút tròn chỉ có icon ---------- */
+.ui-icon-btn {
+    width: var(--ui-tap); height: var(--ui-tap); min-width: var(--ui-tap);
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; border-radius: 50%;
+    border: 1px solid var(--ui-line); background: var(--ui-surface); color: var(--ui-ink-2);
+    cursor: pointer; transition: background-color .15s ease, color .15s ease, transform .08s ease;
+}
+.ui-icon-btn:hover { background: var(--ui-brand-softer); color: var(--ui-brand-strong); border-color: #B7E6D0; }
+.ui-icon-btn:active { transform: scale(0.95); }
+
+/* ---------- Thanh chuyển tháng / tuần: [‹] tiêu đề [›] trên một hàng ---------- */
+.ui-monthbar {
+    display: grid !important;
+    grid-template-columns: var(--ui-tap) minmax(0, 1fr) var(--ui-tap);
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 420px;
+    padding: 6px;
+    background: var(--ui-surface);
+    border: 1px solid var(--ui-line);
+    border-radius: 999px;
+    box-shadow: var(--ui-shadow-1);
+}
+.ui-monthbar > .ui-icon-btn { border-color: transparent; background: var(--ui-surface-2); }
+.ui-monthbar-title {
+    min-width: 0; text-align: center;
+    font-size: var(--ui-font-md); font-weight: 800; color: var(--ui-ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Đầu trang chuẩn: tiêu đề + mô tả, phần phụ bên phải (máy tính) / bên dưới (điện thoại) ---------- */
+.ui-page-head {
+    display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap;
+    gap: 12px 20px; margin-bottom: 1.25rem;
+}
+.ui-page-head-text { min-width: 0; }
+.ui-page-head h1 {
+    display: flex; align-items: center; gap: 10px;
+    font-size: var(--ui-font-xl) !important; font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; color: var(--ui-ink);
+}
+.ui-page-head h1 .ui-icon, .ui-page-head h1 svg { color: var(--ui-brand); flex: 0 0 auto; }
+.ui-page-head p { margin: 4px 0 0; color: var(--ui-ink-2); font-size: var(--ui-font-sm) !important; line-height: 1.45; }
+@media (max-width: 768px) {
+    .ui-page-head { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 1rem; }
+    .ui-page-head .ui-monthbar { max-width: none; }
+}
+
+/* =====================================================================
+   HỌP CỦA TÔI (hop-cua-toi.html)
+   ===================================================================== */
+.mymeet-stat { border-radius: var(--ui-radius) !important; border-color: var(--ui-line) !important; box-shadow: var(--ui-shadow-1) !important; }
+@media (max-width: 768px) {
+    .mymeet-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; margin-bottom: 1.25rem !important; }
+    .mymeet-stat { padding: 0.85rem 0.95rem !important; }
+    .mymeet-stat .value { font-size: 1.6rem !important; }
+    .mymeet-grid { grid-template-columns: minmax(0, 1fr) !important; }
+    .section-title { margin: 1.25rem 0 0.7rem !important; }
+}
+
+/* =====================================================================
+   BẢNG CÔNG — đầu trang, nút hành động, thanh tháng + bộ lọc, chú thích
+   ===================================================================== */
+.rp-head { display: flex; flex-direction: column; gap: 12px; margin-bottom: 1rem; }
+.rp-head-top { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; }
+.rp-head h1 { font-size: var(--ui-font-xl) !important; font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; }
+.rp-sub { margin: 4px 0 0; color: var(--ui-ink-2); font-size: var(--ui-font-sm) !important; }
+.rp-total {
+    display: inline-flex !important; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 999px;
+    background: var(--ui-warn-bg); color: #B54708 !important;
+    font-size: var(--ui-font-md) !important; font-weight: 800 !important; line-height: 1.3 !important;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.rp-total[style*="display: none"] { display: none !important; }
+.rp-total::before {
+    content: ''; width: 18px; height: 18px; flex: 0 0 18px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* Khối nút: chia đều theo số nút đang hiện (JS bật/tắt từng nút bằng style nội tuyến) */
+#personal-specific-header-controls.rp-actions:not([style*="display: none"]) {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: 8px !important;
+    margin: 0 !important;
+    width: 100%;
+}
+#personal-specific-header-controls > .btn {
+    min-height: var(--ui-tap) !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 14px !important;
+    border-radius: 12px !important;
+    font-size: var(--ui-font-sm) !important;
+    font-weight: 700 !important;
+    justify-content: center;
+    gap: 6px;
+    white-space: normal !important;
+    line-height: 1.2;
+    text-align: center;
+}
+#personal-specific-header-controls > .btn .lucide, #personal-specific-header-controls > .btn svg { width: 16px; height: 16px; }
+#personal-specific-header-controls > #admin-header-revenues { grid-column: 1 / -1; flex-wrap: wrap; }
+@media (min-width: 769px) {
+    #personal-specific-header-controls.rp-actions:not([style*="display: none"]) { display: flex !important; flex-wrap: wrap; justify-content: flex-end; align-self: flex-end; width: auto; }
+}
+
+/* Thanh tháng + bộ lọc của Bảng Công */
+@media (max-width: 768px) {
+    .cal-nav-bar {
+        position: static !important;
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px !important;
+        padding: 10px !important;
+        border-radius: 18px !important;
+        background: var(--ui-surface) !important;
+        border: 1px solid var(--ui-line) !important;
+        box-shadow: var(--ui-shadow-1) !important;
+        -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+        margin-bottom: 0.9rem !important;
+    }
+    .cal-nav-month {
+        display: grid !important;
+        grid-template-columns: var(--ui-tap) minmax(0, 1fr) var(--ui-tap);
+        align-items: center; gap: 8px;
+        padding: 0; background: var(--ui-surface-2); border-radius: 999px;
+    }
+    .cal-nav-btn { width: var(--ui-tap) !important; height: var(--ui-tap) !important; border: 0 !important; background: var(--ui-surface) !important; box-shadow: var(--ui-shadow-1); }
+    .cal-nav-btn:hover { transform: none !important; }
+    .cal-nav-title { min-width: 0 !important; font-size: var(--ui-font-md) !important; font-weight: 800 !important; color: var(--ui-ink) !important; }
+    .cal-nav-jumps {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px !important;
+    }
+    .cal-nav-jumps > .cal-nav-select-wrap:last-child { grid-column: 1 / -1; }
+    .cal-nav-select-wrap {
+        position: relative;
+        min-width: 0 !important;
+        height: var(--ui-tap);
+        padding: 0 12px !important;
+        border-radius: 12px !important;
+        border: 1px solid var(--ui-line) !important;
+        background: var(--ui-surface) !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
+        color: var(--ui-ink-2) !important;
+    }
+    .cal-nav-select-wrap::after {
+        content: ''; position: absolute; right: 14px; top: 50%; width: 7px; height: 7px; margin-top: -5px;
+        border-right: 2px solid var(--ui-ink-3); border-bottom: 2px solid var(--ui-ink-3); transform: rotate(45deg); pointer-events: none;
+    }
+    .cal-nav-select, #display-role-filter {
+        flex: 1 1 auto;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        min-height: 0 !important;
+        height: 100%;
+        padding: 0 22px 0 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        color: var(--ui-ink) !important;
+        text-overflow: ellipsis;
+    }
+}
+
+/* Chú thích màu: lưới gọn thẳng hàng */
+.rp-legend {
+    display: flex !important; flex-wrap: wrap; gap: 8px 16px !important;
+    margin: 0 0 0.9rem !important;
+    font-size: var(--ui-font-xs) !important; color: var(--ui-ink-2);
+}
+.rp-legend > div { gap: 6px !important; line-height: 1.2; }
+.rp-legend .schedule-chip { width: 12px !important; height: 12px !important; min-height: 0 !important; margin: 0 !important; border-radius: 4px !important; flex: 0 0 12px; animation: none !important; }
+@media (max-width: 768px) {
+    .rp-legend { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 12px; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: 14px; }
+}
+
+/* =====================================================================
+   LỊCH TIẾP TÂN / VĂN PHÒNG — thanh tuần một hàng
+   ===================================================================== */
+.week-picker.ui-weekbar {
+    display: grid !important;
+    grid-template-columns: var(--ui-tap) minmax(0, 1fr) var(--ui-tap);
+    align-items: center;
+    gap: 8px !important;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto 1rem !important;
+    padding: 6px;
+    background: var(--ui-surface);
+    border: 1px solid var(--ui-line);
+    border-radius: 999px;
+    box-shadow: var(--ui-shadow-1);
+    flex-wrap: nowrap !important;
+}
+.week-picker.ui-weekbar > button {
+    width: var(--ui-tap) !important; height: var(--ui-tap) !important; min-width: var(--ui-tap) !important; min-height: var(--ui-tap) !important;
+    padding: 0 !important; border-radius: 50% !important;
+    display: inline-flex !important; align-items: center; justify-content: center;
+    border: 0 !important; background: var(--ui-surface-2) !important; color: var(--ui-ink-2) !important;
+}
+.week-picker.ui-weekbar > button:hover { background: var(--ui-brand-soft) !important; color: var(--ui-brand-strong) !important; }
+.week-picker.ui-weekbar > .week-label {
+    order: 0 !important; width: auto !important; min-width: 0;
+    font-size: var(--ui-font-sm) !important; font-weight: 800; color: var(--ui-ink) !important; letter-spacing: 0 !important;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* =====================================================================
+   QUAN SÁT CA — 3 nút ca luôn chia đều một hàng
+   ===================================================================== */
+.shift-segment {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+}
+.shift-segment legend { grid-column: 1 / -1; }
+.shift-segment button { width: auto !important; min-width: 0; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.shift-segment button svg { margin-right: 0 !important; flex: 0 0 auto; }
+
+/* =====================================================================
+   LỊCH LÀM (giáo viên) — nút tuần 44px
+   ===================================================================== */
+@media (max-width: 768px) {
+    #prev-week, #next-week { min-width: var(--ui-tap) !important; width: var(--ui-tap) !important; height: var(--ui-tap) !important; border-radius: 50% !important; }
+}
+
+/* Lịch Làm: nút Sao Chép/Lưu chỉ dành cho người xếp lịch (schedule.js đặt display:flex cho họ).
+   Thuộc tính nội tuyến cũ "display:none; display:flex" làm giáo viên cũng thấy → tôn trọng trạng thái ẩn,
+   kể cả khi khối xoay-ngang của trang ép display:flex !important. */
+#admin-actions[style*="display: none"] { display: none !important; }
+
+@media (max-width: 768px) {
+    body[data-page="lich-lam"] .week-picker {
+        display: grid !important;
+        grid-template-columns: var(--ui-tap) minmax(0, 1fr) var(--ui-tap) auto;
+        align-items: center;
+        gap: 6px !important;
+        padding: 6px;
+        margin-bottom: 0.85rem !important;
+        background: var(--ui-surface);
+        border: 1px solid var(--ui-line);
+        border-radius: 999px;
+        box-shadow: var(--ui-shadow-1);
+    }
+    body[data-page="lich-lam"] .week-picker .btn-icon {
+        width: var(--ui-tap) !important; height: var(--ui-tap) !important; min-width: var(--ui-tap) !important;
+        padding: 0 !important; border-radius: 50% !important; border: 0 !important;
+        display: inline-flex !important; align-items: center; justify-content: center;
+        background: var(--ui-surface-2) !important; color: var(--ui-ink-2) !important;
+    }
+    body[data-page="lich-lam"] .week-picker .btn-icon svg { width: 20px; height: 20px; }
+    body[data-page="lich-lam"] .week-display {
+        min-width: 0 !important; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        font-size: var(--ui-font-md) !important; font-weight: 800 !important; color: var(--ui-ink) !important;
+    }
+    body[data-page="lich-lam"] .date-picker-btn-wrapper { margin-left: 0 !important; }
+    body[data-page="lich-lam"] .date-picker-btn-wrapper .btn {
+        width: var(--ui-tap) !important; height: var(--ui-tap) !important; min-height: var(--ui-tap) !important;
+        padding: 0 !important; border-radius: 50% !important; justify-content: center;
+        font-size: 0 !important; gap: 0 !important;
+    }
+    body[data-page="lich-lam"] .date-picker-btn-wrapper .btn svg { width: 20px; height: 20px; }
+    body[data-page="lich-lam"] .schedule-toolbar { align-items: stretch !important; }
+    body[data-page="lich-lam"] #current-day-label { font-size: var(--ui-font-md) !important; font-weight: 800 !important; line-height: 1.35; white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+    body[data-page="lich-lam"] #schedule-shift-filter {
+        width: 100% !important; height: var(--ui-tap) !important;
+        padding: 0 38px 0 12px !important; border-radius: 12px !important;
+        border: 1px solid var(--ui-line-strong) !important; background-color: var(--ui-surface) !important;
+        font-size: 16px !important; font-weight: 600 !important; color: var(--ui-ink) !important;
+        -webkit-appearance: none; appearance: none;
+        background-repeat: no-repeat !important; background-position: right 12px center !important; background-size: 16px !important;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234A5A54' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+    }
+}
+
+/* Ô chọn/nhập trên Quan Sát Ca: bỏ nền xám mặc định của hệ điều hành, đồng bộ mũi tên */
+.oversight-field select {
+    -webkit-appearance: none; appearance: none;
+    min-height: var(--ui-tap);
+    padding-right: 38px !important;
+    background-repeat: no-repeat; background-position: right 12px center; background-size: 16px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234A5A54' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+.oversight-field input { min-height: var(--ui-tap); }
+
+/* Máy nhỏ (≤ 400px): bỏ icon trong ô chọn tuần/ngày để đủ chỗ cho chữ; nhãn lối tắt một dòng. */
+@media (max-width: 400px) {
+    #personal-specific-header-controls > .btn { font-size: 0.8rem !important; padding: 0 10px !important; }
+    .cal-nav-select-wrap > svg { display: none; }
+    .nv-quick-item { font-size: 0.72rem !important; white-space: nowrap; }
+    .nv-quick-item > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+}
+/* Nút ghi chú / thêm công trong từng ngày của Bảng Công: 40px trên điện thoại */
+@media (max-width: 900px) {
+    .calendar-cell .action-btn { width: 40px !important; height: 40px !important; min-height: 40px !important; border-radius: 10px !important; }
+}
+
+/* Chuông thông báo trên máy tính: nằm trong ô chào ở thanh bên */
+.sidebar .user-profile-widget { position: relative; }
+.sidebar .user-profile-widget:has(.notif-bell--sidebar) { padding-right: 58px !important; }
+.notif-bell--sidebar {
+    position: absolute; top: 10px; right: 10px;
+    width: 40px; height: 40px;
+    box-shadow: none; border-color: var(--ui-line);
+}
+
+/* =====================================================================
+   HỘP THOẠI (xác nhận, thông báo, đổi mật khẩu, ghi chú ngày) — đồng bộ bo góc, nút chia đều 48px
+   ===================================================================== */
+.custom-modal-backdrop { padding: 16px; }
+.custom-modal-box {
+    width: min(420px, 100%) !important;
+    border-radius: 20px !important;
+    padding: 24px 20px 20px !important;
+    box-shadow: var(--ui-shadow-3) !important;
+}
+.custom-modal-box h3 { font-size: var(--ui-font-lg) !important; font-weight: 800 !important; }
+.custom-modal-box p { font-size: var(--ui-font-md) !important; line-height: 1.5 !important; }
+.custom-modal-actions {
+    display: grid !important;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 10px !important;
+    margin-top: 1.25rem !important;
+}
+.custom-modal-actions > .btn {
+    width: 100% !important;
+    min-height: 48px;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    font-size: var(--ui-font-md) !important;
+}
+#change-password-modal .modern-input { padding-right: 46px !important; min-height: 48px; font-size: 16px; border-radius: 12px; }
+#change-password-modal .modern-input + button { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; right: 4px !important; }
+
+/* Ghi chú ngày (Bảng Công) */
+#note-modal .modal-content { border-radius: 20px !important; }
+#note-content {
+    min-height: 110px; height: auto !important;
+    padding: 12px !important;
+    border: 1px solid var(--ui-line-strong) !important; border-radius: 12px !important;
+    background: var(--ui-surface) !important;
+    font-size: 16px !important; line-height: 1.45; resize: vertical;
+}
+#note-modal .btn { min-height: 48px; border-radius: 12px; font-weight: 700; }
+
+/* Banner họp trên Chấm Công / Bảng Cá Nhân: điện thoại xếp dọc, nút điểm danh full-width */
+@media (max-width: 768px) {
+    .meeting-banner { flex-direction: column !important; align-items: stretch !important; gap: 12px; padding: 1rem !important; border-radius: 16px !important; }
+    .meeting-banner h3 { font-size: var(--ui-font-md) !important; line-height: 1.35; }
+    .meeting-banner > div:first-child > div { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+    .meeting-banner > div:first-child > div > span { margin-right: 0 !important; }
+    .meeting-banner > div:last-child > * { width: 100%; justify-content: center; }
+    .meeting-banner-btn { min-height: 48px; border-radius: 12px !important; font-size: var(--ui-font-md) !important; }
+}

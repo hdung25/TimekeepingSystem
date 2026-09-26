@@ -1,8 +1,8 @@
-// Service Worker v206 - mobile UI refresh (bottom tabs, check-in/report redesign, no emoji, session resilience).
+// Service Worker v207 - staff pages redesign round 2 (month/week bars, make-up form, dialogs, iOS fixes).
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v206-mobile-ui-20260926';
+const APP_RELEASE = 'tdt-chamcong-v207-staff-ui-20260926';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -32,8 +32,8 @@ const STATIC_ASSETS = Array.from(new Set([
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',
     '/css/style.css?v=20260925-landscape-v1',
-    '/css/app-ui.css?v=20260926-mobile-ui-v1',
-    '/css/login.css?v=20260923-light-bg-v1',
+    '/css/app-ui.css?v=20260926-staff-ui-v2',
+    '/css/login.css?v=20260926-staff-ui-v2',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
     '/css/salary-review.css?v=20260921-overview-v1',
     '/js/salary-review-policy.js?v=20260919-review-v1',
@@ -43,7 +43,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20260926-mobile-ui-v1',
+    '/js/main.js?v=20260926-staff-ui-v2',
     '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
     '/js/db-service.js?v=20260923-fast-login-v2',

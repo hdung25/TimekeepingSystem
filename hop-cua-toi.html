@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-mobile-ui-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-staff-ui-v2">
 
     <style>
         .hero-absent-btn {
@@ -316,20 +316,20 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <header style="margin-bottom: 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <div>
-                    <h1 style="font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
-                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+            <div class="ui-page-head">
+                <div class="ui-page-head-text">
+                    <h1>
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
                         Họp Của Tôi
                     </h1>
-                    <p style="color: var(--text-muted);">Điểm danh họp định kỳ & theo dõi lịch họp của bạn</p>
+                    <p>Điểm danh họp định kỳ &amp; theo dõi lịch họp của bạn</p>
                 </div>
-                <div class="month-navigator" style="display: inline-flex; align-items: center; background: white; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 4px; box-shadow: var(--shadow-sm);">
-                    <button type="button" class="month-nav-btn" onclick="myMeetChangeMonth(-1)" style="background: transparent; border: none; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-weight: 700; color: var(--text-muted);">&lt;</button>
-                    <span id="mymeet-month" style="padding: 0 1rem; font-weight: 700; min-width: 130px; text-align: center;">Tháng --, ----</span>
-                    <button type="button" class="month-nav-btn" onclick="myMeetChangeMonth(1)" style="background: transparent; border: none; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-weight: 700; color: var(--text-muted);">&gt;</button>
+                <div class="month-navigator ui-monthbar">
+                    <button type="button" class="month-nav-btn ui-icon-btn" onclick="myMeetChangeMonth(-1)" aria-label="Tháng trước" title="Tháng trước"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                    <span id="mymeet-month" class="ui-monthbar-title">Tháng --, ----</span>
+                    <button type="button" class="month-nav-btn ui-icon-btn" onclick="myMeetChangeMonth(1)" aria-label="Tháng sau" title="Tháng sau"><svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
                 </div>
-            </header>
+            </div>
 
             <!-- Stats -->
             <div class="mymeet-stats" id="mymeet-stats">
@@ -372,7 +372,7 @@
     </div>
 
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260926-mobile-ui-v1"></script>
+    <script src="js/main.js?v=20260926-staff-ui-v2"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

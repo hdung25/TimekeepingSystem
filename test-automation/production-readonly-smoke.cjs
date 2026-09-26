@@ -9,7 +9,7 @@ const puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '..');
 const origin = 'https://timekeeping-system-tawny.vercel.app';
 const version = '20260923-fast-login-v2';
-const mainVersion = '20260926-mobile-ui-v1';
+const mainVersion = '20260926-staff-ui-v2';
 // Fixed cache name since v203; the release string is APP_RELEASE in service-worker.js.
 const serviceWorkerCacheName = 'tdt-chamcong-assets';
 const reportVersion = '20260926-mobile-ui-v1';
@@ -68,7 +68,7 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/main.js?v=20260926-mobile-ui-v1')) &&
+            return !!(await cache.match('/js/main.js?v=20260926-staff-ui-v2')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20260926-mobile-ui-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260923-fast-login-v2')) &&

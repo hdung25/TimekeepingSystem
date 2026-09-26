@@ -193,6 +193,11 @@ body {
     height: 20px;
 }
 
+/* Safari không tự ẩn thẻ <svg hidden> → trước đây hiện cả mắt mở lẫn mắt gạch. */
+#toggle-password svg[hidden] {
+    display: none;
+}
+
 /* ===== LOGIN BUTTON ===== */
 .login-btn {
     width: 100%;
