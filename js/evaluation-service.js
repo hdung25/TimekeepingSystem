@@ -77,6 +77,31 @@ function isCenterClosed(dateStr, shiftKey, centerClosures) {
 }
 window.isCenterClosed = isCenterClosed;
 
+// Chip "(Nghỉ)" của một lớp khi trung tâm cho nghỉ ca/ngày đó (lễ, tắt ca). Ngày trung tâm nghỉ
+// thì KHÔNG ai bị tính vắng: kể cả GV đã báo VP/VĐX từ trước hay phiên admin đánh dấu vắng —
+// không có buổi học nào để vắng. Người thực sự đi làm vẫn tính công bình thường (phiên làm việc
+// thật được xét trước). paidMinutes 0 như chip vắng cũ nên lương không đổi; các bộ đếm vắng
+// (chuyên cần, thống kê, PDF) đã bỏ qua chip isCenterOff.
+function centerOffTeachingChip(cls, secKey, idx, extra = {}) {
+    return {
+        text: `${cls.lop || 'ca dạy'} (Nghỉ)`,
+        class: 'chip-gray',
+        paidMinutes: 0,
+        tooltip: 'Trung tâm cho nghỉ (tắt lớp)',
+        sessionId: null,
+        isClickable: false,
+        isCenterOff: true,
+        isTeaching: true,
+        chipFilterName: normalizeChipFilterName(cls.lop),
+        classStart: cls.start,
+        classEnd: cls.end,
+        classCompositeKey: cls._compositeKey || null,
+        classSectionKey: secKey,
+        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx,
+        ...extra
+    };
+}
+
 // ================= EVALUATION CRITERIA (10 Tiêu Chí) =================
 
 const EVALUATION_CRITERIA = [
@@ -1232,6 +1257,13 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
             // GV chính đã báo nghỉ → chip lấy đúng loại VP/VĐX theo từng người.
             if (isOriginalVDX && !hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) {
+                // Trung tâm nghỉ ca/ngày này (lễ, tắt ca): lớp không diễn ra → không ai vắng.
+                if (isCenterClosed(dateStr, secKey, window.centerClosures)) {
+                    chips.push(centerOffTeachingChip(cls, secKey, idx, {
+                        tooltip: 'Trung tâm cho nghỉ (tắt lớp) — báo nghỉ trước đó không tính vắng'
+                    }));
+                    return;
+                }
                 // Không có chấm công phủ ca: giữ trạng thái nghỉ đã báo. Nếu GV
                 // thực tế vẫn đi làm thì chấm công thắng và luồng dưới tính công bình thường.
                 const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
@@ -1598,6 +1630,18 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 // Clone sessionData to prevent shared reference modifications
                 const chipSessionData = { ...matchedSession };
 
+                if (matchedSession.isAbsent && isCenterClosed(dateStr, secKey, window.centerClosures)) {
+                    // Phiên "vắng" do admin đánh dấu nhưng trung tâm nghỉ ca này → không tính vắng.
+                    // Giữ liên kết phiên để admin vẫn mở ra xem/sửa như trước.
+                    chips.push(centerOffTeachingChip(cls, secKey, idx, {
+                        tooltip: 'Trung tâm cho nghỉ (tắt lớp) — phiên vắng cũ không tính',
+                        sessionId: matchedSession.id,
+                        sessionData: chipSessionData,
+                        isClickable: true,
+                        isAdminEdited: !!matchedSession.isAdminEdited
+                    }));
+                    return;
+                }
                 if (matchedSession.isAbsent) {
                     const attendanceAbsenceState = resolveClassTeacherAbsenceState(cls, staffId, {
                         kind: 'gv',
@@ -2071,22 +2115,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             } else {
                 // --- CASE B: NO ATTENDANCE ---
                 if (isCenterClosed(dateStr, secKey, window.centerClosures)) {
-                    chips.push({
-                        text: `${cls.lop || 'ca dạy'} (Nghỉ)`,
-                        class: 'chip-gray',
-                        paidMinutes: 0,
-                        tooltip: 'Trung tâm cho nghỉ (tắt lớp)',
-                        sessionId: null,
-                        isClickable: false,
-                        isCenterOff: true,
-                        isTeaching: true,
-                        chipFilterName: normalizeChipFilterName(cls.lop),
-                        classStart: cls.start,
-                        classEnd: cls.end,
-                        classCompositeKey: cls._compositeKey || null,
-                        classSectionKey: secKey,
-                        classIndex: cls._originalIndex !== undefined ? cls._originalIndex : idx
-                    });
+                    chips.push(centerOffTeachingChip(cls, secKey, idx));
                     return;
                 }
 
@@ -2531,6 +2560,30 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
             const chipSessionData = { ...matchedSession };
 
+            if (matchedSession.isAbsent && isCenterClosed(dateStr, rs.shift, window.centerClosures)) {
+                // Phiên "vắng" do admin đánh dấu nhưng trung tâm nghỉ ca này → không tính vắng
+                // (giống chip nghỉ trung tâm khi không có chấm công); giữ liên kết phiên để sửa.
+                chips.push({
+                    text: label + ' (Nghỉ)',
+                    class: 'chip-gray',
+                    paidMinutes: 0,
+                    tooltip: 'Trung tâm cho nghỉ (tắt ca) — phiên vắng cũ không tính',
+                    sessionId: matchedSession.id,
+                    sessionData: chipSessionData,
+                    isClickable: true,
+                    isCenterOff: true,
+                    isReceptionist: true,
+                    isOffice: isOfficeShift,
+                    isAdminEdited: !!matchedSession.isAdminEdited,
+                    chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
+                    classCompositeKey: compositeKeyLocal,
+                    classSectionKey: rs.shift,
+                    classIndex: dayKeyLocal,
+                    isFixedShift: rs.isFixedShift,
+                    bonus10Status: null
+                });
+                return;
+            }
             if (matchedSession.isAbsent) {
                 const operationalAbsenceState = window.ShiftAbsenceState?.resolveOperationalShift
                     ? window.ShiftAbsenceState.resolveOperationalShift({

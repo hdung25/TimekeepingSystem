@@ -1707,4 +1707,84 @@ function observation(lateMinutes) {
     assert.equal(officeChip.paidMinutes, 210);
 }
 
+{
+    // NGÀY TRUNG TÂM NGHỈ (lễ Quốc khánh 01–02/09, tắt ca): không ai bị tính vắng, kể cả GV đã
+    // báo VP/VĐX từ trước hay phiên admin đánh dấu vắng. Người thật sự đi làm vẫn có công.
+    const holiday = '2026-09-02';
+    const TeacherAttendancePolicy = require('../js/teacher-attendance-policy.js');
+    const countAbsences = chips => {
+        const source = TeacherAttendancePolicy.sourceFromChips(chips, chip => chip.absenceType || null);
+        return source.vp + source.vdx + source.vkp + source.unreported;
+    };
+    const row = extra => ({
+        start: '07:30', end: '09:00', lop: 'TIN HỌC', lopId: 'subject-math', gvId: staffId,
+        registeredTeachers: [], _branch: 'cs1', _compositeKey: `cs1__${holiday}`, _originalIndex: 0, ...extra
+    });
+    const run = (sched, sessions, closures, operational = [], id = staffId, who = user) => {
+        context.window.centerClosures = closures;
+        try {
+            return context.window.calculateDailyChips(sched, sessions, id, holiday, who, operational, {}, [], {}, []);
+        } finally {
+            context.window.centerClosures = {};
+        }
+    };
+    const allDay = { [holiday]: ['all'] };
+
+    // GV đã báo vắng phép cho lớp của ngày lễ → "(Nghỉ)", không phải VP.
+    const reported = run({ morning1: [row({ teacherAbsences: [{ teacherId: staffId, type: 'VP' }] })] }, [], allDay);
+    assert.equal(reported.length, 1);
+    assert.equal(reported[0].isCenterOff, true, 'ngày trung tâm nghỉ: báo nghỉ cũ không thành chip vắng');
+    assert.match(reported[0].text, /\(Nghỉ\)/);
+    assert.equal(reported[0].absenceType, undefined);
+    assert.equal(reported[0].paidMinutes, 0);
+    assert.equal(countAbsences(reported), 0, 'chuyên cần không đếm vắng ngày trung tâm nghỉ');
+
+    // Cùng dữ liệu nhưng ngày KHÔNG nghỉ → vẫn là VP như cũ.
+    const normalDay = run({ morning1: [row({ teacherAbsences: [{ teacherId: staffId, type: 'VP' }] })] }, [], {});
+    assert.equal(normalDay[0].absenceType, 'VP');
+    assert.equal(countAbsences(normalDay), 1);
+
+    // Nghỉ chỉ buổi sáng thì lớp buổi chiều vẫn theo luật cũ.
+    const morningOnly = run({ afternoon1: [row({ start: '14:00', end: '15:30', teacherAbsences: [{ teacherId: staffId, type: 'VDX' }] })] }, [], { [holiday]: ['morning'] });
+    assert.equal(morningOnly[0].absenceType, 'VDX', 'phạm vi nghỉ buổi sáng không che lớp buổi chiều');
+
+    // Phiên "vắng" admin đánh dấu cho lớp ngày lễ → "(Nghỉ)", vẫn giữ liên kết phiên để admin sửa.
+    const markedAbsent = run({ morning1: [row()] }, [{
+        id: 'absent-1', isAbsent: true, checkIn: `${holiday}T00:30:00.000Z`, start: `${holiday}T00:30:00.000Z`,
+        checkOut: `${holiday}T02:00:00.000Z`, linkedClassStart: '07:30'
+    }], allDay);
+    assert.equal(markedAbsent.length, 1);
+    assert.equal(markedAbsent[0].isCenterOff, true);
+    assert.equal(markedAbsent[0].sessionId, 'absent-1');
+    assert.equal(countAbsences(markedAbsent), 0);
+
+    // Người thật sự đi làm ngày lễ vẫn được tính công (phiên làm việc thắng trạng thái nghỉ).
+    const worked = run({ morning1: [row()] }, [{
+        id: 'worked-1', checkIn: `${holiday}T00:28:00.000Z`, start: `${holiday}T00:28:00.000Z`, checkOut: `${holiday}T02:01:00.000Z`
+    }], allDay);
+    assert.equal(worked.length, 1);
+    assert.notEqual(worked[0].isCenterOff, true);
+    assert.equal(worked[0].paidMinutes, 90);
+
+    // Không chấm công, không báo nghỉ → "(Nghỉ)" (hành vi cũ giữ nguyên).
+    const noShow = run({ morning1: [row()] }, [], allDay);
+    assert.equal(noShow[0].isCenterOff, true);
+
+    // Tiếp tân: ca có phiên admin đánh dấu vắng hoặc không chấm công đều là "(Nghỉ)".
+    const receptionist = { roles: ['receptionist'], salary_config: { receptionist_normal_rate: 30000 } };
+    const shift = [{ shift: 'morning', label: 'SÁNG', start: '07:30', end: '11:30', branch: 'cs1', documentKey: `cs1_2026-08-31` }];
+    const ttAbsent = run({}, [{ id: 'tt-absent', isAbsent: true, checkIn: `${holiday}T00:30:00.000Z`, start: `${holiday}T00:30:00.000Z`,
+        checkOut: `${holiday}T04:30:00.000Z`, linkedReceptionistShift: 'morning' }], allDay, shift, 'tt-1', receptionist);
+    const ttChip = ttAbsent.find(chip => chip.isReceptionist);
+    assert.ok(ttChip, 'ca tiếp tân phải có chip');
+    assert.equal(ttChip.isCenterOff, true, 'phiên vắng tiếp tân ngày trung tâm nghỉ → Nghỉ');
+    assert.match(ttChip.text, /\(Nghỉ\)/);
+    assert.equal(ttChip.sessionId, 'tt-absent');
+    const ttNoShow = run({}, [], allDay, shift, 'tt-1', receptionist).find(chip => chip.isReceptionist);
+    assert.equal(ttNoShow.isCenterOff, true);
+    const ttNormal = run({}, [{ id: 'tt-absent', isAbsent: true, checkIn: `${holiday}T00:30:00.000Z`, start: `${holiday}T00:30:00.000Z`,
+        checkOut: `${holiday}T04:30:00.000Z`, linkedReceptionistShift: 'morning' }], {}, shift, 'tt-1', receptionist).find(chip => chip.isReceptionist);
+    assert.match(ttNormal.text, /\(Vắng\)/, 'ngày thường phiên vắng vẫn là Vắng');
+}
+
 console.log('evaluation-service regression tests passed');

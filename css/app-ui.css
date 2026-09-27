@@ -1168,3 +1168,253 @@ input[type="month"]::-webkit-date-and-time-value { text-align: left; }
     .meeting-banner > div:last-child > * { width: 100%; justify-content: center; }
     .meeting-banner-btn { min-height: 48px; border-radius: 12px !important; font-size: var(--ui-font-md) !important; }
 }
+
+/* =====================================================================
+   ĐỢT 3 (27/09/2026) — Chấm Công (trạng thái sau giờ tan ca), Bảng Công, Họp,
+   công cụ ngày nghỉ lễ. Chỉ trình bày.
+   ===================================================================== */
+
+/* ---------- Chấm Công: ca trước đã tự ra / mốc tự ra / đang kiểm tra ---------- */
+.tk-hero-done {
+    /* inline-block (không phải flex): chữ + giờ chảy thành câu liền, không tách cột */
+    display: inline-block;
+    max-width: 100%;
+    margin: 0.35rem auto 0; padding: 0.5rem 0.95rem;
+    border-radius: 999px;
+    background: var(--ui-ok-bg); color: var(--ui-ok-fg);
+    font-size: var(--ui-font-sm); font-weight: 600; line-height: 1.4;
+    text-align: center;
+}
+.tk-hero-done::before {
+    content: ''; display: inline-block; vertical-align: -3px; margin-right: 6px;
+    width: 16px; height: 16px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpolyline points='8 12.5 11 15.5 16.5 9.5'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpolyline points='8 12.5 11 15.5 16.5 9.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.tk-hero-done strong { font-weight: 800; font-variant-numeric: tabular-nums; }
+.tk-hero-autoend { margin: 0.75rem 0 0; color: var(--ui-ink-2); font-size: var(--ui-font-sm); }
+.tk-hero-autoend strong { color: var(--ui-ink); font-variant-numeric: tabular-nums; }
+.tk-hero--checking .tk-hero-sub { margin-top: 0.75rem; }
+.tk-hero--checking .tk-action {
+    background: var(--ui-surface-2) !important; color: var(--ui-ink-2) !important;
+    border: 1px solid var(--ui-line) !important; box-shadow: none !important; opacity: 1 !important;
+}
+
+/* ---------- Bảng Công trên điện thoại: thẻ ngày gọn, nút tròn đồng bộ, chip thẳng hàng ---------- */
+@media (max-width: 768px) {
+    /* Nút hành động đầu trang + ô lọc: cùng dạng viên thuốc, cùng chiều cao */
+    #personal-specific-header-controls > .btn {
+        min-height: 46px !important;
+        border-radius: 999px !important;
+        box-shadow: none !important;
+    }
+    .cal-nav-bar { border-radius: 20px !important; padding: 12px !important; }
+    .cal-nav-month { background: var(--ui-surface-2) !important; }
+    .cal-nav-select-wrap { border-radius: 999px !important; padding: 0 16px !important; background: var(--ui-surface-2) !important; }
+    .cal-nav-select-wrap::after { right: 16px; }
+    .rp-legend { gap: 8px 12px !important; padding: 12px 14px !important; border-radius: 16px !important; box-shadow: var(--ui-shadow-1); }
+    .rp-legend .schedule-chip { width: 10px !important; height: 10px !important; flex-basis: 10px; border-radius: 999px !important; }
+}
+@media (max-width: 380px) {
+    /* Máy 320–375px: chừa chỗ cho chữ "Chọn Tuần / Chọn Ngày" không bị cắt */
+    .cal-nav-select-wrap { padding: 0 10px 0 12px !important; }
+    .cal-nav-select-wrap::after { right: 12px; }
+    #personal-specific-header-controls > .btn { padding: 0 10px !important; }
+}
+
+@media (max-width: 900px) {
+    /* Thẻ ngày: nền trắng đồng nhất (bỏ tô màu T7/CN theo cột của lịch 7 cột máy tính) */
+    #calendar-grid .calendar-cell:not(.disabled) {
+        background: var(--ui-surface) !important;
+        border: 1px solid var(--ui-line) !important;
+        border-radius: 16px !important;
+        padding: 10px 10px 12px 14px !important;
+        box-shadow: var(--ui-shadow-1) !important;
+    }
+    #calendar-grid .calendar-cell.is-today { border-color: var(--ui-brand) !important; box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.14) !important; }
+    #calendar-grid .calendar-cell.is-holiday { background: #FFF7F6 !important; border-color: #F6D5D1 !important; }
+    /* Ngày không có ca: một hàng thấp, chữ nhạt — danh sách cả tháng ngắn và dễ lướt */
+    #calendar-grid .calendar-cell.is-empty-day { padding: 4px 6px 4px 14px !important; box-shadow: none !important; }
+    #calendar-grid .calendar-cell.is-empty-day:not(.is-holiday):not(.is-today) { background: var(--ui-surface-2) !important; border-color: transparent !important; }
+
+    /* Đầu thẻ: số ngày · thứ | nhãn lễ | nút tròn bên phải */
+    #calendar-grid .cal-day-head {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 8px;
+        min-height: 40px;
+        margin: 0 0 6px !important;
+    }
+    #calendar-grid .calendar-cell.is-empty-day .cal-day-head { margin-bottom: 0 !important; }
+    #calendar-grid .cal-day-num { flex: 0 0 auto; font-size: 1.05rem !important; font-weight: 800 !important; color: var(--ui-ink) !important; font-variant-numeric: tabular-nums; }
+    #calendar-grid .calendar-cell.is-empty-day .cal-day-num { font-size: 0.95rem !important; color: var(--ui-ink-3) !important; }
+    #calendar-grid .calendar-cell[data-weekday="T7"] .cal-day-num::after { color: #2563EB; }
+    #calendar-grid .calendar-cell[data-weekday="CN"] .cal-day-num::after { color: #C2410C; }
+    #calendar-grid .cal-holiday {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        margin: 0 !important;
+        padding: 3px 10px 3px 8px;
+        border-radius: 999px;
+        background: var(--ui-bad-bg);
+        color: var(--ui-bad-fg) !important;
+        font-size: 0.74rem !important;
+        font-weight: 700 !important;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #calendar-grid .cal-holiday svg { width: 12px !important; height: 12px !important; margin: 0 !important; flex: 0 0 12px; }
+    #calendar-grid .cal-day-actions { margin-left: auto; gap: 6px !important; flex: 0 0 auto; }
+    #calendar-grid .cal-day-actions .action-btn {
+        width: 40px !important; height: 40px !important; min-height: 40px !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        border: 1px solid var(--ui-line) !important;
+        background: var(--ui-surface) !important;
+        color: var(--ui-ink-3) !important;
+        display: inline-flex !important; align-items: center; justify-content: center;
+        box-shadow: none !important;
+    }
+    #calendar-grid .calendar-cell.is-empty-day .cal-day-actions .action-btn { background: transparent !important; border-color: transparent !important; }
+    #calendar-grid .cal-note-btn.has-note { background: var(--ui-brand-soft) !important; border-color: #B7E6D0 !important; color: var(--ui-brand-strong) !important; }
+    #calendar-grid .cal-add-btn { color: var(--ui-brand) !important; }
+    #calendar-grid .cal-day-actions .action-btn svg { width: 16px !important; height: 16px !important; }
+
+    /* Chip ca: chữ một hàng trên, các nút (+10p, Tăng ca, Sửa công) một hàng dưới, cùng cỡ */
+    #calendar-grid .schedule-chip.report-schedule-chip {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        column-gap: 6px;
+        row-gap: 0;
+        margin: 0 0 8px !important;
+        padding: 10px 12px !important;
+        border-radius: 12px !important;
+        border-left-width: 4px !important;
+        font-size: 0.875rem !important;
+        font-weight: 600 !important;
+        line-height: 1.4 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+    }
+    #calendar-grid .report-schedule-chip > .report-chip-main { flex: 1 1 0; min-width: 0; order: 0; }
+    #calendar-grid .report-schedule-chip > span:not(.report-chip-main) { order: 1; flex: 0 0 auto; }
+    #calendar-grid .report-schedule-chip::after { content: ''; order: 2; flex: 0 0 100%; height: 0; }
+    #calendar-grid .report-schedule-chip > .report-chip-action,
+    #calendar-grid .report-schedule-chip > input { order: 3; }
+    #calendar-grid .report-schedule-chip > .report-chip-action {
+        min-height: 36px !important;
+        margin: 8px 6px 0 0 !important;
+        padding: 0 12px !important;
+        border-radius: 999px !important;
+        font-size: 0.78rem !important;
+        font-weight: 700 !important;
+        gap: 5px !important;
+        line-height: 1.2 !important;
+        box-shadow: none !important;
+    }
+    #calendar-grid .report-schedule-chip > .report-chip-action svg { width: 14px !important; height: 14px !important; }
+    #calendar-grid .report-schedule-chip > input { margin: 8px 4px 0 0 !important; width: 20px; height: 20px; }
+    #calendar-grid .cal-day-total { margin-top: 2px !important; padding-top: 8px !important; }
+}
+
+/* ---------- Họp Của Tôi: thanh tháng — chữ tháng rõ, hai nút tròn cân đối ---------- */
+.ui-monthbar .ui-icon-btn { flex: 0 0 auto; }
+
+/* ---------- Công cụ Ngày nghỉ lễ (Xếp Lịch / Cài đặt hệ thống) ---------- */
+html.ch-open, html.ch-open body { overflow: hidden !important; }
+.ch-backdrop {
+    position: fixed; inset: 0; z-index: 9000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+    background: rgba(15, 27, 23, 0.45);
+    animation: fadeIn 0.18s ease;
+}
+.ch-sheet {
+    width: min(520px, 100%);
+    max-height: min(88vh, 780px);
+    display: flex; flex-direction: column;
+    background: var(--ui-surface); color: var(--ui-ink);
+    border-radius: 22px;
+    box-shadow: var(--ui-shadow-3);
+    overflow: hidden;
+    text-align: left;
+}
+.ch-head { display: flex; align-items: center; gap: 12px; padding: 16px 14px 12px 18px; border-bottom: 1px solid var(--ui-line); }
+.ch-head-icon { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--ui-bad-bg); color: var(--ui-bad-fg); }
+.ch-head-text { flex: 1 1 auto; min-width: 0; }
+.ch-head h2 { margin: 0; font-size: var(--ui-font-lg); font-weight: 800; line-height: 1.25; color: var(--ui-ink); }
+.ch-head p { margin: 2px 0 0; font-size: var(--ui-font-sm); color: var(--ui-ink-2); }
+.ch-close { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 999px; border: 1px solid var(--ui-line); background: var(--ui-surface); color: var(--ui-ink-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.ch-body { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 16px 18px calc(20px + var(--ui-safe-bottom)); }
+.ch-info { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 16px; padding: 12px 14px; border-radius: 14px; background: var(--ui-brand-softer); border: 1px solid #CDEBDD; color: var(--ui-ok-fg); font-size: var(--ui-font-sm); line-height: 1.45; }
+.ch-info .ui-icon { flex: 0 0 18px; margin-top: 1px; color: var(--ui-brand); }
+.ch-label, .ch-field > span, .ch-field > legend { display: block; margin: 0 0 6px; padding: 0; font-size: var(--ui-font-xs); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ui-ink-3); }
+.ch-field em { font-style: normal; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.ch-presets { margin-bottom: 16px; }
+.ch-preset-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.ch-preset { display: inline-flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; min-height: 48px; padding: 6px 14px; border-radius: 14px; border: 1px solid #F6D5D1; background: var(--ui-bad-bg); color: var(--ui-bad-fg); font: inherit; font-size: var(--ui-font-sm); font-weight: 800; cursor: pointer; text-align: left; }
+.ch-preset small { font-size: var(--ui-font-xs); font-weight: 600; color: #B8453C; }
+.ch-form { display: grid; gap: 14px; }
+.ch-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ch-field { display: block; min-width: 0; margin: 0; padding: 0; border: 0; }
+.ch-field input[type="date"], .ch-field input[type="text"] {
+    display: block; width: 100%; min-width: 0; min-height: 48px;
+    padding: 0 14px;
+    border: 1px solid var(--ui-line-strong); border-radius: 12px;
+    background: var(--ui-surface); color: var(--ui-ink);
+    font: inherit; font-size: 16px;
+    -webkit-appearance: none; appearance: none;
+}
+.ch-field input:focus { outline: none; border-color: var(--ui-brand); box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15); }
+.ch-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: var(--ui-surface-2); border: 1px solid var(--ui-line); }
+.ch-seg label { position: relative; margin: 0; min-width: 0; }
+.ch-seg input { position: absolute; opacity: 0; pointer-events: none; }
+.ch-seg span { display: flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 4px; border-radius: 10px; font-size: var(--ui-font-sm); font-weight: 700; color: var(--ui-ink-2); cursor: pointer; white-space: nowrap; transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+.ch-seg input:checked + span { background: var(--ui-surface); color: var(--ui-brand-strong); box-shadow: 0 1px 3px rgba(16, 24, 40, 0.14); }
+.ch-seg input:focus-visible + span { outline: 3px solid rgba(5, 150, 105, 0.35); outline-offset: 1px; }
+.ch-seg input:disabled + span { opacity: 0.55; cursor: not-allowed; }
+.ch-summary { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--ui-surface-2); border: 1px dashed var(--ui-line-strong); font-size: var(--ui-font-sm); line-height: 1.45; color: var(--ui-ink-2); }
+.ch-summary strong { color: var(--ui-ink); }
+.ch-summary.is-error { background: var(--ui-bad-bg); border-color: #F6D5D1; color: var(--ui-bad-fg); }
+.ch-summary-note { display: block; margin-top: 4px; font-weight: 600; color: var(--ui-warn-fg); }
+.ch-submit { width: 100%; min-height: 52px; justify-content: center; border-radius: 14px !important; font-size: var(--ui-font-md) !important; font-weight: 800 !important; }
+.ch-list-title { margin: 22px 0 8px; font-size: var(--ui-font-md); font-weight: 800; color: var(--ui-ink); }
+.ch-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ch-item {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "date btn" "meta btn";
+    align-items: center; column-gap: 12px; row-gap: 2px;
+    padding: 10px 10px 10px 14px;
+    border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface);
+}
+.ch-item.is-past { background: var(--ui-surface-2); }
+.ch-item-date { grid-area: date; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--ui-font-md); color: var(--ui-ink); }
+.ch-item-meta { grid-area: meta; min-width: 0; font-size: var(--ui-font-sm); color: var(--ui-ink-2); }
+.ch-tag { padding: 2px 8px; border-radius: 999px; background: var(--ui-off-bg); color: var(--ui-off-fg); font-size: var(--ui-font-xs); font-weight: 700; white-space: nowrap; }
+.ch-reopen { grid-area: btn; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--ui-line-strong); background: var(--ui-surface); color: var(--ui-bad-fg); font: inherit; font-size: var(--ui-font-sm); font-weight: 700; cursor: pointer; }
+.ch-reopen:disabled, .ch-preset:disabled { opacity: 0.55; cursor: not-allowed; }
+.ch-empty { padding: 14px; border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-ink-3); font-size: var(--ui-font-sm); text-align: center; }
+.ch-empty--error { background: var(--ui-bad-bg); color: var(--ui-bad-fg); }
+@media (max-width: 640px) {
+    .ch-backdrop { align-items: flex-end; padding: 0; }
+    .ch-sheet { width: 100%; max-height: 92vh; max-height: 92dvh; border-radius: 22px 22px 0 0; animation: chSheetUp 0.22s ease; }
+    .ch-head { padding: 14px 12px 10px 16px; }
+    .ch-body { padding: 14px 16px calc(18px + var(--ui-safe-bottom)); }
+}
+@keyframes chSheetUp { from { transform: translateY(28px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+#btn-center-holidays { background: var(--ui-bad-bg) !important; border: 1.5px solid #F6D5D1 !important; color: var(--ui-bad-fg) !important; font-weight: 700 !important; }
+@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+    /* Màn ngang thấp: nút chỉ còn biểu tượng (có aria-label) để hàng nút không tràn */
+    #admin-actions #btn-center-holidays .btn-label { display: none; }
+    /* Lịch Làm xoay ngang: ô lọc ca đợt 2 (width 100%) ép tiêu đề ngày thành cột hẹp mỗi chữ một dòng.
+       Ở màn ngang: tiêu đề một dòng (cắt "…"), ô lọc vừa chữ bên phải. */
+    body[data-page="lich-lam"] .schedule-toolbar { flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; }
+    body[data-page="lich-lam"] #current-day-label { flex: 1 1 auto; min-width: 0; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+    body[data-page="lich-lam"] #schedule-shift-filter { width: auto !important; max-width: 48%; flex: 0 0 auto; height: 40px !important; }
+}

@@ -200,5 +200,30 @@ const between = (source, from, to) => {
     }
     assert.match(main, /bell\.classList\.add\('notif-bell--sidebar'\)/, 'máy tính: chuông không nổi đè lên nội dung trang');
 
+    // ---------- 7. Đợt 3 (27/09/2026) ----------
+    // Đăng nhập: làm lại giao diện nhưng giữ nguyên form/id mà main.js dùng; luôn vừa 1 màn hình.
+    const loginHtml = read('index.html');
+    for (const hook of ['id="login-form"', 'id="username"', 'id="password"', 'id="login-error"', 'class="login-btn"',
+        'id="toggle-password"', "onclick=\"togglePasswordVisibility('password', this)\"", 'class="eye-open"', 'class="eye-off" hidden',
+        'autocomplete="username"', 'autocomplete="current-password"']) {
+        assert.ok(loginHtml.includes(hook), `trang đăng nhập phải giữ ${hook}`);
+    }
+    assert.doesNotMatch(loginHtml, /class="login-banner"|>Chào mùa hè/, 'bỏ dòng chào mùa hè cố định');
+    const loginCss = read('css/login.css');
+    assert.match(loginCss, /html,\s*body \{\s*height: 100%;\s*overflow: hidden;/, 'trang đăng nhập không cuộn lên xuống');
+    assert.match(loginCss, /\.login-shell \{[\s\S]*?height: 100dvh;[\s\S]*?overflow: hidden;/);
+    assert.match(loginCss, /@media \(max-height: 640px\)/, 'màn thấp thì co ảnh thay vì phải cuộn');
+    assert.match(loginCss, /\.login-btn:not\(\.is-loading\)::after/, 'mũi tên bằng CSS: main.js đặt lại chữ nút bằng textContent');
+
+    // Bảng Công: móc lớp cho CSS điện thoại; nút tròn có nhãn đọc được.
+    assert.match(report, /cell\.classList\.add\('is-holiday'\)/);
+    assert.match(report, /noteBtn\.className = hasNote \? 'action-btn cal-note-btn has-note' : 'action-btn cal-note-btn';/);
+    assert.match(report, /noteBtn\.setAttribute\('aria-label'/);
+    assert.match(css, /#calendar-grid \.report-schedule-chip::after \{ content: ''; order: 2; flex: 0 0 100%; height: 0; \}/, 'nút trong chip xuống một hàng riêng, thẳng hàng');
+    assert.match(css, /#calendar-grid \.calendar-cell:not\(\.disabled\) \{[\s\S]*?background: var\(--ui-surface\) !important;/, 'bỏ tô màu T7/CN theo cột trên điện thoại');
+    // Chấm Công: dòng "Ca trước đã tự kết thúc lúc …" là một câu liền (không tách cột như flex).
+    assert.match(css, /\.tk-hero-done \{[\s\S]*?display: inline-block;/);
+    assert.match(timekeeping, /class="tk-hero-done">Ca trước đã tự kết thúc lúc <strong>/);
+
     console.log('mobile-ui-session.test.js: all assertions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

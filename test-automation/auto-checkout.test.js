@@ -167,11 +167,12 @@ const withTimeout = (promise, label) => Promise.race([
     // nền; nếu vừa khép ca thì vẽ lại khung + chip. Bấm RA CA trong lúc chờ vẫn an toàn vì
     // globalCheckOut khép ca theo mốc tan ca trước (đã kiểm ở trên).
     const slice = (from, to) => timekeepingSource.slice(timekeepingSource.indexOf(from), timekeepingSource.indexOf(to));
-    const renderApi = (attendance, overdue) => {
+    const renderApi = (attendance, overdue, hint) => {
         const container = { innerHTML: '' };
         const calls = { overdue: [], chips: 0 };
         const api = new Function('window', 'document', 'localStorage', 'DBService', 'globalCheckAutoCheckout',
             'renderTodayChips', 'fetchAndRenderHistory', 'getStaffAttendanceErrorMessage', 'getLocalDateKeyFromDate', 'console',
+            'readShiftEndHint',
             slice('function getLocalDateKey', 'function timekeepingEscapeHTML') +
             slice('function getAttendanceSessions', 'function isCenterClosed') +
             slice('let attendanceRenderGeneration', '// 2. Render History') + '\nreturn { renderGlobalCheckIn };')(
@@ -183,20 +184,26 @@ const withTimeout = (promise, label) => Promise.race([
                 getPersonalAttendance: async dateKey => dateKey === vnDateKey(new Date()) ? attendance() : null
             },
             options => { calls.overdue.push(options); return overdue(); },
-            () => { calls.chips++; }, () => {}, () => 'error', vnDateKey, quiet);
+            () => { calls.chips++; }, () => {}, () => 'error', vnDateKey, quiet,
+            hint === undefined ? undefined : (userId, session) => hint(userId, session));
         return { api, container, calls };
     };
+    const tick = () => new Promise(resolve => setTimeout(resolve, 20));
     {
+        // Ca mở đã lâu mà máy CHƯA lưu mốc tan ca (vào ca ở máy khác…): không hiện RA CA của ca có
+        // thể đã hết giờ — hiện "đang kiểm tra" rồi vẽ theo kết quả thật.
         let open = { id: 'open', checkIn: new Date(Date.now() - 3600e3).toISOString(), checkOut: null };
         let finishOverdue;
         const view = renderApi(() => ({ sessions: [{ ...open }] }), () => new Promise(resolve => { finishOverdue = resolve; }));
         await withTimeout(view.api.renderGlobalCheckIn(), 'khung chấm công không được chờ kiểm tra ca quá giờ');
-        assert.match(view.container.innerHTML, /ĐANG TRONG CA/);
+        assert.match(view.container.innerHTML, /Đang cập nhật ca/);
+        assert.doesNotMatch(view.container.innerHTML, /RA CA|ĐANG TRONG CA/, 'chưa biết ca còn hay hết thì không hiện RA CA');
         assert.deepEqual(view.calls.overdue, [{ refreshUi: false }], 'ca đang mở vẫn được kiểm tra quá giờ ở nền');
-        open = { ...open, checkOut: new Date().toISOString() };
+        open = { ...open, checkOut: new Date().toISOString(), autoClosedReason: 'scheduled_end' };
         finishOverdue(true);
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await tick();
         assert.match(view.container.innerHTML, /VÀO CA/, 'vừa khép ca quá giờ thì vẽ lại khung');
+        assert.match(view.container.innerHTML, /Ca trước đã tự kết thúc lúc/);
         assert.doesNotMatch(view.container.innerHTML, /ĐANG TRONG CA/);
         assert.equal(view.calls.overdue.length, 1, 'lượt vẽ lại không kiểm tra lặp');
         assert.equal(view.calls.chips, 1, 'chip ca hôm nay cũng được làm mới');
@@ -205,15 +212,145 @@ const withTimeout = (promise, label) => Promise.race([
         const open = { id: 'open', checkIn: new Date(Date.now() - 3600e3).toISOString(), checkOut: null };
         const view = renderApi(() => ({ sessions: [open] }), async () => false);
         await view.api.renderGlobalCheckIn();
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await tick();
+        assert.match(view.container.innerHTML, /ĐANG TRONG CA/, 'kiểm tra xong, ca chưa hết giờ → RA CA như cũ');
+        assert.equal(view.calls.chips, 0, 'chưa quá giờ thì không vẽ lại chip');
+        assert.equal(view.calls.overdue.length, 1);
+    }
+    {
+        // Vừa vào ca (chưa kịp lưu mốc) → RA CA ngay, không có màn "đang kiểm tra".
+        const open = { id: 'fresh', checkIn: new Date(Date.now() - 5 * 60e3).toISOString(), checkOut: null };
+        const view = renderApi(() => ({ sessions: [open] }), () => new Promise(() => {}));
+        await view.api.renderGlobalCheckIn();
         assert.match(view.container.innerHTML, /ĐANG TRONG CA/);
-        assert.equal(view.calls.chips, 0, 'chưa quá giờ thì không vẽ lại');
+        assert.match(view.container.innerHTML, /RA CA/);
+    }
+    {
+        // LỖI ĐƯỢC BÁO: ca sáng tan 10:45, 14:00 mở app. Máy đã lưu mốc 10:45 → hiện NGAY VÀO CA,
+        // không hiện RA CA của ca sáng trong lúc chờ lượt nền ghi giờ ra.
+        let open = { id: 'morning', checkIn: new Date(Date.now() - 7 * 3600e3).toISOString(), checkOut: null };
+        const end = new Date(Date.now() - 3.25 * 3600e3);
+        let finishOverdue;
+        const hintCalls = [];
+        const view = renderApi(() => ({ sessions: [{ ...open }] }), () => new Promise(resolve => { finishOverdue = resolve; }),
+            (userId, session) => { hintCalls.push([userId, session.id]); return session.id === 'morning' ? { end } : undefined; });
+        await withTimeout(view.api.renderGlobalCheckIn(), 'không chờ lượt nền');
+        assert.deepEqual(hintCalls[0], ['staff-1', 'morning'], 'đọc mốc đúng người, đúng ca');
+        assert.match(view.container.innerHTML, /VÀO CA/);
+        assert.doesNotMatch(view.container.innerHTML, /RA CA|ĐANG TRONG CA|Đang cập nhật/);
+        assert.match(view.container.innerHTML, /Ca trước đã tự kết thúc lúc <strong>[0-9]{2}:[0-9]{2}<\/strong>/);
+        assert.deepEqual(view.calls.overdue, [{ refreshUi: false }], 'vẫn ghi giờ ra thật ở nền');
+        const before = view.container.innerHTML;
+        open = { ...open, checkOut: end.toISOString(), autoClosedReason: 'scheduled_end' };
+        finishOverdue(true);
+        await tick();
+        assert.equal(view.container.innerHTML, before, 'ghi xong không nhảy chữ: khung trước và sau giống hệt');
+        assert.equal(view.calls.chips, 1);
+    }
+    {
+        // Mốc đã lưu nói quá giờ nhưng admin vừa kéo dài ca: lượt nền không khép, mốc mới ở phía
+        // trước → vẽ lại RA CA.
+        const open = { id: 'extended', checkIn: new Date(Date.now() - 3 * 3600e3).toISOString(), checkOut: null };
+        let currentHint = { end: new Date(Date.now() - 600e3) };
+        const view = renderApi(() => ({ sessions: [open] }),
+            async () => { currentHint = { end: new Date(Date.now() + 3600e3) }; return false; },
+            () => currentHint);
+        await view.api.renderGlobalCheckIn();
+        assert.match(view.container.innerHTML, /VÀO CA/);
+        await tick();
+        assert.match(view.container.innerHTML, /ĐANG TRONG CA/);
+        assert.match(view.container.innerHTML, /Tự ra ca lúc <strong>/, 'hiện mốc tự ra mới');
+        assert.equal(view.calls.overdue.length, 1, 'không kiểm tra lặp');
+    }
+    {
+        // Ca không khớp lịch (mốc null) → giữ RA CA, không có dòng tự ra.
+        const open = { id: 'unmatched', checkIn: new Date(Date.now() - 2 * 3600e3).toISOString(), checkOut: null };
+        const view = renderApi(() => ({ sessions: [open] }), () => new Promise(() => {}), () => ({ end: null }));
+        await view.api.renderGlobalCheckIn();
+        assert.match(view.container.innerHTML, /ĐANG TRONG CA/);
+        assert.doesNotMatch(view.container.innerHTML, /Tự ra ca lúc/);
+    }
+    {
+        // Ca gần nhất do nhân viên tự bấm RA CA: không nhắc "tự kết thúc" của ca sáng.
+        const iso = h => new Date(Date.now() - h * 3600e3).toISOString();
+        const view = renderApi(() => ({ sessions: [
+            { id: 'a', checkIn: iso(8), checkOut: iso(5), autoClosedReason: 'scheduled_end' },
+            { id: 'b', checkIn: iso(3), checkOut: iso(1) }
+        ] }), async () => { throw new Error('không được gọi'); });
+        await view.api.renderGlobalCheckIn();
+        assert.match(view.container.innerHTML, /VÀO CA/);
+        assert.doesNotMatch(view.container.innerHTML, /tự kết thúc/);
     }
     {
         const view = renderApi(() => ({ sessions: [] }), async () => { throw new Error('không được gọi'); });
         await view.api.renderGlobalCheckIn();
         assert.equal(view.calls.overdue.length, 0, 'không có ca mở thì không đọc lịch');
         assert.match(view.container.innerHTML, /VÀO CA/);
+    }
+
+    // Mốc tự ra ca lưu trên máy: đúng người + đúng ca mới dùng; hỏng/khác ca thì bỏ qua.
+    {
+        const hintStart = source.indexOf('const SHIFT_END_HINT_KEY');
+        const hintEnd = source.indexOf('// App đang mở đúng lúc tan ca');
+        assert.ok(hintStart !== -1 && hintEnd > hintStart, 'không tìm thấy khối mốc tự ra ca trong js/main.js');
+        const store = new Map();
+        const storage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+        const hints = new Function('localStorage', 'window', source.slice(hintStart, hintEnd) +
+            '\nreturn { saveShiftEndHint, readShiftEndHint, clearShiftEndHint };')(storage, {});
+        const s1 = { id: 's1', checkIn: '2026-09-27T00:05:00.000Z' };
+        const end = new Date('2026-09-27T03:45:00.000Z');
+        hints.saveShiftEndHint('staff-1', s1, end);
+        assert.equal(hints.readShiftEndHint('staff-1', s1).end.toISOString(), end.toISOString());
+        assert.equal(hints.readShiftEndHint('staff-2', s1), undefined, 'người khác trên cùng máy không dùng mốc');
+        assert.equal(hints.readShiftEndHint('staff-1', { ...s1, id: 's2' }), undefined, 'ca khác không dùng mốc');
+        assert.equal(hints.readShiftEndHint('staff-1', { ...s1, checkIn: '2026-09-27T01:00:00.000Z' }), undefined);
+        hints.saveShiftEndHint('staff-1', s1, null);
+        assert.deepEqual(hints.readShiftEndHint('staff-1', s1), { end: null }, 'ca không khớp lịch');
+        store.set('tdt_shift_end_hint_v1', '{hỏng');
+        assert.equal(hints.readShiftEndHint('staff-1', s1), undefined, 'dữ liệu hỏng không làm vỡ trang');
+        hints.saveShiftEndHint('staff-1', s1, end);
+        hints.clearShiftEndHint();
+        assert.equal(hints.readShiftEndHint('staff-1', s1), undefined);
+        const throwing = new Function('localStorage', 'window', source.slice(hintStart, hintEnd) +
+            '\nreturn { saveShiftEndHint, readShiftEndHint, clearShiftEndHint };')(
+            { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } }, {});
+        throwing.saveShiftEndHint('staff-1', s1, end);
+        throwing.clearShiftEndHint();
+        assert.equal(throwing.readShiftEndHint('staff-1', s1), undefined, 'trình duyệt chặn bộ nhớ vẫn chạy bình thường');
+    }
+
+    // runGlobalAutoCheckout lưu mốc khi chưa tới giờ (và hẹn lượt kiểm tra đúng giờ), xoá mốc khi đã ra ca.
+    {
+        const hintStart = source.indexOf('const SHIFT_END_HINT_KEY');
+        const store = new Map();
+        const storage = { getItem: k => (k === 'currentUserId' ? 'staff-1' : (store.has(k) ? store.get(k) : null)), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+        const timers = [];
+        const nowMs = Date.now();
+        const checkIn = new Date(nowMs - 2 * 3600e3).toISOString();
+        let session = { id: 'live', checkIn, start: checkIn, checkOut: null };
+        let blockEnd = new Date(nowMs + 45 * 60e3);
+        const outs = [];
+        const api2 = new Function('localStorage', 'window', 'DBService', 'getLocalDateKeyFromDate', 'findReceptionistShiftBlocks',
+            'findTeachingBlocks', 'resolveWorkChainEnd', 'UIService', 'renderGlobalCheckIn', 'renderTodayChips', 'console',
+            'setTimeout', 'clearTimeout',
+            source.slice(hintStart, autoEnd) + '\nreturn { globalCheckAutoCheckout, readShiftEndHint };')(
+            storage, {}, {
+                _invalidateAttendance() {},
+                getPersonalAttendance: async dateKey => dateKey === vnDateKey(new Date()) ? { sessions: [{ ...session }] } : null,
+                getCancelledShifts: async () => [], getSystemSettings: async () => ({}),
+                checkOutPersonal: async (userId, at) => { outs.push(at.toISOString()); session = { ...session, checkOut: at.toISOString() }; }
+            }, vnDateKey,
+            async () => [{ start: new Date(nowMs - 2.5 * 3600e3), end: blockEnd, kind: 'tiep-tan' }],
+            async () => [], context.resolveWorkChainEnd, undefined, async () => {}, () => {}, quiet,
+            (fn, ms) => { timers.push(ms); return timers.length; }, () => {});
+        assert.equal(await api2.globalCheckAutoCheckout({ fresh: true, refreshUi: false }), false);
+        assert.equal(api2.readShiftEndHint('staff-1', session).end.toISOString(), blockEnd.toISOString(), 'lưu mốc tan ca của ca đang mở');
+        assert.equal(timers.length, 1, 'hẹn một lượt kiểm tra đúng giờ tan ca');
+        assert.ok(timers[0] >= 44 * 60e3 && timers[0] <= 46 * 60e3 + 2000);
+        blockEnd = new Date(nowMs - 60e3);
+        assert.equal(await api2.globalCheckAutoCheckout({ fresh: true, refreshUi: false }), true);
+        assert.deepEqual(outs, [blockEnd.toISOString()], 'ghi đúng mốc tan ca');
+        assert.equal(store.has('tdt_shift_end_hint_v1'), false, 'đã ra ca thì xoá mốc');
     }
     assert.match(source, /const runFreshAutoCheckout = \(\) => globalCheckAutoCheckout\(\{ fresh: true \}\)/);
     assert.match(source, /visibilityState === 'visible'\) runFreshAutoCheckout\(\)/,

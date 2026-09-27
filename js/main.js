@@ -755,6 +755,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+// ================= MỐC TỰ RA CA LƯU TRÊN MÁY =================
+// Điện thoại khoá màn hình / tắt app đúng lúc tan ca thì không có JavaScript nào chạy để ra
+// ca. Mở lại app sau đó (ví dụ 14:00, ca sáng tan 10:45), khung chấm công trước đây hiện RA CA
+// của ca sáng suốt 4–5 giây trong lúc đọc lịch 3 cơ sở rồi mới tự ra ca. Nay mỗi lần tính được
+// mốc tan ca của ca đang mở thì lưu lại trên máy; lần mở sau khung đọc ngay mốc này để hiện
+// đúng VÀO CA. Chỉ phục vụ hiển thị: việc GHI giờ ra vẫn đọc lịch mới từ máy chủ và kiểm tra
+// đúng ca trong transaction như trước (xem runGlobalAutoCheckout / checkOutPersonal).
+const SHIFT_END_HINT_KEY = 'tdt_shift_end_hint_v1';
+function shiftEndHintSessionKey(session) {
+    if (!session) return '';
+    return `${session.id || 'legacy'}|${session.checkIn || session.start || ''}`;
+}
+function saveShiftEndHint(userId, session, end) {
+    try {
+        const endMs = end instanceof Date ? end.getTime() : NaN;
+        localStorage.setItem(SHIFT_END_HINT_KEY, JSON.stringify({
+            userId: String(userId || ''),
+            session: shiftEndHintSessionKey(session),
+            // null = ca không khớp lịch nào → không tự ra, khung giữ RA CA.
+            end: Number.isFinite(endMs) ? new Date(endMs).toISOString() : null,
+            savedAt: Date.now()
+        }));
+    } catch (_) { /* bộ nhớ đầy/bị chặn: chỉ mất phần hiển thị nhanh */ }
+}
+function clearShiftEndHint() {
+    try { localStorage.removeItem(SHIFT_END_HINT_KEY); } catch (_) { /* không sao */ }
+}
+// { end: Date | null } nếu đã lưu mốc cho ĐÚNG ca này của ĐÚNG người này; còn lại undefined.
+function readShiftEndHint(userId, session) {
+    let hint = null;
+    try { hint = JSON.parse(localStorage.getItem(SHIFT_END_HINT_KEY) || 'null'); } catch (_) { return undefined; }
+    if (!hint || typeof hint !== 'object' || !session) return undefined;
+    if (String(hint.userId) !== String(userId || '') || hint.session !== shiftEndHintSessionKey(session)) return undefined;
+    if (hint.end === null) return { end: null };
+    const end = new Date(hint.end);
+    return Number.isFinite(end.getTime()) ? { end } : undefined;
+}
+if (typeof window !== 'undefined') window.readShiftEndHint = readShiftEndHint;
+
+// App đang mở đúng lúc tan ca: hẹn một lượt kiểm tra ngay mốc đó (interval 60 giây vẫn là lưới
+// an toàn). Chỉ hẹn mốc trong 12 giờ tới; mỗi lần tính lại mốc thì hẹn lại, không chồng timer.
+let exactAutoCheckoutTimer = null;
+function scheduleExactAutoCheckout(end) {
+    if (exactAutoCheckoutTimer) {
+        clearTimeout(exactAutoCheckoutTimer);
+        exactAutoCheckoutTimer = null;
+    }
+    const delay = end instanceof Date ? end.getTime() - Date.now() : NaN;
+    if (!Number.isFinite(delay) || delay <= 0 || delay > 12 * 60 * 60 * 1000) return;
+    exactAutoCheckoutTimer = setTimeout(() => {
+        exactAutoCheckoutTimer = null;
+        globalCheckAutoCheckout({ fresh: true });
+    }, delay + 1500);
+}
+
 // ================= GLOBAL AUTO-CHECKOUT FUNCTION =================
 // Runs on ALL pages. Checks if user has an open session and their shift/class has ended.
 // Trả về true nếu vừa ra ca. options.fresh: bỏ cache chấm công trước khi đọc (mở lại app);
@@ -833,13 +888,17 @@ async function runGlobalAutoCheckout(options = {}) {
         const selectedOpen = openCandidates[0];
         if (!selectedOpen) {
             globalAutoCheckoutScheduleSnapshot = null;
+            if (typeof clearShiftEndHint === 'function') clearShiftEndHint();
             return false; // No open session → do not load schedules.
         }
         const openSession = selectedOpen.session;
         const dateKey = selectedOpen.dateKey;
         // An administrator may deliberately leave a corrected session open.
         // Preserve that explicit decision, including when another page resumes.
-        if (openSession.isAdminEdited) return false;
+        if (openSession.isAdminEdited) {
+            if (typeof clearShiftEndHint === 'function') clearShiftEndHint();
+            return false;
+        }
 
         // 2. Determine when the user's current shift/class ends
         const checkInTime = new Date(openSession.checkIn || openSession.start);
@@ -869,12 +928,20 @@ async function runGlobalAutoCheckout(options = {}) {
             scheduleRefreshed = true;
             return blocks;
         };
+        // Mỗi mốc vừa tính được lưu lại cho khung chấm công (hiển thị nhanh lần mở sau) và
+        // hẹn lượt kiểm tra đúng giờ nếu mốc còn ở phía trước.
+        const rememberWorkEnd = end => {
+            if (typeof saveShiftEndHint === 'function') saveShiftEndHint(currentUserId, openSession, end);
+            if (end && now < end && typeof scheduleExactAutoCheckout === 'function') scheduleExactAutoCheckout(end);
+        };
         let finalEnd = resolveWorkChainEnd(await loadWorkBlocks(options.fresh === true), checkInTime);
+        rememberWorkEnd(finalEnd);
         if (!finalEnd || now < finalEnd) return false;
         // Admin may extend/cancel a shift after this tab's previous check. Never
         // persist an automatic cutoff based only on the reusable memory snapshot.
         if (!scheduleRefreshed) {
             finalEnd = resolveWorkChainEnd(await loadWorkBlocks(true), checkInTime);
+            rememberWorkEnd(finalEnd);
             if (!finalEnd || now < finalEnd) return false;
         }
         if (localStorage.getItem('currentUserId') !== currentUserId) return false;
@@ -895,8 +962,11 @@ async function runGlobalAutoCheckout(options = {}) {
             if (typeof window !== 'undefined') window.__autoCheckoutPending = false;
         }
         globalAutoCheckoutScheduleSnapshot = null;
+        if (typeof clearShiftEndHint === 'function') clearShiftEndHint();
         if (typeof UIService !== 'undefined' && UIService.toast) {
-            UIService.toast('Đã tự động Ra Ca (hết giờ làm hôm nay)', 'success');
+            // Ghi rõ mốc: chiều còn ca thì "hết giờ làm hôm nay" (câu cũ) dễ gây hiểu nhầm.
+            const endLabel = finalEnd.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            UIService.toast(`Đã tự động ra ca lúc ${endLabel} (hết giờ theo lịch)`, 'success');
         }
         return true;
     } catch (e) {

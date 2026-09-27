@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Đăng Nhập - Hệ Thống Chấm Công</title>
     <link rel="icon" type="image/webp" href="images/logo-192.webp">
     <link rel="manifest" href="manifest.json">
@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/login.css?v=20260926-staff-ui-v2">
+    <link rel="stylesheet" href="css/login.css?v=20260927-login-v3">
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 
@@ -22,52 +22,77 @@
     <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src="js/db-service.js?v=20260923-fast-login-v2"></script>
 </head>
 
-<body>
-    <!-- TOP BANNER -->
-    <div class="login-banner">Chào mùa hè 2026 rực rỡ!</div>
-
-    <main class="login-wrapper" aria-label="Đăng nhập hệ thống">
-        <!-- Full screen background -->
-        <div class="login-bg" aria-hidden="true"></div>
-
-        <!-- Login Card -->
-        <section class="login-card">
-            <div class="login-header">
-                <img src="images/logo-192.webp" width="72" height="72" alt="Logo Ngoại Ngữ &amp; Toán Tư Duy Trẻ" class="login-logo">
-                <p class="login-kicker">Ngoại Ngữ & Toán Tư Duy Trẻ</p>
-                <h1>CHÀO MỪNG TRỞ LẠI!</h1>
-                <p>Hệ thống Chấm công & Tính lương Tự động</p>
+<body class="login-page">
+    <main class="login-shell" aria-label="Đăng nhập hệ thống">
+        <!-- Ảnh thương hiệu (hoa sen) + logo -->
+        <section class="login-hero" aria-hidden="true">
+            <div class="login-hero-art"></div>
+            <span class="login-greeting">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+                <span id="login-greeting-text">Xin chào</span>
+            </span>
+            <div class="login-hero-brand">
+                <img src="images/logo-192.webp" width="64" height="64" alt="" class="login-logo">
+                <div class="login-hero-text">
+                    <p class="login-kicker">Ngoại Ngữ &amp; Toán Tư Duy Trẻ</p>
+                    <p class="login-hero-title">Chấm công &amp; Tính lương</p>
+                </div>
             </div>
+        </section>
 
-            <form id="login-form">
-                <div class="form-group">
-                    <label for="username">Tên đăng nhập</label>
-                    <input type="text" id="username" class="form-input" placeholder="admin" required autocomplete="username">
+        <!-- Khung đăng nhập -->
+        <section class="login-card">
+            <div class="login-card-inner">
+                <div class="login-header">
+                    <h1>Chào mừng trở lại!</h1>
+                    <p>Đăng nhập để chấm công và xem bảng lương của bạn.</p>
                 </div>
 
-                <div class="form-group">
-                    <label for="password">Mật khẩu</label>
-                    <div class="password-field">
-                        <input type="password" id="password" class="form-input" placeholder="password" required autocomplete="current-password">
-                        <button type="button" id="toggle-password" aria-label="Hiện mật khẩu" title="Hiện mật khẩu" onclick="togglePasswordVisibility('password', this)">
-                            <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-                        </button>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="username">Tên đăng nhập</label>
+                        <div class="input-wrap">
+                            <svg class="input-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                            <input type="text" id="username" class="form-input" placeholder="Nhập tên đăng nhập" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+                        </div>
                     </div>
-                </div>
 
-                <button type="submit" class="login-btn">Đăng Nhập</button>
+                    <div class="form-group">
+                        <label for="password">Mật khẩu</label>
+                        <div class="input-wrap password-field">
+                            <svg class="input-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                            <input type="password" id="password" class="form-input" placeholder="Nhập mật khẩu" required autocomplete="current-password">
+                            <button type="button" id="toggle-password" aria-label="Hiện mật khẩu" title="Hiện mật khẩu" onclick="togglePasswordVisibility('password', this)">
+                                <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                            </button>
+                        </div>
+                    </div>
 
-                <div id="login-error" class="login-error" style="display: none;"></div>
+                    <button type="submit" class="login-btn">Đăng Nhập</button>
 
-                <div class="login-help">
-                    <a href="#">Quên mật khẩu? Liên hệ Admin</a>
-                </div>
-            </form>
+                    <div id="login-error" class="login-error" style="display: none;"></div>
+
+                    <div class="login-help">
+                        <a href="#">Quên mật khẩu? Liên hệ Admin</a>
+                    </div>
+                </form>
+
+                <p class="login-foot">Hệ thống nội bộ · Ngoại Ngữ &amp; Toán Tư Duy Trẻ</p>
+            </div>
         </section>
     </main>
 
+    <script>
+        // Lời chào theo giờ Việt Nam (thay dòng "Chào mùa hè" cố định cũ).
+        (function () {
+            var hour = new Date(Date.now() + 7 * 3600000).getUTCHours();
+            var text = hour < 11 ? 'Chào buổi sáng' : hour < 13 ? 'Chào buổi trưa' : hour < 18 ? 'Chào buổi chiều' : 'Chào buổi tối';
+            var el = document.getElementById('login-greeting-text');
+            if (el) el.textContent = text;
+        })();
+    </script>
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260926-staff-ui-v2"></script>
+    <script src="js/main.js?v=20260927-round3-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 </body>
 

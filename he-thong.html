@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260926-staff-ui-v2">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20260927-round3-v1">
     <link rel="stylesheet" href="css/login.css"> <!-- Reusing form styles -->
 
     <!-- Firebase SDK (Compat) -->
@@ -222,8 +222,13 @@
 
                 <!-- PANEL 2: QUẢN LÝ TẮT LỚP (NGHỈ TRUNG TÂM) -->
                 <div class="glass-panel" style="padding: 2rem;">
-                    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--primary-color);">Quản Lý Tắt Lớp (Nghỉ Trung Tâm)</h2>
-                    
+                    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; color: var(--primary-color);">Quản Lý Tắt Lớp (Nghỉ Trung Tâm)</h2>
+                    <button type="button" id="btn-center-holidays" class="btn" onclick="CenterHolidays.openManager()"
+                        style="display:flex;align-items:center;justify-content:center;gap:0.5rem;width:100%;min-height:48px;margin-bottom:1.5rem;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" x2="4" y1="22" y2="15"></line></svg>
+                        Đặt nghỉ lễ nhiều ngày cho toàn trung tâm
+                    </button>
+
                     <form id="add-closure-form" style="margin-bottom: 2rem;">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                             <div class="form-group">
@@ -336,7 +341,8 @@
     </div>
 
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20260926-staff-ui-v2"></script>
+    <script src="js/main.js?v=20260927-round3-v1"></script>
+    <script src="js/center-holidays.js?v=20260927-holidays-v1"></script>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             if (window.waitAuth) {
@@ -344,6 +350,8 @@
             }
             await initSettingsPage();
         });
+        // Công cụ ngày nghỉ lễ vừa lưu → tải lại danh sách ngày nghỉ bên dưới.
+        window.addEventListener('tdt:center-closures-changed', () => { loadSettings(); });
 
         let cachedSettings = {};
 
@@ -495,6 +503,9 @@
 
         const shiftLabels = {
             'all': 'Cả ngày',
+            'morning': 'Buổi sáng',
+            'afternoon': 'Buổi chiều',
+            'evening': 'Buổi tối',
             'morning1': 'Ca Sáng 1',
             'morning2': 'Ca Sáng 2',
             'afternoon1': 'Ca Chiều 1',
@@ -518,15 +529,18 @@
             let html = '';
             dates.forEach(dateStr => {
                 const shifts = closures[dateStr] || [];
+                const holidayName = window.CenterHolidays ? window.CenterHolidays.holidayLabel(dateStr, cachedSettings) : '';
                 shifts.forEach(shift => {
                     const label = shiftLabels[shift] || shift;
                     const dateParts = dateStr.split('-');
                     const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : dateStr;
+                    const safeName = String(holidayName || '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]));
                     html += `
                         <div class="closure-item">
                             <div>
                                 <strong>Ngày: ${formattedDate}</strong>
                                 <span style="margin-left: 0.75rem; color: #DC2626; font-weight: 500;">(${label})</span>
+                                ${safeName ? `<span style="margin-left: 0.5rem; color: var(--text-muted); font-weight: 500;">${safeName}</span>` : ''}
                             </div>
                             <button class="btn-delete" onclick="deleteClosure('${dateStr}', '${shift}')">Xóa</button>
                         </div>

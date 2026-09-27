@@ -209,9 +209,11 @@ async function initReport() {
     try {
         const settings = await DBService.getSystemSettings();
         window.centerClosures = settings?.centerClosures || {};
+        window.centerHolidayNames = settings?.centerHolidayNames || {};
     } catch (e) {
         console.warn("Error loading system settings in report:", e);
         window.centerClosures = {};
+        window.centerHolidayNames = {};
     }
 
     // 1. Title & Admin Controls
@@ -1095,12 +1097,19 @@ function getLocalDateKey(date) {
 
 function getHolidayName(dateStr) {
     const [y, m, d] = dateStr.split('-').map(Number);
+    const closureKeys = window.centerClosures?.[dateStr];
+    const isClosedDay = Array.isArray(closureKeys) && closureKeys.length > 0;
+
+    // 0. Tên do người xếp lịch đặt ở công cụ "Ngày nghỉ lễ" — chỉ khi ngày đó đang nghỉ.
+    const customName = isClosedDay ? String(window.centerHolidayNames?.[dateStr] || '').trim() : '';
+    if (customName) return customName;
 
     // 1. Fixed Solar Holidays
     if (m === 1 && d === 1) return "Tết Dương Lịch";
     if (m === 4 && d === 30) return "Giải phóng MN";
     if (m === 5 && d === 1) return "Quốc tế LĐ";
     if (m === 9 && d === 2) return "Quốc Khánh";
+    if (y === 2026 && m === 9 && d === 1) return "Quốc Khánh"; // Năm 2026 nghỉ Quốc khánh 01–02/09
     if (m === 12 && d === 25) return "Giáng Sinh"; // Optional
 
     // 2. Variable Lunar Holidays (Hardcoded for 2024-2026)
@@ -1120,6 +1129,9 @@ function getHolidayName(dateStr) {
         if (m === 2 && (d >= 17 && d <= 22)) return "Tết Nguyên Đán"; // 1st Tet is 17 Feb 2026
         if (m === 4 && d === 25) return "Giỗ Tổ Hùng Vương"; // 10/3 Lunar = Apr 25
     }
+
+    // Trung tâm nghỉ cả ngày nhưng chưa đặt tên → vẫn ghi rõ để nhân viên hiểu chip "(Nghỉ)".
+    if (isClosedDay && closureKeys.includes('all')) return "Trung tâm nghỉ";
 
     // Sundays are not holidays by default logic here, just "Weekend"
     return null;
@@ -1253,7 +1265,10 @@ async function _renderMonthReport(date, forceServer = false) {
     window.savedFixedShiftsMonth = [];
     window.allReceptionistsData = [];
     const payrollSystemSettings = await DBService._getRequiredFinancialDocument('settings', 'system') || {};
-    if (!commitCurrentRender(() => { window.centerClosures = payrollSystemSettings.centerClosures || {}; })) return;
+    if (!commitCurrentRender(() => {
+        window.centerClosures = payrollSystemSettings.centerClosures || {};
+        window.centerHolidayNames = payrollSystemSettings.centerHolidayNames || {};
+    })) return;
     const staleBreakdownSection = document.getElementById('subject-breakdown-section');
     const staleBreakdownBody = document.getElementById('subject-breakdown-body');
     if (staleBreakdownSection) staleBreakdownSection.style.display = 'none';
@@ -2017,25 +2032,30 @@ async function _renderMonthReport(date, forceServer = false) {
         const noteText = _cachedStaffNotes[dateStr] || '';
         const hasNote = !!noteText;
 
+        dateHeader.className = 'cal-day-head';
+        if (hasNote) cell.classList.add('has-note');
+
         if (hasNote) {
             // Highlighted date number with pin
-            dateHeader.innerHTML = `<span style="font-weight: 700; color: var(--primary-color);"><span class="cal-day-pin">${reportIcon('pin', 14, '•')}</span>${d}</span>`;
+            dateHeader.innerHTML = `<span class="cal-day-num" style="font-weight: 700; color: var(--primary-color);"><span class="cal-day-pin">${reportIcon('pin', 14, '•')}</span>${d}</span>`;
             // Highlight entire cell background
             cell.style.backgroundColor = '#EFF6FF'; // Light blue
             cell.style.borderLeft = '3px solid var(--primary-color)';
         } else {
-            dateHeader.innerHTML = `<span style="font-weight: 600;">${d}</span>`;
+            dateHeader.innerHTML = `<span class="cal-day-num" style="font-weight: 600;">${d}</span>`;
         }
 
         // --- HOLIDAY CHECK ---
         const holidayName = getHolidayName(dateStr);
         if (holidayName) {
+            cell.classList.add('is-holiday');
             const holDiv = document.createElement('div');
+            holDiv.className = 'cal-holiday';
             holDiv.style.fontSize = '0.7em';
             holDiv.style.color = '#EF4444';
             holDiv.style.marginTop = '2px';
             holDiv.style.fontWeight = 'bold';
-            holDiv.innerHTML = `${window.getIconHtml('flag', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px;'})} ${holidayName}`;
+            holDiv.innerHTML = `${window.getIconHtml('flag', {width: '14', height: '14', style: 'display:inline-block; vertical-align:middle; margin-right:4px;'})} ${escapeReportHtml(holidayName)}`;
             dateHeader.appendChild(holDiv);
 
             // Highlight cell background slightly (holiday takes priority if also has note)
@@ -2047,10 +2067,14 @@ async function _renderMonthReport(date, forceServer = false) {
         controlsDiv.style.display = 'flex';
         controlsDiv.style.gap = '4px';
 
+        controlsDiv.className = 'cal-day-actions';
+
         const noteBtn = document.createElement('button');
+        noteBtn.type = 'button';
         noteBtn.innerHTML = window.getIconHtml('file-text', {width: '14', height: '14'});
-        noteBtn.className = 'action-btn';
+        noteBtn.className = hasNote ? 'action-btn cal-note-btn has-note' : 'action-btn cal-note-btn';
         noteBtn.title = hasNote ? `Ghi chú: ${noteText.substring(0, 50)}...` : 'Thêm ghi chú';
+        noteBtn.setAttribute('aria-label', hasNote ? `Xem ghi chú ngày ${d}` : `Thêm ghi chú ngày ${d}`);
         noteBtn.onclick = () => openNoteModal(dateStr);
         if (hasNote) noteBtn.style.color = 'var(--primary-color)';
         else noteBtn.style.color = '#ccc';
@@ -2060,9 +2084,11 @@ async function _renderMonthReport(date, forceServer = false) {
         // --- ADMIN ONLY: Manual Add Button ---
         if (isAdminRole) {
             const addBtn = document.createElement('button');
+            addBtn.type = 'button';
             addBtn.innerHTML = window.getIconHtml('plus', {width: '14', height: '14'});
-            addBtn.className = 'action-btn';
+            addBtn.className = 'action-btn cal-add-btn';
             addBtn.title = 'Chấm công bù/thủ công';
+            addBtn.setAttribute('aria-label', `Chấm công bù/thủ công ngày ${d}`);
             addBtn.style.color = '#10B981'; // Green
             addBtn.onclick = () => openManualModal(dateStr);
             controlsDiv.appendChild(addBtn);

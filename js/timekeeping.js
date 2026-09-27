@@ -105,13 +105,34 @@ function loadTodayTeachingSchedules(dateKey, options = {}) {
 }
 
 function isCenterClosed(dateStr, shiftKey, centerClosures) {
-    if (!centerClosures || !centerClosures[dateStr]) return false;
+    if (!centerClosures || !Array.isArray(centerClosures[dateStr])) return false;
     const closures = centerClosures[dateStr];
-    return closures.includes('all') || closures.includes(shiftKey);
+    if (closures.includes('all') || closures.includes(shiftKey)) return true;
+    // Công cụ "Ngày nghỉ lễ" tắt theo buổi (morning/afternoon/evening) → gồm cả ca 1 và ca 2.
+    const parentPeriod = /^(morning|afternoon|evening)[12]$/.exec(String(shiftKey || '').trim())?.[1] || '';
+    return !!parentPeriod && closures.includes(parentPeriod);
 }
 
 // 1. Global Check-in Rendering
 let attendanceRenderGeneration = 0;
+// Ca mở quá 20 phút mà máy chưa lưu mốc tan ca (vào ca ở máy khác, admin thêm ca…) thì chưa biết
+// còn trong ca hay đã quá giờ tan → hiện "đang kiểm tra" thay vì RA CA, tối đa 6 giây.
+const OPEN_SESSION_VERIFY_AFTER_MS = 20 * 60 * 1000;
+const OPEN_SESSION_VERIFY_TIMEOUT_MS = 6000;
+function formatCheckinClock(value) {
+    return new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
+// Giờ ra của ca gần nhất nếu ca đó do hệ thống tự ra theo lịch (autoClosedReason 'scheduled_end')
+// trong 12 giờ qua; ca gần nhất do nhân viên tự bấm RA CA thì không nhắc.
+function latestScheduledAutoClose(sessions, now = new Date()) {
+    const latest = (sessions || [])
+        .filter(s => s && s.checkOut && !s.isAbsent)
+        .map(s => ({ session: s, at: new Date(s.checkOut) }))
+        .filter(item => Number.isFinite(item.at.getTime()) && item.at <= now)
+        .sort((a, b) => b.at - a.at)[0];
+    if (!latest || latest.session.autoClosedReason !== 'scheduled_end') return null;
+    return now - latest.at < 12 * 60 * 60 * 1000 ? latest.at : null;
+}
 // "Đã làm 1 giờ 25 phút" trên thẻ đang trong ca; cập nhật mỗi 30 giây bằng refreshCheckinElapsed.
 function formatCheckinElapsed(since, now = new Date()) {
     const minutes = Math.max(0, Math.floor((now.getTime() - new Date(since).getTime()) / 60000));
@@ -130,8 +151,11 @@ async function renderGlobalCheckIn(options = {}) {
         return;
     }
 
-    // Loading state
-    container.innerHTML = '<div class="tk-hero"><span class="tk-hero-status tk-hero-status--idle">Đang tải trạng thái…</span><button class="btn tk-action tk-action--in" disabled>Đang tải...</button></div>';
+    // Loading state. Lượt vẽ lại sau kiểm tra nền (keepContent) giữ nguyên khung đang hiện tới khi
+    // có kết quả mới, để chuyển từ trạng thái tạm sang trạng thái thật không nháy "Đang tải".
+    if (!options.keepContent || !String(container.innerHTML || '').includes('tk-hero')) {
+        container.innerHTML = '<div class="tk-hero"><span class="tk-hero-status tk-hero-status--idle">Đang tải trạng thái…</span><button class="btn tk-action tk-action--in" disabled>Đang tải...</button></div>';
+    }
 
     // Look up Cloud Data
     const now = new Date();
@@ -175,10 +199,43 @@ async function renderGlobalCheckIn(options = {}) {
             lastCheckInTime = new Date(openSession.checkIn || openSession.start);
         }
 
-        if (isActiveSession) {
-            const timeStr = lastCheckInTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        // Mốc tan ca đã lưu trên máy cho đúng ca đang mở (main.js tính mỗi lần kiểm tra tự ra ca).
+        const shiftEndHint = openSession && typeof readShiftEndHint === 'function'
+            ? readShiftEndHint(currentUserId, openSession)
+            : undefined;
+        const renderNow = new Date();
+        // Đã quá mốc tan ca nhưng chưa ai kịp ghi giờ ra (điện thoại khoá màn hình lúc tan ca):
+        // hiện luôn VÀO CA, lượt kiểm tra nền ghi giờ ra ĐÚNG mốc tan ca ngay sau đó. Bấm VÀO CA
+        // trước khi lượt nền xong vẫn an toàn: globalCheckIn khép ca quá giờ trước khi ghi.
+        const overdueEnd = shiftEndHint?.end && renderNow >= shiftEndHint.end ? shiftEndHint.end : null;
+        const verifyingOpen = !!openSession && shiftEndHint === undefined && !options.skipOverdueCheck &&
+            renderNow - lastCheckInTime >= OPEN_SESSION_VERIFY_AFTER_MS;
+
+        if (isActiveSession && overdueEnd) {
+            container.innerHTML = `
+                <div class="tk-hero">
+                    <span class="tk-hero-status tk-hero-status--idle">Chưa vào ca</span>
+                    <h2 class="tk-hero-title">BẮT ĐẦU CA MỚI</h2>
+                    <p class="tk-hero-done">Ca trước đã tự kết thúc lúc <strong>${formatCheckinClock(overdueEnd)}</strong> theo lịch.</p>
+                    <button class="btn btn-primary tk-action tk-action--in" onclick="globalCheckIn(this)">VÀO CA</button>
+                    <p class="checkin-permission-hint">Nếu điện thoại hỏi quyền, hãy chọn <strong>Cho phép</strong>.</p>
+                </div>
+            `;
+        } else if (isActiveSession && verifyingOpen) {
+            container.innerHTML = `
+                <div class="tk-hero tk-hero--checking" aria-busy="true">
+                    <span class="tk-hero-status tk-hero-status--idle">Đang cập nhật ca…</span>
+                    <p class="tk-hero-sub">Đang đối chiếu giờ tan ca theo lịch, vui lòng chờ giây lát.</p>
+                    <button class="btn tk-action tk-action--in" disabled>Đang kiểm tra…</button>
+                </div>
+            `;
+        } else if (isActiveSession) {
+            const timeStr = formatCheckinClock(lastCheckInTime);
             const overnightText = getLocalDateKey(lastCheckInTime) !== dateKey
                 ? '<div class="tk-hero-note">Ca bắt đầu từ ngày hôm trước</div>'
+                : '';
+            const autoEndText = shiftEndHint?.end
+                ? `<p class="tk-hero-autoend">Tự ra ca lúc <strong>${formatCheckinClock(shiftEndHint.end)}</strong> theo lịch</p>`
                 : '';
             container.innerHTML = `
                 <div class="tk-hero tk-hero--active">
@@ -189,6 +246,7 @@ async function renderGlobalCheckIn(options = {}) {
                         <div><span class="tk-label">Đã làm</span><strong class="tk-value tk-elapsed" data-since="${lastCheckInTime.toISOString()}">${formatCheckinElapsed(lastCheckInTime)}</strong></div>
                     </div>
                     <button class="btn tk-action tk-action--out" onclick="globalCheckOut(this)">RA CA</button>
+                    ${autoEndText}
                 </div>
             `;
         } else {
@@ -200,29 +258,55 @@ async function renderGlobalCheckIn(options = {}) {
                 title = "BẮT ĐẦU CA MỚI";
                 sub = "Bạn đã kết thúc ca trước đó. Bấm để bắt đầu ca tiếp theo.";
             }
+            // Cùng một dòng với trạng thái chờ ở trên → lúc lượt nền ghi xong không nhảy chữ.
+            const autoClosedAt = latestScheduledAutoClose([...sessions, ...previousSessions], renderNow);
+            const subHtml = autoClosedAt
+                ? `<p class="tk-hero-done">Ca trước đã tự kết thúc lúc <strong>${formatCheckinClock(autoClosedAt)}</strong> theo lịch.</p>`
+                : `<p class="tk-hero-sub">${sub}</p>`;
 
             container.innerHTML = `
                 <div class="tk-hero">
                     <span class="tk-hero-status tk-hero-status--idle">Chưa vào ca</span>
                     <h2 class="tk-hero-title">${title}</h2>
-                    <p class="tk-hero-sub">${sub}</p>
+                    ${subHtml}
                     <button class="btn btn-primary tk-action tk-action--in" onclick="globalCheckIn(this)">VÀO CA</button>
                     <p class="checkin-permission-hint">Nếu điện thoại hỏi quyền, hãy chọn <strong>Cho phép</strong>.</p>
                 </div>
             `;
         }
 
-        // Mở lại app sau giờ tan ca: kiểm tra ca quá giờ ở NỀN rồi vẽ lại, không bắt khung
-        // chấm công chờ đọc lịch 3 cơ sở. Bấm RA CA/VÀO CA trong lúc chờ vẫn an toàn vì
-        // globalCheckOut/globalCheckIn tự khép ca quá giờ đúng mốc tan ca trước khi ghi.
+        // Kiểm tra ca quá giờ ở NỀN rồi vẽ lại, không bắt khung chấm công chờ đọc lịch 3 cơ sở.
+        // Bấm RA CA/VÀO CA trong lúc chờ vẫn an toàn vì globalCheckOut/globalCheckIn tự khép ca
+        // quá giờ đúng mốc tan ca trước khi ghi.
         if (openSession && !options.skipOverdueCheck && typeof globalCheckAutoCheckout === 'function') {
+            // Khung đang hiện trạng thái tạm (VÀO CA theo mốc đã lưu / "đang kiểm tra") thì luôn vẽ
+            // lại theo kết quả thật, kể cả khi admin vừa kéo dài ca (không khép) hoặc mạng lỗi.
+            const provisional = !!overdueEnd || verifyingOpen;
+            let settled = false;
+            const fallbackTimer = verifyingOpen
+                ? setTimeout(() => {
+                    // Mạng chậm: quá 6 giây thì hiện lại khung như cũ; lượt kiểm tra vẫn chạy tiếp
+                    // và tự vẽ lại nếu vừa khép ca.
+                    if (!settled && isCurrentRender()) renderGlobalCheckIn({ skipOverdueCheck: true, keepContent: true });
+                }, OPEN_SESSION_VERIFY_TIMEOUT_MS)
+                : null;
+            const sameUser = () => localStorage.getItem('currentUserId') === currentUserId;
             globalCheckAutoCheckout({ refreshUi: false })
                 .then(async closed => {
-                    if (!closed || !isCurrentRender()) return;
-                    await renderGlobalCheckIn({ skipOverdueCheck: true });
-                    if (typeof renderTodayChips === 'function') renderTodayChips();
+                    settled = true;
+                    if (fallbackTimer) clearTimeout(fallbackTimer);
+                    if (!sameUser()) return;
+                    // Vừa khép ca: luôn vẽ lại (kể cả khi khung đã chuyển sang hiển thị dự phòng).
+                    if (!closed && !(provisional && isCurrentRender())) return;
+                    await renderGlobalCheckIn({ skipOverdueCheck: true, keepContent: true });
+                    if (closed && typeof renderTodayChips === 'function') renderTodayChips();
                 })
-                .catch(error => console.warn('[Attendance] Overdue shift check failed:', error?.code || error));
+                .catch(error => {
+                    settled = true;
+                    if (fallbackTimer) clearTimeout(fallbackTimer);
+                    console.warn('[Attendance] Overdue shift check failed:', error?.code || error);
+                    if (provisional && sameUser() && isCurrentRender()) renderGlobalCheckIn({ skipOverdueCheck: true, keepContent: true });
+                });
         }
     } catch (e) {
         if (renderGeneration !== attendanceRenderGeneration ||
@@ -264,14 +348,22 @@ async function fetchAndRenderHistory(dateKey, userId) {
             historyContainer.innerHTML = '<p class="tk-history-empty">Chưa có lượt vào/ra nào hôm nay.</p>';
         } else {
             const fmt = value => new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            const now = new Date();
             // Mới nhất lên đầu
             historyContainer.innerHTML = '<ul class="tk-history">' + [...sessions].reverse().map(session => {
                 const inTime = fmt(session.checkIn || session.start);
-                const outTime = session.checkOut ? fmt(session.checkOut) : '...';
+                // Ca mở đã quá mốc tan ca đã lưu (đang chờ lượt nền ghi giờ ra) → hiện luôn mốc đó,
+                // khớp với khung VÀO CA phía trên.
+                const hint = !session.checkOut && !session.isAbsent && typeof readShiftEndHint === 'function'
+                    ? readShiftEndHint(userId, session)
+                    : undefined;
+                const pendingEnd = hint?.end && now >= hint.end ? hint.end : null;
+                const outTime = session.checkOut ? fmt(session.checkOut) : (pendingEnd ? fmt(pendingEnd) : '...');
+                const autoClosed = pendingEnd || (session.checkOut && session.autoClosedReason === 'scheduled_end');
                 const status = session.isAbsent
                     ? '<span class="tk-status tk-status--absent">Vắng</span>'
-                    : (session.checkOut
-                        ? '<span class="tk-status tk-status--done">Đã kết thúc</span>'
+                    : (session.checkOut || pendingEnd
+                        ? `<span class="tk-status tk-status--done">${autoClosed ? 'Tự ra ca' : 'Đã kết thúc'}</span>`
                         : '<span class="tk-status tk-status--live">Đang trong ca</span>');
                 return `<li><span class="tk-history-time">${inTime} <span>–</span> ${outTime}</span>${status}</li>`;
             }).join('') + '</ul>';
@@ -580,8 +672,11 @@ async function refreshTimekeepingAfterResume() {
     ['cs1', 'cs2', 'cs3'].forEach(branch => DBService._invalidate(`schedule_${branch}__${dateKey}`));
     const currentUserId = localStorage.getItem('currentUserId');
     if (currentUserId) DBService._invalidateAttendance(dateKey, currentUserId);
+    // Không bỏ qua kiểm tra quá giờ: khung có thể đang hiện trạng thái tạm (VÀO CA theo mốc đã
+    // lưu / "đang kiểm tra") và cần kết quả thật. Lượt này dùng chung lượt chạy với lượt mở lại
+    // app trong main.js (globalCheckAutoCheckout chỉ cho một lượt chạy tại một thời điểm).
     timekeepingResumeRefresh = Promise.all([
-        renderGlobalCheckIn({ skipOverdueCheck: true }),
+        renderGlobalCheckIn(),
         renderTodayChips({ fresh: true }),
         renderTodayClasses({ fresh: true })
     ]).finally(() => { timekeepingResumeRefresh = null; });

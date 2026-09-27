@@ -303,7 +303,7 @@ function renderDayTabs() {
 
         let holidayHtml = '';
         if (holiday) {
-            holidayHtml = `<div style="font-size: 0.65rem; color: #EF4444; font-weight: bold; margin-top: 2px; display:flex; align-items:center; gap:3px;"><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg> ${holiday}</div>`;
+            holidayHtml = `<div style="font-size: 0.65rem; color: #EF4444; font-weight: bold; margin-top: 2px; display:flex; align-items:center; gap:3px;"><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg> ${scheduleEscapeHTML(holiday)}</div>`;
             if (index !== selectedDayIndex) btn.style.backgroundColor = '#FEF2F2';
         }
 
@@ -333,10 +333,16 @@ function renderDayTabs() {
 
 function getHolidayName(dateStr) {
     const [y, m, d] = dateStr.split('-').map(Number);
+    // Tên do người xếp lịch đặt ở công cụ "Ngày nghỉ lễ" — chỉ khi ngày đó đang nghỉ.
+    const closureKeys = window.centerClosures?.[dateStr];
+    const customName = Array.isArray(closureKeys) && closureKeys.length > 0
+        ? String(window.centerHolidayNames?.[dateStr] || '').trim() : '';
+    if (customName) return customName;
     if (m === 1 && d === 1) return "Tết Dương";
     if (m === 4 && d === 30) return "30/4";
     if (m === 5 && d === 1) return "1/5";
     if (m === 9 && d === 2) return "2/9";
+    if (y === 2026 && m === 9 && d === 1) return "Lễ 2/9"; // Năm 2026 nghỉ Quốc khánh 01–02/09
 
     if (y === 2024) {
         if (m === 2 && (d >= 8 && d <= 14)) return "Tết";
@@ -399,6 +405,7 @@ async function renderTable() {
     ]);
     if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
     window.centerClosures = settings.centerClosures || {};
+    window.centerHolidayNames = settings.centerHolidayNames || {};
     renderDayTabs();
     let timesheetData = {};
     try { timesheetData = JSON.parse(localStorage.getItem('timesheet_data')) || {}; }
