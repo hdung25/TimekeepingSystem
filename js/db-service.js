@@ -369,6 +369,18 @@ function _sameScheduleSubjectIdSet(left, right) {
     return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
+// Same rule as evaluation-service isCenterClosed (what Bảng Công shows as "(Nghỉ)"):
+// a whole-period closure covers its two teaching sections and vice versa.
+function _isCenterClosedForShift(dateKey, shiftKey, centerClosures) {
+    const closures = centerClosures && Array.isArray(centerClosures[dateKey]) ? centerClosures[dateKey] : [];
+    const key = String(shiftKey || '').trim();
+    if (!closures.length || !key) return false;
+    if (closures.includes('all') || closures.includes(key)) return true;
+    if (/^(morning|afternoon|evening)$/.test(key)) return closures.includes(`${key}1`) || closures.includes(`${key}2`);
+    const parent = /^(morning|afternoon|evening)[12]$/.exec(key)?.[1] || '';
+    return !!parent && closures.includes(parent);
+}
+
 function _isTeachingScheduleSectionClosed(dateKey, section, centerClosures) {
     const closures = centerClosures && Array.isArray(centerClosures[dateKey])
         ? centerClosures[dateKey]
@@ -2208,6 +2220,9 @@ const DBService = {
                 if (!neighborDoc.exists) return {};
 
                 const templateData = neighborDoc.data();
+                // Điểm dừng kế thừa chỉ có nghĩa ở chính ngày của nó; ngày kế thừa từ nó
+                // không mang dấu này (sửa ngày đó sẽ lưu cả bản sao xuống Firestore).
+                delete templateData._inheritanceStop;
 
                 // SANITIZATION: Clean up 'registeredTeachers' and temporary closure 'isClosed'
                 Object.keys(templateData).forEach(key => {
@@ -3031,13 +3046,16 @@ const DBService = {
     // Copy/template workflows may create a whole day, but must never replace a
     // day that another scheduler already prepared. The existence check and
     // create happen in the same transaction.
-    createScheduleIfMissing: async (compositeKey, data) => {
+    createScheduleIfMissing: async (compositeKey, data, options = {}) => {
         const { docId } = DBService._parseBranchKey(compositeKey);
         const ref = db.collection('schedules').doc(docId);
         let created = false;
         await db.runTransaction(async transaction => {
             const snapshot = await transaction.get(ref);
-            if (snapshot.exists) return;
+            // Ngày "điểm dừng kế thừa" (trống, do nút Kế thừa lịch tạo) được phép ghi đè
+            // khi sao chép tuần vào; mọi lịch riêng khác vẫn giữ nguyên.
+            if (snapshot.exists && !(options.replaceInheritanceStop === true &&
+                DBService.isScheduleInheritanceStop(snapshot.data()))) return;
             transaction.set(ref, _withoutSeparateScheduleRegistrations({
                 ...(data || {}),
                 _revision: 1,
@@ -3050,6 +3068,96 @@ const DBService = {
         await DBService.updateScheduleManifest(compositeKey);
         DBService._invalidate(`schedule_${compositeKey}`);
         return true;
+    },
+
+    // ================= KẾ THỪA LỊCH DẠY THEO TUẦN =================
+    // Ngày chưa có lịch riêng tự dùng lịch cùng thứ của ngày gần nhất trước đó (getSchedule).
+    // "Kế thừa đến hết tuần X" = đặt một ngày ĐIỂM DỪNG (tài liệu lịch trống có dấu
+    // _inheritanceStop) ở tuần ngay sau X: các ngày sau nữa kế thừa lịch trống đó. "Đến khi
+    // tôi tự thay đổi" = gỡ các điểm dừng. Không bao giờ ghi đè lịch riêng, không đụng ngày
+    // đã qua hoặc hôm nay.
+    isScheduleInheritanceStop: (data) => !!data && typeof data === 'object' &&
+        !!data._inheritanceStop && typeof data._inheritanceStop === 'object' &&
+        SCHEDULE_SECTION_KEYS.every(section => !Array.isArray(data[section]) || data[section].length === 0),
+
+    // Đọc thô (không chiếu kế thừa) các ngày trong khoảng để xem trước. Trả về
+    // { manifest: {weekday: [docId]}, days: {dateKey: {docId, exists, stop, rows}} }.
+    getScheduleInheritanceSnapshot: async (branch, dateKeys) => {
+        if (!['cs1', 'cs2', 'cs3'].includes(branch)) throw new Error('Cơ sở không hợp lệ.');
+        const keys = (Array.isArray(dateKeys) ? dateKeys : []).filter(key => /^\d{4}-\d{2}-\d{2}$/.test(String(key)));
+        if (keys.length > 140) throw new Error('Khoảng xem trước quá dài.');
+        const manifestRefs = [db.collection('settings').doc(`schedule_manifest_${branch}`)];
+        if (branch === 'cs1') manifestRefs.push(db.collection('settings').doc('schedule_manifest'));
+        const [manifestSnaps, daySnaps] = await Promise.all([
+            Promise.all(manifestRefs.map(ref => ref.get({ source: 'server' }))),
+            Promise.all(keys.map(dateKey => db.collection('schedules').doc(`${branch}__${dateKey}`).get({ source: 'server' })))
+        ]);
+        const branchManifest = manifestSnaps[0].exists ? (manifestSnaps[0].data() || {}) : null;
+        const manifest = branchManifest || (manifestSnaps[1]?.exists ? (manifestSnaps[1].data() || {}) : {});
+        const days = {};
+        keys.forEach((dateKey, index) => {
+            const snapshot = daySnaps[index];
+            const data = snapshot.exists ? (snapshot.data() || {}) : null;
+            const hasStructure = !!data && Object.keys(data).length > 0;
+            days[dateKey] = {
+                docId: `${branch}__${dateKey}`,
+                exists: hasStructure,
+                stop: hasStructure && DBService.isScheduleInheritanceStop(data),
+                rows: hasStructure ? SCHEDULE_SECTION_KEYS.reduce((sum, section) =>
+                    sum + (Array.isArray(data[section]) ? data[section].length : 0), 0) : 0
+            };
+        });
+        return { manifest, days, usesLegacyManifest: !branchManifest };
+    },
+
+    createScheduleInheritanceStop: async (compositeKey, meta = {}) => {
+        const { dateKey } = DBService._parseBranchKey(compositeKey);
+        const today = typeof getLocalDateKeyFromDate === 'function'
+            ? getLocalDateKeyFromDate(new Date())
+            : new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || dateKey <= today) {
+            throw new Error('Chỉ đặt điểm dừng kế thừa cho ngày trong tương lai.');
+        }
+        const empty = Object.fromEntries(SCHEDULE_SECTION_KEYS.map(section => [section, []]));
+        return DBService.createScheduleIfMissing(compositeKey, {
+            ...empty,
+            _inheritanceStop: {
+                createdAt: new Date().toISOString(),
+                createdBy: localStorage.getItem('currentUserId') || '',
+                sourceWeek: String(meta.sourceWeek || ''),
+                lastInheritedWeek: String(meta.lastInheritedWeek || '')
+            }
+        });
+    },
+
+    // Gỡ một điểm dừng: chỉ xoá khi tài liệu VẪN là điểm dừng trống (ai đó đã thêm lớp vào
+    // thì giữ nguyên), và gỡ luôn khỏi manifest trong cùng giao dịch để ngày sau không trỏ
+    // vào tài liệu đã xoá.
+    removeScheduleInheritanceStop: async (compositeKey) => {
+        const { branch, dateKey, docId } = DBService._parseBranchKey(compositeKey);
+        const today = typeof getLocalDateKeyFromDate === 'function'
+            ? getLocalDateKeyFromDate(new Date())
+            : new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || dateKey <= today) return false;
+        const ref = db.collection('schedules').doc(docId);
+        const [y, m, d] = dateKey.split('-').map(Number);
+        const weekday = String(new Date(y, m - 1, d).getDay());
+        const manifestRef = db.collection('settings').doc(`schedule_manifest_${branch}`);
+        let removed = false;
+        await db.runTransaction(async transaction => {
+            const [snapshot, manifestSnapshot] = await Promise.all([transaction.get(ref), transaction.get(manifestRef)]);
+            if (!snapshot.exists || !DBService.isScheduleInheritanceStop(snapshot.data())) return;
+            transaction.delete(ref);
+            if (manifestSnapshot.exists) {
+                const list = Array.isArray(manifestSnapshot.data()?.[weekday]) ? manifestSnapshot.data()[weekday] : [];
+                if (list.includes(docId)) {
+                    transaction.update(manifestRef, { [weekday]: list.filter(item => item !== docId) });
+                }
+            }
+            removed = true;
+        });
+        DBService._invalidate(`schedule_${compositeKey}`);
+        return removed;
     },
 
     // Update exactly one class row from the latest Firestore document. The old UI
@@ -6360,10 +6468,14 @@ const DBService = {
 
         const attendanceRef = db.collection('attendance_logs').doc(`${dateKey}_${staffId}`);
         const cancelledRef = db.collection('cancelled_shifts').doc(`${dateKey.slice(0, 7)}_${staffId}`);
-        const [attendanceSnapshot, cancelledSnapshot] = await Promise.all([
+        const [attendanceSnapshot, cancelledSnapshot, systemSettings] = await Promise.all([
             attendanceRef.get({ source: 'server' }),
-            cancelledRef.get({ source: 'server' })
+            cancelledRef.get({ source: 'server' }),
+            live.type === 'scheduled' && live.status === 'pending'
+                ? DBService.getSystemSettings({ source: 'server' })
+                : Promise.resolve({})
         ]);
+        const centerClosures = systemSettings?.centerClosures || {};
         const attendanceData = attendanceSnapshot.exists ? (attendanceSnapshot.data() || {}) : {};
         const attendanceSessions = Array.isArray(attendanceData.sessions) ? attendanceData.sessions : [];
         const cancelledShifts = new Set(cancelledSnapshot.exists && Array.isArray(cancelledSnapshot.data()?.shifts)
@@ -6474,6 +6586,15 @@ const DBService = {
                 if (!requestContains(match.row.start, match.row.end)) {
                     fail('Khung giờ ca nguồn đã thay đổi so với yêu cầu. Hãy tải lại và gửi lại.', 'MAKEUP_REQUEST_STALE');
                 }
+                // Lớp đã TẮT (lễ, học sinh xin nghỉ...) hoặc trung tâm nghỉ ca đó: lớp không
+                // diễn ra nên không có công để bù (quy định GĐ 28/09/2026).
+                const classLabel = `${match.row.lop || 'Ca dạy'} ${match.row.start}–${match.row.end}`;
+                if (match.row.isClosed === true) {
+                    fail(`${classLabel} ngày ${dateKey} đã được tắt trên lịch nên không được chấm công bù. Hãy từ chối yêu cầu, hoặc bật lại lớp nếu lớp thật sự có dạy.`, 'MAKEUP_SHIFT_CLOSED');
+                }
+                if (_isCenterClosedForShift(dateKey, match.section, centerClosures)) {
+                    fail(`${classLabel} ngày ${dateKey} thuộc ca trung tâm nghỉ (nghỉ lễ / tắt ca) nên không được chấm công bù.`, 'MAKEUP_SHIFT_CLOSED');
+                }
                 const cancelKey = `${match.compositeKey}_${match.section}_${match.rowIndex}`;
                 checkResolvedState(window.ShiftAbsenceState.resolveTeachingShift({
                     row: match.row,
@@ -6563,6 +6684,9 @@ const DBService = {
                 const start = entry.customStart || config.start || defaults.start;
                 const end = entry.customEnd || config.end || defaults.end;
                 if (!requestContains(start, end)) fail('Giờ ca vận hành đã thay đổi so với yêu cầu.', 'MAKEUP_REQUEST_STALE');
+                if (_isCenterClosedForShift(dateKey, shiftKey, centerClosures)) {
+                    fail(`${shiftKind === 'vp' ? 'Văn Phòng' : 'Tiếp Tân'} ${start}–${end} ngày ${dateKey} thuộc ca trung tâm nghỉ (nghỉ lễ / tắt ca) nên không được chấm công bù.`, 'MAKEUP_SHIFT_CLOSED');
+                }
                 const cancelKey = `${shiftKind === 'vp' ? 'office_' : ''}${parsed.branch}_${mondayKey}_${shiftKey}_${locatorDayKey}`;
                 checkResolvedState(window.ShiftAbsenceState.resolveOperationalShift({
                     kind: shiftKind,

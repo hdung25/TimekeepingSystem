@@ -70,6 +70,7 @@ function createHarness() {
         },
         overtime: {},
         monthly: null,
+        settings: null,
         serverReads: [],
         scheduleReads: [],
         operationalReads: []
@@ -87,6 +88,7 @@ function createHarness() {
         if (ref.collectionName === 'overtime_requests') return snapshot(ref.id, state.overtime[ref.id]);
         if (ref.collectionName === 'salary_settings_monthly') return snapshot(ref.id, state.monthly);
         if (ref.collectionName === 'users') return snapshot(ref.id, { name: 'Võ Quang Mỹ' });
+        if (ref.collectionName === 'settings' && ref.id === 'system') return snapshot(ref.id, state.settings);
         return snapshot(ref.id, null);
     };
     const writeRef = (ref, payload, merge) => {
@@ -326,6 +328,62 @@ async function expectCode(promiseFactory, code) {
         );
         assert.equal(state.attendance.sessions.length, 0,
             'request status and attendance are re-read together before any write');
+    }
+
+    // Owner rule 2026-09-28: a class switched off on the schedule (holiday,
+    // student asked for leave) or a closed center shift has no work to make up.
+    {
+        const { state, DBService } = createHarness();
+        state.schedule.afternoon1[0].isClosed = true;
+        await expectCode(
+            () => DBService.validateMakeupRequestForApproval({ id: requestId, staffId, dateKey }),
+            'MAKEUP_SHIFT_CLOSED'
+        );
+        await expectCode(
+            () => DBService.approveMakeupRequest({ id: requestId, staffId, dateKey }, 'Admin Diễm'),
+            'MAKEUP_SHIFT_CLOSED'
+        );
+        assert.equal(state.attendance.sessions.length, 0, 'a closed class is never materialized');
+        assert.equal(state.request.status, 'pending');
+    }
+
+    for (const closure of [['all'], ['afternoon'], ['afternoon1']]) {
+        const { state, DBService } = createHarness();
+        state.settings = { centerClosures: { [dateKey]: closure } };
+        await expectCode(
+            () => DBService.validateMakeupRequestForApproval({ id: requestId, staffId, dateKey }),
+            'MAKEUP_SHIFT_CLOSED'
+        );
+    }
+
+    {
+        // Another shift closed that day (morning) does not block the afternoon class.
+        const { state, DBService } = createHarness();
+        state.settings = { centerClosures: { [dateKey]: ['morning'], '2026-08-18': ['all'] } };
+        const result = await DBService.validateMakeupRequestForApproval({ id: requestId, staffId, dateKey });
+        assert.equal(result.alreadyApproved, false);
+    }
+
+    {
+        const { state, DBService } = createHarness();
+        state.settings = { centerClosures: { [dateKey]: ['afternoon2'] } };
+        state.request = {
+            ...pendingRequest(),
+            shiftKind: 'tt', shiftKey: 'afternoon', shiftStart: '14:00', shiftEnd: '18:00',
+            className: '', classId: '',
+            scheduleLocators: [{
+                kind: 'tt', compositeKey: 'cs1__2026-08-17', section: 'afternoon',
+                dayKey: 'mon', start: '14:00', end: '18:00', branch: 'cs1'
+            }],
+            session: {
+                checkIn: '2026-08-17T14:00:00+07:00', checkOut: '2026-08-17T18:00:00+07:00',
+                role: 'tiep-tan', linkedReceptionistShift: 'afternoon'
+            }
+        };
+        await expectCode(
+            () => DBService.validateMakeupRequestForApproval({ id: requestId, staffId, dateKey }),
+            'MAKEUP_SHIFT_CLOSED'
+        );
     }
 
     console.log('makeup-approval-validation.test.js: all assertions passed');

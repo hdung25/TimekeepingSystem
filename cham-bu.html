@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260923-fast-login-v2'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260929-owner-round-v1'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260927-holiday-off-v1'></script>
     <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
@@ -236,6 +236,12 @@ const dur=n=>n>=60?(Math.floor(n/60)+'h'+(n%60?(n%60)+'p':'')):(n+'p');
 const ms=(k,hm)=>new Date(k+'T'+hm+':00').getTime();
 const OVERLAP_MIN=10*60*1000;
 
+// Trung tâm nghỉ ca/ngày đó? Cùng quy tắc với Bảng Công (evaluation-service isCenterClosed).
+function centerClosedAt(dateKey,shiftKey,closures){
+    try{return typeof window.isCenterClosed==='function'&&Array.isArray((closures||{})[dateKey])&&window.isCenterClosed(dateKey,shiftKey,closures)}
+    catch(e){return false}
+}
+
 // Một người chỉ vào ca MỘT LẦN. Hai lớp chồng khung giờ (VD: 1 GV ôm Toán 6 và Toán 7
 // cùng 07:30–09:00) vì thế là MỘT ca công, không phải hai — Bảng Công cũng gộp lại
 // thành một ô "Toán 6 + Toán 7" và chỉ trả một lần theo lớp đơn giá cao nhất.
@@ -383,7 +389,7 @@ async function loadMonth(options={}){
         const registrations=await DBService.getMyScheduleRegistrations(me,fresh?{source:'server'}:{}).catch(()=>null);
         const scheduleReadOptions=Object.assign(fresh?{source:'server'}:{},{readCache:new Map()},
             registrations?{prefetchedRegistrations:registrations}:{});
-        const [logs,reqs,cancelled,notes,schedRes,recRes]=await Promise.all([
+        const [logs,reqs,cancelled,notes,schedRes,recRes,settings]=await Promise.all([
             DBService.getMonthlyAttendance(mStr,me,fresh,fresh?{strict:true}:{}),
             DBService.getMyMakeupRequests(me,fresh?{source:'server'}:{}),
             Promise.resolve().then(()=>DBService.getCancelledShifts(mStr,me)).catch(()=>[]),
@@ -393,12 +399,15 @@ async function loadMonth(options={}){
             Promise.all([...mons].flatMap(mk=>BRS.flatMap(b=>[
                 DBService.getReceptionistSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'tt',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'tt',v:{}})),
                 DBService.getOfficeSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
-            ])))
+            ]))),
+            // Ngày nghỉ lễ / tắt ca toàn trung tâm (Xếp Lịch → Ngày nghỉ lễ, công tắc ca).
+            Promise.resolve().then(()=>DBService.getSystemSettings(fresh?{source:'server'}:{})).catch(()=>({}))
         ]);
         if(loadId!==monthLoadSeq)return; // người dùng đã chuyển sang tháng khác
         const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
         const reqMap={}; reqs.forEach(r=>{if(!reqMap[r.dateKey])reqMap[r.dateKey]=[];reqMap[r.dateKey].push(r)});
         const cancelledSet=new Set(cancelled||[]);
+        const closures=(settings&&settings.centerClosures)||{};
 
         dates.forEach(k=>{
             const sess=attMap[k]||[];
@@ -411,6 +420,18 @@ async function loadMonth(options={}){
                 // khai "Ca Ngoài Lịch" → quản lý thấy "Ngoài lịch / thiếu môn lớp". Dùng helper
                 // chung isAssignedToClass/isScheduledMainTeacher/... trong db-service.js.
                 if(!isAssignedToClass(row,me))return;
+                const locatorOf={kind:'gv',compositeKey:r.b+'__'+k,section:sec,rowIndex:idx,
+                    shiftId:row.shiftId||'',start:row.start,end:row.end,branch:r.b,
+                    classId:row.lopId||'',className:row.lop||''};
+                // LỚP ĐÃ TẮT (công tắc Bật/Tắt trên lịch: lễ, học sinh xin nghỉ...) hoặc TRUNG TÂM
+                // NGHỈ ca đó → lớp không diễn ra, Bảng Công không tính, nên KHÔNG được chấm bù.
+                const closedReason=row.isClosed===true?'Lớp đã tắt':(centerClosedAt(k,sec,closures)?'Trung tâm nghỉ':'');
+                if(closedReason){
+                    shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,label:row.lop||'CHƯA CHỌN LỚP',
+                        excuse:closedReason,closedClass:true,absenceState:null,
+                        scheduleLocators:[locatorOf],classIds:row.lopId?[row.lopId]:[]});
+                    return;
+                }
                 const cancelKey=r.b+'__'+k+'_'+sec+'_'+idx;
                 const absenceState=ShiftAbsenceState.resolveTeachingShift({
                     row:row,staffId:me,isAssigned:true,kind:'gv',dateKey:k,start:row.start,end:row.end,
@@ -419,9 +440,7 @@ async function loadMonth(options={}){
                     attendanceSessions:sess,dateNote:notes[k]||''
                 });
                 const excuse=ShiftAbsenceState.absenceLabel(absenceState);
-                const locator={kind:'gv',compositeKey:r.b+'__'+k,section:sec,rowIndex:idx,
-                    shiftId:row.shiftId||'',start:row.start,end:row.end,branch:r.b,
-                    classId:row.lopId||'',className:row.lop||''};
+                const locator=locatorOf;
                 shifts.push({kind:'gv',branch:r.b,start:row.start,end:row.end,
                              label:row.lop||'CHƯA CHỌN LỚP',noSubject:!String(row.lop||'').trim(),
                              excuse:excuse,absenceState:absenceState,
@@ -432,6 +451,14 @@ async function loadMonth(options={}){
             recRes.filter(r=>r.mk===mk).forEach(r=>Object.keys(RS).forEach(sk=>{
                 const en=((r.v[sk]||{})[dayk]||[]).find(x=>x.id===me); if(!en)return;
                 const cf=(r.v._shiftConfig&&r.v._shiftConfig[sk])||{};
+                const workLabelOf=r.kind==='vp'?'Văn Phòng':'Tiếp Tân';
+                if(centerClosedAt(k,sk,closures)){
+                    shifts.push({kind:r.kind,branch:r.b,start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,
+                        label:workLabelOf+' ('+RS[sk].l+')',shiftKey:sk,excuse:'Trung tâm nghỉ',closedClass:true,absenceState:null,
+                        scheduleLocators:[{kind:r.kind,compositeKey:r.b+'__'+mk,section:sk,dayKey:dayk,
+                            start:en.customStart||cf.start||RS[sk].s,end:en.customEnd||cf.end||RS[sk].e,branch:r.b}],classIds:[]});
+                    return;
+                }
                 const cancelPrefix=r.kind==='vp'?'office_':'';
                 const cancelKey=cancelPrefix+r.b+'_'+mk+'_'+sk+'_'+dayk;
                 const absenceState=ShiftAbsenceState.resolveOperationalShift({
@@ -450,7 +477,9 @@ async function loadMonth(options={}){
                     }],classIds:[]});
             }));
             shifts.sort((a,b)=>a.start.localeCompare(b.start));
-            const merged=mergeConcurrentTeaching(shifts);
+            const allMerged=mergeConcurrentTeaching(shifts);
+            // Ca đã tắt không được "giành" phiên công của ca đang mở khi đối chiếu.
+            const merged=allMerged.filter(s=>!s.closedClass);
             const coverage=window.matchScheduledShiftCoverage(merged,sess,k);
             merged.forEach((s,i)=>{
                 s.done=!!coverage[i];
@@ -463,6 +492,12 @@ async function loadMonth(options={}){
                 s.lastRejected=s.done||s.request?null:requestFor(reqMap[k],ms(k,s.start),ms(k,s.end),true);
                 s.locked=!!s.absenceState?.isAbsent;
             });
+            allMerged.filter(s=>s.closedClass).forEach(s=>{
+                s.done=false; s.locked=true; s.lastRejected=null;
+                s.request=requestFor(reqMap[k],ms(k,s.start),ms(k,s.end));
+                merged.push(s);
+            });
+            merged.sort((a,b)=>a.start.localeCompare(b.start));
             const shown=mergeConsecutiveOpen(merged);
             shown.forEach(s=>{
                 s.lbl=s.start+'–'+s.end+' '+s.branch.toUpperCase()+' ('+s.label+')';
@@ -512,7 +547,14 @@ function renderDay(){
     const cards=info.shifts.map(function(s,i){
         const on=picked.has(i);
         let bdg,cls='',act='';
-        if(s.done){
+        if(s.closedClass){
+             bdg='<span class="bdg b-r">'+esc(s.excuse)+'</span>';cls=' off';
+             act='<div class="warnbox" style="margin:0">'+(s.excuse==='Lớp đã tắt'
+                 ?'Lớp này đã được <b>tắt</b> trên lịch ngày này (lớp nghỉ: lễ, học sinh xin nghỉ...) nên <b>không chấm công bù</b> được.'
+                 :'Trung tâm <b>nghỉ</b> ca này (nghỉ lễ / tắt ca) nên <b>không chấm công bù</b> được.')+
+                 ' Nếu thật sự có dạy/làm, báo người xếp lịch bật lại lớp.'+
+                 (s.request&&s.request.status==='pending'?' Yêu cầu đã gửi trước đó sẽ không được duyệt.':'')+'</div>'}
+        else if(s.done){
              bdg='<span class="bdg b-g">Đã chấm công</span>';cls=' off';
              if(s.coveredByOther)act='<div class="warnbox" style="margin:0">Bảng Công đã có ca <b>chồng khung giờ</b> này rồi nên không cần chấm bù. Nếu bạn thấy thiếu lớp, báo quản lý sửa tên lớp của ca đã có — xin thêm một ca nữa sẽ thành tính công hai lần.</div>'}
         else if(s.pending){bdg='<span class="bdg b-i">Chờ duyệt</span>';cls=' off'}
@@ -527,12 +569,12 @@ function renderDay(){
              act='<div class="warnbox" style="margin:0">Ca này đã được ghi nhận <b>'+esc(s.excuse)+'</b> nên không áp dụng chấm công bù. Chấm bù chỉ dành cho ca <b>vắng không phép</b> (ví dụ quên chấm công). Nếu ghi nhận sai, vui lòng báo quản lý sửa lại.</div>'}
         else{bdg='<span class="bdg b-w">Chưa chấm công</span>';
              act='<button class="btn b-pick'+(on?' on':'')+'" onclick="togglePick('+i+')">'+(on?'Đã chọn':'Chọn chấm bù')+'</button>'}
-        if(s.noSubject)act='<div class="warnbox" style="margin:0">Lịch ca này <b>chưa điền Môn/Lớp</b> nên hệ thống không tính được lương. Vui lòng báo người xếp lịch bổ sung trước khi xin chấm bù.</div>'+act;
+        if(s.noSubject&&!s.closedClass)act='<div class="warnbox" style="margin:0">Lịch ca này <b>chưa điền Môn/Lớp</b> nên hệ thống không tính được lương. Vui lòng báo người xếp lịch bổ sung trước khi xin chấm bù.</div>'+act;
         // Nhiều lớp cùng khung giờ → nói rõ đây là MỘT ca công, tránh nhân viên thắc mắc
         // sao không thấy lớp thứ hai để chọn riêng.
         if((s.chain||[]).length>1&&!s.done&&!s.request)act='<div class="note" style="margin:0 0 .6rem">'+
             '<b>'+esc(s.chain.length)+' ca liên tiếp</b> '+esc(s.chain.join(' → '))+' — bạn chỉ vào ca một lần cho cả chuỗi nên xin chấm bù <b>một lần</b> cho '+esc(s.start)+'–'+esc(s.end)+'.</div>'+act;
-        else if((s.classNames||[]).length>1)act='<div class="note" style="margin:0 0 .6rem">'+
+        else if((s.classNames||[]).length>1&&!s.closedClass)act='<div class="note" style="margin:0 0 .6rem">'+
             '<b>'+esc(s.classNames.length)+' lớp cùng khung giờ này</b>'+
             esc(s.classNames.join(', '))+' — bạn chỉ vào ca một lần nên đây là <b>một ca công</b>, xin chấm bù một lần cho cả '+esc(s.classNames.length)+' lớp.</div>'+act;
         const letter=s.kind==='tt'?'T':(s.kind==='vp'?'V':String(s.label||'C').trim().charAt(0).toUpperCase());
@@ -662,7 +704,9 @@ window.submitExtra=async function(){
     // Ca CÓ TRÊN LỊCH thì phải xin ở tab "Ca có lịch" (đối chiếu được, không trùng đơn).
     if(st==='worked'&&monthMap[d]){
         const a1=ms(d,ti),a2=ms(d,to);
-        const onSchedule=monthMap[d].shifts.find(s=>s.branch===br&&Math.min(a2,ms(d,s.end))-Math.max(a1,ms(d,s.start))>=OVERLAP_MIN);
+        const hits=monthMap[d].shifts.filter(s=>s.branch===br&&Math.min(a2,ms(d,s.end))-Math.max(a1,ms(d,s.start))>=OVERLAP_MIN);
+        const onSchedule=hits.find(s=>!s.closedClass)||hits[0];
+        if(onSchedule&&onSchedule.closedClass){alert('Khung giờ này là ca '+onSchedule.lbl+' đã được tắt / trung tâm nghỉ nên không chấm công bù được. Nếu thật sự có dạy/làm, báo người xếp lịch bật lại lớp.');return}
         if(onSchedule){alert('Khung giờ này trùng ca có trên lịch của bạn ('+onSchedule.lbl+'). Vui lòng dùng tab "Ca Có Lịch" — mỗi ca chỉ gửi một yêu cầu.');return}
     }
 

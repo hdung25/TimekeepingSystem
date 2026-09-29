@@ -71,9 +71,9 @@ const digest = value => crypto.createHash('sha256')
             return !!(await cache.match('/js/main.js?v=20260927-round3-v1')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20260927-round3-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
-                !!(await cache.match('/js/db-service.js?v=20260923-fast-login-v2')) &&
+                !!(await cache.match('/js/db-service.js?v=20260929-owner-round-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20260923-fast-login-v2')) &&
-                !!(await cache.match('/js/schedule.js?v=20260927-holidays-v1'));
+                !!(await cache.match('/js/schedule.js?v=20260929-owner-round-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request
         // interception. Chromium can hold Cache.addAll() requests when an

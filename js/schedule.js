@@ -195,6 +195,7 @@ let scheduleRenderGeneration = 0;
 let scheduleAttendanceEvidenceWarningKey = '';
 const scheduleMutationsPending = new Set();
 let scheduleLastMutationFailed = false;
+let scheduleLastRenderedKey = '';
 let currentShiftFilter = 'all'; // Filter for shifts (all, morning, afternoon, evening)
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 
@@ -290,6 +291,17 @@ function renderWeekPicker() {
 
 function renderDayTabs() {
     const container = document.getElementById('day-tabs');
+    // Mỗi lần lưu một ô, bảng được tải lại và trước đây 7 thẻ ngày cũng bị dựng lại từ đầu
+    // → cả dải ngày nháy. Chỉ dựng lại khi ngày chọn / tuần / ngày nghỉ thật sự đổi.
+    const tabSignature = JSON.stringify(DAYS.map((_, index) => {
+        const tabDate = new Date(currentWeekStart);
+        tabDate.setDate(tabDate.getDate() + index);
+        const dateKey = getLocalDateKey(tabDate);
+        return [dateKey, index === selectedDayIndex, getHolidayName(dateKey) || '',
+            isCenterClosed(dateKey, 'all', window.centerClosures)];
+    }));
+    if (container.dataset && container.dataset.tabSignature === tabSignature && container.children?.length) return;
+    if (container.dataset) container.dataset.tabSignature = tabSignature;
     container.innerHTML = '';
 
     DAYS.forEach((dayName, index) => {
@@ -388,14 +400,19 @@ async function renderTable() {
 
     // Giữ nguyên bảng cũ trong lúc tải (chỉ làm mờ) — nếu xoá bảng để hiện "Đang tải..."
     // thì trang co ngắn lại, trình duyệt tuột cuộn lên đầu, admin đang xếp lịch bị mất chỗ.
+    // Tải lại CÙNG ngày/cơ sở (sau khi lưu một ô) thì không làm mờ, không khoá bảng: trước
+    // đây mỗi lần điền một thông tin cả bảng nháy mờ và ô vừa bấm sang bị mất con trỏ.
     const scrollYBefore = window.scrollY;
+    const quietRefresh = tbody.dataset.rendered === '1' && scheduleLastRenderedKey === compositeKey;
     if (tbody.dataset.rendered === '1') {
-        tbody.style.opacity = '0.55';
+        if (!quietRefresh) tbody.style.opacity = '0.55';
     } else {
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 2rem; color: var(--text-muted);">Đang tải dữ liệu...</td></tr>';
     }
-    tbody.inert = true;
-    tbody.setAttribute('aria-busy', 'true');
+    if (!quietRefresh) {
+        tbody.inert = true;
+        tbody.setAttribute('aria-busy', 'true');
+    }
 
     try {
     // Load Data from Cloud (branch-prefixed)
@@ -535,21 +552,26 @@ async function renderTable() {
     });
 
     if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
-    tbody.innerHTML = html;
+    applyScheduleTableHtml(tbody, html);
     tbody.style.opacity = '';
     tbody.dataset.rendered = '1';
+    scheduleLastRenderedKey = compositeKey;
+    if (typeof renderScheduleInheritanceHint === 'function') {
+        try { renderScheduleInheritanceHint(dayData, dateKey); } catch (hintError) { console.warn('[Schedule] inheritance hint', hintError); }
+    }
     window.scrollTo(0, scrollYBefore);
     syncDatePickerValue();
     } catch (error) {
         if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
         console.error('Không tải được lịch:', error);
         tbody.dataset.rendered = '0';
+        scheduleLastRenderedKey = '';
         tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;">Chưa tải được lịch hoặc trạng thái đóng/mở ca. <button type="button" class="btn" onclick="renderTable()">Tải lại lịch</button></td></tr>';
     } finally {
         if (isScheduleRenderCurrent(renderGeneration, compositeKey)) {
             tbody.style.opacity = '';
-            tbody.inert = scheduleMutationsPending.size > 0;
-            tbody.setAttribute('aria-busy', scheduleMutationsPending.size > 0 ? 'true' : 'false');
+            tbody.inert = scheduleLockingMutations.size > 0;
+            tbody.setAttribute('aria-busy', scheduleLockingMutations.size > 0 ? 'true' : 'false');
         }
     }
 }
@@ -974,16 +996,22 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
     }
 };
 
-window.updateRow = async function (compositeKey, caType, index, field, value, renderedLocator) {
+window.updateRow = function (compositeKey, caType, index, field, value, renderedLocator) {
     const editableFields = new Set(['start', 'end', 'phong', 'note', 'soHS']);
-    if (!editableFields.has(field)) return;
+    if (!editableFields.has(field)) return Promise.resolve();
     const mutationKey = `row:${compositeKey}:${caType}:${index}`;
-    if (!beginScheduleMutation(mutationKey)) return;
+    // Sửa liên tiếp nhiều ô của CÙNG một lớp (giờ → phòng → ghi chú) được xếp hàng lưu lần
+    // lượt, không bị bỏ qua khi ô trước còn đang lưu.
+    return queueScheduleRowEdit(mutationKey, () => updateScheduleRowField(compositeKey, caType, index, field, value, renderedLocator, mutationKey));
+};
+
+async function updateScheduleRowField(compositeKey, caType, index, field, value, renderedLocator, mutationKey) {
+    if (!beginScheduleMutation(mutationKey, { lockTable: false })) return;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, rebaseScheduleLocator(renderedLocator));
         const expectedValue = locator.values?.[field] ?? row[field] ?? '';
-        await DBService.updateScheduleRowAtomic(
+        const committed = await DBService.updateScheduleRowAtomic(
             compositeKey,
             caType,
             locator,
@@ -1008,13 +1036,14 @@ window.updateRow = async function (compositeKey, caType, index, field, value, re
             },
             dayData
         );
+        rememberScheduleRowCommit(row, committed);
         scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
     } finally {
         await finishScheduleMutation(mutationKey);
     }
-};
+}
 
 window.deleteRow = async function (compositeKey, caType, index, renderedLocator) {
     const mutationKey = `row:${compositeKey}:${caType}:${index}`;
@@ -1184,16 +1213,20 @@ async function loadTeacherListForSchedule(options = {}) {
     }
 }
 
-window.updateSubjectRow = async function (compositeKey, caType, index, subjectName, renderedLocator) {
+window.updateSubjectRow = function (compositeKey, caType, index, subjectName, renderedLocator) {
+    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    return queueScheduleRowEdit(mutationKey, () => updateScheduleRowSubject(compositeKey, caType, index, subjectName, renderedLocator, mutationKey));
+};
+
+async function updateScheduleRowSubject(compositeKey, caType, index, subjectName, renderedLocator, mutationKey) {
     const subjects = window._subjectList || [];
     const match = subjects.find(s => s.name === subjectName);
     const lopId = match ? match.id : '';
-    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
-    if (!beginScheduleMutation(mutationKey)) return;
+    if (!beginScheduleMutation(mutationKey, { lockTable: false })) return;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        const { locator } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
-        await DBService.updateScheduleRowAtomic(
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, rebaseScheduleLocator(renderedLocator));
+        const committed = await DBService.updateScheduleRowAtomic(
             compositeKey,
             caType,
             locator,
@@ -1209,13 +1242,14 @@ window.updateSubjectRow = async function (compositeKey, caType, index, subjectNa
             },
             dayData
         );
+        rememberScheduleRowCommit(row, committed);
         scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
     } finally {
         await finishScheduleMutation(mutationKey);
     }
-};
+}
 
 let teacherShiftManagerState = null;
 let teacherPickerGeneration = 0;
@@ -1331,19 +1365,207 @@ function scheduleRowContentFingerprint(row) {
     return JSON.stringify(stored);
 }
 
-function beginScheduleMutation(key) {
+function beginScheduleMutation(key, options = {}) {
     if (scheduleMutationsPending.has(key)) return false;
     scheduleMutationsPending.add(key);
     window.__scheduleMutationPending = true;
-    const tbody = document.getElementById('table-body');
-    if (tbody) { tbody.inert = true; tbody.setAttribute('aria-busy', 'true'); }
+    // Sửa MỘT ô (giờ, phòng, ghi chú, môn, sĩ số) không khoá cả bảng: khoá làm ô người dùng
+    // vừa bấm sang mất con trỏ. Thêm/xoá lớp, sao chép tuần vẫn khoá vì chúng đổi vị trí dòng.
+    if (options.lockTable !== false) {
+        scheduleLockingMutations.add(key);
+        const tbody = document.getElementById('table-body');
+        if (tbody) { tbody.inert = true; tbody.setAttribute('aria-busy', 'true'); }
+    }
+    setScheduleSaveStatus('saving');
     return true;
 }
 
 async function finishScheduleMutation(key) {
     scheduleMutationsPending.delete(key);
+    scheduleLockingMutations.delete(key);
     window.__scheduleMutationPending = scheduleMutationsPending.size > 0;
     await renderTable();
+    if (!scheduleMutationsPending.size) setScheduleSaveStatus('done');
+}
+
+const scheduleLockingMutations = new Set();
+const scheduleRowEditQueues = new Map();
+const scheduleOwnRowCommits = [];
+let scheduleSaveStatusTimer = null;
+
+function queueScheduleRowEdit(key, task) {
+    const previous = scheduleRowEditQueues.get(key) || Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => task());
+    scheduleRowEditQueues.set(key, run);
+    return run.finally(() => {
+        if (scheduleRowEditQueues.get(key) === run) scheduleRowEditQueues.delete(key);
+    });
+}
+
+// Ô thứ hai của cùng một lớp có thể được sửa trong lúc ô thứ nhất đang lưu; khi đó mốc
+// kiểm tra xung đột (data-row-locator) nó mang theo là bản TRƯỚC lần lưu của chính mình.
+// Chỉ "nối" sang bản mới khi mốc cũ khớp đúng bản trước một lần lưu do trang này vừa ghi,
+// nên sửa của người khác vẫn bị chặn như cũ.
+function rememberScheduleRowCommit(before, after) {
+    if (!before || !after || typeof after !== 'object') return;
+    scheduleOwnRowCommits.push({ shiftId: String(before.shiftId || ''), before: { ...before }, after: { ...after } });
+    if (scheduleOwnRowCommits.length > 40) scheduleOwnRowCommits.shift();
+}
+
+function rebaseScheduleLocator(renderedLocator) {
+    if (!renderedLocator || !scheduleOwnRowCommits.length) return renderedLocator;
+    let locator;
+    try { locator = JSON.parse(renderedLocator); } catch (_) { return renderedLocator; }
+    let rebased = false;
+    for (let step = 0; step < scheduleOwnRowCommits.length; step += 1) {
+        const commit = [...scheduleOwnRowCommits].reverse().find(item =>
+            item.shiftId === String(locator.shiftId || '') &&
+            String(item.after.shiftId || '') === item.shiftId &&
+            scheduleRowSignature(item.before) === locator.signature &&
+            scheduleRenderedValuesMatch(item.before, locator.values) &&
+            !(scheduleRowSignature(item.after) === locator.signature && scheduleRenderedValuesMatch(item.after, locator.values)));
+        if (!commit) break;
+        locator = scheduleEditLocator(commit.after, locator.index);
+        rebased = true;
+    }
+    return rebased ? JSON.stringify(locator) : renderedLocator;
+}
+
+// Chỉ báo nhỏ "Đang lưu… / Đã lưu" thay cho việc làm mờ cả bảng.
+function setScheduleSaveStatus(state) {
+    try {
+        if (!document.body || typeof document.createElement !== 'function') return;
+        let badge = document.getElementById('schedule-save-status');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.id = 'schedule-save-status';
+            badge.setAttribute('role', 'status');
+            badge.setAttribute('aria-live', 'polite');
+            badge.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9000;' +
+                'padding:6px 14px;border-radius:999px;font:600 13px/1.4 system-ui,sans-serif;' +
+                'box-shadow:0 4px 14px rgba(0,0,0,.12);pointer-events:none;transition:opacity .3s;opacity:0;';
+            document.body.appendChild(badge);
+        }
+        clearTimeout(scheduleSaveStatusTimer);
+        const failed = state === 'done' && scheduleLastMutationFailed;
+        if (state === 'saving') {
+            badge.textContent = 'Đang lưu…';
+            badge.style.background = '#EFF6FF'; badge.style.color = '#1D4ED8';
+        } else if (failed) {
+            badge.textContent = 'Chưa lưu được — xem thông báo lỗi';
+            badge.style.background = '#FEF2F2'; badge.style.color = '#B91C1C';
+        } else {
+            badge.textContent = 'Đã lưu';
+            badge.style.background = '#ECFDF5'; badge.style.color = '#047857';
+        }
+        badge.style.opacity = '1';
+        if (state !== 'saving') {
+            scheduleSaveStatusTimer = setTimeout(() => { badge.style.opacity = '0'; }, failed ? 5000 : 1400);
+        }
+    } catch (_) { /* chỉ là chỉ báo, không ảnh hưởng việc lưu */ }
+}
+
+function scheduleRowShiftId(tr) {
+    try { return String(JSON.parse(tr?.dataset?.rowLocator || '{}').shiftId || ''); }
+    catch (_) { return ''; }
+}
+
+// Vẽ lại bảng mà KHÔNG phá ô người dùng đang gõ: chỉ thay những dòng thật sự đổi; dòng
+// chứa ô đang gõ thì thay từng ô khác, giữ nguyên ô đang gõ (chỉ cập nhật giá trị gốc).
+function applyScheduleTableHtml(tbody, html) {
+    let parsed = null;
+    try {
+        if (tbody.dataset.rendered === '1' && tbody.children && typeof tbody.replaceChild === 'function') {
+            parsed = document.createElement('tbody');
+            parsed.innerHTML = html;
+            if (!parsed.children) parsed = null;
+        }
+    } catch (_) { parsed = null; }
+    if (!parsed) {
+        tbody.innerHTML = html;
+        return;
+    }
+    const active = document.activeElement;
+    const activeInside = !!(active && active !== tbody && tbody.contains(active));
+    const nextRows = Array.from(parsed.children);
+    const currentRows = Array.from(tbody.children);
+    if (nextRows.length !== currentRows.length) {
+        const focus = activeInside ? captureScheduleFocus(active) : null;
+        tbody.replaceChildren(...nextRows);
+        restoreScheduleFocus(tbody, focus);
+        return;
+    }
+    nextRows.forEach((nextRow, rowIndex) => {
+        const currentRow = currentRows[rowIndex];
+        if (currentRow.outerHTML === nextRow.outerHTML) return;
+        const holdsFocus = activeInside && currentRow.contains(active);
+        const sameClass = scheduleRowShiftId(currentRow) && scheduleRowShiftId(currentRow) === scheduleRowShiftId(nextRow);
+        if (!holdsFocus || !sameClass || currentRow.children.length !== nextRow.children.length) {
+            const focus = holdsFocus ? captureScheduleFocus(active) : null;
+            tbody.replaceChild(nextRow, currentRow);
+            restoreScheduleFocus(tbody, focus);
+            return;
+        }
+        Array.from(currentRow.attributes).forEach(attribute => {
+            if (!nextRow.hasAttribute(attribute.name)) currentRow.removeAttribute(attribute.name);
+        });
+        Array.from(nextRow.attributes).forEach(attribute => currentRow.setAttribute(attribute.name, attribute.value));
+        const currentCells = Array.from(currentRow.children);
+        Array.from(nextRow.children).forEach((nextCell, cellIndex) => {
+            const cell = currentCells[cellIndex];
+            if (cell.outerHTML === nextCell.outerHTML) return;
+            if (!cell.contains(active)) {
+                currentRow.replaceChild(nextCell, cell);
+                return;
+            }
+            const nextInput = nextCell.querySelector('input, select, textarea');
+            if (nextInput && nextInput.tagName === active.tagName) {
+                // Gán thuộc tính value chỉ đổi giá trị gốc; chữ người dùng đang gõ giữ nguyên.
+                Array.from(nextInput.attributes).forEach(attribute => active.setAttribute(attribute.name, attribute.value));
+            }
+        });
+    });
+}
+
+function captureScheduleFocus(active) {
+    try {
+        const shiftId = scheduleRowShiftId(active.closest('tr'));
+        const field = active.closest('td')?.dataset?.field || '';
+        if (!shiftId || !field) return null;
+        let selection = null;
+        try { selection = [active.selectionStart, active.selectionEnd]; } catch (_) { selection = null; }
+        return { shiftId, field, value: active.value, dirty: active.value !== active.defaultValue, selection };
+    } catch (_) {
+        return null;
+    }
+}
+
+function restoreScheduleFocus(tbody, focus) {
+    if (!focus) return;
+    try {
+        const row = Array.from(tbody.querySelectorAll('tr[data-row-locator]'))
+            .find(candidate => scheduleRowShiftId(candidate) === focus.shiftId);
+        const input = row?.querySelector(`td[data-field="${focus.field}"] input, td[data-field="${focus.field}"] select`);
+        if (!input || input.readOnly || input.disabled) return;
+        input.focus({ preventScroll: true });
+        if (focus.dirty && input.value !== focus.value) {
+            // Chữ đang gõ dở được đặt lại vào ô mới; khi rời ô, nếu trình duyệt không tự báo
+            // "change" (giá trị gán bằng mã) thì tự gửi để thay đổi không bị mất.
+            input.value = focus.value;
+            let changed = false;
+            input.addEventListener('change', () => { changed = true; }, { once: true });
+            input.addEventListener('blur', () => {
+                setTimeout(() => {
+                    if (!changed && input.isConnected && input.value !== input.defaultValue) {
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, 0);
+            }, { once: true });
+        }
+        if (focus.selection && Number.isInteger(focus.selection[0])) {
+            try { input.setSelectionRange(focus.selection[0], focus.selection[1]); } catch (_) { /* ô giờ */ }
+        }
+    } catch (_) { /* giữ con trỏ chỉ là tiện ích */ }
 }
 
 function resolveScheduleRowIndex(rows, locator) {
@@ -3457,7 +3679,7 @@ window.executeCopyWeek = async function () {
                         });
                     }
                 });
-                const created = await DBService.createScheduleIfMissing(tgtComposite, cleanData);
+                const created = await DBService.createScheduleIfMissing(tgtComposite, cleanData, { replaceInheritanceStop: true });
                 if (created) copied++;
                 else skippedExistingDays++;
             }

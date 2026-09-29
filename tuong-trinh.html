@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260923-fast-login-v2'></script>
+    <script src='js/teacher-shift-state.js?v=20260906-early10-recovery-v1'></script> <script src='js/db-service.js?v=20260929-owner-round-v1'></script>
     <script src='js/shift-absence-state.js?v=20260906-early10-recovery-v1'></script>
     <script src='js/evaluation-service.js?v=20260927-holiday-off-v1'></script>
     <script src='js/ui-service.js?v=20260912-schedule-blank-guard-v1'></script>
@@ -395,6 +395,12 @@ async function loadTrustedIds(){
 async function buildVerdicts(reqs){
     const out={};
     const trustedIds=await loadTrustedIds();
+    // Ngày nghỉ lễ / tắt ca toàn trung tâm — lớp không diễn ra thì không được chấm bù.
+    const centerClosures=((await DBService.getSystemSettings().catch(()=>({})))||{}).centerClosures||{};
+    const closedAt=(dateKey,key)=>{
+        try{return typeof window.isCenterClosed==='function'&&Array.isArray(centerClosures[dateKey])&&window.isCenterClosed(dateKey,key,centerClosures)}
+        catch(e){return false}
+    };
     const byStaffMonth={};
     reqs.forEach(r=>{
         const m=String(r.dateKey||'').slice(0,7);
@@ -432,6 +438,7 @@ async function buildVerdicts(reqs){
                     // + registeredTeachers → lớp xếp 2 GV thì GV thứ 2 cũng được nhận đúng.
                     rows.push({branch:b,start:row.start,end:row.end,lop:row.lop||'',
                         mine:isAssignedToClass(row,staffId),row:row,section:sec,rowIndex:rowIndex,
+                        closed:row.isClosed===true?'Lớp đã tắt':(closedAt(dkey,sec)?'Trung tâm nghỉ':''),
                         compositeKey:b+'__'+dkey,shiftId:row.shiftId||'',
                         cancelKey:b+'__'+dkey+'_'+sec+'_'+rowIndex});
                 }));
@@ -456,6 +463,7 @@ async function buildVerdicts(reqs){
                             start:en.customStart||cf.start||RS_TT[sk].s,
                             end:en.customEnd||cf.end||RS_TT[sk].e,
                             compositeKey:b+'__'+mk,dayKey:dayk,
+                            closed:closedAt(dkey,sk)?'Trung tâm nghỉ':'',
                             cancelKey:(src.kind==='vp'?'office_':'')+b+'_'+mk+'_'+sk+'_'+dayk});
                     });
                 });
@@ -551,6 +559,13 @@ async function buildVerdicts(reqs){
                 })));
             }
             const blockedAbsence=absenceStates.find(state=>state&&state.isAbsent)||null;
+            // Lớp đã TẮT trên lịch (lễ, học sinh xin nghỉ...) hoặc trung tâm nghỉ ca đó: lớp không
+            // diễn ra nên không có công để bù (quy định GĐ 28/09/2026). Máy duyệt cũng chặn.
+            const closedTargets=targetedTeachingRows.concat(targetedOperationalRows).filter(x=>x.closed);
+            const closedAtTime=r.type!=='scheduled'&&startHM&&endHM
+                ? rows.filter(x=>x.mine&&x.closed&&(!r.branch||x.branch===r.branch)&&
+                    toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end))
+                : [];
 
             const trusted=trustedIds.has(String(r.staffId));
             const hasMoneyExtra=!!(s.bonus10||(s.overtimeMinutes>0)||s.isAbsent);
@@ -568,6 +583,11 @@ async function buildVerdicts(reqs){
                 level='bad'; title='Trùng giờ với yêu cầu khác';
                 reasons.push('Yêu cầu này chồng khung giờ với một yêu cầu khác cùng ngày '+twinReq.dateKey+' ("'+(twinReq.shiftLabel||'')+'") cũng đang chờ duyệt.');
                 reasons.push('Nhân viên chỉ vào ca một lần nên hai lớp cùng giờ phải gộp thành MỘT ca công — chỉ duyệt một mục, mục còn lại từ chối và ghi rõ lý do (đã gộp).');
+            }else if(r.type==='scheduled'&&closedTargets.length){
+                level='bad'; title='Lớp đã tắt — không được chấm bù';
+                reasons.push('Ca nguồn '+closedTargets.map(x=>(x.lop||(x.kind==='vp'?'Văn Phòng':x.kind==='tt'?'Tiếp Tân':'Ca dạy'))+' '+x.start+'–'+x.end+' ('+x.closed+')').join(', ')+
+                    ' đã được tắt trên lịch ngày '+r.dateKey+', nên lớp không diễn ra và không có công để bù.');
+                reasons.push('Hãy từ chối yêu cầu này. Nếu lớp thật sự có dạy, bật lại lớp trên lịch trước rồi mới duyệt.');
             }else if(blockedAbsence){
                 level='bad'; title='Ca đã được ghi nhận vắng';
                 reasons.push('Trạng thái hiện tại của đúng ca này là '+ShiftAbsenceState.absenceLabel(blockedAbsence)+'. Không được duyệt chấm bù cho tới khi quản lý khôi phục trạng thái ca nếu việc ghi vắng là sai.');
@@ -597,6 +617,7 @@ async function buildVerdicts(reqs){
                 level='warn'; title='Ngoài lịch — cần quản lý xác nhận';
                 reasons.push('Ca không có trên lịch nên hệ thống không tự đối chiếu được.');
                 if(r.approvedBy)reasons.push('Nhân viên khai người phân công: '+r.approvedBy+'.');
+                if(closedAtTime.length)reasons.push('LƯU Ý: khung giờ này trùng lớp đã TẮT của nhân viên ('+closedAtTime.map(x=>(x.lop||'Ca dạy')+' '+x.start+'–'+x.end).join(', ')+') — lớp tắt thì không được chấm bù.');
                 if(anyClassAtTime)reasons.push('Khung giờ này trung tâm CÓ lớp đang diễn ra (hợp lý).');
                 else reasons.push('Khung giờ này không có lớp nào trên lịch — nên hỏi lại.');
             }

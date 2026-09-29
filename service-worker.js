@@ -1,8 +1,8 @@
-// Service Worker v208 - staff UI round 3 (check-in after shift end, report day cards, holiday tool, login redesign).
+// Service Worker v209 - owner round 29/09 (offline shell matches its scripts, closed-class make-up block, schedule inheritance, no-flicker schedule edits).
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v208-round3-20260927';
+const APP_RELEASE = 'tdt-chamcong-v209-owner-round-20260929';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -44,11 +44,11 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
     '/js/main.js?v=20260927-round3-v1',
-    '/js/startup-recovery.js?v=20260906-early10-recovery-v1',
+    '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
-    '/js/db-service.js?v=20260923-fast-login-v2',
+    '/js/db-service.js?v=20260929-owner-round-v1',
     '/js/meeting-attendance-policy.js?v=20260923-fast-login-v2',
-    '/js/report.js?v=20260927-round3-v1',
+    '/js/report.js?v=20260929-owner-round-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -69,8 +69,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260927-holidays-v1',
+    '/js/schedule.js?v=20260929-owner-round-v1',
     '/js/center-holidays.js?v=20260927-holidays-v1',
+    '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260926-mobile-ui-v1',
@@ -82,16 +83,60 @@ const STATIC_ASSETS = Array.from(new Set([
     '/manifest.json'
 ]));
 
+// Trang HTML (không có ?v=) là "vỏ" của bản phát hành: khi máy mở app lúc mạng không vào
+// được máy chủ, service worker trả bản HTML đã lưu, nên bản đó phải KHỚP script của bản
+// hiện hành. 28/09/2026: một tiếp tân mở Chấm Công lúc mạng chập chờn, nhận bản HTML cũ
+// (trước 26/09) trỏ tới main.js/timekeeping.js đã bị dọn khỏi kho → trang đứng, không có
+// nút Vào ca, chỉ hiện "Ứng dụng chưa tải xong".
+const isShellPage = asset => asset === '/' || asset.endsWith('.html') || asset === '/manifest.json';
+// Các trang nhân viên dùng hằng ngày: script/CSS của chúng được lưu sẵn khi cài bản mới để
+// trang vẫn mở được (và báo mất mạng rõ ràng) khi mạng chập chờn.
+const CORE_STAFF_PAGES = ['/index.html', '/nhan-vien.html', '/cham-cong.html', '/bao-cao.html', '/cham-bu.html'];
+
+// Mọi script/CSS có ?v= (cùng origin) mà một trang HTML đã lưu đang trỏ tới.
+async function referencedVersionedAssets(cache, page) {
+    try {
+        const cached = await cache.match(page);
+        if (!cached) return [];
+        const html = await cached.text();
+        const base = new URL(page, self.location.origin);
+        const found = [];
+        for (const match of html.matchAll(/(?:src|href)=["']([^"'<>\s]+\?v=[^"'<>\s]+)["']/g)) {
+            const url = new URL(match[1], base);
+            if (url.origin === self.location.origin &&
+                (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) found.push(url.href);
+        }
+        return found;
+    } catch (_) {
+        return [];
+    }
+}
+
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(async cache => {
             // Chỉ tải những tệp chưa có trong kho (tệp đổi ?v= mới coi là chưa có).
             const missing = [];
             for (const asset of STATIC_ASSETS) {
+                if (isShellPage(asset)) continue;
                 if (!(await cache.match(asset))) missing.push(asset);
             }
             // Một tệp lỗi (CDN chặn, mạng rớt) không được làm hỏng cả lần cài đặt.
-            await Promise.all(missing.map(asset => cache.add(asset).catch(() => undefined)));
+            // HTML luôn hỏi lại máy chủ ('no-cache' = xác thực lại, trang không đổi chỉ tốn 304).
+            await Promise.all([
+                ...STATIC_ASSETS.filter(isShellPage).map(page =>
+                    fetch(new Request(page, { cache: 'no-cache' }))
+                        .then(response => (response.ok ? cache.put(page, response) : undefined))
+                        .catch(() => undefined)),
+                ...missing.map(asset => cache.add(asset).catch(() => undefined))
+            ]);
+            const referenced = new Set((await Promise.all(
+                CORE_STAFF_PAGES.map(page => referencedVersionedAssets(cache, page)))).flat());
+            const extra = [];
+            for (const asset of referenced) {
+                if (!(await cache.match(asset))) extra.push(asset);
+            }
+            await Promise.all(extra.map(asset => cache.add(asset).catch(() => undefined)));
         })
         // Download now, activate after old tabs close. Forcing activation
         // would make pre-fix clients reload in the middle of a live write.
@@ -108,6 +153,11 @@ self.addEventListener('activate', event => {
             .then(() => caches.open(CACHE_NAME))
             .then(async cache => {
                 const wanted = new Set(STATIC_ASSETS.map(asset => new URL(asset, self.location.origin).href));
+                // Giữ cả script/CSS mà các trang HTML đã lưu đang dùng (main.js, db-service.js...
+                // không nằm trong danh sách trên) — trước đây mỗi bản mới xoá hết chúng.
+                const pages = STATIC_ASSETS.filter(isShellPage);
+                (await Promise.all(pages.map(page => referencedVersionedAssets(cache, page))))
+                    .flat().forEach(href => wanted.add(href));
                 const stored = await cache.keys();
                 await Promise.all(stored.map(request => {
                     const url = new URL(request.url);

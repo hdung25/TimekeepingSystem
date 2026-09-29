@@ -9,6 +9,9 @@
 
     const readyModules = new Set();
     let watchdogId = null;
+    // Script của chính ứng dụng (hoặc Firebase) không tải được = trang chắc chắn không chạy.
+    // Khi đó báo ngay, không bắt người dùng đợi 18 giây nhìn trang trống không có nút bấm.
+    let failedAppScript = false;
 
     const syncKnownReadyModules = () => {
         // A bundle can be evaluated yet stop while restoring authentication or
@@ -61,7 +64,11 @@
 
             const text = document.createElement('p');
             text.style.margin = '0 0 12px';
-            text.textContent = 'Ứng dụng chưa tải xong. Vui lòng kiểm tra kết nối rồi tải lại trang.';
+            text.textContent = navigator.onLine === false
+                ? 'Điện thoại đang mất mạng nên ứng dụng chưa tải được. Hãy bật Wi-Fi hoặc 4G rồi bấm Tải lại.'
+                : (failedAppScript
+                    ? 'Ứng dụng chưa tải xong vì điện thoại chưa kết nối được tới máy chủ. Hãy thử đổi Wi-Fi ↔ 4G rồi bấm Tải lại.'
+                    : 'Ứng dụng chưa tải xong. Vui lòng kiểm tra kết nối (thử đổi Wi-Fi ↔ 4G) rồi tải lại trang.');
 
             const retry = document.createElement('button');
             retry.type = 'button';
@@ -75,6 +82,25 @@
 
         mount();
     };
+
+    const isAppScript = src => {
+        try {
+            const url = new URL(src, window.location.href);
+            return url.origin === window.location.origin || /(^|\.)gstatic\.com$/.test(url.hostname);
+        } catch (_) {
+            return false;
+        }
+    };
+    window.addEventListener('error', event => {
+        const target = event && event.target;
+        if (!target || target.tagName !== 'SCRIPT' || !isAppScript(target.src)) return;
+        failedAppScript = true;
+        window.setTimeout(showRecoveryMessage, 1500);
+    }, true);
+    // Có mạng trở lại trong lúc đang hiện thông báo → tự tải lại, người dùng khỏi phải bấm.
+    window.addEventListener('online', () => {
+        if (!isReady() && document.getElementById('tdt-startup-recovery')) window.location.reload();
+    });
 
     // A genuine slow mobile network may need a few seconds for Firebase. This
     // only reports a blocked script/module after a generous, read-only wait.

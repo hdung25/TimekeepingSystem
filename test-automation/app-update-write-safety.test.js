@@ -39,7 +39,7 @@ assert.equal(clean.reloads(), 1, 'untouched login reloads at most once per page'
 
 (async () => {
     const source = fs.readFileSync(path.join(root, 'js/schedule.js'), 'utf8');
-    const begin = source.indexOf('function beginScheduleMutation(key)');
+    const begin = source.indexOf('function beginScheduleMutation(key, options = {})');
     const finish = source.indexOf('function resolveScheduleRowIndex', begin);
     const window = {};
     const harness = new Function('window', 'document', 'renderTable',

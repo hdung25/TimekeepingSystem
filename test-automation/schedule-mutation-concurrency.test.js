@@ -73,9 +73,9 @@ assert.match(mutateAtomic, /_revision:\s*currentRevision \+ 1/);
 const copyStart = db.indexOf('createScheduleIfMissing:');
 const copyCreate = db.slice(copyStart, db.indexOf('updateScheduleManifest:', copyStart));
 assert.match(copyCreate, /db\.runTransaction/);
-assert.match(copyCreate, /if \(snapshot\.exists\) return/,
-    'Week copy must preserve target days that already contain a schedule');
-assert.match(schedule, /createScheduleIfMissing\(tgtComposite, cleanData\)/);
+assert.match(copyCreate, /if \(snapshot\.exists && !\(options\.replaceInheritanceStop === true &&\s*DBService\.isScheduleInheritanceStop\(snapshot\.data\(\)\)\)\) return/,
+    'Week copy must preserve target days that already contain a schedule (only an empty inheritance stop may be filled)');
+assert.match(schedule, /createScheduleIfMissing\(tgtComposite, cleanData, \{ replaceInheritanceStop: true \}\)/);
 
 const popup = sliceFunction('window.showGVPopup', '// ================= COPY SCHEDULE');
 assert.match(popup, /document\.createTextNode\(String\(g\?\.name/);

@@ -6921,6 +6921,14 @@ function commitExactTypedSubjectSelection() {
     const input = document.getElementById('subject-search-input');
     const typed = String(input?.value || '').trim();
     if (!typed) return { ok: true, changed: false };
+    // Đã bấm chọn môn trong danh sách (hiện thành thẻ phía trên) thì chữ còn trong ô tìm
+    // kiếm chỉ là từ khoá lọc (VD "kèm") — không được coi là môn gõ tay nữa. Trước đây chữ
+    // lọc này làm bấm Thêm/Sửa ca báo "Không tìm thấy môn khớp chính xác" dù đã chọn môn.
+    if (editSelectedSubjectIds.length > 0) {
+        input.value = '';
+        if (typeof window.filterSubjectDropdown === 'function') window.filterSubjectDropdown('');
+        return { ok: true, changed: false };
+    }
     const key = normalizeSubjectLookupName(typed);
     const matches = allAvailableSubjects.filter(subject => {
         const full = normalizeSubjectLookupName(subject.path || subject.name);
