@@ -510,11 +510,12 @@ function closeStaffDropdown() {
 
 function filterStaffDropdown(query) {
     const listToSearch = window._filteredStaffList || window._allStaffList || [];
-    const q = query.toLowerCase().trim();
+    // Không phân biệt hoa/thường và dấu: gõ "lan" vẫn ra "Lân", "Lan".
+    const q = normalizeSubjectSearchText(query);
     const filtered = q
         ? listToSearch.filter(u =>
-            (u.name || '').toLowerCase().includes(q) ||
-            (u.username || '').toLowerCase().includes(q)
+            normalizeSubjectSearchText(u.name).includes(q) ||
+            normalizeSubjectSearchText(u.username).includes(q)
         )
         : listToSearch;
 
