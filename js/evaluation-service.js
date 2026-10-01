@@ -1486,7 +1486,9 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     };
 
                     const _workedSegments = _chainSegments.filter(_segmentWorked);
-                    _splitAbsentSegments = _chainSegments.filter(seg => !_segmentWorked(seg));
+                    // Ca con thuộc phạm vi trung tâm nghỉ thì không có buổi học để vắng.
+                    _splitAbsentSegments = _chainSegments.filter(seg =>
+                        !_segmentWorked(seg) && !isCenterClosed(dateStr, seg.secKey, window.centerClosures));
                     if (_workedSegments.length > 0 && _splitAbsentSegments.length > 0) {
                         _workedSegments.sort((a, b) => a.start.localeCompare(b.start));
                         _workedChainSegments = _workedSegments;
