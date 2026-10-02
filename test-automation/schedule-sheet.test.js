@@ -71,6 +71,21 @@ assert.match(html, /ss-row-closed/);
 assert.match(html, /&lt;UP1&gt;/, 'ghi chú được escape');
 assert.match(S.renderSheetHtml(model, { shortNames: false }), /Nguyễn Thị Kiều My/);
 
+assert.equal(ca1.offTimeCount, 1, 'đếm lớp lệch giờ');
+assert.match(html, /ss-row-off/);
+assert.match(html, /<div class="ss-time">18:30–19:00<\/div>/, 'giờ lệch ngay dưới tên lớp');
+assert.match(html, /Lưu ý: 1 lớp học giờ khác/);
+
+// Cả ca dời giờ (Sáng Ca 1 học 08:00–09:30): giờ ca lấy theo đa số, chỉ lớp lệch bị đánh dấu.
+const shifted = S.buildSheetModel({ morning1: [
+    { lop: 'A', start: '08:00', end: '09:30', gvList: [{ id: 'a', name: 'A' }] },
+    { lop: 'B', start: '08:00', end: '09:30', gvList: [{ id: 'b', name: 'B' }] },
+    { lop: 'C', start: '07:30', end: '09:00', gvList: [{ id: 'c', name: 'C' }] }
+] }, { dateKey: '2026-10-01', branch: 'cs1', buoi: 'morning', closures: {} });
+assert.equal(shifted.sections[0].start, '08:00');
+assert.equal(shifted.sections[0].end, '09:30');
+assert.deepEqual(Array.from(shifted.sections[0].rows.map(r => r.time)), ['', '', '07:30–09:00']);
+
 const hidden = S.buildSheetModel(day, { dateKey: '2026-10-01', branch: 'cs1', buoi: 'evening', closures: {}, showClosed: false });
 assert.equal(hidden.sections[0].rows.length, 4, 'ẩn lớp đã tắt');
 
@@ -80,13 +95,13 @@ assert.match(S.renderSheetHtml(closed), /Trung tâm nghỉ ca này/);
 
 const text = S.sheetText(model, {});
 assert.match(text, /^LỊCH HỌC TỐI THỨ 5 — 01\/10\/2026 — Cơ sở 1/);
-assert.match(text, /• FFL · P02 · Kiều My · 5 HS · 18:30–19:00 · qua P04/);
+assert.match(text, /• FFL \(⏰ 18:30–19:00\) · P02 · Kiều My · 5 HS · qua P04/);
 assert.match(text, /• E7 · P07 · Đại \(thay Minh Quân\)/);
 assert.match(text, /✕ \[ĐÃ TẮT\] E9/);
 
 // Gắn vào trang + cache offline
 const page = read('lich-lam.html');
-assert.match(page, /js\/schedule-sheet\.js\?v=20261002-sheet-v1/);
+assert.match(page, /js\/schedule-sheet\.js\?v=20261002-sheet-v2/);
 assert.ok(page.indexOf('schedule-sheet.js') > page.indexOf('js/schedule.js'), 'nạp sau schedule.js');
-assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261002-sheet-v1'/);
+assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261002-sheet-v2'/);
 console.log('schedule-sheet.test.js: all assertions passed');

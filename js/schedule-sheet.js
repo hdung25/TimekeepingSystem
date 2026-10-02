@@ -87,28 +87,33 @@
                 const centerClosed = isCenterClosed(dateKey, section.key, closures);
                 const rows = (Array.isArray(dayData?.[section.key]) ? dayData[section.key] : [])
                     .filter(row => row && !rowIsEmpty(row))
-                    .map(row => {
-                        const start = String(row.start || '').trim();
-                        const end = String(row.end || '').trim();
-                        const customTime = (start && start !== section.defaultStart) || (end && end !== section.defaultEnd);
-                        return {
-                            ss: Number(row.soHS) > 0 ? Number(row.soHS) : '',
-                            lop: String(row.lop || '').trim(),
-                            phong: String(row.phong || '').trim(),
-                            note: String(row.note || '').trim(),
-                            time: customTime ? `${start || section.defaultStart}–${end || section.defaultEnd}` : '',
-                            closed: row.isClosed === true,
-                            teachers: rowTeachers(row)
-                        };
-                    })
+                    .map(row => ({
+                        ss: Number(row.soHS) > 0 ? Number(row.soHS) : '',
+                        lop: String(row.lop || '').trim(),
+                        phong: String(row.phong || '').trim(),
+                        note: String(row.note || '').trim(),
+                        start: String(row.start || '').trim() || section.defaultStart,
+                        end: String(row.end || '').trim() || section.defaultEnd,
+                        time: '',
+                        closed: row.isClosed === true,
+                        teachers: rowTeachers(row)
+                    }))
                     .filter(row => showClosed || !row.closed);
                 const open = rows.filter(r => !r.closed);
+                // Giờ của ca trên tờ = giờ mà nhiều lớp đang học nhất (thường là giờ chuẩn của ca).
+                // Lớp nằm trong ca nhưng học giờ khác (VD Sáng Ca 1 mà 08:00–09:30) được đánh dấu riêng.
+                const { start, end } = sectionMainTime(open.length ? open : rows, section);
+                rows.forEach(row => {
+                    row.offTime = row.start !== start || row.end !== end;
+                    row.time = row.offTime ? `${row.start}–${row.end}` : '';
+                });
                 return {
                     key: section.key,
                     title: `Ca ${sectionNumber(section)}`,
                     buoiLabel: (BUOI.find(b => section.key.startsWith(b.key)) || {}).label || '',
-                    start: section.defaultStart,
-                    end: section.defaultEnd,
+                    start,
+                    end,
+                    offTimeCount: centerClosed ? 0 : open.filter(r => r.offTime).length,
                     centerClosed,
                     rows: centerClosed ? [] : rows,
                     classCount: centerClosed ? 0 : open.length,
@@ -117,6 +122,22 @@
             })
             .filter(section => section.centerClosed || section.rows.length);
         return { dateKey, branch, buoi, sections };
+    }
+
+    function sectionMainTime(rows, section) {
+        const counts = new Map();
+        rows.forEach(r => {
+            const key = `${r.start}|${r.end}`;
+            counts.set(key, (counts.get(key) || 0) + 1);
+        });
+        const fallback = `${section.defaultStart}|${section.defaultEnd}`;
+        let best = fallback;
+        let bestCount = counts.get(fallback) || 0;
+        counts.forEach((count, key) => {
+            if (count > bestCount) { best = key; bestCount = count; }
+        });
+        const [start, end] = best.split('|');
+        return { start, end };
     }
 
     function defaultTitle(dateKey, buoi) {
@@ -171,6 +192,7 @@
                 <span class="ss-sec-name">${showBuoi ? esc(section.buoiLabel) + ' · ' : ''}${esc(section.title)}</span>
                 <span class="ss-sec-time">${esc(section.start)} – ${esc(section.end)}</span>
                 ${section.centerClosed ? '' : `<span class="ss-sec-meta">${section.classCount} lớp${section.studentCount ? ` · ${section.studentCount} HS` : ''}</span>`}
+                ${section.offTimeCount ? `<span class="ss-sec-warn">Lưu ý: ${section.offTimeCount} lớp học giờ khác — xem giờ ô cam dưới tên lớp</span>` : ''}
                 </div></td></tr>`;
             if (section.centerClosed) {
                 return head + '<tr><td colspan="5" class="ss-closed-all">Trung tâm nghỉ ca này</td></tr>';
@@ -178,11 +200,11 @@
             return head + section.rows.map((row, index) => {
                 const notes = [];
                 if (row.closed) notes.push('<span class="ss-pill ss-pill-off">Đã tắt</span>');
-                if (row.time) notes.push(`<span class="ss-time">${esc(row.time)}</span>`);
                 if (row.note) notes.push(`<span>${esc(row.note)}</span>`);
-                return `<tr class="${row.closed ? 'ss-row-closed' : ''}${index % 2 ? ' ss-alt' : ''}">
+                const timeTag = row.time ? `<div class="ss-time">${esc(row.time)}</div>` : '';
+                return `<tr class="${row.closed ? 'ss-row-closed' : ''}${row.offTime && !row.closed ? ' ss-row-off' : ''}${index % 2 ? ' ss-alt' : ''}">
                     <td class="ss-c-ss">${esc(row.ss)}</td>
-                    <td class="ss-c-lop">${esc(row.lop) || '<span class="ss-dash">—</span>'}</td>
+                    <td class="ss-c-lop">${esc(row.lop) || '<span class="ss-dash">—</span>'}${timeTag}</td>
                     <td class="ss-c-room">${esc(row.phong) || '<span class="ss-dash">—</span>'}</td>
                     <td class="ss-c-gv">${teacherCellHtml(row.teachers, row.closed, nameOf)}</td>
                     <td class="ss-c-note">${notes.join(' ')}</td>
@@ -216,6 +238,7 @@
             const prefix = model.buoi === 'all' ? `${section.buoiLabel} · ` : '';
             lines.push('', `▸ ${prefix}${section.title} (${section.start}–${section.end})`);
             if (section.centerClosed) { lines.push('  Trung tâm nghỉ ca này'); return; }
+            if (section.offTimeCount) lines.push(`  ⚠ ${section.offTimeCount} lớp học giờ khác (ghi trong ngoặc)`);
             section.rows.forEach(row => {
                 const t = row.teachers;
                 const who = [
@@ -225,9 +248,8 @@
                         : `${nameOf(main)} nghỉ${row.closed ? '' : ' – chưa có GV thay'}`),
                     ...t.extraSubs.map(s => `${nameOf(s)} (dạy thay)`)
                 ].join(', ') || '—';
-                const bits = [row.lop || '—', row.phong || '—', who];
+                const bits = [`${row.lop || '—'}${row.time ? ` (⏰ ${row.time})` : ''}`, row.phong || '—', who];
                 if (row.ss) bits.push(`${row.ss} HS`);
-                if (row.time) bits.push(row.time);
                 if (row.note) bits.push(row.note);
                 lines.push(`${row.closed ? '✕ [ĐÃ TẮT] ' : '• '}${bits.join(' · ')}`);
             });
@@ -263,7 +285,9 @@
     .ss-off{color:#9CA3AF}
     .ss-need{font-size:11.5px;font-weight:700;color:#B91C1C}
     .ss-c-note{font-size:12.5px;color:#374151}
-    .ss-time{font-weight:700;color:#7C2D12;white-space:nowrap}
+    .ss-time{display:table;margin-top:4px;padding:2px 6px;border-radius:6px;background:#FFEDD5;border:1px solid #FDBA74;color:#9A3412;font-size:12.5px;font-weight:800;white-space:nowrap;line-height:1.4}
+    .ss-row-off td:first-child{border-left:4px solid #F97316;padding-left:2px}
+    .ss-sec-warn{flex-basis:100%;font-size:12px;font-weight:700;color:#9A3412}
     .ss-pill{border-radius:6px;padding:1px 6px;font-size:12px;font-weight:700;white-space:nowrap}
     .ss-pill-off{background:#FEE2E2;color:#B91C1C}
     .ss-row-closed td{background:#F3F4F6;color:#9CA3AF}
