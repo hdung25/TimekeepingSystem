@@ -1,8 +1,8 @@
-// Service Worker v211 - teacher finder on schedule page + search keyboard navigation + owner round 29/09 (offline shell matches its scripts, closed-class make-up block, schedule inheritance, no-flicker schedule edits).
+// Service Worker v212 - an open morning check-in no longer marks later classes as "Đang làm".
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v211-teacher-finder-20261001';
+const APP_RELEASE = 'tdt-chamcong-v212-open-session-20261002';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -52,7 +52,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
-    '/js/evaluation-service.js?v=20261001-holiday-split-v1',
+    '/js/evaluation-service.js?v=20261002-open-session-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',

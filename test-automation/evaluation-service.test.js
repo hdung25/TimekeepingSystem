@@ -1787,4 +1787,39 @@ function observation(lateMinutes) {
     assert.match(ttNormal.text, /\(Vắng\)/, 'ngày thường phiên vắng vẫn là Vắng');
 }
 
+{
+    // 02/10: vào ca sáng 07:52 (chưa ra ca) thì chỉ lớp 08:00 "Đang làm";
+    // lớp 18:00 chưa bắt đầu phải là "Sắp tới", không bị ghép vào phiên sáng.
+    const RealDate = context.Date;
+    const fixedNow = new RealDate('2026-10-02T07:55:00+07:00').getTime();
+    class FakeDate extends RealDate {
+        constructor(...args) { super(...(args.length ? args : [fixedNow])); }
+        static now() { return fixedNow; }
+    }
+    context.Date = FakeDate;
+    try {
+        const dateKey = '2026-10-02';
+        const staffId = 'gv-two-classes';
+        const schedule = {
+            morning1: [{ start: '08:00', end: '09:30', lop: 'Kèm 1:1 cấp 2', lopId: 'subject-k2',
+                gvId: staffId, registeredTeachers: [], _branch: 'cs1', _compositeKey: `cs1__${dateKey}`, _originalIndex: 0 }],
+            evening1: [{ start: '18:00', end: '19:30', lop: 'Kèm 1:1 ( báo bài)', lopId: 'subject-bb',
+                gvId: staffId, registeredTeachers: [], _branch: 'cs1', _compositeKey: `cs1__${dateKey}`, _originalIndex: 0 }]
+        };
+        const sessions = [{ id: 'open-morning', checkIn: `${dateKey}T07:52:00+07:00`, checkOut: null }];
+        const chips = context.window.calculateDailyChips(
+            schedule, sessions, staffId, dateKey, { roles: ['teaching_assistant'] }, [], {}, [], {}, []
+        ).filter(chip => chip.isTeaching);
+        const morning = chips.find(chip => /08:00/.test(chip.text));
+        const evening = chips.find(chip => /18:00/.test(chip.text));
+        assert.ok(morning && evening, 'phải có chip cho cả hai lớp');
+        assert.match(morning.text, /\(Đang làm\)/);
+        assert.equal(morning.sessionId, 'open-morning');
+        assert.doesNotMatch(evening.text, /Đang làm/, 'lớp tối chưa bắt đầu không được hiện Đang làm');
+        assert.notEqual(evening.sessionId, 'open-morning');
+    } finally {
+        context.Date = RealDate;
+    }
+}
+
 console.log('evaluation-service regression tests passed');

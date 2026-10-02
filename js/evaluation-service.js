@@ -1382,8 +1382,10 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     if (!_isEligibleTeachingSession(session)) return false;
                     const checkIn = safeDate(session.checkIn || session.start);
                     if (!checkIn) return false;
-                    const checkOut = safeDate(session.checkOut);
-                    const overlapsWindow = checkIn < schedEnd && (!checkOut || checkOut > schedStart);
+                    // Phiên chưa ra ca chỉ phủ tới hiện tại: vào ca sáng 07:52 không
+                    // được tính là đang dạy lớp 18:00 chưa bắt đầu.
+                    const checkOut = safeDate(session.checkOut) || new Date();
+                    const overlapsWindow = checkIn < schedEnd && checkOut > schedStart;
                     const minDiffMs = Math.min(..._chainStartDates.map(start => Math.abs(checkIn - start)));
                     return overlapsWindow || minDiffMs < 60 * 60 * 1000;
                 });
