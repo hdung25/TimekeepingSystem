@@ -1,8 +1,8 @@
-// Service Worker v212 - an open morning check-in no longer marks later classes as "Đang làm".
+// Service Worker v213 - "Bảng lịch gửi GV": schedule sheet image/text export on the schedule page.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v212-open-session-20261002';
+const APP_RELEASE = 'tdt-chamcong-v213-schedule-sheet-20261002';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -73,6 +73,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/center-holidays.js?v=20260927-holidays-v1',
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',
+    '/js/schedule-sheet.js?v=20261002-sheet-v1',
     '/js/search-keynav.js?v=20260929-keynav-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
