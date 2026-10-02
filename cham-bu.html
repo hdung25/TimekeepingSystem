@@ -127,6 +127,12 @@
         .bar{border-top:1px solid var(--ln);padding-top:14px;margin-top:4px}
         h2.ch{font-size:1rem;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px;color:var(--ink)}
         h2.ch svg,h2.ch i{color:var(--p)}
+        /* Thanh trạng thái đồng bộ: nói thật dữ liệu đang tải / đã cũ / tải lỗi */
+        .syncbar{border-radius:12px;padding:10px 12px;font-size:.8rem;line-height:1.45;display:flex;align-items:center;gap:10px;justify-content:space-between}
+        .syncbar[hidden]{display:none}
+        .sy-load{background:var(--info-s);color:#1E3A8A}
+        .sy-err{background:#FEF0F0;color:#B42318}
+        .sy-retry{min-height:36px;padding:0 14px;border-radius:10px;border:1.5px solid currentColor;background:#fff;color:inherit;font-weight:800;font-family:inherit;font-size:.8rem;cursor:pointer;flex-shrink:0}
         @media(max-width:420px){.wrap{padding:12px}.card{padding:14px}.sc-t{min-width:64px;font-size:.88rem;padding:10px 6px}.day{font-size:.86rem;border-radius:10px}}
         @media(max-width:340px){.g2{grid-template-columns:minmax(0,1fr)}}
     </style>
@@ -137,6 +143,7 @@
         <h1>Chấm Công Bù</h1>
     </div>
     <div class="wrap">
+        <div id="sync-note" class="syncbar" role="status" aria-live="polite" hidden></div>
         <div class="modes">
             <button class="mode on" id="m-sched" onclick="switchMode('sched')">
                 <div class="t">Ca Có Lịch</div><div class="s">Đã xếp lịch nhưng quên chấm công</div>
@@ -224,6 +231,44 @@ const RS={morning:{l:'SÁNG',s:'07:00',e:'11:30'},afternoon:{l:'CHIỀU',s:'14:0
 const DK=['mon','tue','wed','thu','fri','sat','sun'];
 const DOW=['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
 let curY,curM,selDate=null,monthMap={},picked=new Set(),reasonCache='',monthLoadSeq=0,sending=false;
+// monthReady: monthMap là dữ liệu THẬT của tháng đang xem (không phải trạng thái đang tải/lỗi).
+// Khi chưa ready, mọi thao tác chọn/gửi bị chặn có thông báo — trước đây ngày đó hiện sai
+// "bạn không được xếp ca nào" hoặc bấm không phản ứng (monthMap rỗng trong lúc tải lại).
+let monthReady=false,monthLoadedKey='',monthLoading=false,lastRequests=null;
+
+function setSync(kind,msg,retry){
+    const el=document.getElementById('sync-note');
+    if(!el)return;
+    if(!kind){el.hidden=true;el.innerHTML='';return}
+    el.className='syncbar '+(kind==='err'?'sy-err':'sy-load');
+    el.innerHTML='<span>'+esc(msg)+'</span>'+(retry?'<button class="sy-retry" onclick="retryLoad()">Thử lại</button>':'');
+    el.hidden=false;
+}
+
+// Đọc đơn chấm bù của tôi TỪ MÁY CHỦ và BÁO LỖI thật. DBService.getMyMakeupRequests nuốt lỗi
+// và trả [] → mạng yếu thì ca đang "Chờ duyệt" quay lại thành "Chưa chấm công" (cho bấm gửi
+// lần nữa) và danh sách hiện "Chưa có yêu cầu nào". Hai nơi gọi cùng lúc dùng chung một lần đọc.
+let requestsInFlight=null;
+function fetchMyRequests(){
+    if(requestsInFlight)return requestsInFlight;
+    requestsInFlight=firebase.firestore().collection('makeup_requests').where('staffId','==',uid()).limit(100)
+        .get({source:'server'}).then(snap=>{
+            const list=snap.docs.map(d=>({id:d.id,...d.data()}));
+            list.sort((a,b)=>((b.createdAt&&b.createdAt.seconds)||0)-((a.createdAt&&a.createdAt.seconds)||0));
+            lastRequests=list;
+            return list;
+        }).finally(()=>{requestsInFlight=null});
+    return requestsInFlight;
+}
+
+// Giữ lựa chọn ca qua các lần làm mới (chỉ số ca đổi khi lịch đổi) bằng khoá theo nội dung ca.
+const shiftKeyOf=s=>[s.kind,s.branch,s.start,s.end].join('|');
+
+function guardReady(){
+    if(monthReady&&!monthLoading)return true;
+    alert(monthLoading?'Lịch đang được cập nhật, vui lòng đợi vài giây rồi thử lại.':'Chưa tải được lịch của tháng này. Bấm "Thử lại" ở đầu trang.');
+    return false;
+}
 
 const uid=()=>localStorage.getItem('currentUserId');
 const uname=()=>localStorage.getItem('userFullName')||localStorage.getItem('currentUser')||'N/A';
@@ -370,8 +415,16 @@ async function loadMonth(options={}){
     const grid=document.getElementById('cal-grid');
     const mStr=curY+'-'+String(curM+1).padStart(2,'0');
     document.getElementById('cal-title').innerText='Tháng '+(curM+1)+'/'+curY;
-    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#6B7280;padding:1.5rem;font-size:.85rem">Đang tải lịch...</div>';
-    monthMap={};
+    // Cùng tháng đang hiển thị: GIỮ nguyên lịch cũ trong lúc làm mới (không xoá trắng, không
+    // mất lựa chọn). Sang tháng khác mới xoá và chặn thao tác tới khi tải xong.
+    const sameMonth=monthReady&&monthLoadedKey===mStr;
+    monthLoading=true;
+    if(sameMonth)setSync('load','Đang cập nhật lịch...');
+    else{
+        monthReady=false; monthMap={}; setSync(null);
+        grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#6B7280;padding:1.5rem;font-size:.85rem">Đang tải lịch...</div>';
+    }
+    const nextMap={};
     const me=uid(), todayK=dk(new Date()), daysIn=new Date(curY,curM+1,0).getDate();
     const loadId=++monthLoadSeq;
     try{
@@ -390,8 +443,10 @@ async function loadMonth(options={}){
         const scheduleReadOptions=Object.assign(fresh?{source:'server'}:{},{readCache:new Map()},
             registrations?{prefetchedRegistrations:registrations}:{});
         const [logs,reqs,cancelled,notes,schedRes,recRes,settings]=await Promise.all([
-            DBService.getMonthlyAttendance(mStr,me,fresh,fresh?{strict:true}:{}),
-            DBService.getMyMakeupRequests(me,fresh?{source:'server'}:{}),
+            // Luôn đọc máy chủ + báo lỗi thật: công/đơn cũ hay bị nuốt lỗi sẽ làm ca đã có công
+            // hiện lại là "Chưa chấm công".
+            DBService.getMonthlyAttendance(mStr,me,true,{strict:true}),
+            fetchMyRequests(),
             Promise.resolve().then(()=>DBService.getCancelledShifts(mStr,me)).catch(()=>[]),
             Promise.resolve().then(()=>DBService.getDailyNotes(me)).then(v=>v||{}).catch(()=>({})),
             Promise.all(dates.flatMap(k=>BRS.map(b=>
@@ -401,7 +456,8 @@ async function loadMonth(options={}){
                 DBService.getOfficeSchedule(b+'__'+mk,fresh?{source:'server'}:{}).then(v=>({mk:mk,b:b,kind:'vp',v:v||{}})).catch(()=>({mk:mk,b:b,kind:'vp',v:{}}))
             ]))),
             // Ngày nghỉ lễ / tắt ca toàn trung tâm (Xếp Lịch → Ngày nghỉ lễ, công tắc ca).
-            Promise.resolve().then(()=>DBService.getSystemSettings(fresh?{source:'server'}:{})).catch(()=>({}))
+            // Lỗi đọc ngày nghỉ lễ phải nổi lên (không coi như "không có lễ" làm ca nghỉ hiện thành ca mở).
+            Promise.resolve().then(()=>DBService.getSystemSettings({source:'server'}))
         ]);
         if(loadId!==monthLoadSeq)return; // người dùng đã chuyển sang tháng khác
         const attMap={}; logs.forEach(l=>{attMap[l.date]=l.sessions||[]});
@@ -504,13 +560,46 @@ async function loadMonth(options={}){
                 s.pending=!!s.request&&s.request.status==='pending';
                 s.rejected=!!s.lastRejected;
             });
-            if(shown.length)monthMap[k]={shifts:shown,
+            if(shown.length)nextMap[k]={shifts:shown,
                 miss:shown.filter(s=>!s.done&&!s.request&&!s.locked).length,
                 pend:shown.filter(s=>s.pending).length};
         });
+        const oldDay=sameMonth&&selDate?monthMap[selDate]:null;
+        const wasPicked=new Set(oldDay?[...picked].map(i=>oldDay.shifts[i]).filter(Boolean).map(shiftKeyOf):[]);
+        monthMap=nextMap; monthReady=true; monthLoadedKey=mStr; monthLoading=false; setSync(null);
         renderCal();
-    }catch(e){console.error(e);grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#EF4444;padding:1.2rem;font-size:.82rem">Lỗi tải lịch: '+esc(e.message||e)+'</div>'}
+        refreshSelectedDay(wasPicked);
+    }catch(e){
+        console.error(e);
+        if(loadId!==monthLoadSeq)return; // lần tải mới hơn đã thay thế
+        monthLoading=false;
+        const why=esc(e&&e.message||e);
+        if(monthReady&&monthLoadedKey===mStr){
+            // Vẫn còn lịch cũ của tháng này: giữ lại nhưng nói rõ nó có thể đã cũ.
+            setSync('err','Không cập nhật được lịch (mạng yếu?). Đang hiện dữ liệu cũ, trạng thái có thể chưa mới nhất.',true);
+        }else{
+            monthReady=false;
+            grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:#EF4444;padding:1.2rem;font-size:.82rem">Lỗi tải lịch: '+why+
+                '<br><button class="sy-retry" style="margin-top:10px" onclick="retryLoad()">Thử lại</button></div>';
+        }
+    }
 }
+
+// Vẽ lại panel của ngày đang chọn sau khi tải xong, giữ các ca đã chọn (theo nội dung ca).
+function refreshSelectedDay(wasPicked){
+    if(!selDate)return;
+    const info=monthMap[selDate];
+    if(!info){pickDay(selDate);return}
+    const keep=wasPicked||new Set();
+    picked=new Set();
+    info.shifts.forEach((s,i)=>{if(keep.has(shiftKeyOf(s))&&!s.done&&!s.request&&!s.locked&&!s.closedClass)picked.add(i)});
+    renderCal(); renderDay();
+}
+
+window.retryLoad=function(){
+    setSync('load','Đang tải lại...');
+    return Promise.all([loadMonth({fresh:true}),loadMy({fresh:true})]);
+};
 
 function renderCal(){
     const grid=document.getElementById('cal-grid');
@@ -533,6 +622,12 @@ window.pickDay=function(k){
     const d=new Date(k+'T12:00:00');
     document.getElementById('day-title').innerText=DOW[d.getDay()]+', '+String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
     const info=monthMap[k],list=document.getElementById('day-list');
+    if(!monthReady){
+        // Chưa có dữ liệu thật: tuyệt đối không nói "không được xếp ca nào".
+        document.getElementById('day-sub').innerText=monthLoading?'Đang tải lịch của tháng này...':'Chưa tải được lịch của tháng này.';
+        list.innerHTML='<div class="empty">'+(monthLoading?'Vui lòng đợi vài giây.':'Bấm "Thử lại" ở đầu trang.')+'</div>';
+        return;
+    }
     if(!info||!info.shifts.length){
         document.getElementById('day-sub').innerText='Ngày này bạn không được xếp ca nào.';
         list.innerHTML='<div class="empty">Không có ca nào. Nếu bạn vẫn đi làm hôm đó, dùng tab "Ca Ngoài Lịch".</div>';
@@ -544,6 +639,7 @@ window.pickDay=function(k){
 
 function renderDay(){
     const info=monthMap[selDate],list=document.getElementById('day-list');
+    if(!info)return;
     const cards=info.shifts.map(function(s,i){
         const on=picked.has(i);
         let bdg,cls='',act='';
@@ -597,16 +693,23 @@ function renderDay(){
     if(window.lucide)lucide.createIcons();
 }
 
-window.togglePick=function(i){ picked.has(i)?picked.delete(i):picked.add(i); renderDay(); };
+window.togglePick=function(i){
+    // Lấy lại nội dung ô lý do trước khi vẽ lại để không mất chữ đang gõ.
+    const ta=document.getElementById('s-reason'); if(ta)reasonCache=ta.value;
+    picked.has(i)?picked.delete(i):picked.add(i); renderDay();
+};
 
 window.submitSched=async function(){
     if(sending)return;
+    if(!guardReady())return;
     const ta=document.getElementById('s-reason');
     const reason=(ta&&ta.value?ta.value:'').trim();
     if(!picked.size){alert('Vui lòng chọn ít nhất 1 ca.');return}
     if(!reason){alert('Vui lòng ghi lý do tường trình.');return}
     const info=monthMap[selDate];
-    const sel=[...picked].map(i=>info.shifts[i]);
+    if(!info){alert('Ngày này không còn ca nào để chấm bù. Vui lòng chọn lại ngày.');return}
+    const sel=[...picked].map(i=>info.shifts[i]).filter(Boolean);
+    if(!sel.length){alert('Vui lòng chọn ít nhất 1 ca.');return}
     const blocked=sel.find(s=>s.locked);
     if(blocked){alert('Ca '+blocked.lbl+' đã được ghi nhận "'+blocked.excuse+'" nên không chấm bù được.');return}
     const dup=sel.find(s=>s.done||s.request);
@@ -635,12 +738,20 @@ window.submitSched=async function(){
                      linkedOfficeShift:s.kind==='vp'?(s.shiftKey||null):null},
             reason:reason};
         }));
+        // Đơn đã vào máy chủ: hiện "Chờ duyệt" NGAY, không đợi tải lại (tránh cho bấm gửi lần nữa).
+        const sentAt=new Date(); sel.forEach(s=>{s.request={status:'pending',session:{checkIn:iso(selDate,s.start),checkOut:iso(selDate,s.end)},createdAt:{seconds:Math.floor(sentAt.getTime()/1000)}};s.pending=true;s.rejected=false});
+        const dayInfo=monthMap[selDate];
+        if(dayInfo){
+            dayInfo.pend=dayInfo.shifts.filter(x=>x.pending).length;
+            dayInfo.miss=dayInfo.shifts.filter(x=>!x.done&&!x.request&&!x.locked).length;
+        }
+        const keep=selDate; picked.clear(); reasonCache=''; renderCal(); renderDay();
         alert('Đã gửi '+sel.length+' yêu cầu. Chờ admin duyệt.');
-        const keep=selDate; picked.clear(); reasonCache='';
-        await loadMonth({fresh:true}); pickDay(keep); loadMy({fresh:true});
+        // Làm mới nền: nếu lỗi thì giữ nguyên trạng thái vừa đặt + thanh báo, không xoá lịch.
+        loadMonth({fresh:true}).then(()=>{if(selDate===keep)refreshSelectedDay()}); loadMy({fresh:true});
     }catch(e){
         alert((e&&e.code==='MAKEUP_DUPLICATE'?'':'Lỗi gửi: ')+(e.message||e));
-        if(e&&e.code==='MAKEUP_DUPLICATE'){const keep=selDate;picked.clear();await loadMonth({fresh:true});if(keep)pickDay(keep);loadMy({fresh:true})}
+        if(e&&e.code==='MAKEUP_DUPLICATE'){picked.clear();loadMonth({fresh:true});loadMy({fresh:true})}
     }finally{sending=false;setSendingUI(false)}
 };
 
@@ -655,6 +766,13 @@ function setSendingUI(on){
 window.submitExtra=async function(){
     if(sending)return;
     const d=document.getElementById('ex-date').value,st=document.getElementById('ex-status').value;
+    // Cần lịch THẬT của tháng chứa ngày này để biết ca có nằm trên lịch không; chưa tải xong
+    // thì kiểm tra trùng lịch bị bỏ qua và ca có lịch lọt thành "ngoài lịch".
+    if(st==='worked'&&/^\d{4}-\d{2}-\d{2}$/.test(d||'')){
+        const yy=+d.slice(0,4),mm=+d.slice(5,7)-1;
+        if(yy!==curY||mm!==curM){setSync('load','Đang tải lịch tháng '+(mm+1)+'/'+yy+' để đối chiếu...');await goMonth(yy,mm)}
+        if(!guardReady())return;
+    }
     const rv=document.getElementById('ex-role').value;
     const br=document.getElementById('ex-branch').value;
     const ti=document.getElementById('ex-in').value,to=document.getElementById('ex-out').value;
@@ -739,7 +857,7 @@ window.submitExtra=async function(){
 async function loadMy(options={}){
     const el=document.getElementById('my-reqs');
     try{
-        const list=await DBService.getMyMakeupRequests(uid(),options.fresh?{source:'server'}:{});
+        const list=await fetchMyRequests();
         if(!list.length){el.innerHTML='<div class="empty">Chưa có yêu cầu nào.</div>';return}
         const M={pending:['Chờ duyệt','b-i'],approved:['Đã duyệt','b-g'],rejected:['Từ chối','b-r'],covered:['Đã có công','b-g']};
         el.innerHTML=list.slice(0,30).map(function(r){const s=(r.resolution==='covered_by_attendance'?M.covered:M[r.status])||M.pending;
@@ -748,15 +866,24 @@ async function loadMy(options={}){
                 '<div style="font-size:.72rem;color:var(--mut)">'+(r.type==='scheduled'?'Ca có lịch':'Ca ngoài lịch')+' · '+esc(r.reason||'')+'</div>'+
                 (r.status==='rejected'&&r.rejectReason?'<div style="font-size:.72rem;color:'+(r.resolution==='covered_by_attendance'?'#047857':'#991B1B')+'">'+(r.resolution==='covered_by_attendance'?'':'Lý do từ chối: ')+esc(r.rejectReason)+'</div>':'')+
             '</div><span class="bdg '+s[1]+'">'+s[0]+'</span></div>'}).join('');
-    }catch(e){el.innerHTML='<div class="empty">Lỗi tải danh sách.</div>'}
+    }catch(e){
+        console.warn('[ChamBu] Không tải được danh sách yêu cầu:',e);
+        // Có danh sách cũ thì giữ nguyên (không thay bằng "lỗi" trống); chỉ báo khi chưa có gì.
+        if(!lastRequests)el.innerHTML='<div class="empty">Không tải được danh sách (mạng yếu?).<br><button class="sy-retry" style="margin-top:10px" onclick="retryLoad()">Thử lại</button></div>';
+    }
 }
 
-window.shiftMonth=function(n){
-    curM+=n; if(curM<0){curM=11;curY--} if(curM>11){curM=0;curY++}
+function goMonth(y,m){
+    curY=y; curM=m;
     selDate=null; picked.clear(); reasonCache='';
     document.getElementById('day-title').innerText='Chọn một ngày trên lịch';
     document.getElementById('day-sub').innerText='Ngày có chấm tròn màu cam là ngày còn ca chưa chấm công.';
-    document.getElementById('day-list').innerHTML=''; loadMonth();
+    document.getElementById('day-list').innerHTML='';
+    return loadMonth({fresh:true});
+}
+window.shiftMonth=function(n){
+    let y=curY,m=curM+n; if(m<0){m=11;y--} if(m>11){m=0;y++}
+    goMonth(y,m);
 };
 
 document.addEventListener('DOMContentLoaded',async function(){
@@ -772,13 +899,29 @@ let resumeRefresh=null,lastResumeRefreshAt=0;
 async function refreshMakeupAfterResume(){
     if(resumeRefresh||Date.now()-lastResumeRefreshAt<5000)return resumeRefresh;
     lastResumeRefreshAt=Date.now();
-    const selected=selDate;
-    picked.clear();
-    resumeRefresh=Promise.all([loadMonth({fresh:true}),loadMy({fresh:true})]).then(()=>{
-        if(selected&&monthMap[selected]){selDate=selected;renderCal();renderDay()}
-    }).finally(()=>{resumeRefresh=null});
+    // Giữ lựa chọn + lý do đang gõ; loadMonth tự dựng lại theo nội dung ca.
+    const ta=document.getElementById('s-reason'); if(ta)reasonCache=ta.value;
+    resumeRefresh=Promise.all([loadMonth({fresh:true}),loadMy({fresh:true})])
+        .finally(()=>{resumeRefresh=null});
     return resumeRefresh;
 }
+
+// Quản lý duyệt/từ chối khi nhân viên đang mở trang: kiểm tra nhẹ (MỘT truy vấn đơn) mỗi
+// 40 giây khi trang đang hiện và còn đơn chờ duyệt; trạng thái đổi mới tải lại cả lịch.
+const reqSig=list=>(list||[]).map(r=>r.id+':'+r.status+':'+(r.resolution||'')).sort().join(',');
+async function pollMakeupStatus(){
+    if(document.visibilityState!=='visible'||sending||monthLoading||resumeRefresh||!lastRequests)return;
+    if(!lastRequests.some(r=>r.status==='pending'))return;
+    try{
+        const before=reqSig(lastRequests);
+        const list=await fetchMyRequests();
+        if(reqSig(list)!==before){
+            const ta=document.getElementById('s-reason'); if(ta)reasonCache=ta.value;
+            await Promise.all([loadMonth({fresh:true}),loadMy()]);
+        }
+    }catch(e){/* mạng chập chờn: lần sau thử lại, không báo lỗi gây rối */}
+}
+setInterval(pollMakeupStatus,40000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshMakeupAfterResume()});
 window.addEventListener('pageshow',event=>{if(event.persisted)refreshMakeupAfterResume()});
 window.addEventListener('online',refreshMakeupAfterResume);

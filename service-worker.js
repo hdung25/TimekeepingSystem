@@ -1,8 +1,8 @@
-// Service Worker v214 - schedule sheet flags classes whose hours differ from the rest of their shift.
+// Service Worker v215 - make-up page: honest sync state (no false "not clocked"), instant pending, auto status refresh.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v214-sheet-offtime-20261002';
+const APP_RELEASE = 'tdt-chamcong-v215-makeup-sync-20261002';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
