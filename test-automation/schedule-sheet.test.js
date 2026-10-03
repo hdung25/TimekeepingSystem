@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 
 const sandbox = {
-    console, setTimeout, clearTimeout,
+    console, setTimeout, clearTimeout, TextEncoder, Uint8Array, Uint32Array, DataView, ArrayBuffer,
     document: { readyState: 'complete', getElementById: () => null, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] },
     DBService: { getSchedule: async () => null },
     SECTIONS: [
@@ -34,7 +34,7 @@ assert.equal(S.shortName('Khoa'), 'Khoa');
 assert.equal(S.shortName('Võ Thị Giàu'), 'Giàu', 'bỏ tên lót Thị/Văn');
 assert.equal(S.shortName('Lê Văn Đại'), 'Đại');
 assert.equal(S.shortName('Trần Đăng Khoa'), 'Đăng Khoa');
-assert.equal(S.defaultTitle('2026-10-01', 'evening'), 'Lịch học Tối Thứ 5');
+assert.equal(S.defaultTitle('2026-10-01', 'evening'), 'Lịch dạy Tối Thứ 5');
 
 const day = {
     morning1: [{ lop: 'Toán 1', phong: 'P01', gvList: [{ id: 'a', name: 'Lê Văn A' }] }],
@@ -62,7 +62,10 @@ assert.equal(ca1.rows[2].teachers.replacements[0].subs[0].name, 'Lê Văn Đại
 assert.equal(ca1.rows[3].teachers.replacements[0].subs.length, 0, 'GV nghỉ chưa có người thay');
 
 const html = S.renderSheetHtml(model, { footer: 'Hoàng Anh test 1/10 <UP1>' });
-assert.match(html, /Lịch học Tối Thứ 5/);
+assert.match(html, /LỊCH DẠY TỐI THỨ 5/, 'tiêu đề in hoa như tờ giấy');
+assert.equal((html.match(/class="ss-blank"/g) || []).length, 6, 'mặc định 3 dòng trống mỗi ca');
+assert.equal((S.renderSheetHtml(model, { blankRows: 0 }).match(/class="ss-blank"/g) || []).length, 0);
+assert.equal((S.renderSheetHtml(model, { blankRows: 2 }).match(/class="ss-blank"/g) || []).length, 4);
 assert.match(html, /Kiều My/);
 assert.doesNotMatch(html, /Nguyễn Thị Kiều My/, 'mặc định tên gọn');
 assert.match(html, /Đại<\/div><div class="ss-was">thay <s>Minh Quân<\/s>/);
@@ -94,14 +97,44 @@ assert.equal(closed.sections[1].centerClosed, true);
 assert.match(S.renderSheetHtml(closed), /Trung tâm nghỉ ca này/);
 
 const text = S.sheetText(model, {});
-assert.match(text, /^LỊCH HỌC TỐI THỨ 5 — 01\/10\/2026 — Cơ sở 1/);
+assert.match(text, /^LỊCH DẠY TỐI THỨ 5 — 01\/10\/2026 — Cơ sở 1/);
 assert.match(text, /• FFL \(⏰ 18:30–19:00\) · P02 · Kiều My · 5 HS · qua P04/);
 assert.match(text, /• E7 · P07 · Đại \(thay Minh Quân\)/);
 assert.match(text, /✕ \[ĐÃ TẮT\] E9/);
 
+// Sĩ số: số kế hoạch dạng chuỗi vẫn đọc được; lịch chưa ghi thì lấy sĩ số GV báo khi chấm công.
+const counted = S.buildSheetModel({ evening1: [
+    { lop: 'X', phong: 'P1', soHS: ' 9 ', gvList: [{ id: 'x', name: 'X' }] },
+    { lop: 'Y', phong: 'P2', soHS: 0, gvList: [{ id: 'y', name: 'Y' }] },
+    { lop: 'Z', phong: 'P3', gvList: [{ id: 'z', name: 'Z' }] }
+] }, { dateKey: '2026-10-01', branch: 'cs1', buoi: 'evening', closures: {},
+    reportedCount: (row, sectionKey, index) => (row.lop === 'Y' && sectionKey === 'evening1' && index === 1 ? 7 : 0) });
+assert.deepEqual(Array.from(counted.sections[0].rows.map(r => r.ss)), [9, 7, '']);
+assert.equal(counted.sections[0].studentCount, 16);
+
+// Excel theo mẫu: tiêu đề, hàng cột, dòng ca, lớp, 3 dòng trống mỗi ca, ghi chú cuối.
+const xrows = S.sheetRows(model, { footer: 'Hoàng Anh test' });
+assert.equal(xrows[0].cells[0].v, 'LỊCH DẠY TỐI THỨ 5');
+assert.deepEqual(Array.from(xrows[2].cells.map(c => c.v)), ['SS', 'Lớp', 'Phòng', 'GV', 'Ghi chú']);
+assert.equal(xrows[3].cells[0].v, 'Ca 1 (18:00 – 19:30) · 4 lớp · 18 HS');
+const fflRow = xrows.find(r => r.cells[1] && r.cells[1].v === 'FFL');
+assert.equal(fflRow.cells[0].v, 5);
+assert.equal(fflRow.cells[3].v, 'Kiều My');
+assert.equal(fflRow.cells[4].v, 'Giờ 18:30–19:00; qua P04');
+assert.equal(xrows.find(r => r.cells[1] && r.cells[1].v === 'E7').cells[3].v, 'Đại (thay Minh Quân)');
+const blankCount = xrows.filter(r => r.cells.length === 5 && !r.merge && r.cells.every(c => c.v == null)).length;
+assert.equal(blankCount, 6, '3 dòng trống × 2 ca');
+assert.equal(xrows[xrows.length - 1].cells[0].v, 'Hoàng Anh test');
+const xlsx = Buffer.from(S.buildSheetXlsx(model, {}));
+assert.equal(xlsx.readUInt32LE(0), 0x04034b50, 'xlsx là file zip');
+const xml = xlsx.toString('utf8');
+assert.ok(xml.includes('<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="1"/>'), 'A4 dọc, vừa 1 trang');
+assert.ok(xml.includes('<mergeCell ref="A1:E1"/>'));
+assert.match(xml, /LỊCH DẠY TỐI THỨ 5/);
+
 // Gắn vào trang + cache offline
 const page = read('lich-lam.html');
-assert.match(page, /js\/schedule-sheet\.js\?v=20261002-sheet-v2/);
+assert.match(page, /js\/schedule-sheet\.js\?v=20261003-sheet-v3/);
 assert.ok(page.indexOf('schedule-sheet.js') > page.indexOf('js/schedule.js'), 'nạp sau schedule.js');
-assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261002-sheet-v2'/);
+assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261003-sheet-v3'/);
 console.log('schedule-sheet.test.js: all assertions passed');
