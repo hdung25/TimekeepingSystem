@@ -1,7 +1,8 @@
 // Sổ ghi chú cá nhân (yêu cầu Giám đốc 03/10/2026).
 // - Mọi nhân viên: ghi chú tuỳ thích ở Trang chủ (nhan-vien.html) — tiêu đề, nội dung, danh sách
 //   việc có ô tích, ghim, màu, ngày nhắc, chèn giờ, sao chép. Tự lưu (không cần bấm Lưu).
-// - Quản lý (Admin + Trợ lý cấp cao, admin.html): xem ghi chú của MỌI nhân viên (chỉ xem), và có sổ riêng.
+// - Quản lý (Admin, Trợ lý cấp cao, Trợ lý): xem ghi chú của MỌI nhân viên (chỉ xem), và có sổ riêng.
+// - Mọi vai trò mở sổ từ mục "Ghi Chú" trên menu (main.js nạp file này khi cần).
 // Dữ liệu: collection staff_notes, mỗi ghi chú một document { staffId, staffName, title, body,
 // items:[{text,done}], color, pinned, remindOn, createdAt, updatedAt } — luật ở firestore.rules.
 (function (global) {
@@ -42,7 +43,7 @@
         try { return typeof parseRoles === 'function' ? parseRoles(raw) : [raw]; } catch (_) { return [raw]; }
     };
     // Ai được xem ghi chú của mọi nhân viên — khớp isAdmin() trong firestore.rules.
-    const isNotesManager = () => roles().some(r => ['admin', 'senior_assistant'].includes(r));
+    const isNotesManager = () => roles().some(r => ['admin', 'senior_assistant', 'assistant'].includes(r));
     const pad = n => String(n).padStart(2, '0');
     const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
     const icon = (path, size = 18) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
@@ -346,6 +347,18 @@
         renderHomeCard();
     }
 
+    // Sau khi tải xong dữ liệu: KHÔNG vẽ lại khung soạn đang gõ (bấm "Ghi chú mới" khi sổ còn
+    // đang tải thì lần vẽ lại sẽ xoá mất chữ vừa gõ). Chỉ cập nhật danh sách.
+    function renderAfterLoad() {
+        const editor = $('sn-editor');
+        const typing = editor && currentNote() && editor.contains(document.activeElement);
+        renderTabs();
+        renderStaffFilter();
+        renderList();
+        if (!typing && !(currentNote()?.isNew)) renderEditor();
+        renderHomeCard();
+    }
+
     // ---------- Hộp thoại ----------
     function ensureDialog() {
         if ($('sn-overlay')) return;
@@ -576,7 +589,7 @@
             console.warn('[StaffNotes] Tải lỗi:', error);
             toast('Không tải được ghi chú. Kiểm tra mạng rồi thử lại.', 'error');
         }
-        renderAll();
+        renderAfterLoad();
     }
 
     async function open(options = {}) {
@@ -593,7 +606,7 @@
             console.warn('[StaffNotes] Tải lỗi:', error);
             toast('Không tải được ghi chú. Kiểm tra mạng rồi thử lại.', 'error');
         }
-        renderAll();
+        renderAfterLoad();
         if (options.create) createNote();
     }
 

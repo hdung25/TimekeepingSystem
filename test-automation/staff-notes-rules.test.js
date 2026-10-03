@@ -27,11 +27,13 @@ const note = (staffId, extra = {}) => ({
             await db.collection('user_roles').doc('uid-b').set({ userId: 'staff-b', role: 'receptionist', roles: ['receptionist'] });
             await db.collection('user_roles').doc('uid-admin').set({ userId: 'admin-1', role: 'admin', roles: ['admin'] });
             await db.collection('user_roles').doc('uid-senior').set({ userId: 'senior-1', role: 'senior_assistant', roles: ['senior_assistant'] });
+            await db.collection('user_roles').doc('uid-assistant').set({ userId: 'assistant-1', role: 'assistant', roles: ['assistant'] });
         });
         const a = env.authenticatedContext('uid-a').firestore();
         const b = env.authenticatedContext('uid-b').firestore();
         const admin = env.authenticatedContext('uid-admin').firestore();
         const senior = env.authenticatedContext('uid-senior').firestore();
+        const assistant = env.authenticatedContext('uid-assistant').firestore();
         const anon = env.unauthenticatedContext().firestore();
 
         // Owner creates, reads, updates and deletes own note.
@@ -67,6 +69,10 @@ const note = (staffId, extra = {}) => ({
         await denied(senior.collection('staff_notes').doc('n1').update({ title: 'sửa hộ', updatedAt: now() }));
         await denied(senior.collection('staff_notes').doc('n1').delete());
         await senior.collection('staff_notes').doc('ns').set(note('senior-1'));
+        // Trợ lý cũng xem được mọi ghi chú, không sửa hộ.
+        assert.equal((await assistant.collection('staff_notes').orderBy('updatedAt', 'desc').limit(500).get()).size, 4);
+        await denied(assistant.collection('staff_notes').doc('n1').update({ title: 'sửa hộ', updatedAt: now() }));
+        await assistant.collection('staff_notes').doc('nas').set(note('assistant-1'));
         await denied(admin.collection('staff_notes').doc('n1').update({ title: 'admin sửa', updatedAt: now() }));
         await denied(admin.collection('staff_notes').doc('n1').delete());
         // Admin keeps a personal notebook too.

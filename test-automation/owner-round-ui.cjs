@@ -28,7 +28,8 @@ const users = {
     huy: { id: 'fx-huy', username: 'fxhuy', name: 'Quang Huy', roles: ['receptionist', 'staff'] },
     van: { id: 'fx-van', username: 'fxvan', name: 'Phạm Thị Bích Vân', roles: ['staff'] },
     tt: { id: 'fx-tt', username: 'fxtt', name: 'Lễ Tân Test', roles: ['receptionist'] },
-    senior: { id: 'fx-senior', username: 'fxsenior', name: 'Trợ Lý Cấp Cao', roles: ['senior_assistant'] }
+    senior: { id: 'fx-senior', username: 'fxsenior', name: 'Trợ Lý Cấp Cao', roles: ['senior_assistant'] },
+    assistant: { id: 'fx-assistant', username: 'fxassistant', name: 'Trợ Lý', roles: ['assistant'] }
 };
 const R0 = hm(-240), C0 = hm(-20), C1 = hm(70), V0 = hm(-125), V1 = hm(-65), F0 = hm(130), F1 = hm(200);
 
@@ -211,6 +212,28 @@ async function main() {
         await shot(senior, '9-senior-team-notes');
         await senior.click('#sn-dialog [data-tab="mine"]');
         await senior.waitForFunction(() => /Chưa có ghi chú/.test(document.getElementById('sn-list').textContent), { timeout: 20000 });
+
+        // 6. Mọi vai trò: mục "Ghi Chú" trên menu mở sổ ngay trên trang đang xem.
+        await tt.goto(origin + '/cham-cong.html', { waitUntil: 'domcontentloaded' });
+        await tt.waitForSelector('#nav-staff-notes', { timeout: 20000 });
+        await tt.$eval('#nav-staff-notes', link => link.click());
+        await tt.waitForFunction(() => { const o = document.getElementById('sn-overlay'); return o && !o.hidden && window.StaffNotes; }, { timeout: 20000 });
+        await tt.$eval('#sn-new', button => button.click());
+        await tt.type('#sn-title', 'Ghi chú của tiếp tân');
+        await tt.waitForFunction(() => document.getElementById('sn-save-status')?.textContent === 'Đã lưu', { timeout: 15000 });
+        await new Promise(r => setTimeout(r, 1500));
+        assert.equal(await tt.$eval('#sn-title', el => el.value), 'Ghi chú của tiếp tân', 'chữ đang gõ không bị mất khi sổ tải xong');
+        await shot(tt, '10-reception-notes-from-menu');
+        // 7. Trợ lý: xem được ghi chú của mọi nhân viên.
+        const assistant = await open(users.assistant, desktop);
+        await assistant.goto(origin + '/lich-lam.html', { waitUntil: 'domcontentloaded' });
+        await assistant.waitForSelector('#nav-staff-notes', { timeout: 20000 });
+        await assistant.$eval('#nav-staff-notes', link => link.click());
+        await assistant.waitForSelector('#sn-dialog [data-tab="team"]', { visible: true, timeout: 20000 });
+        await assistant.click('#sn-dialog [data-tab="team"]');
+        await assistant.waitForFunction(() => document.querySelectorAll('#sn-list [data-note-id]').length === 3, { timeout: 20000 });
+        assert.match(await assistant.$eval('#sn-list', el => el.textContent), /Ghi chú của tiếp tân/);
+        await shot(assistant, '11-assistant-team-notes');
 
         console.log('errors:', errors);
         assert.deepEqual(errors, []);

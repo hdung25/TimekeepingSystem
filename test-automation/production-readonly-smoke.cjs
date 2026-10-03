@@ -68,7 +68,7 @@ const digest = value => crypto.createHash('sha256')
             const key = (await caches.keys()).find(name => name === cacheName);
             if (!registration?.active || !key) return false;
             const cache = await caches.open(key);
-            return !!(await cache.match('/js/main.js?v=20261003-owner-v1')) &&
+            return !!(await cache.match('/js/main.js?v=20261003-notes-v3')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20261003-chain-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260929-owner-round-v1')) &&
