@@ -59,11 +59,14 @@ const note = (staffId, extra = {}) => ({
         await denied(b.collection('staff_notes').doc('n1').update({ title: 'hack', updatedAt: now() }));
         await denied(b.collection('staff_notes').doc('n1').delete());
         await denied(anon.collection('staff_notes').get());
-        await denied(senior.collection('staff_notes').get());
 
-        // Primary admin sees every note (read-only).
+        // Admin and senior assistant see every note (read-only).
         const all = await admin.collection('staff_notes').orderBy('updatedAt', 'desc').limit(500).get();
         assert.equal(all.size, 3);
+        assert.equal((await senior.collection('staff_notes').orderBy('updatedAt', 'desc').limit(500).get()).size, 3);
+        await denied(senior.collection('staff_notes').doc('n1').update({ title: 'sửa hộ', updatedAt: now() }));
+        await denied(senior.collection('staff_notes').doc('n1').delete());
+        await senior.collection('staff_notes').doc('ns').set(note('senior-1'));
         await denied(admin.collection('staff_notes').doc('n1').update({ title: 'admin sửa', updatedAt: now() }));
         await denied(admin.collection('staff_notes').doc('n1').delete());
         // Admin keeps a personal notebook too.

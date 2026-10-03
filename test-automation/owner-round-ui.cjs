@@ -27,7 +27,8 @@ const users = {
     admin: { id: 'fx-admin', username: 'fxadmin', name: 'Admin Test', roles: ['admin'] },
     huy: { id: 'fx-huy', username: 'fxhuy', name: 'Quang Huy', roles: ['receptionist', 'staff'] },
     van: { id: 'fx-van', username: 'fxvan', name: 'Phạm Thị Bích Vân', roles: ['staff'] },
-    tt: { id: 'fx-tt', username: 'fxtt', name: 'Lễ Tân Test', roles: ['receptionist'] }
+    tt: { id: 'fx-tt', username: 'fxtt', name: 'Lễ Tân Test', roles: ['receptionist'] },
+    senior: { id: 'fx-senior', username: 'fxsenior', name: 'Trợ Lý Cấp Cao', roles: ['senior_assistant'] }
 };
 const R0 = hm(-240), C0 = hm(-20), C1 = hm(70), V0 = hm(-125), V1 = hm(-65), F0 = hm(130), F1 = hm(200);
 
@@ -155,7 +156,7 @@ async function main() {
         await huy.waitForFunction(() => document.querySelectorAll('#staff-notes-card [data-note-id]').length === 1, { timeout: 20000 });
         await huy.evaluate(() => document.getElementById('staff-notes-card').scrollIntoView());
         await shot(huy, '3-home-card-phone');
-        await huy.click('#staff-notes-card [data-sn-new]');
+        await huy.$eval('#staff-notes-card [data-sn-new]', button => button.click());
         await huy.waitForSelector('#sn-title');
         await huy.type('#sn-title', 'Việc tối nay');
         await huy.type('#sn-body', 'Mang sổ điểm danh lớp FFL');
@@ -200,6 +201,16 @@ async function main() {
         await tt.waitForFunction(() => { const o = document.getElementById('ssheet-overlay'); return o && !o.hidden; }, { timeout: 10000 });
         await new Promise(r => setTimeout(r, 2500));
         await shot(tt, '8-reception-sheet-phone');
+
+        // 5. Trợ lý cấp cao: xem được ghi chú mọi nhân viên + có sổ riêng ở Tổng quan
+        const senior = await open(users.senior, desktop);
+        await senior.goto(origin + '/admin.html', { waitUntil: 'domcontentloaded' });
+        await senior.waitForSelector('#staff-notes-card [data-sn-new]', { visible: true, timeout: 20000 });
+        await senior.click('[data-staff-notes-button]');
+        await senior.waitForFunction(() => document.querySelectorAll('#sn-list [data-note-id]').length === 2, { timeout: 20000 });
+        await shot(senior, '9-senior-team-notes');
+        await senior.click('#sn-dialog [data-tab="mine"]');
+        await senior.waitForFunction(() => /Chưa có ghi chú/.test(document.getElementById('sn-list').textContent), { timeout: 20000 });
 
         console.log('errors:', errors);
         assert.deepEqual(errors, []);

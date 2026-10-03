@@ -1,7 +1,7 @@
 // Sổ ghi chú cá nhân (yêu cầu Giám đốc 03/10/2026).
 // - Mọi nhân viên: ghi chú tuỳ thích ở Trang chủ (nhan-vien.html) — tiêu đề, nội dung, danh sách
 //   việc có ô tích, ghim, màu, ngày nhắc, chèn giờ, sao chép. Tự lưu (không cần bấm Lưu).
-// - Admin chính (admin.html): xem ghi chú của MỌI nhân viên (chỉ xem), và có sổ riêng của mình.
+// - Quản lý (Admin + Trợ lý cấp cao, admin.html): xem ghi chú của MỌI nhân viên (chỉ xem), và có sổ riêng.
 // Dữ liệu: collection staff_notes, mỗi ghi chú một document { staffId, staffName, title, body,
 // items:[{text,done}], color, pinned, remindOn, createdAt, updatedAt } — luật ở firestore.rules.
 (function (global) {
@@ -41,7 +41,8 @@
         const raw = localStorage.getItem('currentRole') || '';
         try { return typeof parseRoles === 'function' ? parseRoles(raw) : [raw]; } catch (_) { return [raw]; }
     };
-    const isPrimaryAdmin = () => roles().includes('admin');
+    // Ai được xem ghi chú của mọi nhân viên — khớp isAdmin() trong firestore.rules.
+    const isNotesManager = () => roles().some(r => ['admin', 'senior_assistant'].includes(r));
     const pad = n => String(n).padStart(2, '0');
     const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
     const icon = (path, size = 18) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
@@ -111,7 +112,7 @@
     }
 
     async function loadTeam(force = false) {
-        if (!isPrimaryAdmin() || (state.teamLoaded && !force)) return;
+        if (!isNotesManager() || (state.teamLoaded && !force)) return;
         const snapshot = await db().collection('staff_notes').orderBy('updatedAt', 'desc').limit(500).get();
         state.team = snapshot.docs.map(doc => normalizeNote(doc.id, doc.data()));
         state.teamLoaded = true;
@@ -356,7 +357,7 @@
             <div class="sn-dialog" id="sn-dialog" role="dialog" aria-modal="true" aria-labelledby="sn-heading">
                 <header class="sn-head">
                     <h2 id="sn-heading">${icon(ICONS.note, 20)} Sổ ghi chú</h2>
-                    <div class="sn-tabs" role="tablist" ${isPrimaryAdmin() ? '' : 'hidden'}>
+                    <div class="sn-tabs" role="tablist" ${isNotesManager() ? '' : 'hidden'}>
                         <button type="button" role="tab" data-tab="mine" class="is-on">Của tôi</button>
                         <button type="button" role="tab" data-tab="team">${icon(ICONS.users, 14)} Nhân viên</button>
                     </div>
@@ -563,7 +564,7 @@
     }
 
     async function switchTab(tab) {
-        if (tab === 'team' && !isPrimaryAdmin()) return;
+        if (tab === 'team' && !isNotesManager()) return;
         state.tab = tab;
         state.selectedId = null;
         state.filter = 'all';
@@ -665,11 +666,11 @@
             if (btn.dataset.ready) return;
             btn.dataset.ready = '1';
             btn.hidden = false;
-            if (btn.dataset.staffNotesButton === 'team' && !isPrimaryAdmin()) {
+            if (btn.dataset.staffNotesButton === 'team' && !isNotesManager()) {
                 const label = btn.querySelector('span');
                 if (label) label.textContent = 'Ghi chú của tôi';
             }
-            btn.addEventListener('click', () => open({ tab: btn.dataset.staffNotesButton === 'team' && isPrimaryAdmin() ? 'team' : 'mine' }));
+            btn.addEventListener('click', () => open({ tab: btn.dataset.staffNotesButton === 'team' && isNotesManager() ? 'team' : 'mine' }));
         });
     }
 

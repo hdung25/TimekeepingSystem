@@ -4,8 +4,11 @@
 //    payslip sent, announcement…) is pushed to that staff member's devices.
 //  - shiftCheckInReminders: every 2 minutes in working hours, remind staff who have
 //    push enabled about the first shift of each chain that has not been checked in.
-// Only reads schedules/attendance and writes push_tokens cleanup + push_reminders
-// dedupe markers. Never writes attendance, payroll or schedules.
+//  - autoCheckoutOpenSessions: every 5 minutes, close sessions whose scheduled work chain
+//    ended (same rule as the app's auto check-out) even when nobody opens the app.
+// Push functions only read schedules/attendance and write push_tokens cleanup + push_reminders
+// markers. autoCheckoutOpenSessions is the ONLY writer of attendance here: it sets checkOut on
+// an open self check-in exactly like the app does (autoClosedReason 'scheduled_end').
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
@@ -14,6 +17,7 @@ const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions, logger } = require('firebase-functions/v2');
 const TeacherShiftState = require('./shared/teacher-shift-state.js');
 const R = require('./reminders.js');
+const AC = require('./auto-checkout.js');
 
 initializeApp();
 setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3, memory: '256MiB' });
@@ -152,3 +156,91 @@ exports.shiftCheckInReminders = onSchedule({ schedule: '*/2 6-21 * * *', timeZon
     logger.info('shiftCheckInReminders', { dateKey, nowMinutes, candidates: due.length, sent });
 });
 
+
+// ================= TỰ RA CA TRÊN MÁY CHỦ =================
+// App chỉ tự ra ca khi nhân viên mở máy. Hàm này chạy 5 phút/lần, tìm các phiên còn mở và
+// ra ca đúng mốc tan của mạch làm việc theo lịch (auto-checkout.js là bản sao luật của app).
+async function loadDayContext(dateKey, cache) {
+    if (cache.has(dateKey)) return cache.get(dateKey);
+    const promise = (async () => {
+        const branches = ['cs1', 'cs2', 'cs3'];
+        const { mondayKey } = AC.mondayOf(dateKey);
+        const [settingsDoc, daySchedules, weeks] = await Promise.all([
+            db.collection('settings').doc('system').get(),
+            Promise.all(branches.map(branch => resolveDaySchedule(branch, dateKey).then(day => [branch, day]))),
+            Promise.all(branches.flatMap(branch => [
+                db.collection('receptionist_schedules').doc(`${branch}__${mondayKey}`).get().then(doc => ({ branch, type: 'receptionist', week: doc.exists ? doc.data() : null })),
+                db.collection('office_schedules').doc(`${branch}__${mondayKey}`).get().then(doc => ({ branch, type: 'office', week: doc.exists ? doc.data() : null }))
+            ]))
+        ]);
+        const settings = settingsDoc.exists ? settingsDoc.data() : {};
+        const operational = weeks.map(item => ({
+            ...item,
+            config: item.type === 'office'
+                ? (settings[`officeShifts_${item.branch}`] || settings.officeShifts)
+                : (settings[`receptionistShifts_${item.branch}`] || settings.receptionistShifts)
+        }));
+        return { schedules: Object.fromEntries(daySchedules), operational, closures: settings.centerClosures || {} };
+    })();
+    cache.set(dateKey, promise);
+    return promise;
+}
+
+exports.autoCheckoutOpenSessions = onSchedule({ schedule: '*/5 * * * *', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 0 }, async () => {
+    const now = new Date();
+    const today = AC.vietnamDateKey(now);
+    const yesterday = AC.previousDateKey(today);
+    // Vào ca luôn ghi checkOut = null ở cấp tài liệu; ra ca ghi lại giờ. Chỉ đọc tài liệu đang mở.
+    // Hai truy vấn chỉ có điều kiện "==" → Firestore tự ghép index một trường, không cần index riêng.
+    const snapshots = await Promise.all([today, yesterday].map(dateKey => db.collection('attendance_logs')
+        .where('date', '==', dateKey).where('checkOut', '==', null).get()));
+    const openDocs = { docs: snapshots.flatMap(snapshot => snapshot.docs) };
+    openDocs.size = openDocs.docs.length;
+    if (!openDocs.size) return;
+    const dayCache = new Map();
+    const results = [];
+    for (const doc of openDocs.docs) {
+        const data = doc.data();
+        const staffId = String(data.userId || '');
+        const dateKey = String(data.date || '');
+        if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || doc.id !== `${dateKey}_${staffId}`) continue;
+        const open = AC.newestOpenSession(data);
+        if (!open) continue;
+        try {
+            const context = await loadDayContext(dateKey, dayCache);
+            const keys = ['cs1', 'cs2', 'cs3'].map(branch => `${branch}__${dateKey}`);
+            const [cancelledDoc, registrationSnap] = await Promise.all([
+                db.collection('cancelled_shifts').doc(`${dateKey.slice(0, 7)}_${staffId}`).get(),
+                db.collection('schedule_registrations').where('userId', '==', staffId).get()
+            ]);
+            const registrations = registrationSnap.docs.map(item => item.data()).filter(item => keys.includes(String(item.scheduleKey || '')));
+            const { schedules, uncertain } = AC.applyRegistrations(context.schedules, registrations, staffId);
+            const blocks = AC.buildWorkBlocks({
+                staffId, dateKey, schedules, operational: context.operational, closures: context.closures,
+                cancelled: cancelledDoc.exists ? cancelledDoc.data().shifts || [] : [], shiftState: TeacherShiftState
+            });
+            const decision = AC.decide({ session: open.session, blocks, now, uncertain });
+            if (!decision.close) {
+                if (decision.reason !== 'not-yet') results.push({ staffId, dateKey, skipped: decision.reason });
+                continue;
+            }
+            const closed = await db.runTransaction(async transaction => {
+                const fresh = await transaction.get(doc.ref);
+                if (!fresh.exists) return false;
+                const latest = fresh.data();
+                const current = AC.newestOpenSession(latest);
+                // Ai đó vừa ra ca / vào ca mới / quản lý sửa: không đụng vào.
+                if (!current || current.index !== open.index || current.session.isAdminEdited ||
+                    String(current.session.id || '') !== String(open.session.id || '') ||
+                    (current.session.checkIn || current.session.start) !== (open.session.checkIn || open.session.start)) return false;
+                const next = AC.closedAttendance(latest, current.index, decision.end, dateKey);
+                transaction.update(doc.ref, { ...next, lastUpdated: FieldValue.serverTimestamp() });
+                return true;
+            });
+            results.push({ staffId, dateKey, closedAt: decision.end.toISOString(), written: closed });
+        } catch (error) {
+            logger.error('autoCheckoutOpenSessions', { staffId, dateKey, message: error.message });
+        }
+    }
+    if (results.length) logger.info('autoCheckoutOpenSessions', { open: openDocs.size, results });
+});

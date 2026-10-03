@@ -1065,7 +1065,7 @@ service cloud.firestore {
     }
 
     // Sổ ghi chú cá nhân (trang chủ nhân viên). Chỉ chủ ghi chú được tạo/sửa/xoá;
-    // Admin chính được xem ghi chú của mọi nhân viên nhưng không sửa hộ.
+    // Admin và Trợ lý cấp cao được xem ghi chú của mọi nhân viên nhưng không sửa hộ.
     function isValidStaffNote(data) {
       return data.keys().hasOnly([
           'staffId', 'staffName', 'title', 'body', 'items', 'color', 'pinned',
@@ -1089,7 +1089,7 @@ service cloud.firestore {
     }
     match /staff_notes/{noteId} {
       allow read: if isAuthenticated()
-        && (isPrimaryAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+        && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
       allow create: if isAuthenticated()
         && ownsStaffId(request.resource.data.get('staffId', ''))
         && isValidStaffNote(request.resource.data)

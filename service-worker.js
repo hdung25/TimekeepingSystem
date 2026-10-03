@@ -1,8 +1,8 @@
-// Service Worker v218 - owner round 03/10: back-to-back reception→class chip, room P prefix, reception schedule viewer, staff notebook.
+// Service Worker v219 - staff notebook: senior assistants see every note; managers get their own notebook card.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v218-owner-round-20261003';
+const APP_RELEASE = 'tdt-chamcong-v219-notes-managers-20261003';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -74,7 +74,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',
     '/js/schedule-sheet.js?v=20261003-sheet-v5',
-    '/js/staff-notes.js?v=20261003-owner-v1',
+    '/js/staff-notes.js?v=20261003-owner-v2',
     '/css/staff-notes.css?v=20261003-owner-v1',
     '/js/search-keynav.js?v=20260929-keynav-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
