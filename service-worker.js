@@ -1,8 +1,8 @@
-// Service Worker v217 - schedule sheet: form inputs sanitized/validated so image and Excel export never break.
+// Service Worker v218 - owner round 03/10: back-to-back reception→class chip, room P prefix, reception schedule viewer, staff notebook.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v217-sheet-inputs-20261003';
+const APP_RELEASE = 'tdt-chamcong-v218-owner-round-20261003';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -43,7 +43,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20260921-overview-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-overview.js?v=20260921-overview-v1',
-    '/js/main.js?v=20261003-chain-v1',
+    '/js/main.js?v=20261003-owner-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
     '/js/db-service.js?v=20260929-owner-round-v1',
@@ -69,11 +69,13 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20260929-owner-round-v1',
+    '/js/schedule.js?v=20261003-owner-v1',
     '/js/center-holidays.js?v=20260927-holidays-v1',
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',
-    '/js/schedule-sheet.js?v=20261003-sheet-v4',
+    '/js/schedule-sheet.js?v=20261003-sheet-v5',
+    '/js/staff-notes.js?v=20261003-owner-v1',
+    '/css/staff-notes.css?v=20261003-owner-v1',
     '/js/search-keynav.js?v=20260929-keynav-v1',
     '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',

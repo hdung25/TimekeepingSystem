@@ -123,7 +123,8 @@
                         // (giống chip "· 9 HS" trên bảng lịch) — trước đây ô SS bị trống dù bảng lịch có số.
                         ss: plannedCount(row) || (typeof reportedCount === 'function' ? Number(reportedCount(row, section.key, index)) || 0 : 0) || '',
                         lop: String(row.lop || '').trim(),
-                        phong: String(row.phong || '').trim(),
+                        phong: typeof global.normalizeScheduleRoomInput === 'function'
+                            ? global.normalizeScheduleRoomInput(row.phong) : String(row.phong || '').trim(),
                         note: String(row.note || '').trim(),
                         start: String(row.start || '').trim() || section.defaultStart,
                         end: String(row.end || '').trim() || section.defaultEnd,
@@ -1059,6 +1060,13 @@
         btn.title = 'Tạo tờ lịch (ảnh) của một buổi để gửi lên nhóm giáo viên';
         btn.style.cssText = 'display:flex;align-items:center;gap:0.4rem;background:#ECFDF5;border:1.5px solid #6EE7B7;color:#065F46;font-weight:700;';
         btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg><span class="btn-label">Bảng lịch gửi GV</span>`;
+        // Tiếp tân chỉ xem lịch: nút này là chỗ chép ảnh / xuất Excel của họ.
+        const roleRaw = localStorage.getItem('currentRole');
+        const roles = typeof parseRoles === 'function' ? parseRoles(roleRaw) : (roleRaw ? [roleRaw] : []);
+        if (!roles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r))) {
+            btn.querySelector('.btn-label').textContent = 'Bảng lịch · Chép ảnh / Excel';
+            btn.title = 'Xem tờ lịch của một buổi, chép ảnh hoặc xuất Excel (chỉ xem, không sửa lịch)';
+        }
         btn.addEventListener('click', open);
         actions.insertBefore(btn, actions.firstChild);
     }

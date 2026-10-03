@@ -1064,6 +1064,44 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Sổ ghi chú cá nhân (trang chủ nhân viên). Chỉ chủ ghi chú được tạo/sửa/xoá;
+    // Admin chính được xem ghi chú của mọi nhân viên nhưng không sửa hộ.
+    function isValidStaffNote(data) {
+      return data.keys().hasOnly([
+          'staffId', 'staffName', 'title', 'body', 'items', 'color', 'pinned',
+          'remindOn', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'staffId', 'title', 'body', 'items', 'color', 'pinned', 'createdAt', 'updatedAt'
+        ])
+        && data.staffId is string
+        && data.get('staffName', '') is string
+        && data.get('staffName', '').size() <= 120
+        && data.title is string && data.title.size() <= 200
+        && data.body is string && data.body.size() <= 20000
+        && data.items is list && data.items.size() <= 100
+        && data.color in ['none', 'yellow', 'green', 'blue', 'pink', 'purple']
+        && data.pinned is bool
+        && (data.get('remindOn', null) == null
+          || (data.get('remindOn', '') is string
+            && data.get('remindOn', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')))
+        && data.updatedAt == request.time;
+    }
+    match /staff_notes/{noteId} {
+      allow read: if isAuthenticated()
+        && (isPrimaryAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow create: if isAuthenticated()
+        && ownsStaffId(request.resource.data.get('staffId', ''))
+        && isValidStaffNote(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated()
+        && ownsStaffId(resource.data.get('staffId', ''))
+        && request.resource.data.get('staffId', '') == resource.data.get('staffId', '')
+        && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null)
+        && isValidStaffNote(request.resource.data);
+      allow delete: if isAuthenticated() && ownsStaffId(resource.data.get('staffId', ''));
+    }
+
     match /daily_notes/{staffId} {
       allow read, create, update, delete: if isAuthenticated()
         && (ownsStaffId(staffId) || isScheduleManager());

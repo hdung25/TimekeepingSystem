@@ -192,6 +192,31 @@
             outline: none;
         }
 
+        /* Ô phòng: chữ P cố định + ô gõ số */
+        .room-input {
+            display: flex;
+            align-items: center;
+            gap: 1px;
+            min-width: 0;
+            cursor: text;
+        }
+
+        .room-input-prefix {
+            flex: none;
+            font-weight: 700;
+            color: #047857;
+            padding-left: 0.2rem;
+        }
+
+        .room-input.is-named .room-input-prefix {
+            display: none;
+        }
+
+        .room-input .room-input-field {
+            flex: 1;
+            min-width: 2.2em;
+        }
+
         /* Read-only mode styling */
         .read-only .table-input {
             pointer-events: none;
@@ -293,6 +318,14 @@
             background: #ECFDF5;
             border-color: #6EE7B7;
             color: #047857;
+            font-weight: 700;
+        }
+
+        /* Lớp đã hết giờ nhưng phiên chưa bấm Ra ca (hệ thống tự chốt theo lịch). */
+        .gv-chip.is-attendance-overdue {
+            background: #F1F5F9;
+            border: 1px dashed #94A3B8;
+            color: #334155;
             font-weight: 700;
         }
 
@@ -2641,12 +2674,12 @@
         </main>
     </div>
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script><script src="js/search-keynav.js?v=20260929-keynav-v1"></script>
-    <script src="js/main.js?v=20261003-chain-v1"></script>
-    <script src="js/schedule.js?v=20260929-owner-round-v1"></script>
+    <script src="js/main.js?v=20261003-owner-v1"></script>
+    <script src="js/schedule.js?v=20261003-owner-v1"></script>
     <script src="js/center-holidays.js?v=20260927-holidays-v1"></script>
     <script src="js/schedule-inheritance.js?v=20260929-inherit-v1"></script>
     <script src="js/schedule-teacher-finder.js?v=20261001-finder-v1"></script>
-    <script src="js/schedule-sheet.js?v=20261003-sheet-v4"></script>
+    <script src="js/schedule-sheet.js?v=20261003-sheet-v5"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

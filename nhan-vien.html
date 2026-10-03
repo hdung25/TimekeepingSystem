@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20261003-chain-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20261003-chain-v1"> <link rel="stylesheet" href="css/staff-notes.css?v=20261003-owner-v1">
     <script src="js/startup-recovery.js?v=20260929-owner-round-v1"></script>
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
@@ -51,6 +51,9 @@
                     <p class="nv-sub" id="nv-today-label"></p>
                 </div>
                 <div class="nv-hero-actions">
+                    <button type="button" class="btn btn-ghost" data-staff-notes-button="mine" hidden title="Sổ ghi chú của tôi" aria-label="Ghi chú">
+                        <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg> <span class="btn-label">Ghi chú</span>
+                    </button>
                     <button id="btn-change-password" type="button" class="btn btn-ghost" onclick="openChangePasswordModal()" title="Đổi mật khẩu" aria-label="Đổi mật khẩu">
                         <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg> <span class="btn-label">Đổi mật khẩu</span>
                     </button>
@@ -64,6 +67,9 @@
 
             <!-- Lối tắt nhanh (điền theo vai trò bởi main.js) -->
             <nav class="nv-quick" id="nv-quick-actions" aria-label="Lối tắt" hidden></nav>
+
+            <!-- Sổ ghi chú cá nhân (js/staff-notes.js) -->
+            <section class="glass-panel sn-home" id="staff-notes-card" hidden></section>
 
             <!-- Thông báo trên máy này (main.js: renderNotificationStatusCard) -->
             <section class="nv-notif" id="notif-status-card" data-state="loading" hidden>
@@ -288,7 +294,8 @@
     </div>
 
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-    <script src="js/main.js?v=20261003-chain-v1"></script>
+    <script src="js/main.js?v=20261003-owner-v1"></script>
+    <script src="js/staff-notes.js?v=20261003-owner-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 
     <script>

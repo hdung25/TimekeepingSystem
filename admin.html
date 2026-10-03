@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
-    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20261003-chain-v1">
+    <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20261003-chain-v1"> <link rel="stylesheet" href="css/staff-notes.css?v=20261003-owner-v1">
     <!-- Firebase SDK (Compat) -->
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
@@ -135,9 +135,15 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <header style="margin-bottom: 2rem;">
-                <h1 style="font-size: 1.5rem; font-weight: 700;">Tổng Quan</h1>
-                <p style="color: var(--text-muted);">Chào mừng bạn trở lại, Admin.</p>
+            <header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap;">
+                <div>
+                    <h1 style="font-size: 1.5rem; font-weight: 700;">Tổng Quan</h1>
+                    <p style="color: var(--text-muted);">Chào mừng bạn trở lại, Admin.</p>
+                </div>
+                <button type="button" class="btn btn-primary" data-staff-notes-button="team" hidden
+                    title="Sổ ghi chú — xem ghi chú của mọi nhân viên" style="display:inline-flex;align-items:center;gap:0.4rem;font-weight:700;">
+                    <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg> <span>Ghi chú nhân viên</span>
+                </button>
             </header>
 
             <!-- TAB 1: DASHBOARD (Default) -->
@@ -954,7 +960,8 @@
     <script src="js/archiver.js"></script> <!-- Load Archiver -->
     <script src="js/note-repair.js?v=20260805-note-owner-fix-v1"></script> <!-- Dọn ghi chú lộn người -->
     <script src="js/analytics.js?v=20260923-fast-login-v2"></script> <!-- Charts -->
-    <script src="js/main.js?v=20261003-chain-v1"></script>
+    <script src="js/main.js?v=20261003-owner-v1"></script>
+    <script src="js/staff-notes.js?v=20261003-owner-v1"></script>
     <script src="js/salary-review-policy.js?v=20260919-review-v1"></script>
     <script src="js/salary-review-service.js?v=20260919-review-v1"></script>
     <script src="js/salary-review-notifications.js?v=20260919-review-v1"></script>

@@ -179,7 +179,7 @@ assert.match(oddXml, /<sheet name="Chủ nhật 04-10"/, 'tên trang tính khôn
 
 // Gắn vào trang + cache offline
 const page = read('lich-lam.html');
-assert.match(page, /js\/schedule-sheet\.js\?v=20261003-sheet-v4/);
+assert.match(page, /js\/schedule-sheet\.js\?v=20261003-sheet-v5/);
 assert.ok(page.indexOf('schedule-sheet.js') > page.indexOf('js/schedule.js'), 'nạp sau schedule.js');
-assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261003-sheet-v4'/);
+assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261003-sheet-v5'/);
 console.log('schedule-sheet.test.js: all assertions passed');

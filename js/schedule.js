@@ -193,6 +193,8 @@ let selectedDayIndex = 0; // 0 = Monday, 6 = Sunday
 let currentBranch = 'cs1'; // Multi-branch support
 let scheduleRenderGeneration = 0;
 let scheduleAttendanceEvidenceWarningKey = '';
+// userId -> { session, checkIn, end, hasOperational }: mạch làm việc liền của phiên đang MỞ.
+let scheduleWorkChainsByUser = new Map();
 const scheduleMutationsPending = new Set();
 let scheduleLastMutationFailed = false;
 let scheduleLastRenderedKey = '';
@@ -258,6 +260,22 @@ function initSchedule() {
         // Load teacher list & subject list for dropdowns
         loadTeacherListForSchedule();
         loadSubjectListForSchedule();
+    }
+
+    // Tiếp tân: CHỈ XEM lịch lớp + nút "Bảng lịch" (chép ảnh / xuất Excel). Mọi nút sửa lịch
+    // bị ẩn; quyền ghi thật vẫn do Firestore Rules chặn (tiếp tân không phải người xếp lịch).
+    const isScheduleViewer = !isEditor && roles.some(r =>
+        ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r));
+    if (!isEditor) {
+        const actions = document.getElementById('admin-actions');
+        if (actions) {
+            actions.querySelectorAll('button').forEach(button => {
+                if (button.id !== 'btn-schedule-sheet') button.hidden = true;
+            });
+            actions.classList.add('is-viewer');
+            if (isScheduleViewer) actions.style.display = 'flex';
+            else actions.style.setProperty('display', 'none', 'important');
+        }
     }
 
     // Danh sách điều phối nhanh theo ngày dành cho mọi vai trò được phép xếp lịch.
@@ -458,6 +476,15 @@ async function renderTable() {
         console.error("Error loading cancelled shifts map:", e);
     }
     if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
+
+    // Người làm liền nhiều khúc (VD tiếp tân 13:30–18:00 rồi dạy 18:00) chỉ chấm vào ca
+    // MỘT lần; phiên đó phải được nhận cho lớp nối tiếp thay vì báo "Chưa xác minh".
+    let workChains = new Map();
+    if (attendanceEvidence instanceof Map) {
+        workChains = await loadScheduleOpenWorkChains(attendanceEvidence, dateKey, cancelledShiftsMap, settings);
+        if (!isScheduleRenderCurrent(renderGeneration, compositeKey)) return;
+    }
+    scheduleWorkChainsByUser = workChains;
 
     // Determine Role
     const currentRole = localStorage.getItem('currentRole');
@@ -662,6 +689,74 @@ function findAttendanceEvidenceForShift(
     return resolution.status === 'matched' ? resolution.session : null;
 }
 
+// Phiên tự chấm chưa gắn ca nào (gắn tay = quyết định rõ ràng, không đoán lại).
+function isUnlinkedScheduleSession(session) {
+    return !['linkedScheduleShiftId', 'linkedClassStart', 'linkedReceptionistShift', 'linkedOfficeShift']
+        .some(field => String(session?.[field] || '').trim());
+}
+
+// Với mỗi người còn phiên MỞ trong ngày: dựng mạch làm việc liền (ca tiếp tân/văn phòng +
+// lớp dạy, nối các khúc SÁT NHAU) từ giờ vào ca — đúng luật tự ra ca của main.js. Lỗi đọc
+// lịch chỉ làm mất phần "nối ca", không chặn bảng.
+async function loadScheduleOpenWorkChains(evidenceByUser, dateKey, cancelledShiftsMap = {}, settings = {}) {
+    const chains = new Map();
+    if (!(evidenceByUser instanceof Map) || typeof findReceptionistShiftBlocks !== 'function' ||
+        typeof findTeachingBlocks !== 'function' || typeof resolveWorkChainEnd !== 'function') return chains;
+    const readOptions = { settings: settings || {}, readCache: new Map() };
+    const closures = settings?.centerClosures || {};
+    const jobs = [];
+    evidenceByUser.forEach((sessions, userId) => {
+        const open = (Array.isArray(sessions) ? sessions : [])
+            .filter(session => session && !session.isAbsent && !session.checkOut &&
+                (session.checkIn || session.start) && isUnlinkedScheduleSession(session))
+            .map(session => ({ session, checkIn: new Date(session.checkIn || session.start) }))
+            .filter(item => Number.isFinite(item.checkIn.getTime()))
+            .sort((left, right) => right.checkIn - left.checkIn)[0];
+        if (!open) return;
+        jobs.push((async () => {
+            try {
+                const cancelled = Array.isArray(cancelledShiftsMap?.[userId]) ? cancelledShiftsMap[userId] : [];
+                const [operational, classes] = await Promise.all([
+                    findReceptionistShiftBlocks(userId, dateKey, cancelled, closures, readOptions),
+                    findTeachingBlocks(userId, dateKey, cancelled, closures, readOptions)
+                ]);
+                const end = resolveWorkChainEnd([...operational, ...classes], open.checkIn);
+                if (!end) return;
+                chains.set(String(userId), {
+                    session: open.session,
+                    checkIn: open.checkIn,
+                    end,
+                    hasOperational: operational.some(block => block.start < end && block.end > open.checkIn)
+                });
+            } catch (error) {
+                console.warn('[Schedule] Không dựng được mạch làm việc:', error);
+            }
+        })());
+    });
+    await Promise.all(jobs);
+    return chains;
+}
+
+// Lớp nằm trong mạch làm việc liền của phiên đang mở (vào ca ở khúc trước, chưa ra ca)
+// → nhận phiên đó cho lớp. Lớp phải bắt đầu sau giờ vào ca và kết thúc trong mạch.
+function resolveScheduleChainedSession(userId, dateKey, startValue, endValue, chains = scheduleWorkChainsByUser) {
+    const chain = chains instanceof Map ? chains.get(String(userId)) : null;
+    if (!chain || !window.ScheduleAttendanceAdmin?.buildShiftWindow) return null;
+    try {
+        const shiftWindow = ScheduleAttendanceAdmin.buildShiftWindow(dateKey, startValue, endValue);
+        const checkInMs = chain.checkIn.getTime();
+        const endMs = chain.end.getTime();
+        if (shiftWindow.startMs < checkInMs - 60 * 60 * 1000 || shiftWindow.startMs >= endMs ||
+            shiftWindow.endMs > endMs) return null;
+        return {
+            status: 'matched', method: 'work-chain', session: chain.session, candidates: [chain.session],
+            chained: true, chain
+        };
+    } catch (_error) {
+        return null;
+    }
+}
+
 function hasAttendanceEvidenceForShift(
     evidenceByUser,
     userId,
@@ -718,6 +813,49 @@ function isRowMainTeacherAbsent(row, teacherId) {
         : getGVList(row, 'gvThayTe').length > 0;
 }
 
+function formatScheduleClock(date) {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+// Nhãn cho phiên chưa ra ca trên một lớp:
+//  - lớp đang diễn ra → "Đã vào ca" (nối từ khúc trước thì ghi rõ);
+//  - lớp đã hết giờ nhưng người đó vẫn làm tiếp khúc liền sau → "Xong lớp · đang làm ca kế";
+//  - lớp đã hết giờ, không còn khúc nào → "Chưa bấm ra ca": lúc mở app hoặc tính công,
+//    hệ thống tự chốt ra ca đúng giờ kết thúc theo lịch.
+function describeOpenScheduleSession(resolution, userId, dateKey, row, now = new Date(), chains = scheduleWorkChainsByUser) {
+    const chain = chains instanceof Map ? chains.get(String(userId)) : null;
+    const session = resolution?.session || null;
+    const sameChain = !!(chain && session && chain.session === session);
+    const chainedLabel = resolution?.method === 'work-chain'
+        ? (chain?.hasOperational ? 'Đã vào ca (nối ca tiếp tân)' : 'Đã vào ca (nối ca trước)')
+        : 'Đã vào ca';
+    let shiftEnd = null;
+    try {
+        shiftEnd = window.ScheduleAttendanceAdmin?.buildShiftWindow
+            ? ScheduleAttendanceAdmin.buildShiftWindow(dateKey, row.start, row.end).end : null;
+    } catch (_error) { shiftEnd = null; }
+    if (!shiftEnd || now < shiftEnd) {
+        return {
+            label: chainedLabel,
+            chipClass: 'is-attendance-open',
+            hint: resolution?.method === 'work-chain' ? 'Một lần vào ca phủ liền ca trước và lớp này, không cần bấm ra/vào lại.' : ''
+        };
+    }
+    if (sameChain && chain.end > now) {
+        return {
+            label: 'Xong lớp · đang làm ca kế',
+            chipClass: 'is-attendance-closed',
+            hint: `Đang làm tiếp ca liền sau, tự ra ca lúc ${formatScheduleClock(chain.end)}.`
+        };
+    }
+    const cutoff = sameChain && chain.end > shiftEnd ? chain.end : shiftEnd;
+    return {
+        label: 'Chưa bấm ra ca',
+        chipClass: 'is-attendance-overdue',
+        hint: `Hết giờ lúc ${formatScheduleClock(cutoff)} nhưng chưa bấm Ra ca. Khi mở app hoặc tính công, hệ thống tự chốt ra ca lúc ${formatScheduleClock(cutoff)}.`
+    };
+}
+
 // Render compact multi-teacher cell
 function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType, attendanceEvidence, isPastOrToday, dateKey, cancelledShiftsMap = {}) {
     const isGV = fieldType === 'gv';
@@ -751,7 +889,7 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
         if (isShiftPastOrStarted) {
             gvList.forEach(g => {
                 if (!g.id) return;
-                attendanceResolutionByTeacher.set(String(g.id), resolveAttendanceEvidenceForShift(
+                let resolution = resolveAttendanceEvidenceForShift(
                     attendanceEvidence,
                     g.id,
                     dateKey,
@@ -760,7 +898,12 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
                     stableScheduleShiftLocatorId(compositeKey, caType, row, index),
                     compositeKey,
                     caType
-                ));
+                );
+                // Vào ca từ khúc trước (VD trực tiếp tân tới 18:00) rồi dạy luôn lớp 18:00.
+                if (resolution?.status === 'none') {
+                    resolution = resolveScheduleChainedSession(g.id, dateKey, row.start, row.end) || resolution;
+                }
+                attendanceResolutionByTeacher.set(String(g.id), resolution);
             });
         }
         const unverified = isShiftPastOrStarted ? gvList.filter(g => {
@@ -784,6 +927,10 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             const attendanceSession = attendanceResolution?.status === 'matched'
                 ? attendanceResolution.session
                 : null;
+            // Phiên còn mở nhưng lớp đã hết giờ: không còn là "đang trong ca".
+            const openState = attendanceSession && !attendanceSession.checkOut
+                ? describeOpenScheduleSession(attendanceResolution, g.id, dateKey, row)
+                : null;
             const attendanceAmbiguous = attendanceResolution?.status === 'ambiguous';
             const attendanceUnavailable = attendanceResolution?.status === 'unavailable';
             const declaredAbsence = isGV ? getRowTeacherAbsence(row, g.id) : null;
@@ -800,11 +947,11 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
             else if (attendanceUnavailable) chipClass += ' is-attendance-unavailable';
             else if (isUnverified) chipClass += ' is-unverified';
             else if (attendanceSession?.checkOut) chipClass += ' is-attendance-closed';
-            else if (attendanceSession) chipClass += ' is-attendance-open';
+            else if (attendanceSession) chipClass += ` ${openState.chipClass}`;
             else if (!isGV) chipClass += ' is-substitute';
 
             const attendanceSuffix = attendanceSession
-                ? ` · ${attendanceSession.checkOut ? 'Đủ vào/ra' : 'Đã vào ca'}` +
+                ? ` · ${attendanceSession.checkOut ? 'Đủ vào/ra' : openState.label}` +
                     (attendanceSession.bonus10 ? ' · +10p' : '') +
                     (Number.isInteger(Number(attendanceSession.studentCount)) && attendanceSession.studentCountStatus === 'approved'
                         ? ` · ${Number(attendanceSession.studentCount)} HS`
@@ -828,7 +975,8 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
                 ? ` <span title="Chuẩn bị cố định từ tuần sau" style="color:#9A3412;font-weight:700;display:inline-flex;vertical-align:-2px;"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg></span>`
                 : '';
             const safeName = scheduleEscapeHTML(g.name || '');
-            const safeTitle = scheduleEscapeAttr(`${g.name || ''}${suffix}${declaredAbsence?.reason ? ` · ${declaredAbsence.reason}` : ''}`);
+            const openHint = openState?.hint && suffix === attendanceSuffix ? ` — ${openState.hint}` : '';
+            const safeTitle = scheduleEscapeAttr(`${g.name || ''}${suffix}${openHint}${declaredAbsence?.reason ? ` · ${declaredAbsence.reason}` : ''}`);
             return `<span class="${chipClass}" title="${safeTitle}">${safeName}${scheduleEscapeHTML(suffix)}${fixedBadge}</span>`;
         }).join('');
 
@@ -848,6 +996,33 @@ function renderGVMultiCell(row, isAdmin, compositeKey, caType, index, fieldType,
         <div class="gv-name-display">${nameHtml}</div>
         ${isAdmin ? '<span class="gv-edit-icon"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></span>' : ''}
     </div></td>`;
+}
+
+// Ô PHÒNG: chữ "P" có sẵn, người xếp lịch chỉ gõ số phòng (bàn phím số trên điện thoại).
+// Lưu dạng "P" + số (VD "P01"); dữ liệu cũ "p01", "P 11", "Phòng 3" vẫn hiện đúng số.
+// Tên phòng không bắt đầu bằng số (VD "Online") giữ nguyên như người dùng gõ.
+function splitScheduleRoom(value) {
+    const raw = String(value ?? '').trim();
+    const prefixed = raw.match(/^(?:phòng|phong|p)\.?\s*(\d.*)$/i);
+    if (prefixed) return { numbered: true, number: prefixed[1].trim() };
+    return { numbered: raw === '' || /^\d/.test(raw), number: raw };
+}
+
+function normalizeScheduleRoomInput(value) {
+    const { number } = splitScheduleRoom(value);
+    if (!number) return '';
+    return /^\d/.test(number) ? `P${number.replace(/\s+/g, '').toUpperCase()}` : number;
+}
+window.normalizeScheduleRoomInput = normalizeScheduleRoomInput;
+
+function renderRoomCell(value, canEdit, inputClass, compositeKey, caType, index) {
+    if (!canEdit) {
+        return `<td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(normalizeScheduleRoomInput(value))}" placeholder="Phòng" readonly></td>`;
+    }
+    const room = splitScheduleRoom(value);
+    return `<td data-field="room" data-label="Phòng"><label class="room-input${room.numbered ? '' : ' is-named'}" title="Gõ số phòng — chữ P có sẵn">
+        <span class="room-input-prefix" aria-hidden="true">P</span><input type="text" class="${inputClass} room-input-field" value="${scheduleEscapeAttr(room.number)}" placeholder="số" inputmode="numeric" autocomplete="off" maxlength="20" aria-label="Số phòng" onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', normalizeScheduleRoomInput(this.value), this.closest('tr').dataset.rowLocator)">
+    </label></td>`;
 }
 
 // Ô giờ: chỉ người sửa được lịch mới cần ô nhập; người xem thấy chữ "07:30" gọn hơn nhiều.
@@ -952,7 +1127,7 @@ function renderRow(data, index, caType, isAdmin, compositeKey, rowId, isToday, s
             ${renderTimeCell('Bắt đầu', data.start, rowIsAdmin, compositeKey, caType, index, 'start')}
             ${renderTimeCell('Kết thúc', data.end, rowIsAdmin, compositeKey, caType, index, 'end')}
             ${lopCell}
-            <td data-field="room" data-label="Phòng"><input type="text" class="${inputClass}" value="${scheduleEscapeAttr(data.phong || '')}" placeholder="Phòng" ${readonlyAttr} onchange="updateRow('${compositeKey}', '${caType}', ${index}, 'phong', this.value, this.closest('tr').dataset.rowLocator)"></td>
+            ${renderRoomCell(data.phong, rowIsAdmin, inputClass, compositeKey, caType, index)}
             ${gvCell}
             ${gvTTCell}
             ${soHSCell}

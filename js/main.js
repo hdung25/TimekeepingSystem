@@ -1667,6 +1667,10 @@ function renderSidebar() {
 
     if (roles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r))) {
         scheduleName = 'Xếp Lịch';
+    } else if (!roles.some(r => ['staff', 'teaching_assistant'].includes(r)) &&
+        roles.some(r => ['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff'].includes(r))) {
+        // Tiếp tân không dạy: trang này chỉ để XEM lịch lớp và xuất bảng lịch.
+        scheduleName = 'Lịch Lớp Học';
     }
     if (roles.some(r => ['admin', 'senior_assistant'].includes(r))) {
         reportName = 'Tính Lương';
@@ -1681,7 +1685,7 @@ function renderSidebar() {
         { name: 'Họp Của Tôi', link: 'hop-cua-toi.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M9 16l2 2 4-4"></path>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant', 'senior_assistant', 'admin'] },
         // Chấm Công: Visible for Staff, Assistant, Receptionist
         { name: 'Chấm Công', link: 'cham-cong.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'senior_assistant', 'teaching_assistant'] },
-        { name: scheduleName, link: 'lich-lam.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'teaching_assistant'] },
+        { name: scheduleName, link: 'lich-lam.html', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>', roles: ['admin', 'senior_assistant', 'staff', 'assistant', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'teaching_assistant'] },
         { name: 'Chấm Công Bù', link: 'cham-bu.html', icon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>', roles: ['staff', 'assistant', 'receptionist', 'receptionist_assistant', 'office_staff', 'teaching_assistant'] },
         { name: 'Lịch Tiếp Tân', link: 'lich-tiep-tan.html', icon: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>', roles: ['admin', 'senior_assistant', 'receptionist', 'receptionist_assistant'] },
         { name: 'Lịch Văn Phòng', link: 'lich-van-phong.html', icon: '<rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V4h8v3"></path><path d="M3 12h18"></path>', roles: ['admin', 'senior_assistant', 'assistant', 'office_staff'] },
