@@ -83,10 +83,10 @@ assert.match(serviceWorker, /subject-rate-policy\.js\?v=20260809-subject-rate-v1
 assert.match(serviceWorker, /report\.js\?v=20260929-owner-round-v1/);
 assert.match(serviceWorker, /lich-van-phong\.html/);
 assert.match(chamCong, /db-service\.js\?v=20260929-owner-round-v1/);
-assert.match(chamCong, /main\.js\?v=20260927-round3-v1/);
-assert.match(chamCong, /timekeeping\.js\?v=20260927-round3-v1/);
+assert.match(chamCong, /main\.js\?v=20261003-chain-v1/);
+assert.match(chamCong, /timekeeping\.js\?v=20261003-chain-v1/);
 assert.match(serviceWorker, /db-service\.js\?v=20260929-owner-round-v1/);
-assert.match(serviceWorker, /timekeeping\.js\?v=20260927-round3-v1/);
+assert.match(serviceWorker, /timekeeping\.js\?v=20261003-chain-v1/);
 assert.match(serviceWorker, /schedule-attendance-admin\.js\?v=20260906-early10-recovery-v1/);
 assert.match(serviceWorker, /url\.origin !== self\.location\.origin/,
   'service worker must not cache public-IP or DNS responses');

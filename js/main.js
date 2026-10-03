@@ -979,11 +979,11 @@ async function runGlobalAutoCheckout(options = {}) {
     }
 }
 
-// Khoảng nghỉ TỐI ĐA giữa hai khúc việc mà vẫn coi là làm liền một mạch.
-// Hai lớp 07:30–09:00 và 09:15–10:45 cách nhau 15p là ra chơi giữa buổi → nối, nhân viên
-// chỉ bấm vào ca 1 lần. Còn ca tối 18:00 cách ca sáng nhiều tiếng thì KHÔNG nối: buổi tối
-// nhân viên vẫn bấm vào ca như bình thường (yêu cầu của Giám đốc).
-const AUTO_CHECKOUT_GAP_MS = 20 * 60 * 1000;
+// Khoảng nghỉ TỐI ĐA giữa hai khúc việc mà vẫn coi là làm liền một mạch: 0 — chỉ các ca
+// SÁT NHAU (ca sau bắt đầu đúng lúc/trước khi ca trước hết) mới chấm vào ca 1 lần. Hai ca
+// cách nhau dù chỉ 15p (07:30–09:00 rồi 09:15–10:45) là hai lần làm riêng: nhân viên tự
+// ra ca và tự bấm vào ca lại (yêu cầu của Giám đốc, 03/10/2026).
+const AUTO_CHECKOUT_GAP_MS = 0;
 
 // Từ danh sách các khúc việc trong ngày (ca trực + lớp dạy), tìm mốc tan của MẠCH LÀM VIỆC
 // chứa giờ vào ca. Nối tiếp chừng nào khúc sau bắt đầu trước/ngay sau mốc đang có, gặp

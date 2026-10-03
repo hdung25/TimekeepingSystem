@@ -45,9 +45,13 @@ const hhmm = d => (d ? d.toTimeString().slice(0, 5) : null);
 }
 
 {
-    // Hai lớp cách nhau 15p (ra chơi) vẫn là một mạch → không bắt bấm vào ca lần 2.
+    // Hai lớp cách nhau 15p KHÔNG phải ca liên tiếp → mạch đầu dừng 09:00, nhân viên tự bấm vào ca lần 2.
     const blocks = [block('07:30', '09:00'), block('09:15', '10:45')];
-    assert.equal(hhmm(context.resolveWorkChainEnd(blocks, at('07:25'))), '10:45');
+    assert.equal(hhmm(context.resolveWorkChainEnd(blocks, at('07:25'))), '09:00');
+    assert.equal(hhmm(context.resolveWorkChainEnd(blocks, at('09:15'))), '10:45');
+    // Hai lớp sát nhau (09:00 → 09:00) vẫn nối, chỉ bấm vào ca 1 lần.
+    const flush = [block('07:30', '09:00'), block('09:00', '10:30')];
+    assert.equal(hhmm(context.resolveWorkChainEnd(flush, at('07:25'))), '10:30');
 }
 
 {
