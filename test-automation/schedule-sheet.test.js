@@ -132,9 +132,54 @@ assert.ok(xml.includes('<pageSetup paperSize="9" orientation="portrait" fitToWid
 assert.ok(xml.includes('<mergeCell ref="A1:E1"/>'));
 assert.match(xml, /LỊCH DẠY TỐI THỨ 5/);
 
+// Ô nhập của form không được làm hỏng ảnh / Excel: ký tự điều khiển, xuống dòng, quá dài, HTML, emoji…
+assert.equal(S.cleanText('  Lịch\n dạy\t\u0000tối  ', 80, false), 'Lịch dạy tối');
+assert.equal(S.cleanText('a\r\nb\r\n\r\n\r\n\r\nc', 400, true), 'a\nb\n\nc');
+assert.equal(Array.from(S.cleanText('x'.repeat(500), 80, false)).length, 80);
+assert.equal(S.cleanText('ab\uD800cd\uFFFF', 80, false), 'abcd', 'bỏ ký tự XML không hợp lệ');
+assert.equal(S.cleanText('Lớp 😀 vui', 80, false), 'Lớp 😀 vui', 'giữ emoji');
+assert.equal(S.cleanText('   ', 80, false), '');
+assert.equal(S.cleanText(null, 80, false), '');
+assert.ok(S.isValidDateKey('2026-10-03'));
+['', '2026-02-31', '2026-13-01', '0002-10-03', '20261003', 'abc', null].forEach(v => assert.ok(!S.isValidDateKey(v), String(v)));
+
+const nasty = {
+    title: '  <script>alert(1)</script> & "Tối"\u0007\n' + 'x'.repeat(300),
+    footer: 'Dòng 1\r\n<b>đậm</b> & \u0000\uFFFE\n\n\n\nDòng cuối 😀 ' + 'y'.repeat(800),
+    blankRows: 99
+};
+const nastyHtml = S.renderSheetHtml(model, nasty);
+assert.doesNotMatch(nastyHtml, /<script>|<b>/, 'HTML trong ô nhập không chạy');
+assert.match(nastyHtml, /&lt;SCRIPT&gt;/);
+assert.equal((nastyHtml.match(/class="ss-blank"/g) || []).length, 10, 'tối đa 5 dòng trống mỗi ca');
+assert.doesNotMatch(nastyHtml, /[\u0000\u0007\uFFFE]/);
+assert.equal((S.renderSheetHtml(model, { blankRows: 'abc' }).match(/class="ss-blank"/g) || []).length, 6, 'giá trị lạ → mặc định 3');
+assert.equal((S.renderSheetHtml(model, { blankRows: -2 }).match(/class="ss-blank"/g) || []).length, 0);
+const nastyText = S.sheetText(model, nasty);
+assert.doesNotMatch(nastyText, /[\u0000\u0007\uFFFE]/);
+const nastyRows = S.sheetRows(model, nasty);
+assert.ok(Array.from(nastyRows[0].cells[0].v).length <= 80, 'tiêu đề Excel bị giới hạn độ dài');
+assert.ok(nastyRows[0].ht >= 50, 'tiêu đề dài → hàng cao hơn, chữ xuống dòng');
+const nastyFooter = nastyRows[nastyRows.length - 1];
+assert.ok(Array.from(nastyFooter.cells[0].v).length <= 400 && nastyFooter.ht <= 400);
+// Chỉ lấy nội dung các file XML trong zip (phần đầu zip vốn có byte 0).
+const xmlParts = bytes => Buffer.from(bytes).toString('utf8')
+    .match(/<\?xml[\s\S]*?(?=PK\u0003\u0004|PK\u0001\u0002)/g).join('');
+const nastyXml = xmlParts(S.buildSheetXlsx(model, nasty));
+assert.doesNotMatch(nastyXml, /[\u0000\u0007\uFFFE\uFFFF]/, 'không có ký tự làm Excel báo file hỏng');
+assert.doesNotMatch(nastyXml, /<script>|<b>đậm/);
+assert.match(nastyXml, /&lt;b&gt;đậm&lt;\/b&gt; &amp;/);
+// Dữ liệu lịch có ký tự lạ (tên lớp, ghi chú) cũng được lọc khi ghi Excel.
+const oddModel = S.buildSheetModel({ evening1: [{ lop: 'E1\u0001 <A&B>', phong: 'P1', note: 'ghi\uFFFEchú', gvList: [{ id: 'x', name: 'X' }] }] },
+    { dateKey: '2026-10-04', branch: 'cs1', buoi: 'evening', closures: {} });
+const oddXml = xmlParts(S.buildSheetXlsx(oddModel, {}));
+assert.doesNotMatch(oddXml, /[\u0001\uFFFE]/);
+assert.match(oddXml, /E1 &lt;A&amp;B&gt;/);
+assert.match(oddXml, /<sheet name="Chủ nhật 04-10"/, 'tên trang tính không có dấu /');
+
 // Gắn vào trang + cache offline
 const page = read('lich-lam.html');
-assert.match(page, /js\/schedule-sheet\.js\?v=20261003-sheet-v3/);
+assert.match(page, /js\/schedule-sheet\.js\?v=20261003-sheet-v4/);
 assert.ok(page.indexOf('schedule-sheet.js') > page.indexOf('js/schedule.js'), 'nạp sau schedule.js');
-assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261003-sheet-v3'/);
+assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261003-sheet-v4'/);
 console.log('schedule-sheet.test.js: all assertions passed');

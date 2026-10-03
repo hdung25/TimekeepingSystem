@@ -179,6 +179,37 @@
         return `Lịch dạy ${part}${dayName(dateKey)}`.replace(/\s+/g, ' ').trim();
     }
 
+    // Ô nhập của form (tiêu đề, ghi chú cuối tờ) đi thẳng vào ảnh và file Excel: bỏ ký tự điều khiển
+    // / ký tự XML không hợp lệ, gộp khoảng trắng, giới hạn độ dài — để không ô nào làm hỏng file.
+    const TITLE_MAX = 80;
+    const FOOTER_MAX = 400;
+    function cleanText(value, max, multiline) {
+        let text = String(value == null ? '' : value)
+            .replace(/\r\n?/g, '\n')
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFE\uFFFF]/g, '')
+            .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '$1');
+        text = multiline
+            ? text.split('\n').map(line => line.replace(/[\t ]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n')
+            : text.replace(/\s+/g, ' ');
+        text = text.trim();
+        return text.length > max ? Array.from(text).slice(0, max).join('').trim() : text;
+    }
+
+    function sheetTitle(model, opts) {
+        return cleanText(opts.title, TITLE_MAX, false) || defaultTitle(model.dateKey, model.buoi);
+    }
+
+    function sheetFooter(opts) {
+        return cleanText(opts.footer, FOOTER_MAX, true);
+    }
+
+    function isValidDateKey(value) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+        const [y, m, d] = value.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        return y >= 2020 && y <= 2100 && date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+    }
+
     // Tên hiển thị: tên gọn, trừ khi hai GV khác nhau trên cùng tờ ra trùng tên gọn.
     function nameResolver(model, useShort) {
         if (!useShort) return t => String(t.name || '').trim();
@@ -221,7 +252,7 @@
 
     function renderSheetHtml(model, opts = {}) {
         const nameOf = nameResolver(model, opts.shortNames !== false);
-        const title = String(opts.title || defaultTitle(model.dateKey, model.buoi)).trim();
+        const title = sheetTitle(model, opts);
         const totalClasses = model.sections.reduce((n, s) => n + s.classCount, 0);
         const totalStudents = model.sections.reduce((n, s) => n + s.studentCount, 0);
         const blanks = blankRowCount(opts);
@@ -254,7 +285,7 @@
         }).join('');
         const empty = model.sections.length ? '' :
             '<tr><td colspan="5" class="ss-closed-all">Chưa có lớp nào trong buổi này</td></tr>';
-        const footer = String(opts.footer || '').trim();
+        const footer = sheetFooter(opts);
         // Độ rộng cột tính ra px nguyên (khung 600 − lề 36 − viền): html2canvas vẽ đường kẻ lệch với cột theo %.
         const inner = SHEET_WIDTH - 38;
         const px = COL_RATIO.map(r => Math.round(inner * r / 100));
@@ -280,7 +311,7 @@
     // Bản chữ để dán vào Zalo/Messenger khi không tiện gửi ảnh.
     function sheetText(model, opts = {}) {
         const nameOf = nameResolver(model, opts.shortNames !== false);
-        const title = String(opts.title || defaultTitle(model.dateKey, model.buoi)).trim();
+        const title = sheetTitle(model, opts);
         const lines = [`${title.toLocaleUpperCase('vi')} — ${shortDate(model.dateKey)} — ${BRANCH_LABEL[model.branch] || model.branch}`];
         model.sections.forEach(section => {
             const prefix = model.buoi === 'all' ? `${section.buoiLabel} · ` : '';
@@ -302,7 +333,7 @@
                 lines.push(`${row.closed ? '✕ [ĐÃ TẮT] ' : '• '}${bits.join(' · ')}`);
             });
         });
-        const footer = String(opts.footer || '').trim();
+        const footer = sheetFooter(opts);
         if (footer) lines.push('', footer);
         return lines.join('\n');
     }
@@ -332,10 +363,10 @@
         + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
         + '<cellXfs count="12">'
         + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-        + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
-        + '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        + '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
         + '<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
-        + '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
         + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
         + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
         + '<xf numFmtId="0" fontId="5" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
@@ -349,7 +380,8 @@
 
     function xmlEsc(value) {
         return String(value == null ? '' : value)
-            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+            .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '$1')
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
@@ -370,15 +402,20 @@
         ];
     }
 
+    // Số dòng một ô chiếm khi xuống dòng tự động (ước lượng theo số ký tự vừa cột).
+    function wrapLines(text, perLine) {
+        return String(text || '').split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0);
+    }
+
     // Các dòng của trang tính (thuần dữ liệu để kiểm thử): { cells:[{v,s}×5], ht, merge? }
     function sheetRows(model, opts = {}) {
         const nameOf = nameResolver(model, opts.shortNames !== false);
-        const title = String(opts.title || defaultTitle(model.dateKey, model.buoi)).trim().toLocaleUpperCase('vi');
+        const title = sheetTitle(model, opts).toLocaleUpperCase('vi');
         const totalClasses = model.sections.reduce((n, s) => n + s.classCount, 0);
         const totalStudents = model.sections.reduce((n, s) => n + s.studentCount, 0);
         const merged = (v, s, ht) => ({ cells: [{ v, s }, { s }, { s }, { s }, { s }], ht, merge: true });
         const rows = [
-            merged(title, XS.title, 30),
+            merged(title, XS.title, title.length > 46 ? 50 : 30),
             merged(`${dayName(model.dateKey)}, ngày ${shortDate(model.dateKey)} · ${BRANCH_LABEL[model.branch] || model.branch}` +
                 (totalClasses ? ` · ${totalClasses} lớp${totalStudents ? ` · ${totalStudents} HS` : ''}` : ''), XS.date, 20),
             { cells: ['SS', 'Lớp', 'Phòng', 'GV', 'Ghi chú'].map(v => ({ v, s: XS.head })), ht: 24 }
@@ -398,7 +435,7 @@
             section.rows.forEach(row => {
                 const gv = teacherLines(row.teachers, row.closed, nameOf);
                 const notes = [row.closed ? 'Đã tắt' : '', row.time ? `Giờ ${row.time}` : '', row.note].filter(Boolean);
-                const lines = Math.max(1, gv.length, Math.ceil(notes.join('; ').length / 34));
+                const lines = Math.max(1, wrapLines(row.lop, 17), wrapLines(gv.join('\n'), 19), wrapLines(notes.join('; '), 32));
                 const textStyle = row.closed ? XS.closed : XS.text;
                 rows.push({
                     cells: [
@@ -414,11 +451,11 @@
             for (let i = 0; i < blanks; i++) rows.push({ cells: [XS.center, XS.text, XS.center, XS.text, XS.note].map(s => ({ s })), ht: 24 });
         });
         if (!model.sections.length) rows.push(merged('Chưa có lớp nào trong buổi này', XS.closedCenter, 24));
-        const footer = String(opts.footer || '').trim();
+        const footer = sheetFooter(opts);
         if (footer) {
             rows.push({ cells: [], ht: 8 });
             rows.push({ cells: [{ v: footer, s: XS.footer }, { s: XS.footer }, { s: XS.footer }, { s: XS.footer }, { s: XS.footer }],
-                ht: Math.max(20, 16 * (footer.split('\n').length + Math.floor(footer.length / 90))), merge: true });
+                ht: Math.min(400, Math.max(20, 16 * wrapLines(footer, 88))), merge: true });
         }
         return rows;
     }
@@ -500,7 +537,7 @@
     }
 
     function buildSheetXlsx(model, opts = {}) {
-        const sheetName = xmlEsc(`${dayName(model.dateKey)} ${shortDate(model.dateKey).slice(0, 5).replace('/', '-')}`);
+        const sheetName = xmlEsc(`${dayName(model.dateKey)} ${shortDate(model.dateKey).slice(0, 5)}`.replace(/[:\\/?*[\]]/g, '-').slice(0, 31));
         return zipBytes([
             { name: '[Content_Types].xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -697,18 +734,52 @@
         overlay.addEventListener('click', event => {
             if (event.target === overlay || event.target.closest('[data-ss-close]')) close();
             const b = event.target.closest('[data-buoi]');
-            if (b) { state.buoi = b.dataset.buoi; refresh(false); }
+            if (b && BUOI.some(x => x.key === b.dataset.buoi) && b.dataset.buoi !== state.buoi) {
+                state.buoi = b.dataset.buoi;
+                state.titleEdited = false; // "Lịch dạy Tối…" không còn đúng khi chuyển sang buổi khác
+                refresh(false);
+            }
         });
         document.addEventListener('keydown', event => {
             if (event.key === 'Escape' && !overlay.hidden) close();
         });
-        $('ssm-date').addEventListener('change', e => { if (e.target.value) { state.dateKey = e.target.value; refresh(true); } });
-        $('ssm-branch').addEventListener('change', e => { state.branch = e.target.value; refresh(true); });
-        $('ssm-title').addEventListener('input', e => { state.title = e.target.value; state.titleEdited = !!e.target.value.trim(); redraw(); });
+        // Ngày xoá trắng / gõ dở / sai (VD 31/02) thì giữ ngày cũ, không tải lịch rỗng.
+        $('ssm-date').addEventListener('change', e => {
+            const value = e.target.value;
+            if (!isValidDateKey(value)) {
+                if (value) toast('Ngày không hợp lệ — giữ ngày đang chọn.', 'warning');
+                e.target.value = state.dateKey;
+                return;
+            }
+            if (value === state.dateKey) return;
+            state.dateKey = value;
+            state.titleEdited = false; // tiêu đề tự đổi theo thứ của ngày mới (tránh "Thứ 7" trên lịch Thứ 5)
+            refresh(true);
+        });
+        $('ssm-date').addEventListener('blur', e => { if (!isValidDateKey(e.target.value)) e.target.value = state.dateKey; });
+        $('ssm-branch').addEventListener('change', e => {
+            if (!BRANCH_LABEL[e.target.value]) { e.target.value = state.branch; return; }
+            state.branch = e.target.value;
+            refresh(true);
+        });
+        $('ssm-title').addEventListener('input', e => { state.title = e.target.value; state.titleEdited = !!cleanText(e.target.value, TITLE_MAX, false); redraw(); });
+        // Rời ô tiêu đề: hiện đúng chữ sẽ in (đã gọn khoảng trắng); để trống thì về tiêu đề mặc định.
+        $('ssm-title').addEventListener('blur', e => {
+            const clean = cleanText(e.target.value, TITLE_MAX, false);
+            state.titleEdited = !!clean;
+            state.title = clean || defaultTitle(state.dateKey, state.buoi);
+            e.target.value = state.title;
+            redraw();
+        });
         $('ssm-footer').addEventListener('input', e => { state.footer = e.target.value; redraw(); });
         $('ssm-short').addEventListener('change', e => { state.shortNames = e.target.checked; savePrefs(); redraw(); });
         $('ssm-closed').addEventListener('change', e => { state.showClosed = e.target.checked; savePrefs(); refresh(false); });
-        $('ssm-blank').addEventListener('change', e => { state.blankRows = Number(e.target.value) || 0; savePrefs(); redraw(); });
+        $('ssm-blank').addEventListener('change', e => {
+            const n = Number(e.target.value);
+            state.blankRows = Number.isInteger(n) ? Math.min(MAX_BLANK_ROWS, Math.max(0, n)) : 3;
+            savePrefs();
+            redraw();
+        });
         $('ssm-excel').addEventListener('click', downloadExcel);
         $('ssm-copy').addEventListener('click', copyImage);
         $('ssm-download').addEventListener('click', downloadImage);
@@ -750,6 +821,9 @@
         try {
             if (reload || dayCache.key !== key) {
                 setStatus('Đang tải lịch…');
+                state.model = null;
+                state.canvasPromise = null;
+                setActionsReady(false);
                 const [data, settings, evidence] = await Promise.all([
                     DBService.getSchedule(key, { source: 'server' }),
                     typeof readScheduleClosureSettings === 'function' ? readScheduleClosureSettings() : Promise.resolve({}),
@@ -768,15 +842,36 @@
         } catch (error) {
             if (seq !== state.loadSeq) return;
             console.error('[ScheduleSheet] load', error);
+            state.model = null;
+            dayCache = { key: '', data: null, closures: {}, evidence: null };
+            $('ssm-preview').innerHTML = '';
             setStatus('Chưa tải được lịch. Kiểm tra mạng rồi chọn lại ngày.');
+        } finally {
+            if (seq === state.loadSeq) setActionsReady(!!state.model);
         }
     }
 
     function sheetOptions() {
-        return { title: state.title, footer: state.footer, shortNames: state.shortNames, blankRows: state.blankRows };
+        return {
+            title: state.titleEdited ? cleanText(state.title, TITLE_MAX, false) : '',
+            footer: sheetFooter({ footer: state.footer }),
+            shortNames: state.shortNames,
+            blankRows: state.blankRows
+        };
     }
 
-    // Xem trước = đúng tờ ảnh 520px, thu nhỏ cho vừa khung (điện thoại) thay vì bóp cột.
+    // Nút xuất chỉ bấm được khi tờ lịch của đúng ngày/cơ sở đang chọn đã tải xong.
+    function setActionsReady(ready) {
+        document.querySelectorAll('.ssm-actions button').forEach(b => { b.disabled = !ready; });
+    }
+
+    function ensureReady() {
+        if (state.model && state.model.dateKey === state.dateKey && state.model.branch === state.branch) return true;
+        toast('Lịch chưa tải xong — chờ một chút rồi bấm lại.', 'warning');
+        return false;
+    }
+
+    // Xem trước = đúng tờ ảnh 600px, thu nhỏ cho vừa khung (điện thoại) thay vì bóp cột.
     function fitPreview() {
         const box = $('ssm-preview');
         const sheet = box?.firstElementChild;
@@ -806,7 +901,7 @@
         return loadHtml2Canvas.promise;
     }
 
-    // Dựng ảnh từ một bản sao cố định 520px (không phụ thuộc màn hình người xếp lịch) ở tỉ lệ 2×.
+    // Dựng ảnh từ một bản sao cố định 600px (không phụ thuộc màn hình người xếp lịch) ở tỉ lệ 2×.
     function renderBlob() {
         if (state.canvasPromise) return state.canvasPromise;
         const html = renderSheetHtml(state.model, sheetOptions());
@@ -838,17 +933,18 @@
     }
 
     async function withBusy(button, task) {
+        if (!ensureReady()) return;
         const buttons = document.querySelectorAll('.ssm-actions button');
         buttons.forEach(b => { b.disabled = true; });
         const label = button.textContent;
-        button.textContent = 'Đang tạo ảnh…';
+        button.textContent = button.id === 'ssm-excel' ? 'Đang tạo file…' : 'Đang tạo ảnh…';
         try { await task(); } catch (error) {
             if (error?.name === 'AbortError') return;
             console.error('[ScheduleSheet]', error);
             toast(error?.message || 'Không thực hiện được.', 'error');
         } finally {
             button.textContent = label;
-            buttons.forEach(b => { b.disabled = false; });
+            setActionsReady(!!state.model);
         }
     }
 
@@ -891,25 +987,27 @@
     }
 
     function downloadExcel() {
-        if (!state.model) return;
-        try {
-            downloadBlob(new Blob([buildSheetXlsx(state.model, sheetOptions())], { type: XLSX_MIME }), fileName('xlsx'));
+        return withBusy($('ssm-excel'), async () => {
+            let bytes;
+            try { bytes = buildSheetXlsx(state.model, sheetOptions()); } catch (error) {
+                console.error('[ScheduleSheet] excel', error);
+                throw new Error('Không tạo được file Excel.');
+            }
+            downloadBlob(new Blob([bytes], { type: XLSX_MIME }), fileName('xlsx'));
             toast('Đã tải file Excel lịch (A4 dọc, in vừa 1 trang).');
-        } catch (error) {
-            console.error('[ScheduleSheet] excel', error);
-            toast('Không tạo được file Excel.', 'error');
-        }
+        });
     }
 
     function shareImage() {
         return withBusy($('ssm-share'), async () => {
             const blob = await renderBlob();
             const file = new File([blob], fileName(), { type: 'image/png' });
-            await navigator.share({ files: [file], title: state.title });
+            await navigator.share({ files: [file], title: sheetTitle(state.model, sheetOptions()) });
         });
     }
 
     async function copyText() {
+        if (!ensureReady()) return;
         const text = sheetText(state.model, sheetOptions());
         try {
             await navigator.clipboard.writeText(text);
@@ -930,11 +1028,15 @@
         ensureModal();
         loadPrefs();
         state.dateKey = selectedScheduleDateKey();
-        state.branch = typeof currentBranch === 'string' ? currentBranch : 'cs1';
+        if (!isValidDateKey(state.dateKey)) state.dateKey = getLocalDateKey(new Date());
+        const branch = typeof currentBranch === 'string' ? currentBranch : '';
+        state.branch = BRANCH_LABEL[branch] ? branch : 'cs1';
         state.buoi = defaultBuoi(state.dateKey);
         state.titleEdited = false;
         state.model = null;
+        state.footer = $('ssm-footer').value;
         $('ssm-preview').innerHTML = '';
+        setActionsReady(false);
         $('ssheet-overlay').hidden = false;
         document.body.style.overflow = 'hidden';
         refresh(true);
@@ -969,5 +1071,5 @@
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-    global.ScheduleSheet = { buildSheetModel, renderSheetHtml, sheetText, sheetRows, buildSheetXlsx, shortName, defaultTitle, open, close };
+    global.ScheduleSheet = { buildSheetModel, renderSheetHtml, sheetText, sheetRows, buildSheetXlsx, cleanText, isValidDateKey, shortName, defaultTitle, open, close };
 })(window);
