@@ -53,11 +53,15 @@ assert.doesNotMatch(automationSource, /manual === true|mayAutomate/,
     const helpers = report.slice(report.indexOf('function isMeetingPayrollAutomatic('), report.indexOf('let currentEvalIndex'));
     const normalize = report.slice(report.indexOf('function normalizeEvaluationEntries('), report.indexOf('\n}\n', report.indexOf('function normalizeEvaluationEntries(')) + 3);
     const run = new Function('window', `${normalize}\n${helpers}\nreturn { automaticMeetingEvaluation, isMeetingPayrollAutomatic };`)(sandbox.window);
-    const summary = { complete: true, amount: 1000, note: 'T-TV: Có', version: policy.VERSION };
+    const summary = { complete: true, amount: 1000, hours: 22.5, note: 'T-TV: Có', version: policy.VERSION };
     const stale = [{ id: 9, amount: 48650, manual: true, note: 'Tiếng Anh: Không họp; T-TV: Chưa ghi nhận' }];
     const synced = run.automaticMeetingEvaluation(stale, summary).find(row => row.id === 9);
-    assert.equal(synced.amount, 1000, 'họp có mặt phải cộng 1.000đ dù dòng cũ nhập tay');
+    assert.equal(synced.amount, 22500, 'họp có mặt phải cộng 1.000đ/giờ × tổng giờ dạy dù dòng cũ nhập tay');
+    assert.equal(synced.rate, 1000);
     assert.equal(synced.manual, false);
+    const absent = run.automaticMeetingEvaluation([], { ...summary, amount: -2000 })[0];
+    assert.equal(absent.amount, -45000, 'vắng không phép phải trừ 2.000đ/giờ × 22,5 giờ = -45.000đ');
+    assert.match(absent.note, /22,5 giờ dạy/);
     assert.equal(stale[0].amount, 48650, 'không được sửa trực tiếp dữ liệu đã tải');
     assert.equal(run.automaticMeetingEvaluation(stale, { ...summary, complete: false })[0].amount, 48650,
         'họp chưa kết thúc thì giữ nguyên số đã lưu');

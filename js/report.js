@@ -374,12 +374,13 @@ async function populateStaffSelect() {
     });
 
     users.sort((a, b) => {
-        if (a.msnv !== null && b.msnv !== null) {
+        if (a.msnv !== null && b.msnv !== null && a.msnv !== b.msnv) {
             return a.msnv - b.msnv;
         }
-        if (a.msnv !== null) return -1;
-        if (b.msnv !== null) return 1;
-        return (a.username || '').localeCompare(b.username || '');
+        if (a.msnv !== null && b.msnv === null) return -1;
+        if (b.msnv !== null && a.msnv === null) return 1;
+        // Cùng số hoặc mã không có số: xếp theo mã để thứ tự Trước/Tiếp luôn cố định.
+        return (a.username || '').localeCompare(b.username || '', 'vi', { numeric: true, sensitivity: 'base' });
     });
 
     // Lưu global để filter
@@ -395,6 +396,23 @@ async function populateStaffSelect() {
     if (list.length === 1) {
         selectStaffFromDropdown(list[0]);
     }
+}
+
+// Mã nhân viên = tên đăng nhập (giống "MÃ NHÂN VIÊN" trên phiếu lương). Danh sách
+// đã xếp theo số cuối của mã, nên Trước/Tiếp đi đúng thứ tự mã đang hiện ở đây.
+function staffCodeLabel(user) {
+    return String(user?.username || '').toUpperCase();
+}
+
+function updateStaffNavCode(user) {
+    const badge = document.getElementById('staff-nav-code');
+    if (!badge) return;
+    const list = window._filteredStaffList || window._allStaffList || [];
+    const position = user ? list.findIndex(u => u.id === user.id) : -1;
+    const code = staffCodeLabel(user);
+    if (!user || (!code && position < 0)) { badge.style.display = 'none'; return; }
+    badge.textContent = `Mã ${code || '—'}${position >= 0 ? ` · ${position + 1}/${list.length}` : ''}`;
+    badge.style.display = '';
 }
 
 window.navigateStaff = function(direction) {
@@ -467,10 +485,14 @@ function renderStaffDropdownItems(users) {
 
         const meta = document.createElement('div');
         meta.style.cssText = 'font-size:0.75rem;color:#6B7280;';
-        meta.textContent = `${roleLabel}${u.username ? ` · ${u.username}` : ''}`;
+        meta.textContent = roleLabel;
 
+        copy.style.cssText = 'flex:1;min-width:0;';
         copy.append(name, meta);
-        item.append(avatar, copy);
+        const code = document.createElement('span');
+        code.style.cssText = 'flex-shrink:0;padding:2px 8px;border-radius:999px;background:#ECFDF5;color:#065F46;font-weight:700;font-size:0.75rem;';
+        code.textContent = String(u.username || '').toUpperCase() || '—';
+        item.append(avatar, copy, code);
         list.appendChild(item);
     });
 }
@@ -543,6 +565,7 @@ function selectStaffFromDropdown(user) {
     // 2. Update input display
     const input = document.getElementById('staff-search-input');
     if (input) input.value = user.name || user.username;
+    updateStaffNavCode(user);
 
     // Save to localStorage
     if (user && user.id) {
@@ -3089,6 +3112,55 @@ async function loadMeetingPayrollSummary(staffId, monthStr, staffProfile = windo
     };
 }
 
+// ===== ĐƠN GIÁ × TỔNG GIỜ DẠY (tiêu chí giáo viên) =====
+// Cùng nguồn giờ với chuyên cần (TeacherAttendancePolicy.sourceFromChips): giờ dạy
+// được trả lương trong tháng, không gồm giờ tiếp tân/văn phòng. Tính lại từ công
+// mỗi lần hiển thị/lưu nên sửa công xong thì thành tiền theo kịp.
+const EVAL_RATE_NOTE_PATTERN = /^Tính theo giờ:[^;]*(?:;\s*|$)/;
+function getTeacherPayrollHours() {
+    const api = window.TeacherAttendancePolicy;
+    if (!api?.sourceFromChips) return 0;
+    try {
+        const source = api.sourceFromChips(window.unfilteredAllMonthChips || [],
+            chip => classifyAbsentChip(chip, _cachedStaffNotes));
+        return Math.max(0, Number(source.minutes) || 0) / 60;
+    } catch (error) {
+        console.warn('[Payroll] Không tính được tổng giờ dạy:', error);
+        return 0;
+    }
+}
+
+function formatPayrollHours(hours) {
+    return (Number(hours) || 0).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+}
+
+// '' / '-' = chưa nhập đơn giá (thành tiền nhập tay); 0 là đơn giá hợp lệ.
+function parseEvaluationRate(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : null;
+    const cleaned = String(value ?? '').replace(/[^0-9-]/g, '');
+    if (cleaned === '' || cleaned === '-') return null;
+    const parsed = parseInt(cleaned, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function evaluationRateNote(note, rate, hours) {
+    const rest = String(note || '').replace(EVAL_RATE_NOTE_PATTERN, '').trim();
+    if (rate === null) return rest;
+    const amount = Math.round(rate * hours) || 0;
+    const formula = `Tính theo giờ: ${formatPayrollHours(hours)} giờ × ${formatNumberWithCommas(rate)}đ/giờ = ${formatNumberWithCommas(amount)}đ`;
+    return rest ? `${formula}; ${rest}` : formula;
+}
+
+// Dòng có đơn giá đã lưu: thành tiền = đơn giá × tổng giờ dạy hiện tại.
+// Dòng tự động (chuyên cần, IX, họp) giữ cách tính riêng của chúng.
+function applyEvaluationRateRows(entries, hours) {
+    return normalizeEvaluationEntries(entries).map(item => {
+        const rate = item && !item.automatic ? parseEvaluationRate(item.rate) : null;
+        if (rate === null) return item;
+        return { ...item, rate, hours, amount: Math.round(rate * hours) || 0, note: evaluationRateNote(item.note, rate, hours) };
+    });
+}
+
 function isMeetingPayrollAutomatic(summary) {
     return window.currentUserContext?.teachingMode === 'old' && summary?.complete === true;
 }
@@ -3096,14 +3168,22 @@ function isMeetingPayrollAutomatic(summary) {
 // Criterion X of an old-mode teacher is owned by the meeting page. An older
 // manual amount (e.g. a stale 48.650đ typed into X) must not keep payroll out
 // of sync with the recorded attendance; corrections belong on the meeting page.
+// The meeting result is a rate in đ/giờ, multiplied by the month's teaching hours.
 function automaticMeetingEvaluation(savedData, summary) {
     const result = normalizeEvaluationEntries(savedData).map(item => ({ ...item }));
     if (!isMeetingPayrollAutomatic(summary)) return result;
     const saved = result.find(item => Number(item.id) === 9);
+    const rate = Number(summary.rate ?? summary.amount) || 0;
+    const hours = Number.isFinite(summary.hours) ? summary.hours
+        : (typeof getTeacherPayrollHours === 'function' ? getTeacherPayrollHours() : 0);
+    const amount = Math.round(rate * hours) || 0;
+    const hoursText = hours.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
     const row = {
         id: 9,
-        amount: summary.amount,
-        note: summary.note,
+        amount,
+        rate,
+        hours,
+        note: `${summary.note} × ${hoursText} giờ dạy = ${amount.toLocaleString('vi-VN')}đ.`,
         manual: false,
         automatic: summary.version
     };
@@ -3155,6 +3235,7 @@ function renderEvaluationTable(savedData = []) {
     const criteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
     const meetingAutomatic = !isRecep && isMeetingPayrollAutomatic(window.currentMeetingPayrollSummary);
     if (meetingAutomatic) savedData = automaticMeetingEvaluation(savedData, window.currentMeetingPayrollSummary);
+    if (!isRecep) savedData = applyEvaluationRateRows(savedData, getTeacherPayrollHours());
 
     const thead = document.getElementById('eval-thead');
     const tbody = document.getElementById('evaluation-table-body');
@@ -3182,14 +3263,17 @@ function renderEvaluationTable(savedData = []) {
         totalBonus += Number(amount);
 
         // Criterion X follows the meeting page; edit attendance there instead.
-        const isReadOnlyAttr = isRecep || (meetingAutomatic && criteriaIndex === 9)
-            ? 'readonly style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600; color: #4B5563;"' 
+        // A row priced per hour is edited in the salary popup (Đơn giá column).
+        const rateValue = !isRecep && !rowData.automatic ? parseEvaluationRate(rowData.rate) : null;
+        const isReadOnlyAttr = isRecep || (meetingAutomatic && criteriaIndex === 9) || rateValue !== null
+            ? 'readonly style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600; color: #4B5563;"'
             : 'style="width: 100%; text-align: center; border: none; background: transparent; font-weight: 600;"';
 
         trAmount += `
             <td style="padding: 0.25rem; border: 1px solid #e5e7eb;">
-                <input type="text" class="table-input eval-amount money-input" 
-                    value="${formatNumberWithCommas(amount)}" data-index="${criteriaIndex}" oninput="this.dataset.manualEdited='true'; calculateSalary()"
+                <input type="text" class="table-input eval-amount money-input"
+                    value="${formatNumberWithCommas(amount)}" data-index="${criteriaIndex}" data-rate="${rateValue === null ? '' : rateValue}" oninput="this.dataset.manualEdited='true'; calculateSalary()"
+                    ${rateValue !== null ? `title="${rateValue}đ/giờ × tổng giờ dạy. Sửa đơn giá trong Tính Lương."` : ''}
                     ${isReadOnlyAttr}>
             </td>`;
 
@@ -4009,7 +4093,7 @@ function calculateSalary() {
             // trong block isRecep ở trên → loại chúng ra để tránh double-count
             const evalIdsAlreadyCounted = otherRole === 'tiep_tan' ? [1, 6] : [];
             const otherEvaluation = otherRole === 'giao_vien'
-                ? automaticMeetingEvaluation(otherSettings.evaluation, window.currentMeetingPayrollSummary)
+                ? applyEvaluationRateRows(automaticMeetingEvaluation(otherSettings.evaluation, window.currentMeetingPayrollSummary), getTeacherPayrollHours())
                 : normalizeEvaluationEntries(otherSettings.evaluation);
             const otherBonus = otherEvaluation.reduce((sum, e) => {
                 if (evalIdsAlreadyCounted.includes(e.id)) return sum; // đã tính trong isRecep block
@@ -4286,12 +4370,15 @@ async function saveSalarySettings() {
         const criteriaIndex = parseInt(noteInp.dataset.index, 10);
         if (isNaN(criteriaIndex)) return;
         const amountInp = document.querySelector(`.eval-amount[data-index="${criteriaIndex}"]`);
-        evaluationData.push({
+        const entry = {
             id: criteriaIndex,
             note: noteInp.value,
             amount: amountInp ? (parseFormattedNumber(amountInp.value) || 0) : 0,
             manual: amountInp?.dataset.manualEdited === 'true' || normalizeEvaluationEntries(window.currentLoadedSalarySettings?.evaluation).some(e => Number(e.id) === criteriaIndex && e.manual === true)
-        });
+        };
+        const rateValue = parseEvaluationRate(amountInp?.dataset.rate);
+        if (activeFilter !== 'tiep-tan' && rateValue !== null) entry.rate = rateValue;
+        evaluationData.push(entry);
     });
 
     // Nếu là tiếp tân: override phí tư vấn (id=1) và DT CS3 (id=6) từ các ô riêng
@@ -7917,10 +8004,14 @@ async function populateModalCurrentTab() {
         
         const isRecep = (window.modalActiveRole === 'tiep-tan');
         const activeCriteriaList = isRecep ? RECEP_EVALUATION_CRITERIA : EVALUATION_CRITERIA;
+        const teacherHours = isRecep ? 0 : getTeacherPayrollHours();
         const effectiveEvaluation = isRecep
             ? normalizeEvaluationEntries(roleSettings.evaluation)
-            : automaticMeetingEvaluation(roleSettings.evaluation, meetingPayrollSummary);
-        
+            : applyEvaluationRateRows(automaticMeetingEvaluation(roleSettings.evaluation, meetingPayrollSummary), teacherHours);
+        const rateHead = document.getElementById('modal-eval-rate-head');
+        if (rateHead) rateHead.innerHTML = isRecep ? '' : `Đơn giá (đ/giờ)<br><span style="font-weight:500;color:#6B7280;">× ${formatPayrollHours(teacherHours)} giờ dạy</span>`;
+        const teachingMode = window.currentUserContext?.teachingMode;
+
         activeCriteriaList.forEach((item, index) => {
             const criteriaIndex = isRecep ? item.index : index;
             const saved = effectiveEvaluation.find(e => Number(e.id) === criteriaIndex) || {};
@@ -7959,18 +8050,37 @@ async function populateModalCurrentTab() {
             }
             
             const lockedMeetingRow = !isRecep && criteriaIndex === 9 && isMeetingPayrollAutomatic(meetingPayrollSummary);
+            // Rows owned by an automatic policy show the rate in use instead of an input.
+            let autoRateText = '';
+            if (!isRecep) {
+                if (lockedMeetingRow) autoRateText = `${formatNumberWithCommas(saved.rate || 0)} · tự động theo họp`;
+                else if (criteriaIndex === 0 && ['old', 'new'].includes(teachingMode)) autoRateText = 'Tự động (ô trên)';
+                else if (criteriaIndex === 8 && window.TeacherAttendanceEditor?.getHoursBonusRow(roleSettings)) autoRateText = 'Tự động theo mốc giờ';
+            }
+            const rateValue = !isRecep && !autoRateText && !saved.automatic ? parseEvaluationRate(saved.rate) : null;
+            const rateCell = isRecep ? '<td></td>' : autoRateText
+                ? `<td style="padding: 0.25rem 0.5rem; text-align: right; font-size: 0.75rem; color: #6B7280;">${autoRateText}</td>`
+                : `<td style="padding: 0.25rem 0.5rem;">
+                    <input type="text" inputmode="numeric" class="modal-eval-rate table-input" data-index="${criteriaIndex}"
+                        value="${rateValue === null ? '' : formatNumberWithCommas(rateValue)}" placeholder="—"
+                        title="Nhập đơn giá đ/giờ (số âm để phạt). Để trống thì nhập thành tiền tay."
+                        style="width: 100%; text-align: right; border: 1.5px dashed #93C5FD; border-radius: 6px; padding: 4px; background: #EFF6FF;"
+                        oninput="onModalEvalRateInput(this)" onblur="this.value = this.value.trim() === '' ? '' : formatNumberWithCommas(parseEvaluationRate(this.value) ?? '')">
+                </td>`;
+            const amountLocked = lockedMeetingRow || rateValue !== null;
             const row = document.createElement('tr');
             row.style.borderBottom = '1px solid #E5E7EB';
             row.innerHTML = `
                 <td style="padding: 0.5rem; font-weight: 500; color: #374151;">
                     ${item.label}. ${item.tooltip}
                 </td>
+                ${rateCell}
                 <td style="padding: 0.25rem 0.5rem; text-align: right;">
-                    <input type="text" class="modal-eval-amount table-input money-input" 
-                        data-index="${criteriaIndex}" 
-                        value="${formatNumberWithCommas(amountVal)}" 
-                        style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;${lockedMeetingRow ? ' background: #F3F4F6;' : ''}"
-                        ${lockedMeetingRow ? 'readonly title="Tự động theo trang Họp định kỳ"' : `oninput="this.dataset.manualEdited='true'; recalculateSalaryModal()"`}>
+                    <input type="text" class="modal-eval-amount table-input money-input"
+                        data-index="${criteriaIndex}"
+                        value="${formatNumberWithCommas(amountVal)}"
+                        style="width: 100%; text-align: right; border: 1.5px solid #D1D5DB; border-radius: 6px; padding: 4px; font-weight: 600;${amountLocked ? ' background: #F3F4F6;' : ''}"
+                        ${lockedMeetingRow ? 'readonly title="Tự động theo trang Họp định kỳ"' : `${rateValue !== null ? 'readonly title="Đơn giá × tổng giờ dạy"' : ''} oninput="this.dataset.manualEdited='true'; recalculateSalaryModal()"`}>
                 </td>
                 <td style="padding: 0.25rem 0.5rem;">
                     <input type="text" class="modal-eval-note table-input" 
@@ -8179,6 +8289,24 @@ window.applyClassRateToSelected = function () {
     UIService.toast(`Đã điền ${formatNumberWithCommas(value)} đ/giờ cho ${inputs.length} dòng. Bấm “Lưu và Tính” để lưu.`, 'success');
 };
 
+// Cột "Đơn giá" trong Tính Lương: có đơn giá thì thành tiền = đơn giá × tổng giờ
+// dạy (khóa ô thành tiền); xóa đơn giá thì giữ số vừa tính để nhập tay tiếp.
+window.onModalEvalRateInput = function (input) {
+    const index = input.dataset.index;
+    const amountInp = document.querySelector(`.modal-eval-amount[data-index="${index}"]`);
+    const noteInp = document.querySelector(`.modal-eval-note[data-index="${index}"]`);
+    const rate = parseEvaluationRate(input.value);
+    const hours = getTeacherPayrollHours();
+    if (amountInp) {
+        amountInp.readOnly = rate !== null;
+        amountInp.style.background = rate !== null ? '#F3F4F6' : '';
+        amountInp.title = rate !== null ? 'Đơn giá × tổng giờ dạy' : '';
+        if (rate !== null) amountInp.value = formatNumberWithCommas(Math.round(rate * hours) || 0);
+    }
+    if (noteInp) noteInp.value = evaluationRateNote(noteInp.value, rate, hours);
+    recalculateSalaryModal();
+};
+
 function recalculateSalaryModal() {
     let basePay = 0;
     
@@ -8318,12 +8446,19 @@ async function saveSalarySettingsFromModal() {
     document.querySelectorAll('.modal-eval-note').forEach(noteInp => {
         const index = parseInt(noteInp.dataset.index, 10);
         const amountInp = document.querySelector(`.modal-eval-amount[data-index="${index}"]`);
-        evaluationData.push({
+        const entry = {
             id: index,
             note: noteInp.value,
             amount: parseFormattedNumber(amountInp?.value || '0'),
             manual: amountInp?.dataset.manualEdited === 'true' || normalizeEvaluationEntries(activeRoleSettings.evaluation).some(e => Number(e.id) === index && e.manual === true)
-        });
+        };
+        const rateInp = document.querySelector(`.modal-eval-rate[data-index="${index}"]`);
+        const rateValue = rateInp ? parseEvaluationRate(rateInp.value) : null;
+        if (rateValue !== null) {
+            const hours = getTeacherPayrollHours();
+            Object.assign(entry, { rate: rateValue, amount: Math.round(rateValue * hours) || 0, note: evaluationRateNote(noteInp.value, rateValue, hours) });
+        }
+        evaluationData.push(entry);
     });
     if (window.modalActiveRole !== 'tiep-tan') syncMeetingEvaluationRow(evaluationData, window.modalMeetingPayrollSummary);
     
@@ -10464,7 +10599,7 @@ function getCurrentCalculationPayload(role) {
         });
     } else {
         // Programmatic calculation from roleSettings (from DB)
-        const savedEval = normalizeEvaluationEntries(roleSettings.evaluation);
+        const savedEval = role === 'tiep-tan' ? normalizeEvaluationEntries(roleSettings.evaluation) : applyEvaluationRateRows(roleSettings.evaluation, getTeacherPayrollHours());
         activeCriteria.forEach((item, index) => {
             const criteriaIndex = role === 'tiep-tan' ? item.index : index;
             const rowData = savedEval.find(e => Number(e.id) === criteriaIndex) || {};
@@ -10494,9 +10629,10 @@ function getCurrentCalculationPayload(role) {
     if (role !== 'tiep-tan') {
         const meetingSummary = window.currentMeetingPayrollSummary;
         if (isMeetingPayrollAutomatic(meetingSummary)) {
+            const meetingRow = automaticMeetingEvaluation([], meetingSummary)[0];
             const meetingItem = evalItems.find(item => Number(item.id) === 9);
-            if (meetingItem) Object.assign(meetingItem, { amount: meetingSummary.amount, note: meetingSummary.note });
-            else evalItems.push({ id: 9, label: 'X', title: 'HỌP ĐỊNH KÌ', amount: meetingSummary.amount, note: meetingSummary.note });
+            if (meetingItem) Object.assign(meetingItem, { amount: meetingRow.amount, note: meetingRow.note });
+            else evalItems.push({ id: 9, label: 'X', title: 'HỌP ĐỊNH KÌ', amount: meetingRow.amount, note: meetingRow.note });
         }
         const teacherRow = window.TeacherAttendanceEditor?.getRow(roleSettings, isActiveRole ? 'main' : '');
         if (teacherRow) {

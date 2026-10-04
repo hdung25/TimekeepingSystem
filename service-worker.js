@@ -1,8 +1,8 @@
-// Service Worker v220 - notebook for every role from the menu; assistants can read all notes.
+// Service Worker v221 - payroll: staff code + Trước/Tiếp, meeting X × teaching hours, per-hour rate column.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v220-notes-all-roles-20261003';
+const APP_RELEASE = 'tdt-chamcong-v221-payroll-rate-20261004';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -47,12 +47,12 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
     '/js/db-service.js?v=20260929-owner-round-v1',
-    '/js/meeting-attendance-policy.js?v=20260923-fast-login-v2',
-    '/js/report.js?v=20260929-owner-round-v1',
+    '/js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1',
+    '/js/report.js?v=20261004-payroll-rate-v1',
     '/js/teacher-attendance-policy.js?v=20260911-meeting-sync-v1',
     '/js/teacher-attendance-editor.js?v=20260910-hours-bonus-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
-    '/js/evaluation-service.js?v=20261002-open-session-v1',
+    '/js/evaluation-service.js?v=20261004-payroll-rate-v1',
     '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',

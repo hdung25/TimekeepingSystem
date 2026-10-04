@@ -2,7 +2,7 @@
 (function (global) {
     'use strict';
 
-    const VERSION = 'meeting-payroll-20260920-v2';
+    const VERSION = 'meeting-payroll-20261004-hours-v1';
     const PRESENT = new Set(['Có', 'Trễ']);
     const PERMITTED = new Set(['Vắng phép']);
     const UNPERMITTED = new Set(['Vắng không phép', 'Vắng đột xuất']);
@@ -102,16 +102,19 @@
         const pending = values.some(status => status === 'Chưa điểm danh' || status === 'Không xác định');
         const reward = attended ? 1000 : 0;
         const penalty = unpermitted ? 2000 : permitted ? 1000 : 0;
+        // amount/rate is đ per teaching hour; payroll multiplies it by the
+        // month's teaching hours (same hours as criterion I).
         const amount = reward - penalty;
         return {
             version: VERSION,
             amount,
+            rate: amount,
             complete: !pending,
             attended,
             absence: unpermitted ? 'unpermitted' : permitted ? 'permitted' : 'none',
-            note: `Họp định kỳ tự động: có mặt ${attended ? '+1.000đ' : '0đ'}; ` +
-                `${unpermitted ? 'vắng không phép -2.000đ' : permitted ? 'vắng có phép -1.000đ' : 'không có mức trừ'}; ` +
-                `thành tiền ${amount.toLocaleString('vi-VN')}đ.`
+            note: `Họp định kỳ tự động: có mặt ${attended ? '+1.000đ/giờ' : '0đ'}; ` +
+                `${unpermitted ? 'vắng không phép -2.000đ/giờ' : permitted ? 'vắng có phép -1.000đ/giờ' : 'không có mức trừ'}; ` +
+                `mức áp dụng ${amount.toLocaleString('vi-VN')}đ/giờ`
         };
     }
 

@@ -114,7 +114,7 @@ const EVALUATION_CRITERIA = [
     { label: 'VII', tooltip: 'CHUYÊN MÔN', default: 0 },
     { label: 'VIII', tooltip: 'KỸ NĂNG SƯ PHẠM', default: 0 },
     { label: 'IX', tooltip: 'SỐ GIỜ LÀM', default: 0 },
-    { label: 'X', tooltip: 'HỌP ĐỊNH KÌ', default: 0, template: 'Tự động: có mặt +1.000đ; vắng phép -1.000đ; vắng không phép -2.000đ; không họp 0đ' }
+    { label: 'X', tooltip: 'HỌP ĐỊNH KÌ', default: 0, template: 'Tự động: có mặt +1.000đ/giờ; vắng phép -1.000đ/giờ; vắng không phép -2.000đ/giờ; × tổng giờ dạy; không họp 0đ' }
 ];
 
 // ================= DAILY CHIPS CALCULATION =================

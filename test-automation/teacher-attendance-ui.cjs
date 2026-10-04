@@ -36,6 +36,27 @@ module.exports=async({env,admin,month,record,click,report,snapshot})=>{
  await open();assert.equal(await admin.$eval('.modal-eval-amount[data-index="0"]',e=>e.value),'-4,000');await save();assert.equal(amount(await read()),-4000);
  await env.withSecurityRulesDisabled(c=>c.firestore().doc(schedulePath).set(roster));
  await open();assert.equal(await admin.$eval('.modal-eval-amount[data-index="0"]',e=>e.value),'4,000');await save();
+ // Per-hour rate column: rate × teaching hours, saved with the row, auto rows stay locked.
+ await report(admin,id);
+ assert.match(await admin.$eval('#staff-nav-code',e=>e.textContent),/^Mã \S+ · \d+\/\d+$/,'staff code and position are shown');
+ await (await admin.$('#staff-selector-row')).screenshot({path:require('node:path').join(__dirname,'../scratch/staff-nav.png')});
+ await open();
+ assert.equal(await admin.$('.modal-eval-rate[data-index="0"]'),null,'automatic attendance row has no rate input');
+ await fill('.modal-eval-rate[data-index="3"]','1000');
+ assert.equal(await admin.$eval('.modal-eval-amount[data-index="3"]',e=>e.value),'4,000');
+ assert.equal(await admin.$eval('.modal-eval-amount[data-index="3"]',e=>e.readOnly),true);
+ assert.match(await admin.$eval('.modal-eval-note[data-index="3"]',e=>e.value),/^Tính theo giờ: 4 giờ × 1,000đ\/giờ = 4,000đ/);
+ await (await admin.$('#modal-eval-table-body')).screenshot({path:require('node:path').join(__dirname,'../scratch/eval-rate-column.png')});
+ await save();saved=await read();
+ const rateRow=saved.giao_vien.evaluation.find(r=>Number(r.id)===3);
+ assert.equal(rateRow.rate,1000);assert.equal(rateRow.amount,4000);
+ assert.equal(saved.published.details_gv.netPay,388000,'rate row is part of net pay');
+ await open();
+ assert.equal(await admin.$eval('.modal-eval-rate[data-index="3"]',e=>e.value),'1,000','rate survives reload');
+ await fill('.modal-eval-rate[data-index="3"]','');
+ assert.equal(await admin.$eval('.modal-eval-amount[data-index="3"]',e=>e.readOnly),false,'clearing the rate returns to manual entry');
+ assert.equal(await admin.$eval('.modal-eval-note[data-index="3"]',e=>e.value),'');
+ await save();assert.equal((await read()).giao_vien.evaluation.find(r=>Number(r.id)===3).rate,undefined);
  // New mode: entering a per-hour rate recalculates immediately and survives reload/zero.
  await write(original);await setMode('new');await open();await fill('#teacher-policy-rate',1234);
  assert.equal(await admin.$eval('.modal-eval-amount[data-index="0"]',e=>e.value),'4,936');
