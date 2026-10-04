@@ -245,8 +245,8 @@ async function main() {
     assert.deepEqual(evidence.errors, [], 'no uncaught browser JavaScript errors');
     evidence.results.push('Actual UI cancel restores original target and personal baseline; complete immutable audit trail');
 
-    // Batch overview: two staff, independent reminder cycles and different
-    // prices, all existing salary/attendance sources preserved.
+    // One-page board: estimated baselines, one-click approval, bulk ladder step,
+    // deferral; every salary/attendance source outside the target month preserved.
     const second = 'review-teacher-2';
     await env.withSecurityRulesDisabled(async c => {
         const db = c.firestore();
@@ -254,50 +254,82 @@ async function main() {
         await db.doc('users/' + second).set({...user,id:second,username:'reviewteacher2',name:'Giáo viên Thứ Hai'});
         await db.doc('salary_settings_monthly/' + month + '_' + second).set({giao_vien:{class_rates:rates}});
     });
+    const boardReady = async () => page.waitForFunction(() => window.SalaryReviewBoard && !window.SalaryReviewBoard.state.loading &&
+        !window.SalaryReviewBoard.state.busy && window.SalaryReviewBoard.state.rows.length > 0 && !window.__payrollWritePending, { timeout: 60000 });
+    const boardError = async () => page.$eval('#srb-message', e => e.classList.contains('error') ? e.textContent : '');
     await page.setViewport({width:1440,height:1000});
     await page.goto(origin + '/xet-tang-luong.html', {waitUntil:'domcontentloaded'});
-    await page.waitForSelector(`[data-select="${staff}"]`,{timeout:30000});
-    await click(`[data-select="${staff}"]`); await click(`[data-select="${second}"]`);
-    await click('#sro-load');
-    await page.waitForFunction(()=>document.querySelectorAll('.sro-group').length>=5&&!document.getElementById('sro-workspace').inert,{timeout:60000});
-    assert.match(await page.$eval('#sro-list',e=>e.innerText),/43,2|43.2/);
-    await fill('#sro-cycle',4); await fill('#sro-next',Policy.addMonths(today,4));
-    await click('#sro-fill-reminders');
-    const secondGroup = await page.$eval(`[data-person-row="${second}"] .sro-group`,e=>e.dataset.group);
-    await fill(`[data-staff="${second}"][data-group="${secondGroup}"] [data-edit="cycle"]`,5);
-    await click('#sro-save');
-    await page.waitForFunction(()=>/Đã lưu lịch nhắc cho 2/.test(document.getElementById('sro-message').textContent)&&!window.__payrollWritePending,{timeout:60000});
-    const secondProfile=await readRecord('salary_review_profiles/'+second);
-    assert.equal(secondProfile.groups.find(g=>g.id===secondGroup).cycleMonths,5);
-    assert.equal((await readRecord('salary_review_profiles/'+staff)).groups[0].cycleMonths,4);
-    assert.deepEqual(await snapshotSources(),original,'bulk reminders must not change salary or attendance');
-    await fill('#sro-increase',2000); await click('#sro-fill-increase');
-    assert.equal(await page.$eval('#sro-message',e=>e.classList.contains('error')),false,'batch increment must fill valid rates');
-    await fill(`[data-staff="${second}"][data-group="${secondGroup}"] [data-edit="newRate"]`,61000);
-    await fill('#sro-reason','Xét cùng đợt, mức riêng cho từng người.');
-    await click('#sro-prepare');
-    await page.waitForSelector('#sro-apply',{visible:true,timeout:60000});
-    assert.deepEqual(await readRecord('salary_settings_monthly/'+future+'_'+staff),targetInitial,'bulk preview is read-only');
+    await boardReady();
+    assert.equal(await page.$eval('#srb', e => e.hidden), false, 'board is the default view');
+    assert.match(await page.$eval('#srb-summary', e => e.innerText), /Đến hạn tháng này/);
+    await click('#srb-tabs [data-tab="all"]');
+    const listText = await page.$eval('#srb-list', e => e.innerText);
+    assert.match(listText, /REVIEWTEACHER2/); assert.match(listText, /ước tính/);
+    await shot('board-desktop');
+    assert.deepEqual(await snapshotSources(), original, 'opening the board is read-only');
+
+    // Single approval for an unconfirmed group: baseline saved + rate applied in one click.
+    const mathKey = second + '|review-math:level1:overview:32000';
+    await click(`[data-action="toggle"][data-key="${mathKey}"]`);
+    assert.equal(await page.$eval(`.srb-chip[data-key="${mathKey}"][aria-pressed="true"]`, e => e.dataset.rate), '34000', 'next ladder step preselected');
+    assert.equal(await page.$eval(`select[data-f="month"][data-key="${mathKey}"]`, e => e.value), future);
+    await page.$eval(`.srb-row[data-key="${mathKey}"]`, e => e.scrollIntoView({ block: 'center' })); await shot('board-panel');
+    await click(`[data-action="approve"][data-key="${mathKey}"]`);
+    await boardReady(); assert.equal(await boardError(), '');
+    const secondTarget = await readRecord('salary_settings_monthly/' + future + '_' + second);
+    assert.equal(secondTarget.giao_vien.class_rates['Toán 1'], 34000);
+    assert.equal(secondTarget.giao_vien.class_rates['Toán 5'], 34000);
+    assert.equal(secondTarget.giao_vien.class_rates['Toán 2'], 34000);
+    assert.equal(secondTarget.giao_vien.class_rates['E5'], 56000);
+    const secondProfile = await readRecord('salary_review_profiles/' + second);
+    const approvedGroup = secondProfile.groups.find(g => g.id === 'review-math:level1:overview:32000');
+    assert.equal(approvedGroup.scheduledChange.newRate, 34000);
+    assert.equal(approvedGroup.confirmed, true);
+    assert.match(await page.$eval(`.srb-row[data-key="${mathKey}"]`, e => e.innerText), /Chờ hiệu lực|Đã duyệt/);
+
+    // Bulk ladder step for two teachers (56k is the top: +2.000đ).
+    const staffEnglish = staff + '|review-english', secondEnglish = second + '|review-english:overview:56000';
+    await click(`[data-select="${staffEnglish}"]`); await click(`[data-select="${secondEnglish}"]`);
+    await click('[data-action="bulk-increase"]');
+    assert.deepEqual(await page.$$eval('[data-bulk-rate]', list => list.map(e => e.value)), ['58000', '58000']);
     await page.setViewport({width:390,height:844});
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'overview mobile must not overflow');
-    await shot('overview-mobile-preview');
-    await click('#sro-apply');
-    await page.waitForFunction(()=>!window.__payrollWritePending&&document.getElementById('sro-preview').hidden,{timeout:90000});
-    const batchMessage=await page.$eval('#sro-message',e=>e.textContent);
-    assert.match(batchMessage,/Đã duyệt \d+ nhóm môn\./,batchMessage);
-    const afterBatch=await readRecord('salary_settings_monthly/'+future+'_'+staff);
-    assert.equal(afterBatch.giao_vien.class_rates['Toán 1'],34000);
-    assert.equal(afterBatch.giao_vien.class_rates['E5'],58000);
-    assert.equal(afterBatch.giao_vien.class_rates['Toán 1 + E5'],73000);
-    assert.deepEqual(afterBatch.tiep_tan,targetInitial.tiep_tan);
-    assert.deepEqual(afterBatch.published,targetInitial.published);
-    const secondAfter=await readRecord('salary_review_profiles/'+second);
-    assert.equal(secondAfter.groups.find(g=>g.id===secondGroup).currentRate,61000);
-    assert.deepEqual(await snapshotSources(),original,'batch decisions preserve previous/current salary and attendance');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'board mobile must not overflow');
+    await shot('board-mobile-bulk');
+    await page.setViewport({width:1440,height:1000});
+    await click('[data-action="bulk-apply"]');
+    await boardReady();
+    assert.match(await page.$eval('#srb-message', e => e.textContent), /Đã duyệt 2\/2 mức/);
+    const staffTarget = await readRecord('salary_settings_monthly/' + future + '_' + staff);
+    assert.equal(staffTarget.giao_vien.class_rates['E5'], 58000);
+    assert.equal(staffTarget.giao_vien.class_rates['Toán 1'], 32000, 'other subjects keep their current price');
+    assert.equal(staffTarget.giao_vien.class_rates['Toán 1 + E5'], 73000);
+    assert.deepEqual(staffTarget.tiep_tan, targetInitial.tiep_tan);
+    assert.deepEqual(staffTarget.published, targetInitial.published);
+    assert.equal((await readRecord('salary_settings_monthly/' + future + '_' + second)).giao_vien.class_rates['E5'], 58000);
+    assert.equal((await readRecord('salary_settings_monthly/' + future + '_' + second)).giao_vien.class_rates['Toán 1'], 34000,
+        'second approval keeps the first one');
+
+    // Defer an unconfirmed group by one month: baseline saved, no price change.
+    const staffMath2 = staff + '|review-math:level1:overview:34000';
+    await click(`[data-action="toggle"][data-key="${staffMath2}"]`);
+    await click(`[data-action="defer"][data-key="${staffMath2}"]`);
+    await boardReady(); assert.equal(await boardError(), '');
+    const deferredGroup = (await readRecord('salary_review_profiles/' + staff)).groups.find(g => g.id === 'review-math:level1:overview:34000');
+    assert.equal(deferredGroup.nextReviewDate, Policy.addMonths(today, 1));
+    assert.equal(deferredGroup.confirmed, true);
+    assert.equal((await readRecord('salary_settings_monthly/' + future + '_' + staff)).giao_vien.class_rates['Toán 2'], 34000);
+
+    // Chi tiết opens the existing detail view; back returns to the board.
+    await click(`[data-action="detail"][data-key="${mathKey}"]`);
+    await readyProfile();
+    assert.equal(await page.$eval('#sr-individual', e => e.hidden), false);
+    await click('#srb-back');
+    assert.equal(await page.$eval('#srb', e => e.hidden), false);
+    assert.deepEqual(await snapshotSources(), original, 'board decisions preserve previous/current salary and attendance');
     assert.deepEqual(evidence.errors,[]);
-    await page.setViewport({width:1440,height:1000}); await shot('overview-desktop-applied');
-    evidence.results.push('Batch reminders and multi-person/multi-group approval: individual cycles/rates, readonly previews, full price preservation and mobile layout');
-    console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/mobile + source preservation');
+    await shot('board-desktop-applied');
+    evidence.results.push('Board: estimated baselines, one-click approval, bulk ladder step, deferral, detail round-trip, mobile layout and source preservation');
+    console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/board/mobile + source preservation');
 }
 main().catch(async error => {
     evidence.fatal = error.stack; console.error(error); process.exitCode = 1;

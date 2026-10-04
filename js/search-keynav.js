@@ -33,7 +33,7 @@
         { input: '#mh-search-input', list: '#mh-tree', item: '.mh-item' },
         { input: '#ns-search-input', list: '#ns-list', item: '.ns-card', pick: '.ns-pick' },
         { input: '#f-q', list: '#rows', item: '.row' },
-        { input: '#sro-search', list: '#sro-list', item: '.sro-person', pick: 'input[data-select]' },
+        { input: '#srb-search', list: '#srb-list', item: '.srb-row', pick: '.srb-act button' },
         { input: '#sr-search', list: '#sr-list', item: '.sr-person' },
         { input: '#log-search', list: '#admin-log-list', item: '.log-row', noPick: true },
         { input: '#filter-msnv, #filter-fullname, #filter-name, #filter-cs1, #filter-cs2, #filter-cs3', list: '#meetings-tbody', item: 'tr', noPick: true },

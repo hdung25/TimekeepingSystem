@@ -234,7 +234,7 @@
             const index=await S.loadIndex();if(epoch!==state.epoch)return;
             state.index=index;state.month=today().slice(0,7);state.cache.clear();renderSettings();directory();
             window.dispatchEvent(new CustomEvent('salary-review-index-loaded', {detail:index}));
-            message('Hệ thống chỉ nhắc xét. Admin xác nhận mốc, đánh giá và duyệt mức mới cho từng nhóm môn.');
+            message('');
             const requested=state.staffId||new URLSearchParams(location.search).get('staffId');
             if(requested&&index.users.some(u=>u.id===requested&&P.isTeacher(u)))await loadPerson(requested,true);
             if(index.config.minimumHours===null)await benchmark();

@@ -1,5 +1,19 @@
 # Hướng dẫn Admin — Xét tăng lương
 
+> **Cập nhật 04/10/2026 (v222): trang được làm lại thành một danh sách duy nhất.** Mục 0 dưới đây là cách dùng hằng ngày. Các mục 1–6 cũ vẫn đúng cho phần **Chi tiết** (lịch sử, tách môn ngoại lệ, hủy mức chờ hiệu lực, quy định).
+
+## 0. Dùng hằng ngày (bản mới)
+
+1. Mở **Xét Tăng Lương**. Trang tự tải giá và giờ dạy của tất cả giáo viên, mở sẵn mục **Đến hạn**.
+2. Mỗi dòng là một giáo viên kèm nhóm môn cùng giá: mã nhân viên, lương hiện tại và từ khi nào, hạn xét, giờ dạy trung bình 3 tháng, chuyên cần.
+3. Bấm **Xét tăng** rồi chọn mức mới trên thang (mặc định là bậc kế tiếp; dưới 30k hoặc từ 56k thì +2.000đ), chọn tháng áp dụng và bấm **Duyệt tăng lên …**. Ghi chú không bắt buộc.
+4. Chưa muốn tăng: bấm **Hẹn lại 1 tháng**, hoặc **Chưa tăng…** (bắt buộc ghi lý do và ngày xét lại).
+5. Người **chưa có mốc** được ước tính mốc theo tháng sớm nhất thấy đang hưởng mức hiện tại (ghi “ước tính”). Sửa ô **Tính hạn xét từ** nếu biết ngày tăng thật. Có thể chỉ lưu mốc mà chưa xét.
+6. Làm hàng loạt: tick nhiều dòng → **Tăng 1 bậc…** (kiểm tra và sửa từng mức) → **Duyệt**. Hoặc **Hẹn lại 1 tháng**, **Lưu mốc ước tính**.
+7. Dòng **Chờ hiệu lực** đã duyệt xong. Muốn hủy trước ngày hiệu lực thì bấm **Chi tiết**.
+
+Hệ thống tự lưu hồ sơ và mốc khi duyệt; giá chỉ đổi từ tháng được chọn, không đụng tháng đã tính lương hay phiếu đã gửi. Mọi quyết định đều có lịch sử.
+
 Tài liệu cho màn **Xét Tăng Lương**, đã phát hành ngày 19/09/2026. Chỉ quản trị viên chính sử dụng màn này. Mở từ menu hoặc `https://timekeeping-system-tawny.vercel.app/xet-tang-luong.html`.
 
 ## 1. Nhập lần đầu cho từng nhân viên
