@@ -70,3 +70,31 @@
  .srb-line>.srb-att::before{content:'Chuyên cần: ';color:#64748b}.srb-line>.srb-hours::before{content:'Giờ dạy TB: ';color:#64748b;font-size:.78rem}
  .srb-panel,.srb-result{padding-left:1rem}#srb-search{width:100%}}
 @media(max-width:520px){.srb-summary{gap:.5rem}.srb-card{padding:.6rem .7rem}.srb-card strong{font-size:1.25rem}.srb-bulkrow{grid-template-columns:minmax(0,1fr) 110px}.srb-bulkrow>span:nth-child(2){display:none}}
+/* Setup popup (v223) */
+.srb-cellbtn{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;border-radius:8px;padding:.35rem .45rem;margin:-.35rem -.45rem;font:inherit;color:inherit;cursor:pointer;position:relative}
+.srb-cellbtn:hover,.srb-cellbtn:focus-visible{border-color:#a7f3d0;background:#f0fdf4;outline:none}
+.srb-pencil{position:absolute;top:.4rem;right:.4rem;color:#059669;opacity:0;transition:opacity .15s}.srb-cellbtn:hover .srb-pencil,.srb-cellbtn:focus-visible .srb-pencil{opacity:1}
+.srb-dialog{position:fixed;inset:0;margin:auto;height:fit-content;border:0;padding:0;border-radius:16px;width:min(620px,calc(100vw - 24px));max-height:calc(100vh - 32px);box-shadow:0 24px 60px rgba(15,23,42,.25);color:#1e293b;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.srb-dialog::backdrop{background:rgba(15,23,42,.45)}
+.srb-setup{display:flex;flex-direction:column;max-height:calc(100vh - 32px)}
+.srb-setup-head{display:flex;justify-content:space-between;gap:1rem;padding:1.1rem 1.3rem .9rem;border-bottom:1px solid #e5ede7}
+.srb-setup-head h2{font-size:1.15rem;margin:.15rem 0 .25rem}.srb-setup-head p{margin:0;font-size:.8rem;color:#64748b}.srb-eyebrow{font-size:.66rem!important;font-weight:700;letter-spacing:.1em;color:#047857!important}
+.srb-x{border:0;background:#f1f5f9;width:34px;height:34px;border-radius:50%;font-size:1.3rem;line-height:1;cursor:pointer;color:#475569;flex-shrink:0}.srb-x:hover{background:#e2e8f0}
+.srb-setup-body{display:grid;grid-template-columns:1fr 1fr;gap:.9rem 1rem;padding:1rem 1.3rem;overflow:auto}
+.srb-setup-body label,.srb-setup-body fieldset{display:flex;flex-direction:column;gap:.35rem;font-size:.8rem;font-weight:600;color:#334155;min-width:0}
+.srb-setup-body fieldset{border:1px solid #e2e8f0;border-radius:10px;padding:.6rem .8rem .8rem;margin:0}.srb-setup-body legend{padding:0 .3rem}
+.srb-setup-body small{font-weight:400;color:#64748b;font-size:.74rem;line-height:1.35}
+.srb-setup-body input:not([type=checkbox]):not([type=radio]),.srb-setup-body select,.srb-setup-body textarea{border:1px solid #cbd8d1;border-radius:8px;padding:.55rem .65rem;font:inherit;font-size:.88rem;font-weight:400;background:#fff;width:100%;box-sizing:border-box;min-width:0}
+.srb-setup-body input:focus,.srb-setup-body select:focus,.srb-setup-body textarea:focus{outline:2px solid #6ee7b7;border-color:#059669}
+.srb-span{grid-column:1/-1}.srb-inline{display:flex;gap:.4rem;align-items:center}.srb-inline input{flex:1}
+.srb-seg{display:flex;gap:.4rem;flex-wrap:wrap}.srb-seg-item{flex:1;min-width:160px}
+.srb-seg-item input{position:absolute;opacity:0;pointer-events:none}
+.srb-seg-item span{display:block;text-align:center;padding:.5rem .6rem;border:1px solid #cbd5e1;border-radius:8px;font-weight:600;font-size:.8rem;cursor:pointer;background:#fff}
+.srb-seg-item input:checked+span{background:#ecfdf5;border-color:#059669;color:#065f46}.srb-seg-item input:focus-visible+span{outline:2px solid #6ee7b7}
+.srb-switch{flex-direction:row!important;align-items:center;gap:.6rem!important;padding:.6rem .8rem;border:1px solid #e2e8f0;border-radius:10px;cursor:pointer}
+.srb-switch input{width:18px;height:18px;accent-color:#059669}
+.srb-setup-preview{margin:0 1.3rem;padding:.7rem .9rem;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:.84rem;color:#14532d;line-height:1.5}
+.srb-setup-warn{color:#9a3412}
+.srb-setup-error{margin:.5rem 1.3rem 0;color:#b91c1c;font-size:.82rem;min-height:1em}.srb-setup-error:empty{display:none}
+.srb-setup-foot{display:flex;justify-content:flex-end;gap:.5rem;padding:1rem 1.3rem 1.1rem}
+@media(max-width:560px){.srb-setup-body{grid-template-columns:1fr}.srb-dialog{width:calc(100vw - 16px)}.srb-setup-head,.srb-setup-body{padding-left:1rem;padding-right:1rem}.srb-setup-preview,.srb-setup-error{margin-left:1rem;margin-right:1rem}.srb-setup-foot{padding:1rem}.srb-setup-foot .srb-btn{flex:1}}

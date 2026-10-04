@@ -319,6 +319,51 @@ async function main() {
     assert.equal(deferredGroup.confirmed, true);
     assert.equal((await readRecord('salary_settings_monthly/' + future + '_' + staff)).giao_vien.class_rates['Toán 2'], 34000);
 
+    // Setup popup: click the due cell, edit baseline kind/date + cycle, live preview, save.
+    const secondMath2 = second + '|review-math:level1:overview:34000';
+    await click(`.srb-row[data-key="${secondMath2}"] .srb-due [data-action="setup"]`);
+    await page.waitForSelector('#srb-dialog[open] #srb-setup-form', { visible: true });
+    await page.$eval('#srb-setup-form input[name="baselineKind"][value="increase"]', e => { e.checked = true; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await fill('#srb-setup-form [name="baselineDate"]', baseline);
+    await fill('#srb-setup-form [name="cycleMonths"]', 4);
+    const expectedDue = Policy.addMonths(baseline, 4);
+    assert.match(await page.$eval('#srb-setup-preview', e => e.innerText), new RegExp(expectedDue.split('-').reverse().join('/')), 'preview shows the new due date');
+    await fill('#srb-setup-form [name="cycleMonths"]', 99);
+    await click('#srb-setup-form [type="submit"]');
+    assert.match(await page.$eval('#srb-setup-error', e => e.textContent), /1 đến 36/, 'invalid cycle keeps the popup open');
+    await fill('#srb-setup-form [name="cycleMonths"]', 4);
+    await shot('setup-popup-desktop');
+    await page.setViewport({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'setup popup fits on mobile');
+    await shot('setup-popup-mobile');
+    await page.setViewport({ width: 1440, height: 1000 });
+    await click('#srb-setup-form [type="submit"]');
+    await page.waitForFunction(() => !document.getElementById('srb-dialog').open, { timeout: 30000 });
+    await boardReady(); assert.equal(await boardError(), '');
+    let setupGroup = (await readRecord('salary_review_profiles/' + second)).groups.find(g => g.id === 'review-math:level1:overview:34000');
+    assert.equal(setupGroup.baselineDate, baseline); assert.equal(setupGroup.baselineKind, 'increase');
+    assert.equal(setupGroup.cycleMonths, 4); assert.equal(setupGroup.confirmed, true);
+    assert.match(await page.$eval(`.srb-row[data-key="${secondMath2}"]`, e => e.innerText), new RegExp(expectedDue.split('-').reverse().join('/')));
+
+    // Bulk setup: only filled fields change; each row keeps its own baseline.
+    const staffMath = staff + '|review-math:level1';
+    const staffMathBefore = (await readRecord('salary_review_profiles/' + staff)).groups.find(g => g.id === 'review-math:level1');
+    await click(`[data-select="${staffMath}"]`); await click(`[data-select="${secondMath2}"]`);
+    await click('[data-action="bulk-setup"]');
+    await page.waitForSelector('#srb-dialog[open] #srb-setup-form[data-bulk="1"]', { visible: true });
+    await fill('#srb-setup-form [name="cycleMonths"]', 5);
+    await click('#srb-setup-form [type="submit"]');
+    await page.waitForFunction(() => !document.getElementById('srb-dialog').open, { timeout: 30000 });
+    await boardReady(); assert.equal(await boardError(), '');
+    const staffMathAfter = (await readRecord('salary_review_profiles/' + staff)).groups.find(g => g.id === 'review-math:level1');
+    assert.equal(staffMathAfter.cycleMonths, 5);
+    assert.equal(staffMathAfter.baselineDate, staffMathBefore.baselineDate);
+    assert.equal(staffMathAfter.nextReviewDate, staffMathBefore.nextReviewDate);
+    setupGroup = (await readRecord('salary_review_profiles/' + second)).groups.find(g => g.id === 'review-math:level1:overview:34000');
+    assert.equal(setupGroup.cycleMonths, 5); assert.equal(setupGroup.baselineDate, baseline);
+    assert.deepEqual(await snapshotSources(), original, 'setup changes never touch salary or attendance');
+    evidence.results.push('Setup popup: live due preview, validation, single and bulk save, mobile fit');
+
     // Chi tiết opens the existing detail view; back returns to the board.
     await click(`[data-action="detail"][data-key="${mathKey}"]`);
     await readyProfile();
@@ -329,7 +374,7 @@ async function main() {
     assert.deepEqual(evidence.errors,[]);
     await shot('board-desktop-applied');
     evidence.results.push('Board: estimated baselines, one-click approval, bulk ladder step, deferral, detail round-trip, mobile layout and source preservation');
-    console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/board/mobile + source preservation');
+    console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/board/setup/mobile + source preservation');
 }
 main().catch(async error => {
     evidence.fatal = error.stack; console.error(error); process.exitCode = 1;

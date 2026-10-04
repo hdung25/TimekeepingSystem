@@ -170,7 +170,9 @@
         const selectable = row.group && !row.pending && !row.disabled;
         const open = state.open === row.key;
         const result = state.results[row.key];
-        const action = !row.group || row.pending || row.disabled
+        const action = row.disabled
+            ? `<button type="button" class="srb-btn" data-action="setup" data-key="${esc(row.key)}">Thiết lập</button>`
+            : !row.group || row.pending
             ? `<button type="button" class="srb-btn" data-action="detail" data-key="${esc(row.key)}">Chi tiết</button>`
             : `<button type="button" class="srb-btn ${open ? '' : 'srb-primary'}" data-action="toggle" data-key="${esc(row.key)}" aria-expanded="${open}">${open ? 'Đóng' : 'Xét tăng'}</button>`;
         return `<article class="srb-row${open ? ' open' : ''}${state.selected.has(row.key) ? ' selected' : ''}" data-key="${esc(row.key)}">
@@ -178,10 +180,10 @@
                 <span>${selectable ? `<input type="checkbox" data-select="${esc(row.key)}" aria-label="Chọn ${esc(row.name)}" ${state.selected.has(row.key) ? 'checked' : ''}>` : ''}</span>
                 <div class="srb-who"><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span>
                     <small>${row.group ? esc(row.group.name.replace(/ · [\d.]+ đ$/, '')) + ' · ' + esc(row.subjects.map(s => s.name).join(', ')) : 'Chưa có giá môn để xét'}</small></div>
-                <div class="srb-rate">${!row.group ? '' : row.pending
+                <div class="srb-rate">${!row.group ? '' : setupCell(row, row.pending
                     ? `<strong>${money(row.group.scheduledChange.previousGroup?.currentRate)}</strong><small>lên ${money(row.group.scheduledChange.newRate)} từ ${vnDate(row.group.scheduledChange.effectiveFrom)}</small>`
-                    : `<strong>${money(row.currentRate)}</strong><small>${esc(baselineText(row))}</small>`}</div>
-                <div class="srb-due">${statusBadge(row)}</div>
+                    : `<strong>${money(row.currentRate)}</strong><small>${esc(baselineText(row))}</small>`)}</div>
+                <div class="srb-due">${row.group ? setupCell(row, statusBadge(row)) : statusBadge(row)}</div>
                 <div class="srb-hours">${hoursCell(row)}</div>
                 <div class="srb-att">${row.attendance == null ? '—' : Math.round(row.attendance) + '%'}</div>
                 <div class="srb-act">${action}</div>
@@ -240,6 +242,7 @@
         return `<div class="srb-bulkbar"><span>Đã chọn ${rows.length}</span>
             <button type="button" class="srb-btn srb-primary" data-action="bulk-increase">Tăng 1 bậc…</button>
             <button type="button" class="srb-btn" data-action="bulk-defer">Hẹn lại 1 tháng</button>
+            <button type="button" class="srb-btn" data-action="bulk-setup">Thiết lập mốc, chu kỳ…</button>
             ${unconfirmed ? `<button type="button" class="srb-btn" data-action="bulk-track">Lưu mốc ước tính (${unconfirmed})</button>` : ''}
             <button type="button" class="srb-btn srb-ghost" data-action="bulk-clear">Bỏ chọn</button></div>`;
     }
@@ -267,6 +270,187 @@
         allBox.checked = selectable.length > 0 && selectable.every(row => state.selected.has(row.key));
         allBox.disabled = !selectable.length;
     }
+
+    // ---------- setup popup: baseline, cycle, review date, reminders ----------
+    const PENCIL = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    function setupCell(row, inner) {
+        return `<button type="button" class="srb-cellbtn" data-action="setup" data-key="${esc(row.key)}" title="Chỉnh mốc, chu kỳ, hạn xét">${inner}<span class="srb-pencil">${PENCIL}</span></button>`;
+    }
+    const profileOf = staffId => (state.index?.profiles || []).find(p => (p.staffId || p.id) === staffId) || { personOverrides: {} };
+    const optionalNumber = value => String(value ?? '').trim() === '' ? null : Number(value);
+    function setupDefaults(row) {
+        const g = row.group;
+        return { currentRate: g.currentRate ?? '', baselineDate: row.baselineDate || today(),
+            baselineKind: row.confirmed ? (g.baselineKind === 'increase' ? 'increase' : 'initial') : 'initial',
+            cycleMonths: g.cycleMonths ?? '', nextReviewDate: g.nextReviewDate || '', minimumHours: g.minimumHours ?? '',
+            enabled: g.enabled !== false, note: g.note || '' };
+    }
+    function readSetupForm(bulk) {
+        const form = $('srb-setup-form'), data = new FormData(form), value = name => String(data.get(name) ?? '').trim();
+        if (bulk) return { baselineDate: value('baselineDate'), baselineKind: value('baselineKind') || 'initial',
+            cycleMonths: value('cycleMonths'), nextReviewDate: value('nextReviewDate'), enabled: value('enabled') };
+        return { currentRate: value('currentRate'), baselineDate: value('baselineDate'), baselineKind: value('baselineKind') || 'initial',
+            cycleMonths: value('cycleMonths'), nextReviewDate: value('nextReviewDate'), minimumHours: value('minimumHours'),
+            enabled: data.has('enabled'), note: String(data.get('note') ?? '') };
+    }
+    // Same limits as SalaryReviewService.normalizeGroup; checked here to keep the popup open on mistakes.
+    function setupPatch(values, bulk) {
+        const patch = {};
+        const has = name => !bulk || String(values[name] ?? '') !== '';
+        if (has('baselineDate')) {
+            if (!P.validDate(values.baselineDate) || values.baselineDate > today()) throw Error('Mốc tính hạn xét phải là ngày hợp lệ, không sau hôm nay.');
+            patch.baselineDate = values.baselineDate;
+            patch.baselineKind = values.baselineKind === 'increase' ? 'increase' : 'initial';
+            patch.lastIncreaseDate = patch.baselineKind === 'increase' ? values.baselineDate : '';
+        }
+        if (has('cycleMonths')) {
+            const cycle = optionalNumber(values.cycleMonths);
+            if (cycle !== null && (!Number.isInteger(cycle) || cycle < 1 || cycle > 36)) throw Error('Chu kỳ xét là số tháng nguyên từ 1 đến 36.');
+            patch.cycleMonths = cycle;
+        }
+        if (has('nextReviewDate')) {
+            if (values.nextReviewDate && !P.validDate(values.nextReviewDate)) throw Error('Ngày hẹn xét không hợp lệ.');
+            patch.nextReviewDate = values.nextReviewDate || '';
+        }
+        if (bulk) {
+            if (values.enabled === 'on') patch.enabled = true;
+            if (values.enabled === 'off') patch.enabled = false;
+            if (!Object.keys(patch).length) throw Error('Nhập ít nhất một ô cần đổi.');
+            return patch;
+        }
+        const rate = optionalNumber(values.currentRate);
+        if (rate === null || !Number.isSafeInteger(rate) || rate <= 0 || rate > 10000000) throw Error('Mức đang hưởng là số tiền đ/giờ, ví dụ 32000.');
+        const minimum = optionalNumber(values.minimumHours);
+        if (minimum !== null && (!Number.isFinite(minimum) || minimum < 0 || minimum > 744)) throw Error('Ngưỡng giờ từ 0 đến 744 giờ/tháng.');
+        return { ...patch, currentRate: rate, minimumHours: minimum, enabled: values.enabled, note: String(values.note || '').slice(0, 2000) };
+    }
+    function setupPreviewHtml(rows, values, bulk) {
+        let patch;
+        try { patch = setupPatch(values, bulk); } catch (error) { return `<span class="srb-setup-warn">${esc(error.message)}</span>`; }
+        if (bulk) return `Áp dụng cho <b>${rows.length}</b> dòng. Ô để trống được giữ nguyên.` +
+            (patch.enabled === false ? ' Các dòng sẽ tạm ngưng nhắc.' : '');
+        const row = rows[0];
+        if (patch.enabled === false) return 'Tạm ngưng nhắc: dòng này không hiện trong Đến hạn cho đến khi bật lại.';
+        const ev = P.evaluate({ ...row.group, ...patch, confirmed: true }, row.stats, state.index.config, today(), profileOf(row.staffId).personOverrides || {});
+        if (!ev.dueDate) return '<span class="srb-setup-warn">Chưa đủ dữ liệu để tính hạn xét.</span>';
+        const source = ev.ruleSources?.cycleMonths === 'group' ? 'riêng' : ev.ruleSources?.cycleMonths === 'person' ? 'riêng của người này' : 'theo quy định chung';
+        const ignored = patch.nextReviewDate && patch.nextReviewDate < ev.baseDueDate
+            ? `<br><span class="srb-setup-warn">Ngày hẹn sớm hơn hạn theo chu kỳ (${vnDate(ev.baseDueDate)}) nên không có tác dụng.</span>` : '';
+        return `Hạn xét mới: <b>${vnDate(ev.dueDate)}</b> · ${esc(ev.label)} · chu kỳ ${ev.months} tháng (${source}).${ignored}`;
+    }
+    function setupFormHtml(rows, bulk) {
+        const row = rows[0];
+        const head = bulk
+            ? `<h2 id="srb-setup-title">Thiết lập ${rows.length} dòng đã chọn</h2><p>${esc([...new Set(rows.map(r => r.name))].slice(0, 6).join(', '))}${rows.length > 6 ? '…' : ''}</p>`
+            : `<h2 id="srb-setup-title">${esc(row.name)} <span class="srb-code">${esc(row.code)}</span></h2><p>${esc(row.group.name.replace(/ · [\d.]+ đ$/, ''))} · ${esc(row.subjects.map(s => s.name).join(', '))}</p>`;
+        const v = bulk ? { baselineDate: '', baselineKind: 'initial', cycleMonths: '', nextReviewDate: '' } : setupDefaults(row);
+        const fallbackCycle = bulk ? state.index.config.cycleMonths
+            : P.evaluate({ ...row.group, cycleMonths: null, confirmed: true, baselineDate: v.baselineDate }, {}, state.index.config, today(), profileOf(row.staffId).personOverrides || {}).months;
+        const kind = (value, label) => `<label class="srb-seg-item"><input type="radio" name="baselineKind" value="${value}" ${v.baselineKind === value ? 'checked' : ''}><span>${label}</span></label>`;
+        return `<form id="srb-setup-form" class="srb-setup" novalidate data-bulk="${bulk ? '1' : ''}">
+            <header class="srb-setup-head"><div><p class="srb-eyebrow">THIẾT LẬP XÉT LƯƠNG</p>${head}</div><button type="button" class="srb-x" data-setup="close" aria-label="Đóng">×</button></header>
+            <div class="srb-setup-body">
+                ${bulk ? '' : `<label>Mức đang hưởng (đ/giờ)<input type="number" name="currentRate" value="${esc(v.currentRate)}" min="1" step="500" inputmode="numeric"><small>Mức theo dõi để xét. Không đổi giá tính lương; giá mới chỉ đổi khi duyệt tăng.</small></label>`}
+                <fieldset class="srb-span"><legend>Mốc tính hạn xét</legend>
+                    <div class="srb-seg">${kind('increase', 'Ngày tăng lương gần nhất')}${kind('initial', 'Mốc bắt đầu theo dõi')}</div>
+                    <input type="date" name="baselineDate" value="${esc(v.baselineDate)}" max="${today()}" aria-label="Ngày mốc">
+                    <small>${bulk ? 'Để trống để giữ mốc hiện tại của từng dòng.' : !row.confirmed && row.estimate?.known ? 'Đang là mốc ước tính từ giá đã nhập. Sửa nếu biết ngày thật.' : 'Hạn xét = mốc + chu kỳ.'}</small>
+                </fieldset>
+                <label>Chu kỳ xét (tháng)<input type="number" name="cycleMonths" value="${esc(v.cycleMonths)}" min="1" max="36" step="1" placeholder="Theo quy định chung (${fallbackCycle} tháng)"><small>${bulk ? 'Để trống để giữ nguyên.' : 'Để trống = theo quy định chung.'}</small></label>
+                <label>Hẹn xét vào ngày<span class="srb-inline"><input type="date" name="nextReviewDate" value="${esc(v.nextReviewDate)}">${bulk ? '' : '<button type="button" class="srb-btn srb-ghost" data-setup="clear-next">Xóa</button>'}</span><small>Không bắt buộc. Dùng khi muốn xét muộn hơn hạn theo chu kỳ.</small></label>
+                ${bulk ? `<label>Nhắc xét<select name="enabled"><option value="">Giữ nguyên</option><option value="on">Bật nhắc</option><option value="off">Tạm ngưng</option></select></label>`
+                    : `<label>Ngưỡng giờ/tháng riêng<input type="number" name="minimumHours" value="${esc(v.minimumHours)}" min="0" max="744" step="0.5" placeholder="Theo quy định chung"><small>Chỉ để cảnh báo “ít giờ”, không tự hoãn.</small></label>
+                       <label class="srb-switch srb-span"><input type="checkbox" name="enabled" ${v.enabled ? 'checked' : ''}><span>Nhắc xét cho nhóm môn này</span></label>
+                       <label class="srb-span">Ghi chú<textarea name="note" rows="2" maxlength="2000" placeholder="Ví dụ: thỏa thuận xét 4 tháng/lần">${esc(v.note)}</textarea></label>`}
+            </div>
+            <div id="srb-setup-preview" class="srb-setup-preview" aria-live="polite"></div>
+            <p id="srb-setup-error" class="srb-setup-error" role="alert"></p>
+            <footer class="srb-setup-foot"><button type="button" class="srb-btn" data-setup="close">Hủy</button><button type="submit" class="srb-btn srb-primary">Lưu thiết lập</button></footer>
+        </form>`;
+    }
+    function openSetup(keys, bulk = false) {
+        const rows = keys.map(rowByKey).filter(row => row && row.group);
+        if (!rows.length) return;
+        const pending = rows.filter(row => row.pending);
+        if (!bulk && pending.length) {
+            const change = rows[0].group.scheduledChange;
+            $('srb-dialog-content').innerHTML = `<div class="srb-setup"><header class="srb-setup-head"><div><p class="srb-eyebrow">THIẾT LẬP XÉT LƯƠNG</p><h2 id="srb-setup-title">${esc(rows[0].name)}</h2></div><button type="button" class="srb-x" data-setup="close" aria-label="Đóng">×</button></header>
+                <div class="srb-setup-preview">Đã duyệt lên <b>${money(change.newRate)}</b> từ ${vnDate(change.effectiveFrom)}. Mốc và chu kỳ được giữ nguyên đến khi mức mới có hiệu lực. Muốn đổi thì hủy mức chờ hiệu lực trong Chi tiết trước.</div>
+                <footer class="srb-setup-foot"><button type="button" class="srb-btn" data-setup="close">Đóng</button><button type="button" class="srb-btn srb-primary" data-setup="detail" data-staff="${esc(rows[0].staffId)}">Mở Chi tiết</button></footer></div>`;
+        } else {
+            const usable = rows.filter(row => !row.pending);
+            state.setup = { keys: usable.map(row => row.key), bulk };
+            $('srb-dialog-content').innerHTML = setupFormHtml(usable, bulk);
+            $('srb-setup-preview').innerHTML = setupPreviewHtml(usable, readSetupForm(bulk), bulk);
+        }
+        if (!$('srb-dialog').open) $('srb-dialog').showModal();
+    }
+    function closeSetup() { if (state.busy) return; state.setup = null; if ($('srb-dialog').open) $('srb-dialog').close(); }
+    // One profile write per teacher; other groups of that teacher are kept as saved.
+    async function saveSetupEntries(entries) {
+        const byStaff = new Map();
+        entries.forEach(entry => byStaff.set(entry.row.staffId, (byStaff.get(entry.row.staffId) || []).concat(entry)));
+        let done = 0; const failed = [];
+        for (const [staffId, items] of byStaff) {
+            try {
+                const profile = await freshProfile(staffId);
+                const draft = JSON.parse(JSON.stringify(profile.groups ? profile : { groups: [], personOverrides: {} }));
+                draft.groups = draft.groups || []; draft.personOverrides = draft.personOverrides || {};
+                items.forEach(({ row, patch }) => {
+                    const index = draft.groups.findIndex(g => g.id === row.group.id);
+                    const base = index >= 0 ? draft.groups[index] : JSON.parse(JSON.stringify(row.group));
+                    if (base.scheduledChange?.effectiveFrom > today()) throw Error('có mức chờ hiệu lực, hủy trong Chi tiết trước');
+                    const next = { ...base, ...patch, confirmed: true };
+                    if (!next.baselineDate || (!row.confirmed && !patch.baselineDate)) next.baselineDate = base.confirmed ? base.baselineDate : row.baselineDate;
+                    if (index >= 0) draft.groups[index] = next; else draft.groups.push(next);
+                });
+                await S.saveProfile(staffId, draft, profile.revision || 0, state.index.subjects);
+                await freshProfile(staffId); done += items.length;
+                items.forEach(({ row }) => { state.results[row.key] = { text: 'Đã lưu thiết lập.' }; });
+            } catch (error) {
+                failed.push(items[0].row.name + ': ' + error.message);
+                items.forEach(({ row }) => { state.results[row.key] = { text: 'Chưa lưu thiết lập: ' + error.message, error: true }; });
+            }
+        }
+        return { done, failed };
+    }
+    function submitSetup() {
+        if (state.busy || !state.setup) return;
+        const { keys, bulk } = state.setup, rows = keys.map(rowByKey).filter(Boolean);
+        let patch;
+        try { patch = setupPatch(readSetupForm(bulk), bulk); }
+        catch (error) { $('srb-setup-error').textContent = error.message; return; }
+        $('srb-setup-error').textContent = '';
+        const button = $('srb-setup-form').querySelector('[type="submit"]');
+        button.disabled = true; button.textContent = 'Đang lưu…';
+        withWrite(async () => {
+            const { done, failed } = await saveSetupEntries(rows.map(row => ({ row, patch })));
+            if (failed.length && !done) {
+                button.disabled = false; button.textContent = 'Lưu thiết lập';
+                $('srb-setup-error').textContent = failed.join(' ');
+                throw Error('Chưa lưu thiết lập. ' + failed.join(' '));
+            }
+            state.setup = null; $('srb-dialog').close();
+            if (bulk) rows.forEach(row => state.selected.delete(row.key));
+            message(`Đã lưu thiết lập cho ${done}/${rows.length} dòng.` + (failed.length ? ' Chưa lưu: ' + failed.join(' ') : ' Giá tính lương giữ nguyên.'), failed.length > 0);
+        });
+    }
+    $('srb-dialog').addEventListener('input', () => {
+        if (!state.setup) return;
+        $('srb-setup-error').textContent = '';
+        const rows = state.setup.keys.map(rowByKey).filter(Boolean);
+        $('srb-setup-preview').innerHTML = setupPreviewHtml(rows, readSetupForm(state.setup.bulk), state.setup.bulk);
+    });
+    $('srb-dialog').addEventListener('submit', event => { event.preventDefault(); submitSetup(); });
+    $('srb-dialog').addEventListener('click', event => {
+        const button = event.target.closest('[data-setup]');
+        if (event.target === $('srb-dialog')) { closeSetup(); return; }
+        if (!button) return;
+        if (button.dataset.setup === 'close') closeSetup();
+        if (button.dataset.setup === 'clear-next') { $('srb-setup-form').elements.nextReviewDate.value = ''; $('srb-dialog').dispatchEvent(new Event('input')); }
+        if (button.dataset.setup === 'detail') { closeSetup(); showDetail(button.dataset.staff); }
+    });
+    $('srb-dialog').addEventListener('cancel', event => { if (state.busy) event.preventDefault(); else state.setup = null; });
 
     // ---------- events ----------
     function runRow(key, action) {
@@ -378,6 +562,8 @@
         if (!button || state.busy) return;
         const action = button.dataset.action, key = button.dataset.key;
         if (action === 'pick') { const row = rowByKey(key); if (row) { draftFor(row).rate = Number(button.dataset.rate); render(); } return; }
+        if (action === 'setup') { openSetup([key]); return; }
+        if (action === 'bulk-setup') { openSetup([...state.selected], true); return; }
         if (action.startsWith('bulk-')) bulkAction(action); else runRow(key, action);
     });
     $('srb').addEventListener('input', event => {
