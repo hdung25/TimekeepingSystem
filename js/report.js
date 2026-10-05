@@ -3161,6 +3161,27 @@ function applyEvaluationRateRows(entries, hours) {
     });
 }
 
+// New mode cuts every bonus after 3 months in a row absent from meetings and
+// restores it after 2 attended months, so the 3 months before the payroll month
+// are needed. A month that cannot be read stays unknown (never counted absent).
+async function loadMeetingStateHistory(staffId, monthStr, staffProfile, scope) {
+    const [year, month] = monthStr.split('-').map(Number);
+    const months = [1, 2, 3].map(back => {
+        const date = new Date(year, month - 1 - back, 1);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    });
+    const results = await Promise.all(months.map(async prev => {
+        try {
+            const summary = await loadMeetingPayrollSummary(staffId, prev, staffProfile);
+            return summary?.complete === true ? TeacherAttendancePolicy.meetingStateFromStatuses(summary.statuses) : 'unknown';
+        } catch (error) {
+            console.warn('[Payroll] Không đọc được họp tháng', prev, error);
+            return 'unknown';
+        }
+    }));
+    return { scope, months, states: results, complete: results.every(state => state !== 'unknown') };
+}
+
 function isMeetingPayrollAutomatic(summary) {
     return window.currentUserContext?.teachingMode === 'old' && summary?.complete === true;
 }
@@ -4658,12 +4679,19 @@ async function loadSalarySettings(isCurrent = null) {
         ? 'Phí tư vấn đã được cập nhật. Admin chọn Tiếp Tân và Lưu & Tính trước khi gửi hoặc gửi hiệu chỉnh.' : '';
     window.currentLoadedSalarySettings = settings;
     window.currentMeetingPayrollSummary = null;
-    // Load for every old-mode teacher, including a dual-role employee currently
+    window.currentMeetingHistory = null;
+    // Load for every old/new-mode teacher, including a dual-role employee currently
     // on the receptionist tab, so the teaching component total stays in sync.
-    if (window.currentUserContext?.teachingMode === 'old' && (roleKey === 'giao_vien' || hasTeaching)) {
+    const loadedTeachingMode = window.currentUserContext?.teachingMode;
+    if (['old', 'new'].includes(loadedTeachingMode) && (roleKey === 'giao_vien' || hasTeaching)) {
         try {
             window.currentMeetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr, window.currentUserContext);
             if (!canCommit()) return;
+            if (loadedTeachingMode === 'new') {
+                const history = await loadMeetingStateHistory(staffId, monthStr, window.currentUserContext, window.currentReportScope);
+                if (!canCommit()) return;
+                window.currentMeetingHistory = history;
+            }
         } catch (e) {
             console.error('Error loading meeting attendance for payroll:', e);
             if (canCommit()) renderReportLoadFailure(e);
@@ -7566,9 +7594,12 @@ async function populateModalCurrentTab() {
     
     let monthlySettingsAll = window.currentMonthlySalarySettingsAll || {};
     let meetingPayrollSummary = null;
-    if (window.modalActiveRole !== 'tiep-tan' && window.currentUserContext?.teachingMode === 'old') {
+    if (window.modalActiveRole !== 'tiep-tan' && ['old', 'new'].includes(window.currentUserContext?.teachingMode)) {
         try {
             meetingPayrollSummary = await loadMeetingPayrollSummary(staffId, monthStr, window.currentUserContext);
+            if (window.currentUserContext?.teachingMode === 'new' && window.currentMeetingHistory?.scope !== window.currentReportScope) {
+                window.currentMeetingHistory = await loadMeetingStateHistory(staffId, monthStr, window.currentUserContext, window.currentReportScope);
+            }
         } catch (err) {
             console.error('Error loading meeting attendance for payroll modal:', err);
             renderReportLoadFailure(err);
@@ -8056,6 +8087,7 @@ async function populateModalCurrentTab() {
                 if (lockedMeetingRow) autoRateText = `${formatNumberWithCommas(saved.rate || 0)} · tự động theo họp`;
                 else if (criteriaIndex === 0 && ['old', 'new'].includes(teachingMode)) autoRateText = 'Tự động (ô trên)';
                 else if (criteriaIndex === 8 && window.TeacherAttendanceEditor?.getHoursBonusRow(roleSettings)) autoRateText = 'Tự động theo mốc giờ';
+                else if (teachingMode === 'new' && (window.TeacherAttendanceEditor?.NEW_IDS || []).includes(criteriaIndex)) autoRateText = 'Tự động (ô trên)';
             }
             const rateValue = !isRecep && !autoRateText && !saved.automatic ? parseEvaluationRate(saved.rate) : null;
             const rateCell = isRecep ? '<td></td>' : autoRateText
@@ -10640,6 +10672,21 @@ function getCurrentCalculationPayload(role) {
             if (attendanceItem) attendanceItem.amount = teacherRow.amount;
             else evalItems.push({...teacherRow, label:'I', title:'CHUYÊN CẦN'});
         }
+        const policyLabels = { 1: ['II', 'ĐÚNG GIỜ'], 2: ['III', 'TẬP TRUNG LÀM VIỆC'], 5: ['VI', 'SOẠN BÀI / NHẬN XÉT'], 9: ['X', 'HỌP ĐỊNH KÌ'] };
+        const autoNote = note => !note || note.startsWith('Tự động CCL1:') || note.startsWith('Vắng phép:') || note.startsWith('Trễ:');
+        if (teacherRow?.automatic === TeacherAttendancePolicy.NEW_MODE_VERSION) {
+            const attendanceItem = evalItems.find(item => Number(item.id) === 0);
+            if (attendanceItem && autoNote(attendanceItem.note)) attendanceItem.note = teacherRow.note;
+        }
+        (window.TeacherAttendanceEditor?.getPolicyRows(roleSettings, isActiveRole ? 'main' : '') || []).forEach(row => {
+            const item = evalItems.find(entry => Number(entry.id) === row.id);
+            if (item) {
+                item.amount = row.amount;
+                if (autoNote(item.note)) item.note = row.note;
+            } else {
+                evalItems.push({ id: row.id, label: policyLabels[row.id][0], title: policyLabels[row.id][1], amount: row.amount, note: row.note });
+            }
+        });
         const hoursBonusRow = window.TeacherAttendanceEditor?.getHoursBonusRow(roleSettings);
         if (hoursBonusRow) {
             const hoursBonusItem = evalItems.find(item => Number(item.id) === 8);

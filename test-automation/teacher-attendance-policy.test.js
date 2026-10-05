@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const {calculate, sourceFromChips, automaticAttendance, automaticHoursBonus} = require('../js/teacher-attendance-policy.js');
+const {calculate, sourceFromChips, automaticAttendance, automaticHoursBonus, newModeRows, meetingStateFromStatuses, meetingStreakCut} = require('../js/teacher-attendance-policy.js');
 const stats = (hours, vp=0, vdx=0, vkp=0, unreported=0) => ({minutes:hours*60,vp,vdx,vkp,unreported});
 // Independent evaluation of the supplied Excel formula, across every absence
 // priority and both sides of the 50/64.99/65-hour boundaries.
@@ -51,6 +51,6 @@ assert.deepEqual(rows.map(r=>[r.id,r.amount]),[[1,-120000],[2,-120000],[3,60000]
 assert.throws(()=>calculate({...old,preparationEnabled:true,subject:'Toán',subjectHours:70,preparationRate:1000},stats(60)),/vượt/);
 const chips=[{isTeaching:true,paidMinutes:125,text:'(T5p)'},{isReceptionist:true,paidMinutes:600},{isTeaching:true,class:'chip-future',paidMinutes:120},{isCenterOff:true,class:'chip-gray'},{isCancelled:true,class:'chip-gray'},{isAbsence:true,absenceType:'VP'},{isAbsence:true,absenceType:'VDX'},{isAbsence:true,absenceType:'VKP'},{class:'chip-gray'},{sessionData:{role:'office_staff'},paidMinutes:100}];
 const chipsBefore=JSON.stringify(chips);
-assert.deepEqual(sourceFromChips(chips,c=>c.absenceType||'VKP'),{minutes:125,vp:1,vdx:1,vkp:1,unreported:1,lateMinutes:5});
+assert.deepEqual(sourceFromChips(chips,c=>c.absenceType||'VKP'),{minutes:125,vp:1,vdx:1,vkp:1,unreported:1,lateMinutes:5,lateCount:1});
 assert.equal(JSON.stringify(chips),chipsBefore,'read-only policy');
 console.log('teacher-attendance-policy: thresholds, minima, exceptions, fractions, role scope and discretionary criteria passed');

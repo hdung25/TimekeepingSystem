@@ -145,7 +145,7 @@
         return { version, rows, hours };
     }
     function sourceFromChips(chips, classify) {
-        const source = { minutes: 0, vp: 0, vdx: 0, vkp: 0, unreported: 0, lateMinutes: 0 };
+        const source = { minutes: 0, vp: 0, vdx: 0, vkp: 0, unreported: 0, lateMinutes: 0, lateCount: 0 };
         chips.forEach(chip => {
             if (chip.isCenterOff || chip.isCancelled || chip.absenceStateSource === 'cancellation' || /(?:^|\s)chip-future(?:\s|$)/.test(chip.class || '')) return;
             if (chip.isReceptionist || chip.isOffice || ['tiep-tan', 'tiep_tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'office_staff', 'van-phong', 'van_phong'].includes(chip.sessionData?.role)) return;
@@ -155,9 +155,84 @@
                 const explicit = chip.absenceType || chip.absenceState === 'VKP' || chip.absenceStateSource === 'teacher-absence' || chip.absenceEvidence;
                 source[type === 'VP' ? 'vp' : type === 'VDX' ? 'vdx' : explicit ? 'vkp' : 'unreported']++;
             } else if (chip.isTeaching || chip.sessionData?.role) source.minutes += Math.max(0, Number(chip.paidMinutes) || 0);
-            source.lateMinutes += Number(/\(T(\d+)p\)/.exec(chip.text || '')?.[1] || 0);
+            const late = Number(/\(T(\d+)p\)/.exec(chip.text || '')?.[1] || 0);
+            source.lateMinutes += late;
+            if (late > 0) source.lateCount++;
         });
         return source;
+    }
+    // "Bảng cơ cấu lương 1 — áp dụng từ tháng 10" for new-mode (part-time) teachers.
+    // Every bonus is đ/giờ × the month's paid teaching hours; nothing is negative.
+    const NEW_MODE_VERSION = 'co-cau-luong-1-v1';
+    const NEW_MODE_RATES = Object.freeze({
+        attendance: { none: 4000, vp: 2000, vdx: 1000, vkp: 0 },
+        punctual: { none: 2000, few: 1000, many: 0 },
+        focus: { pass: 2000, fail: 0 },
+        report: { full: 2000, late: 1000, none: 0, missing: 0 },
+        meeting: { full: 3000, permitted: 1000, unpermitted: 0, none: 0 }
+    });
+    const NEW_MODE_PRESENT = new Set(['Có', 'Trễ']);
+    const NEW_MODE_PERMITTED = new Set(['Vắng phép']);
+    const NEW_MODE_UNPERMITTED = new Set(['Vắng không phép', 'Vắng đột xuất']);
+
+    // Monthly meeting result from the department statuses of the meeting page.
+    function meetingStateFromStatuses(statuses) {
+        const values = Array.isArray(statuses) ? statuses : Object.values(statuses || {});
+        if (values.some(s => NEW_MODE_UNPERMITTED.has(s))) return 'unpermitted';
+        if (values.some(s => NEW_MODE_PERMITTED.has(s))) return 'permitted';
+        if (values.some(s => NEW_MODE_PRESENT.has(s))) return 'full';
+        return 'none';
+    }
+
+    // Absent from meetings 3 months in a row → from the 3rd month only base pay.
+    // Restored after attending 2 months in a row, so the first attended month
+    // right after such a streak is still cut. `previous` is newest first.
+    function meetingStreakCut(current, previous) {
+        const absent = state => state === 'permitted' || state === 'unpermitted';
+        const p = Array.isArray(previous) ? previous : [];
+        if (absent(current) && absent(p[0]) && absent(p[1])) return true;
+        return current === 'full' && absent(p[0]) && absent(p[1]) && absent(p[2]);
+    }
+
+    function newModeRows(source, input = {}) {
+        const minutes = number(source.minutes, 'Số phút');
+        const hours = minutes / 60;
+        const vp = number(source.vp, 'Vắng phép');
+        const vdx = number(source.vdx, 'Vắng đột xuất') + number(source.unreported, 'Chưa cập nhật');
+        const vkp = number(source.vkp, 'Vắng không phép');
+        const lateMinutes = Number(source.lateMinutes) || 0, lateCount = Number(source.lateCount) || 0;
+        const R = NEW_MODE_RATES;
+        const attendanceKey = vkp > 0 ? 'vkp' : vdx > 0 ? 'vdx' : vp > 0 ? 'vp' : 'none';
+        const shifts = minutes / 90;
+        const punctualKey = lateCount === 0 ? 'none'
+            : lateMinutes <= minutes / 9 && lateCount < 0.055 * shifts ? 'few' : 'many';
+        const focusKey = input.focus === 'fail' ? 'fail' : 'pass';
+        const reportKey = Object.prototype.hasOwnProperty.call(R.report, input.report) ? input.report : 'full';
+        const meeting = input.meeting || null;
+        const meetingKey = meeting && Object.prototype.hasOwnProperty.call(R.meeting, meeting.state) ? meeting.state : null;
+        const cut = [];
+        if (input.trial === true) cut.push('Đang thử việc: không áp dụng thưởng');
+        if (reportKey === 'missing') cut.push('Hoàn toàn không nhận xét/báo cáo trong tháng');
+        if (meeting && meeting.streakCut) cut.push('Vắng họp 3 tháng liên tiếp');
+        const text = {
+            attendance: { none: 'không nghỉ ca nào', vp: `nghỉ có phép trước ≥24h (VP ${vp})`, vdx: `xin phép trễ <24h (VĐX ${vdx})`, vkp: `nghỉ không phép (VKP ${vkp})` },
+            punctual: { none: 'không đi trễ', few: `đi trễ ít (${lateCount} lần, ${lateMinutes} phút)`, many: `đi trễ ${lateCount} lần, ${lateMinutes} phút (vượt mức "trễ ít")` },
+            focus: { pass: 'không làm việc riêng', fail: 'bị phát hiện làm việc riêng' },
+            report: { full: 'nhận xét đầy đủ sau buổi dạy', late: 'nhận xét chậm, bổ sung trong 5 ngày', none: 'chưa đạt nhận xét', missing: 'không nhận xét cả tháng' },
+            meeting: { full: 'tham gia họp đầy đủ', permitted: 'vắng họp có phép', unpermitted: 'vắng họp không phép', none: 'tháng không có họp áp dụng' }
+        };
+        const make = (id, group, key) => {
+            const rate = cut.length ? 0 : R[group][key];
+            const amount = Math.round(hours * rate) || 0;
+            const hoursText = hours.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+            const note = 'Tự động CCL1: ' + text[group][key] + '; ' +
+                (cut.length ? 'cắt thưởng (' + cut.join('; ') + ')' : hoursText + ' giờ × ' + rate.toLocaleString('vi-VN') + 'đ/giờ') +
+                ' = ' + amount.toLocaleString('vi-VN') + 'đ.';
+            return { id, amount, rate, hours, key, manual: false, automatic: NEW_MODE_VERSION, note };
+        };
+        const rows = [make(0, 'attendance', attendanceKey), make(1, 'punctual', punctualKey), make(2, 'focus', focusKey), make(5, 'report', reportKey)];
+        if (meetingKey) rows.push(make(9, 'meeting', meetingKey));
+        return { version: NEW_MODE_VERSION, hours, cut, rows, keys: { attendanceKey, punctualKey, focusKey, reportKey, meetingKey } };
     }
     global.TeacherAttendancePolicy = {
         version,
@@ -167,7 +242,12 @@
         sourceFromChips,
         automaticAttendance,
         automaticHoursBonus,
-        normalizeHoursBonusTiers
+        normalizeHoursBonusTiers,
+        NEW_MODE_VERSION,
+        NEW_MODE_RATES,
+        newModeRows,
+        meetingStateFromStatuses,
+        meetingStreakCut
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = global.TeacherAttendancePolicy;
 })(typeof window !== 'undefined' ? window : globalThis);
