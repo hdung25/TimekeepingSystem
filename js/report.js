@@ -4573,6 +4573,35 @@ async function applyInheritedClassRates(staffId, monthStr, monthlyAll) {
     });
 }
 
+// Combined classes ("Toán 1 + Toán 7") follow their highest component unless a
+// rate was saved for this month. Applied to the shared monthly map so the main
+// page, the popup and the payslip all use the same price.
+function payrollExplicitClassRates(staffId, monthStr) {
+    if (payrollSettingsBaseline?.scope !== `${staffId}__${monthStr}`) return {};
+    const settings = payrollSettingsBaseline.settings || {};
+    return (settings.giao_vien || settings['giao-vien'] || {}).class_rates || {};
+}
+function payrollConfigRate(component) {
+    const roles = window.currentUserContext?.salary_config?.roles || [];
+    const normalizeFn = window.normalizeChipFilterName || (x => x);
+    const role = roles.find(r => normalizeFn(r.name || r.id || '') === component || r.id === component);
+    return role ? Number(role.rate) || 0 : 0;
+}
+function applyCombinedClassRates(staffId, monthStr, monthlyAll) {
+    if (!window.ClassRateGroups || !monthlyAll || !staffId || staffId === 'all') return;
+    const settings = monthlyAll.giao_vien || monthlyAll['giao-vien'];
+    if (!settings || typeof settings !== 'object') return;
+    const normalizeFn = window.normalizeChipFilterName || (x => x);
+    const names = new Set(Object.keys(settings.class_rates || {}));
+    (window.unfilteredAllMonthChips || []).forEach(chip => {
+        if (chip?.chipFilterName) { names.add(chip.chipFilterName); names.add(normalizeFn(chip.chipFilterName)); }
+        (chip?.mergedSegments || []).forEach(seg => { if (seg?.lop) names.add(normalizeFn(seg.lop)); });
+    });
+    const { rates, derived } = window.ClassRateGroups.deriveCombinedRates(settings.class_rates || {}, [...names],
+        payrollExplicitClassRates(staffId, monthStr), payrollConfigRate);
+    if (Object.keys(derived).length) settings.class_rates = rates;
+}
+
 async function loadSalarySettings(isCurrent = null) {
     const requestedEpoch = _reportRenderEpoch;
     const requestedStaff = getTargetStaffId();
@@ -4658,6 +4687,7 @@ async function loadSalarySettings(isCurrent = null) {
         }
         
         await applyInheritedClassRates(staffId, monthStr, window.currentMonthlySalarySettingsAll);
+        applyCombinedClassRates(staffId, monthStr, window.currentMonthlySalarySettingsAll);
         if (!canCommit()) return;
 
         settings = roleKey === 'tiep_tan' ? ttSettings : gvSettings;
@@ -7639,6 +7669,7 @@ async function populateModalCurrentTab() {
     // Keep cache updated
     window.currentMonthlySalarySettingsAll = monthlySettingsAll;
     await applyInheritedClassRates(staffId, monthStr, monthlySettingsAll);
+    applyCombinedClassRates(staffId, monthStr, monthlySettingsAll);
     
     const activeRoleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
     // Tài liệu cũ lưu khóa 'tiep-tan'/'giao-vien'; thiếu vế này thì đơn giá đã lưu hiện thành trống.
@@ -7956,6 +7987,10 @@ async function populateModalCurrentTab() {
     }
     
     initClassRateBulkSelection();
+    window.ClassRateGroups?.attach({ explicitRates: payrollExplicitClassRates(staffId, monthStr), fallbackRate: component => {
+        const current = Number(classRates?.[component]) || 0;
+        return current > 0 ? current : payrollConfigRate(component);
+    } });
     const inheritNote = document.getElementById('class-rate-inherit-note');
     if (inheritNote) {
         const inheritInfo = window.inheritedClassRatesInfo || {};
@@ -8339,7 +8374,16 @@ window.onModalEvalRateInput = function (input) {
     recalculateSalaryModal();
 };
 
+window.openClassRateGroups = function () {
+    const staffId = getTargetStaffId();
+    if (!staffId || staffId === 'all') return;
+    const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const user = window.currentUserContext || {};
+    window.ClassRateGroups?.open({ staffId, monthStr, staffName: user.name || user.username || '', staffCode: String(user.username || '').toUpperCase() });
+};
+
 function recalculateSalaryModal() {
+    window.ClassRateGroups?.syncCombined();
     let basePay = 0;
     
     let fixedMinutes = 0;

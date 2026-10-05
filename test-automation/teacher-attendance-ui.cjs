@@ -36,6 +36,16 @@ module.exports=async({env,admin,month,record,click,report,snapshot})=>{
  await open();assert.equal(await admin.$eval('.modal-eval-amount[data-index="0"]',e=>e.value),'-4,000');await save();assert.equal(amount(await read()),-4000);
  await env.withSecurityRulesDisabled(c=>c.firestore().doc(schedulePath).set(roster));
  await open();assert.equal(await admin.$eval('.modal-eval-amount[data-index="0"]',e=>e.value),'4,000');await save();
+ // "Giá theo khối" popup: groups classes by block, fills a whole block, never saves by itself.
+ await open();const beforeBlocks=await read();
+ await admin.evaluate(()=>openClassRateGroups());
+ await admin.waitForSelector('#crg-dialog[open] [data-crg-apply]',{timeout:20000});
+ assert.match(await admin.$eval('#crg-dialog',e=>e.innerText),/GIÁ THEO KHỐI/);
+ await (await admin.$('#crg-dialog')).screenshot({path:require('node:path').join(__dirname,'../scratch/class-rate-blocks.png')});
+ await admin.$eval('#crg-dialog input[data-crg-block]',e=>{e.value='77,000';});
+ await admin.click('#crg-dialog [data-crg-apply]');
+ assert.ok(await admin.$$eval('.class-rate-input',list=>list.some(i=>i.value==='77,000')),'block rate is filled into the table');
+ assert.deepEqual(await read(),beforeBlocks,'the block popup never writes');
  // Per-hour rate column: rate × teaching hours, saved with the row, auto rows stay locked.
  await report(admin,id);
  assert.match(await admin.$eval('#staff-nav-code',e=>e.textContent),/^Mã \S+ · \d+\/\d+$/,'staff code and position are shown');

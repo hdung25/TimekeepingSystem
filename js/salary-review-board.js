@@ -597,6 +597,9 @@
         const settings = $('sr-settings'); settings.hidden = !settings.hidden; settings.open = !settings.hidden;
     });
     window.addEventListener('salary-review-index-loaded', event => {
+        // ?q= comes from "Chỉnh lịch xét tăng lương" in Tính Lương: open on that teacher.
+        const query = new URLSearchParams(location.search).get('q');
+        if (query) { state.query = query; state.tab = 'all'; $('srb-search').value = query; }
         loadSources(event.detail);
         if (new URLSearchParams(location.search).has('staffId')) { $('srb').hidden = true; $('sr-individual').hidden = false; $('srb-back-bar').hidden = false; }
     });
