@@ -73,7 +73,7 @@
             const stats = policy.statistics(staffId, policy.previousMonths(today, 3), monthly, { lifecycle });
             const groups = overview.buildGroups(profile, inferred, today);
             const base = {
-                staffId, name: text(user.name || user.username || staffId), code: text(user.username).toUpperCase(),
+                staffId, name: text(user.name || user.username || staffId), code: text(user.username).toUpperCase(), msnv: staffNumber(user.username),
                 stats, attendance: attendancePercent(stats), profileRevision: Number(profile.revision || 0)
             };
             if (!groups.length) {
@@ -106,10 +106,16 @@
         return rows.sort(compareRows);
     }
 
-    const ORDER = { due: 0, soon: 1, setup: 2, later: 3, pending: 4, disabled: 5, nodata: 6 };
+    // MSNV = số cuối của tên đăng nhập (QUYNH64 → 64), giống trang Nhân sự.
+    function staffNumber(username) {
+        const match = text(username).match(/\d+$/);
+        return match ? match[0] : '';
+    }
+    // Owner 06/10: bảng xếp theo MSNV tăng dần; mã không có số xuống cuối.
     function compareRows(a, b) {
-        return (ORDER[a.category] - ORDER[b.category]) ||
-            text(a.evaluation?.dueDate).localeCompare(text(b.evaluation?.dueDate)) ||
+        const na = a.msnv ? parseInt(a.msnv, 10) : Infinity, nb = b.msnv ? parseInt(b.msnv, 10) : Infinity;
+        return (na === nb ? 0 : na < nb ? -1 : 1) ||
+            text(a.code).localeCompare(text(b.code), 'vi', { numeric: true }) ||
             a.name.localeCompare(b.name, 'vi') || text(a.group?.name).localeCompare(text(b.group?.name), 'vi');
     }
 

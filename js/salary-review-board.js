@@ -178,6 +178,7 @@
         return `<article class="srb-row${open ? ' open' : ''}${state.selected.has(row.key) ? ' selected' : ''}" data-key="${esc(row.key)}">
             <div class="srb-line">
                 <span>${selectable ? `<input type="checkbox" data-select="${esc(row.key)}" aria-label="Chọn ${esc(row.name)}" ${state.selected.has(row.key) ? 'checked' : ''}>` : ''}</span>
+                <div class="srb-msnv">${esc(row.msnv || '—')}</div>
                 <div class="srb-who"><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span>
                     <small>${row.group ? esc(row.group.name.replace(/ · [\d.]+ đ$/, '')) + ' · ' + esc(row.subjects.map(s => s.name).join(', ')) : 'Chưa có giá môn để xét'}</small></div>
                 <div class="srb-rate">${!row.group ? '' : setupCell(row, row.pending
@@ -262,7 +263,7 @@
         if (state.loading) $('srb-list').innerHTML = '<p class="srb-empty">Đang tải giá và giờ dạy của tất cả giáo viên…</p>';
         else if (!state.index) $('srb-list').innerHTML = '<p class="srb-empty">Đang xác thực…</p>';
         else $('srb-list').innerHTML = rows.length
-            ? `<div class="srb-head"><span></span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span></span></div>${rows.map(rowHtml).join('')}`
+            ? `<div class="srb-head"><span></span><span>MSNV</span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span></span></div>${rows.map(rowHtml).join('')}`
             : `<p class="srb-empty">${state.tab === 'due' ? 'Không có ai đến hạn xét trong tháng này.' : 'Không có dòng nào trong mục này.'}</p>`;
         $('srb-bulk').innerHTML = bulkHtml();
         const allBox = $('srb-select-all');

@@ -42,6 +42,11 @@ const m1 = rowsA.find(r => r.subjects.some(s => s.id === 'm1'));
 const e5 = rowsA.find(r => r.subjects.some(s => s.id === 'e5'));
 assert.equal(m1.currentRate, 32000);
 assert.equal(m1.code, 'GV12');
+assert.equal(m1.msnv, '12', 'MSNV = trailing number of the username');
+// Owner 06/10: rows follow MSNV ascending (gv2 before gv12, codes without a number last).
+const sortUsers = [{ id: 'x', username: 'nv', name: 'Không số', role: 'teacher' },
+    { id: 'c', username: 'gv12', name: 'C', role: 'teacher' }, { id: 'd', username: 'gv2', name: 'D', role: 'teacher' }];
+assert.deepEqual(B.buildRows({ ...input(), users: sortUsers }).map(r => r.staffId), ['d', 'c', 'x']);
 assert.equal(m1.baselineDate, '2026-06-01', 'estimate = first month of the continuous current price');
 assert.equal(m1.estimate.estimated, true);
 assert.equal(m1.evaluation.dueDate, '2026-09-01');
