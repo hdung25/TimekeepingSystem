@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v231-makeup-revoke-20261006';
+const APP_RELEASE = 'tdt-chamcong-v232-crowded-follow-20261007';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -37,19 +37,19 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
     '/css/salary-review.css?v=20261006-review-backdate-v1',
     '/js/salary-review-policy.js?v=20260919-review-v1',
-    '/js/salary-review-application.js?v=20261006-review-backdate-v1',
+    '/js/salary-review-application.js?v=20261007-crowded-follow-v1',
     '/js/salary-review-service.js?v=20261006-review-backdate-v1',
     '/js/salary-review-notifications.js?v=20260919-review-v1',
-    '/js/salary-review.js?v=20261004-review-board-v1',
+    '/js/salary-review.js?v=20261007-crowded-follow-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-board-policy.js?v=20261006-tax-grouped-v1',
-    '/js/salary-review-board.js?v=20261006-review-backdate-v1',
+    '/js/salary-review-board.js?v=20261007-crowded-follow-v1',
     '/js/main.js?v=20261006-tax-grouped-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
     '/js/db-service.js?v=20261006-makeup-revoke-v1',
     '/js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1',
-    '/js/class-rate-groups.js?v=20261005-class-rate-v1',
+    '/js/class-rate-groups.js?v=20261007-crowded-follow-v1',
     '/js/report.js?v=20261006-tax-grouped-v1',
     '/js/teacher-attendance-policy.js?v=20261005-new-mode-v1',
     '/js/teacher-attendance-editor.js?v=20261005-new-mode-v1',

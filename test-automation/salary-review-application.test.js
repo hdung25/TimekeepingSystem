@@ -53,7 +53,10 @@ function rejects(overrides, code) {
     assert.equal(preview.mergedRates.E1, 40000);
     assert.equal(preview.mergedRates.FFS01, 42000, 'old alias is not fuzzy-rewritten');
     assert.equal(preview.mergedRates['Toán 1 + E1'], 70000);
-    assert.equal(preview.mergedRates['Toán 1 (+12 HS)'], 60000);
+    assert.equal(preview.mergedRates['Toán 1 (+12 HS)'], 66000, 'crowded-class rate follows its base: 30k/60k raised to 36k gives 66k');
+    assert.deepEqual(preview.followers, [{name: 'Toán 1 (+12 HS)', base: 'Toán 1', beforeRate: 60000, afterRate: 66000,
+        beforeSource: 'inherited:2026-09'}]);
+    assert.ok(!preview.preserved.some(item => item.name === 'Toán 1 (+12 HS)'));
     assert.equal(preview.mergedRates['Tin Học'], 60000);
     assert.deepEqual(preview.changes, [{subjectId: 'm1', name: 'Toán 1', beforeRate: 30000,
         afterRate: 36000, beforeSource: 'inherited:2026-09'}]);
@@ -211,6 +214,23 @@ rejects({catalog: [...catalog.filter(s => s.id !== 'm1'), {id: 'm1', name: 'Toá
     const untouched = backdated({});
     assert.equal(untouched.patch.published, undefined, 'no payslip: nothing to clear');
     assert.deepEqual(untouched.carried, []);
+}
+// Owner case 07/10: E4 48k with "E4 (+10 HS)" 52k raised to 50k gives 54k,
+// also in later saved months; other crowded classes and a missing base stay.
+{
+    const english = [...catalog, {id: 'e4', name: 'E4', parentId: 'school'}, {id: 'e40', name: 'E40', parentId: 'school'}];
+    const history = {'2026-09': {giao_vien: {class_rates: {E4: 48000, 'E4 (+10 HS)': 52000, 'E4 (+5 hs)': 50000,
+        'E40 (+10 HS)': 70000, 'Toán 1 (+12 HS)': 60000}}}};
+    const preview = Application.buildPreview(fixture({catalog: english, history, group: {id: 'school', subjectIds: ['e4', 'e40']},
+        selectedSubjectIds: ['e4', 'e40'], newRate: 50000,
+        laterDocs: {'2026-11': {giao_vien: {class_rates: {E4: 48000, 'E4 (+10 HS)': 52000}}}, '2026-12': {giao_vien: {class_rates: {'E4 (+10 HS)': 60000}}}}}));
+    assert.equal(preview.mergedRates.E4, 50000);
+    assert.equal(preview.mergedRates['E4 (+10 HS)'], 54000);
+    assert.equal(preview.mergedRates['E4 (+5 hs)'], 52000);
+    assert.equal(preview.mergedRates['E40 (+10 HS)'], 70000, 'E40 had no base rate: nothing to follow');
+    assert.equal(preview.mergedRates['Toán 1 (+12 HS)'], 60000, 'another subject is untouched');
+    assert.deepEqual(preview.carried.map(item => [item.month, item.patch.giao_vien.class_rates]),
+        [['2026-11', {E4: 50000, 'E4 (+10 HS)': 54000}]], 'December already pays more for the crowded class');
 }
 // Future target keeps the strict rule; later months are still lifted.
 {

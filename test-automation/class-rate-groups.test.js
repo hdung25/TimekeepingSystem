@@ -32,4 +32,26 @@ assert.deepEqual(names['Tiếng Anh trên trường'], ['E5']);
 assert.deepEqual(names['Tiếng Anh giao tiếp'], ['Up1']);
 assert.equal(blocks[blocks.length - 1].id, 'other');
 assert.deepEqual(blocks[blocks.length - 1].rows.map(r => r.name), ['Lớp Lạ']);
+// Salary popup: "E4 (+10 HS)" keeps its gap to "E4" until typed by hand.
+{
+    const make = (name, value) => { const input = { dataset: { name }, value, disabled: false, closest: () => null }; return input; };
+    const fmt = n => Number(n).toLocaleString('en-US');
+    global.formatNumberWithCommas = fmt;
+    global.parseFormattedNumber = v => Number(String(v || '').replace(/,/g, '')) || 0;
+    const base = make('E4', '48,000'), crowded = make('E4 (+10 HS)', '52,000'), lonely = make('E5 (+10 HS)', '60,000');
+    const list = [base, crowded, lonely];
+    let listener;
+    const tbody = { dataset: {}, querySelectorAll: () => list, addEventListener: (type, fn) => { if (type === 'input') listener = fn; } };
+    global.document = { getElementById: id => id === 'class-rate-table-body' ? tbody : null };
+    G.attach({});
+    base.value = '50,000'; G.syncCombined();
+    assert.equal(crowded.value, '54,000');
+    assert.equal(lonely.value, '60,000', 'no base row: unchanged');
+    base.value = '5'; G.syncCombined();
+    assert.equal(crowded.value, '54,000', 'half-typed value is ignored');
+    listener({ target: { closest: () => crowded } });
+    base.value = '56,000'; G.syncCombined();
+    assert.equal(crowded.value, '54,000', 'typed by hand: stops following');
+    delete global.document;
+}
 console.log('class-rate-groups.test.js: combined classes follow highest component, block grouping passed');

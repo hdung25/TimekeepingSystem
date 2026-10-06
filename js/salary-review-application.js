@@ -25,6 +25,13 @@
             .toLowerCase().replace(/(^|\s)\S/g, letter => letter.toUpperCase()).trim();
     }
 
+    // "E4 (+10 HS)" is the crowded-class rate of "E4" (report.js row naming).
+    function studentCountOf(name, base) {
+        const prefix = String(base).toLowerCase();
+        return String(name).toLowerCase().startsWith(prefix) &&
+            /^\s*\(\s*\+\s*\d+\s*(?:hs|học\s*sinh)\s*\)$/i.test(String(name).slice(prefix.length));
+    }
+
     function validMonth(value) {
         return typeof value === 'string' && /^(?:19|[2-9]\d)\d{2}-(?:0[1-9]|1[0-2])$/.test(value);
     }
@@ -203,7 +210,20 @@
             changes.push({ subjectId: id, name, beforeRate: before, afterRate: newRate, beforeSource: origins[name] || 'no_monthly_rate' });
             mergedRates[name] = newRate;
         });
-        const selectedNames = new Set(changes.map(change => change.name));
+        // Lớp đông "Môn (+N HS)" follows its base subject: the gap to the old
+        // base rate is kept (48k/52k raised to 50k gives 50k/54k).
+        const followers = [];
+        changes.forEach(change => {
+            const delta = newRate - Number(change.beforeRate);
+            if (!(Number(change.beforeRate) > 0) || !delta) return;
+            Object.keys(mergedRates).filter(name => studentCountOf(name, change.name)).forEach(name => {
+                const beforeRate = Number(mergedRates[name]);
+                if (!(beforeRate > 0) || !(beforeRate + delta > 0)) return;
+                followers.push({ name, base: change.name, beforeRate, afterRate: beforeRate + delta, beforeSource: origins[name] || 'unchanged' });
+                mergedRates[name] = beforeRate + delta;
+            });
+        });
+        const selectedNames = new Set([...changes, ...followers].map(change => change.name));
         const preserved = Object.keys(mergedRates).filter(name => !selectedNames.has(name))
             .map(name => ({ name, rate: mergedRates[name], source: origins[name] || 'unchanged' }));
         const patch = { [target.key]: { ...copy(role), class_rates: mergedRates } };
@@ -223,18 +243,18 @@
             if (!doc) return;
             const later = roleFrom(doc, month, warnings);
             const rates = ratesFrom(later.data) || {};
-            const lifted = changes.filter(change => own(rates, change.name) && Number(rates[change.name]) > 0 && Number(rates[change.name]) < newRate)
-                .map(change => ({ name: change.name, beforeRate: Number(rates[change.name]), afterRate: newRate }));
+            const lifted = [...changes, ...followers].filter(change => own(rates, change.name) && Number(rates[change.name]) > 0 && Number(rates[change.name]) < change.afterRate)
+                .map(change => ({ name: change.name, beforeRate: Number(rates[change.name]), afterRate: change.afterRate }));
             const cleared = assertUncalculatedTarget(doc, options.getPayslipLifecycleState, month, true);
             if (!lifted.length && !cleared) return;
             const monthPatch = {};
-            if (lifted.length) monthPatch[later.key] = { class_rates: Object.fromEntries(lifted.map(item => [item.name, newRate])) };
+            if (lifted.length) monthPatch[later.key] = { class_rates: Object.fromEntries(lifted.map(item => [item.name, item.afterRate])) };
             if (cleared) { monthPatch.published = cleared; clearedDrafts.push({ month, before: copy(doc.published) }); }
             carried.push({ month, lifted, patch: monthPatch });
         });
         return {
             staffId: String(staffId), targetMonth, effectiveFrom: targetMonth + '-01',
-            effectiveRoleKey: target.key, mergedRates, changes, preserved, sourceMonths, inheritedMonth, patch, warnings,
+            effectiveRoleKey: target.key, mergedRates, changes, followers, preserved, sourceMonths, inheritedMonth, patch, warnings,
             backdated, carried, clearedDrafts,
             // Canonical comparison token, not a cryptographic hash. Service must
             // reread these sources inside its transaction, never trust the UI.

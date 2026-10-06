@@ -46,6 +46,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         assert.equal(await page.$eval('#srb-setup-title', el => el.textContent), 'Thiết lập chung cho Trần Gia Bảo');
         assert.deepEqual(await page.evaluate(() => window.SalaryReviewBoard.state.setup.keys), ['a|g0', 'a|g1', 'a|g2']);
         assert.equal(await page.$('#srb-setup-form [name="currentRate"]'), null, 'common setup must not overwrite different current prices');
+        assert.equal(await page.$eval('#srb-setup-form [name="baselineDate"]', el => el.value), '2026-07-01', 'shared baseline is prefilled, not blank');
         await page.evaluate(() => {
             const state = window.SalaryReviewBoard.state;
             window.__fixtureRows = state.rows;

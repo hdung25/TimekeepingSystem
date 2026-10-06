@@ -14,6 +14,7 @@
 
     const isCombined = name => typeof name === 'string' && name.includes('+') && !STUDENT_COUNT.test(name);
     const isSpecialRow = name => !name || STUDENT_COUNT.test(name) || /^Tiếp Tân/i.test(name);
+    const baseOfStudentRow = name => STUDENT_COUNT.test(String(name || '')) ? String(name).replace(STUDENT_COUNT, '').trim() : '';
     const componentsOf = name => String(name).split('+').map(part => norm(part.trim())).filter(Boolean);
 
     // Highest component rate; `rateOf` returns a number (0 = unknown).
@@ -67,8 +68,14 @@
             badge.className = 'crg-badge manual';
         }
     }
-    // Updates auto combined inputs only (no recalculation; the caller recalculates).
+    // Updates auto combined / crowded-class inputs only (no recalculation; the caller recalculates).
     function syncCombined() {
+        // "E4 (+10 HS)" keeps its gap to "E4": 48k/52k with E4 typed as 50k gives 54k.
+        inputs().filter(input => input.dataset.studentFollow === 'true' && !input.disabled).forEach(input => {
+            const base = rowRate(baseOfStudentRow(input.dataset.name));
+            const rate = Number(input.dataset.studentOwn) + base - Number(input.dataset.studentBase);
+            if (base >= 1000 && rate > 0) input.value = formatNumberWithCommas(rate); // ignore half-typed "5", "50"…
+        });
         inputs().filter(input => isCombined(input.dataset.name) && !input.disabled).forEach(input => {
             const { rate, from } = combinedRate(input.dataset.name, rowRate);
             if (input.dataset.combinedAuto === 'true' && rate > 0) input.value = formatNumberWithCommas(rate);
@@ -84,6 +91,12 @@
             const saved = Number(context.explicit[input.dataset.name]) || 0;
             input.dataset.combinedAuto = rate > 0 && (!saved || saved === rate) ? 'true' : 'false';
         });
+        inputs().filter(input => baseOfStudentRow(input.dataset.name) && !input.disabled).forEach(input => {
+            const base = inputs().find(item => item.dataset.name === baseOfStudentRow(input.dataset.name) && !item.disabled);
+            const own = parseFormattedNumber(input.value), baseRate = base ? parseFormattedNumber(base.value) : 0;
+            input.dataset.studentFollow = own > 0 && baseRate > 0 ? 'true' : 'false';
+            input.dataset.studentOwn = own; input.dataset.studentBase = baseRate;
+        });
         if (!table.dataset.crgBound) {
             table.dataset.crgBound = '1';
             // Capture phase: mark a typed combined rate as manual before the
@@ -91,6 +104,7 @@
             table.addEventListener('input', event => {
                 const input = event.target.closest?.('.class-rate-input');
                 if (input && isCombined(input.dataset.name)) input.dataset.combinedAuto = 'false';
+                if (input && baseOfStudentRow(input.dataset.name)) input.dataset.studentFollow = 'false';
             }, true);
             table.addEventListener('click', event => {
                 if (!event.target.closest('[data-crg-reset]')) return;

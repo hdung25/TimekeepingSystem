@@ -130,7 +130,8 @@
         if (problems.length) throw Error('Chưa duyệt. ' + problems.join('; ') + '. Mở Chi tiết để kiểm tra từng môn.');
         await S.applyApplication(prepared);
         await freshProfile(row.staffId);
-        return { rate, month: draft.month, redo: [...new Set(prepared.preview.clearedDrafts.map(item => item.month))] };
+        return { rate, month: draft.month, redo: [...new Set(prepared.preview.clearedDrafts.map(item => item.month))],
+            followers: (prepared.preview.followers || []).map(f => `${f.name} ${money(f.beforeRate)} → ${money(f.afterRate)}`) };
     }
     async function defer(row, reason, nextDate) {
         const profile = await ensureConfirmed(row, row.confirmed ? '' : draftFor(row).baseline);
@@ -342,6 +343,16 @@
             cycleMonths: g.cycleMonths ?? '', nextReviewDate: g.nextReviewDate || '', minimumHours: g.minimumHours ?? '',
             enabled: g.enabled !== false, note: g.note || '' };
     }
+    // Bulk popup starts from what every selected row already has in common
+    // (e.g. right after an approval: "Ngày tăng lương gần nhất" + its date);
+    // a field the rows disagree on stays empty = keep each row's own value.
+    function bulkDefaults(rows) {
+        const each = rows.map(setupDefaults);
+        const common = field => { const values = [...new Set(each.map(v => String(v[field] ?? '')))]; return values.length === 1 ? values[0] : ''; };
+        const baselineDate = common('baselineDate'), baselineKind = common('baselineKind');
+        return { baselineDate: baselineDate && baselineDate <= today() ? baselineDate : '', baselineKind: baselineKind || 'initial',
+            cycleMonths: common('cycleMonths'), nextReviewDate: common('nextReviewDate') };
+    }
     function readSetupForm(bulk) {
         const form = $('srb-setup-form'), data = new FormData(form), value = name => String(data.get(name) ?? '').trim();
         if (bulk) return { baselineDate: value('baselineDate'), baselineKind: value('baselineKind') || 'initial',
@@ -400,7 +411,7 @@
         const head = bulk
             ? `<h2 id="srb-setup-title">Thiết lập chung cho ${new Set(rows.map(r => r.staffId)).size === 1 ? esc(row.name) : new Set(rows.map(r => r.staffId)).size + ' giáo viên'}</h2><p>Áp dụng cho ${rows.length} nhóm môn. Ô để trống giữ nguyên từng nhóm; giá lương hiện tại giữ nguyên.</p>`
             : `<h2 id="srb-setup-title">${esc(row.name)} <span class="srb-code">${esc(row.code)}</span></h2><p>${esc(row.group.name.replace(/ · [\d.]+ đ$/, ''))} · ${esc(row.subjects.map(s => s.name).join(', '))}</p>`;
-        const v = bulk ? { baselineDate: '', baselineKind: 'initial', cycleMonths: '', nextReviewDate: '' } : setupDefaults(row);
+        const v = bulk ? bulkDefaults(rows) : setupDefaults(row);
         const fallbackCycle = bulk ? state.index.config.cycleMonths
             : P.evaluate({ ...row.group, cycleMonths: null, confirmed: true, baselineDate: v.baselineDate }, {}, state.index.config, today(), profileOf(row.staffId).personOverrides || {}).months;
         const kind = (value, label) => `<label class="srb-seg-item"><input type="radio" name="baselineKind" value="${value}" ${v.baselineKind === value ? 'checked' : ''}><span>${label}</span></label>`;
@@ -524,7 +535,8 @@
             if (action === 'approve') {
                 const done = await approve(row, draft);
                 const redo = done.redo.length ? ` Cần tính lại lương giáo viên ${done.redo.map(m => vnMonth(m).toLowerCase()).join(', ')}.` : '';
-                state.results[key] = { text: `Đã duyệt ${money(done.rate)}/giờ từ ${vnMonth(done.month).toLowerCase()}.${redo}` };
+                const follow = done.followers.length ? ` Lớp đông tăng theo: ${done.followers.join(', ')}.` : '';
+                state.results[key] = { text: `Đã duyệt ${money(done.rate)}/giờ từ ${vnMonth(done.month).toLowerCase()}.${follow}${redo}` };
                 state.open = ''; delete state.drafts[key];
                 message(isBackdated(done.month)
                     ? `Đã duyệt tăng lương cho ${row.name} từ ${vnMonth(done.month).toLowerCase()}.${redo}`
