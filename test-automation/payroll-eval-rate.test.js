@@ -3,7 +3,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const report = fs.readFileSync(path.join(__dirname, '..', 'js', 'report.js'), 'utf8');
+// Normalize CRLF (Windows checkout with core.autocrlf) so source slicing below matches.
+const report = fs.readFileSync(path.join(__dirname, '..', 'js', 'report.js'), 'utf8').replace(/\r\n/g, '\n');
 const html = fs.readFileSync(path.join(__dirname, '..', 'bao-cao.html'), 'utf8');
 const slice = (start, end) => report.slice(report.indexOf(start), report.indexOf(end, report.indexOf(start)));
 const fn = name => {

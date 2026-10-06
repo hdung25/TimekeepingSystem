@@ -254,8 +254,17 @@ async function main() {
         await db.doc('users/' + second).set({...user,id:second,username:'reviewteacher2',name:'Giáo viên Thứ Hai'});
         await db.doc('salary_settings_monthly/' + month + '_' + second).set({giao_vien:{class_rates:rates}});
     });
-    const boardReady = async () => page.waitForFunction(() => window.SalaryReviewBoard && !window.SalaryReviewBoard.state.loading &&
-        !window.SalaryReviewBoard.state.busy && window.SalaryReviewBoard.state.rows.length > 0 && !window.__payrollWritePending, { timeout: 60000 });
+    // Rows are grouped per teacher in collapsed <details>; expand every teacher so
+    // group-level controls are reachable (state.expanded survives re-renders).
+    const boardReady = async () => {
+        await page.waitForFunction(() => window.SalaryReviewBoard && !window.SalaryReviewBoard.state.loading &&
+            !window.SalaryReviewBoard.state.busy && window.SalaryReviewBoard.state.rows.length > 0 && !window.__payrollWritePending, { timeout: 60000 });
+        await page.evaluate(() => {
+            const board = window.SalaryReviewBoard, ids = board.state.rows.map(row => row.staffId);
+            if (ids.every(id => board.state.expanded?.has(id))) return;
+            board.state.expanded = new Set(ids); board.render();
+        });
+    };
     const boardError = async () => page.$eval('#srb-message', e => e.classList.contains('error') ? e.textContent : '');
     await page.setViewport({width:1440,height:1000});
     await page.goto(origin + '/xet-tang-luong.html', {waitUntil:'domcontentloaded'});
@@ -274,7 +283,6 @@ async function main() {
     await page.goto(origin + '/xet-tang-luong.html', { waitUntil: 'domcontentloaded' });
     await boardReady();
     await click('#srb-tabs [data-tab="all"]');
-    await page.click(`[data-teacher="${third}"] > summary .srb-who`);
     await click(`[data-action="toggle"][data-key="${thirdKey}"]`);
     assert.deepEqual(await page.$eval(`select[data-f="month"][data-key="${thirdKey}"]`, e => [...e.options].map(o => o.value)),
         [previous, month, future, Application.shiftMonth(month, 2), Application.shiftMonth(month, 3)], 'previous + current month selectable');

@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+// Normalize CRLF (Windows checkout with core.autocrlf) so source slicing below matches.
+const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 const schedule = read('js/schedule.js');
 const html = read('lich-lam.html');
 const worker = read('service-worker.js');
