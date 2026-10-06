@@ -1,8 +1,11 @@
-// Explicit future-month rate application. Pure preview only; never writes data.
+// Explicit rate application from the start of a month (next months, or up to
+// PAST_MONTHS back for an approved back-dated raise). Pure preview only.
 (function (global) {
     'use strict';
 
     const LOOKBACK_MONTHS = 6;
+    const PAST_MONTHS = 1;
+    const FUTURE_MONTHS = 3;
     const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
     const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
     const text = value => String(value == null ? '' : value).trim();
@@ -72,14 +75,27 @@
         return settings.class_rates;
     }
 
-    function assertUncalculatedTarget(document, getState) {
+    // Months whose saved rates/payslips a change from targetMonth reaches:
+    // target+1 .. currentMonth+FUTURE_MONTHS (the selectable horizon).
+    function followingMonths(targetMonth, currentMonth) {
+        const months = [];
+        for (let month = shiftMonth(targetMonth, 1); month <= shiftMonth(currentMonth, FUTURE_MONTHS); month = shiftMonth(month, 1)) months.push(month);
+        return months;
+    }
+
+    // Returns null when the teacher payroll of this month is not calculated;
+    // returns a cleared copy of `published` when only a teacher DRAFT exists
+    // (it was computed from the old rate and must be recalculated, never sent).
+    // Sent/received payslips, revision drafts and ambiguous legacy are refused.
+    function assertUncalculatedTarget(document, getState, month, allowDraft) {
+        const label = month ? `Tháng ${Number(month.slice(5))}/${month.slice(0, 4)}` : 'Tháng áp dụng';
         if (document.revisionDrafts && document.revisionDrafts.gv != null) {
-            fail('calculated-target', 'Tháng áp dụng đã có bản hiệu chỉnh giáo viên. Chọn kỳ chưa tính lương.');
+            fail('calculated-target', label + ' đã có bản hiệu chỉnh giáo viên. Xử lý bản hiệu chỉnh ở Tính lương trước.');
         }
         const published = document.published;
-        if (published == null) return;
+        if (published == null) return null;
         if (!record(published)) fail('invalid-source', 'Bản lương đã lưu không hợp lệ. Hãy đối chiếu trước khi áp giá.');
-        if (!Object.keys(published).length) return;
+        if (!Object.keys(published).length) return null;
         if (typeof getState !== 'function') fail('missing-lifecycle', 'Chưa tải được trạng thái bảng lương. Hãy tải lại.');
         const state = getState(published);
         if (!state || typeof state.has_gv !== 'boolean') fail('missing-lifecycle', 'Chưa xác định được trạng thái bảng lương.');
@@ -88,18 +104,27 @@
         const operationalRole = ['tiep-tan', 'tiep_tan', 'receptionist'].includes(role);
         const ambiguousLegacy = !operationalRole && !state.has_tt &&
             ['details', 'netPay', 'baseSalary', 'status'].some(key => own(published, key));
-        if (state.has_gv || state.locked_gv || teachingRole || ambiguousLegacy || published.details_gv != null) {
-            fail('calculated-target', 'Tháng áp dụng đã có bản tính hoặc phiếu lương giáo viên. Chọn kỳ chưa tính lương.');
+        const calculated = state.has_gv || state.locked_gv || teachingRole || ambiguousLegacy || published.details_gv != null;
+        if (!calculated) return null;
+        if (!allowDraft) fail('calculated-target', 'Tháng áp dụng đã có bản tính hoặc phiếu lương giáo viên. Chọn kỳ chưa tính lương.');
+        if (state.locked_gv) fail('calculated-target', label + ' đã gửi phiếu lương giáo viên. Thu hồi phiếu đó ở Tính lương rồi duyệt lại.');
+        if (!state.explicit_gv && !teachingRole && role !== 'dual') {
+            fail('calculated-target', label + ' có bản lương kiểu cũ chưa rõ trạng thái. Mở Tính lương tháng đó để lưu lại trước.');
         }
+        const cleared = { ...published, details_gv: null };
+        cleared.details = teachingRole ? null : (published.details_tt ?? null);
+        return cleared;
     }
 
     function buildPreview(input) {
         const options = input || {};
         const { staffId, targetMonth, currentMonth } = options;
         if (!text(staffId)) fail('invalid-staff', 'Chưa chọn nhân viên áp dụng.');
-        if (!validMonth(targetMonth) || !validMonth(currentMonth) || targetMonth <= currentMonth) {
-            fail('invalid-month', 'Mức mới chỉ áp dụng từ đầu một tháng sau tháng hiện tại.');
+        if (!validMonth(targetMonth) || !validMonth(currentMonth) || targetMonth < shiftMonth(currentMonth, -PAST_MONTHS) ||
+            targetMonth > shiftMonth(currentMonth, FUTURE_MONTHS)) {
+            fail('invalid-month', `Mức mới chỉ áp dụng từ tháng trước (${shiftMonth(currentMonth, -PAST_MONTHS)}) đến ${FUTURE_MONTHS} tháng tới.`);
         }
+        const backdated = targetMonth <= currentMonth;
         // Undefined means not loaded. Null means a confirmed missing document.
         for (const field of ['targetDoc', 'defaults']) {
             if (!own(options, field) || (options[field] !== null && !record(options[field]))) {
@@ -115,7 +140,7 @@
         const newRate = Number(options.newRate);
         if (!Number.isSafeInteger(newRate) || newRate <= 0) fail('invalid-rate', 'Mức mới phải là số tiền nguyên lớn hơn 0 đ/giờ.');
         const targetDoc = options.targetDoc || {};
-        assertUncalculatedTarget(targetDoc, options.getPayslipLifecycleState);
+        const clearedTarget = assertUncalculatedTarget(targetDoc, options.getPayslipLifecycleState, targetMonth, backdated);
         const warnings = [];
         const target = roleFrom(targetDoc, targetMonth, warnings);
         const role = target.exists ? target.data : options.defaults || {};
@@ -182,17 +207,43 @@
         const preserved = Object.keys(mergedRates).filter(name => !selectedNames.has(name))
             .map(name => ({ name, rate: mergedRates[name], source: origins[name] || 'unchanged' }));
         const patch = { [target.key]: { ...copy(role), class_rates: mergedRates } };
+        const clearedDrafts = [];
+        if (clearedTarget) { patch.published = clearedTarget; clearedDrafts.push({ month: targetMonth, before: copy(targetDoc.published) }); }
+
+        // Later months keep their own saved rates, so a saved lower rate for a
+        // changed subject would override the raise; lift it (never lower, never
+        // touch a saved 0). Months without one inherit the new rate already.
+        const laterDocs = record(options.laterDocs) ? options.laterDocs : null;
+        const carried = [];
+        followingMonths(targetMonth, currentMonth).forEach(month => {
+            if (!laterDocs || !own(laterDocs, month) || (laterDocs[month] !== null && !record(laterDocs[month]))) {
+                fail('incomplete-history', `Chưa tải đủ đơn giá tháng ${month}. Hãy tải lại.`);
+            }
+            const doc = laterDocs[month];
+            if (!doc) return;
+            const later = roleFrom(doc, month, warnings);
+            const rates = ratesFrom(later.data) || {};
+            const lifted = changes.filter(change => own(rates, change.name) && Number(rates[change.name]) > 0 && Number(rates[change.name]) < newRate)
+                .map(change => ({ name: change.name, beforeRate: Number(rates[change.name]), afterRate: newRate }));
+            const cleared = assertUncalculatedTarget(doc, options.getPayslipLifecycleState, month, true);
+            if (!lifted.length && !cleared) return;
+            const monthPatch = {};
+            if (lifted.length) monthPatch[later.key] = { class_rates: Object.fromEntries(lifted.map(item => [item.name, newRate])) };
+            if (cleared) { monthPatch.published = cleared; clearedDrafts.push({ month, before: copy(doc.published) }); }
+            carried.push({ month, lifted, patch: monthPatch });
+        });
         return {
             staffId: String(staffId), targetMonth, effectiveFrom: targetMonth + '-01',
             effectiveRoleKey: target.key, mergedRates, changes, preserved, sourceMonths, inheritedMonth, patch, warnings,
+            backdated, carried, clearedDrafts,
             // Canonical comparison token, not a cryptographic hash. Service must
             // reread these sources inside its transaction, never trust the UI.
             sourceFingerprint: fingerprint({ staffId, targetMonth, salaryConfig: config, defaults: options.defaults,
                 targetDoc: options.targetDoc, history: Object.fromEntries(sourceMonths.map(month => [month, options.history[month]])),
-                catalog: options.catalog, group: options.group, selectedSubjectIds: ids, newRate })
+                catalog: options.catalog, group: options.group, selectedSubjectIds: ids, newRate, laterDocs })
         };
     }
 
-    global.SalaryReviewApplication = { LOOKBACK_MONTHS, payrollName, shiftMonth, fingerprint, buildPreview };
+    global.SalaryReviewApplication = { LOOKBACK_MONTHS, PAST_MONTHS, FUTURE_MONTHS, payrollName, shiftMonth, followingMonths, fingerprint, buildPreview };
     if (typeof module !== 'undefined' && module.exports) module.exports = global.SalaryReviewApplication;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -260,6 +260,52 @@ async function main() {
     await page.setViewport({width:1440,height:1000});
     await page.goto(origin + '/xet-tang-luong.html', {waitUntil:'domcontentloaded'});
     await boardReady();
+    // Back-dated approval (owner 06/10/2026: "áp dụng từ tháng 9"): previous
+    // month rates + its teacher draft dropped; current month's saved lower rate lifted.
+    const third = 'review-teacher-3', thirdKey = third + '|review-math:level1:overview:32000';
+    const thirdDraft = { role: 'giao-vien', status: 'draft', status_gv: 'draft', netPay: 100, details_gv: { netPay: 100 }, details: { netPay: 100 }, message: 'giữ lời nhắn' };
+    await env.withSecurityRulesDisabled(async c => {
+        const db = c.firestore();
+        const user = (await db.doc('users/' + staff).get()).data();
+        await db.doc('users/' + third).set({ ...user, id: third, username: 'reviewteacher3', name: 'Giáo viên Thứ Ba' });
+        await db.doc('salary_settings_monthly/' + previous + '_' + third).set({ giao_vien: { advance: 7000, class_rates: rates }, published: thirdDraft });
+        await db.doc('salary_settings_monthly/' + month + '_' + third).set({ giao_vien: { class_rates: rates } });
+    });
+    await page.goto(origin + '/xet-tang-luong.html', { waitUntil: 'domcontentloaded' });
+    await boardReady();
+    await click('#srb-tabs [data-tab="all"]');
+    await page.click(`[data-teacher="${third}"] > summary .srb-who`);
+    await click(`[data-action="toggle"][data-key="${thirdKey}"]`);
+    assert.deepEqual(await page.$eval(`select[data-f="month"][data-key="${thirdKey}"]`, e => [...e.options].map(o => o.value)),
+        [previous, month, future, Application.shiftMonth(month, 2), Application.shiftMonth(month, 3)], 'previous + current month selectable');
+    assert.equal(await page.$('.srb-backdated'), null, 'no warning for the default next month');
+    await fill(`select[data-f="month"][data-key="${thirdKey}"]`, previous);
+    await page.waitForSelector('.srb-backdated', { visible: true });
+    await shot('board-backdated');
+    await click(`[data-action="approve"][data-key="${thirdKey}"]`);
+    await boardReady(); assert.equal(await boardError(), '');
+    assert.match(await page.$eval('#srb-message', e => e.textContent), /Cần tính lại lương giáo viên/);
+    const thirdPrev = await readRecord('salary_settings_monthly/' + previous + '_' + third);
+    assert.equal(thirdPrev.giao_vien.class_rates['Toán 1'], 34000); assert.equal(thirdPrev.giao_vien.class_rates['Toán 5'], 34000);
+    assert.equal(thirdPrev.giao_vien.class_rates['E5'], 56000); assert.equal(thirdPrev.giao_vien.advance, 7000);
+    assert.equal(thirdPrev.published.details_gv, null); assert.equal(thirdPrev.published.details, null);
+    assert.equal(thirdPrev.published.message, 'giữ lời nhắn'); assert.equal(thirdPrev.published.status_gv, 'draft');
+    const thirdNow = await readRecord('salary_settings_monthly/' + month + '_' + third);
+    assert.equal(thirdNow.giao_vien.class_rates['Toán 1'], 34000, 'current month saved old rate is lifted');
+    assert.equal(thirdNow.giao_vien.class_rates['E5'], 56000); assert.equal(thirdNow.giao_vien.class_rates['Toán 2'], 34000);
+    const thirdProfile = await readRecord('salary_review_profiles/' + third);
+    const thirdGroup = thirdProfile.groups.find(g => g.id === 'review-math:level1:overview:32000');
+    assert.equal(thirdGroup.currentRate, 34000); assert.equal(thirdGroup.baselineDate, previous + '-01');
+    let thirdHistory;
+    await env.withSecurityRulesDisabled(async c => { thirdHistory = (await c.firestore().collection('salary_review_profiles/' + third + '/history').get()).docs.map(d => d.data()); });
+    const thirdApproved = thirdHistory.find(h => h.kind === 'approved');
+    assert.equal(thirdApproved.backdated, true);
+    assert.deepEqual(thirdApproved.clearedDrafts.map(d => d.month), [previous]);
+    assert.deepEqual(thirdApproved.clearedDrafts[0].before, thirdDraft);
+    assert.deepEqual(thirdApproved.carried.map(c => c.month), [month]);
+    assert.deepEqual(await snapshotSources(), original, 'other teachers untouched');
+    assert.deepEqual(evidence.errors, []);
+    evidence.results.push('Back-dated approval: previous month rates + draft cleared, current month lifted, audit kept');
     assert.equal(await page.$eval('#srb', e => e.hidden), false, 'board is the default view');
     assert.match(await page.$eval('#srb-summary', e => e.innerText), /Đến hạn tháng này/);
     await click('#srb-tabs [data-tab="all"]');
@@ -373,6 +419,7 @@ async function main() {
     assert.deepEqual(await snapshotSources(), original, 'board decisions preserve previous/current salary and attendance');
     assert.deepEqual(evidence.errors,[]);
     await shot('board-desktop-applied');
+
     evidence.results.push('Board: estimated baselines, one-click approval, bulk ladder step, deferral, detail round-trip, mobile layout and source preservation');
     console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/board/setup/mobile + source preservation');
 }

@@ -19,7 +19,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         await page.setContent(read('xet-tang-luong.html').replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<link\b[^>]*>/g, ''));
         await page.addStyleTag({ content: (read('css/style.css') + read('css/salary-review.css')).replace(/@import[^;]+;/g, '') });
         await page.evaluate(() => { window.DBService = {}; window.SalaryReviewService = {}; });
-        for (const file of ['salary-review-policy.js', 'salary-review-overview-policy.js', 'salary-review-board-policy.js', 'salary-review-board.js']) {
+        for (const file of ['salary-review-policy.js', 'salary-review-application.js', 'salary-review-overview-policy.js', 'salary-review-board-policy.js', 'salary-review-board.js']) {
             await page.addScriptTag({ content: read('js/' + file) });
         }
         await page.evaluate(() => {

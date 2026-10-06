@@ -203,7 +203,7 @@ const profileKey='salary_review_profiles/teacher',targetKey='salary_settings_mon
     }
     {
         const h=harness(),prepared=await prepare(h);h.today('2026-10-01');
-        await assert.rejects(h.service.applyApplication(prepared),/tháng sau tháng hiện tại/);
+        await assert.rejects(h.service.applyApplication(prepared),/sang tháng mới/);
         assert.equal(h.commits(),0,'reviewed proposal must not become retroactive while left open overnight');
     }
     console.log('salary-review-service.test.js: atomic apply/cancel, source CAS, retry, idempotency, legacy preservation and permissions passed');

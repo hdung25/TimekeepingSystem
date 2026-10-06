@@ -20,13 +20,31 @@
         el.textContent = text || '';
         el.classList.toggle('error', !!isError);
     }
+    // Tháng trước + tháng này (duyệt hồi tố) rồi 3 tháng tới; mặc định vẫn là tháng sau.
     function targetMonths() {
-        const first = P.addMonths(today().slice(0, 7) + '-01', 1);
-        return [0, 1, 2].map(i => P.addMonths(first, i).slice(0, 7));
+        const A = window.SalaryReviewApplication, current = today().slice(0, 7);
+        const months = [];
+        for (let i = -A.PAST_MONTHS; i <= A.FUTURE_MONTHS; i++) months.push(A.shiftMonth(current, i));
+        return months;
+    }
+    function defaultMonth() { return window.SalaryReviewApplication.shiftMonth(today().slice(0, 7), 1); }
+    function isBackdated(month) { return !!month && month <= today().slice(0, 7); }
+    function monthOptions(selected) {
+        const current = today().slice(0, 7);
+        return targetMonths().map(m => `<option value="${m}" ${m === selected ? 'selected' : ''}>${vnMonth(m)}${m < current ? ' (đã qua)' : m === current ? ' (tháng này)' : ''}</option>`).join('');
+    }
+    function backdatedHint(month) {
+        if (!isBackdated(month)) return '';
+        const label = vnMonth(month).toLowerCase();
+        return `<p class="srb-backdated">Áp lại từ ${esc(label)}: đơn giá ${esc(label)} và các tháng sau được nâng lên mức mới. Bản tính lương nháp giáo viên của các tháng này sẽ bị bỏ để tính lại; phiếu đã gửi thì phải thu hồi trước.</p>`;
+    }
+    function backdatedConfirm(month, who) {
+        if (!isBackdated(month)) return true;
+        return window.confirm(`Duyệt mức mới áp lại từ ${vnMonth(month).toLowerCase()} cho ${who}?\n\nĐơn giá ${vnMonth(month).toLowerCase()} trở đi sẽ đổi. Sau khi duyệt cần mở Tính lương ${vnMonth(month).toLowerCase()} để tính lại lương giáo viên trước khi gửi phiếu.`);
     }
     function rowByKey(key) { return state.rows.find(row => row.key === key); }
     function draftFor(row) {
-        if (!state.drafts[row.key]) state.drafts[row.key] = { rate: row.nextRate ?? '', month: targetMonths()[0], note: '',
+        if (!state.drafts[row.key]) state.drafts[row.key] = { rate: row.nextRate ?? '', month: defaultMonth(), note: '',
             baseline: row.baselineDate || today(), mode: '', reason: '', nextDate: P.addMonths(today(), row.evaluation?.months || 3) };
         return state.drafts[row.key];
     }
@@ -112,7 +130,7 @@
         if (problems.length) throw Error('Chưa duyệt. ' + problems.join('; ') + '. Mở Chi tiết để kiểm tra từng môn.');
         await S.applyApplication(prepared);
         await freshProfile(row.staffId);
-        return { rate, month: draft.month };
+        return { rate, month: draft.month, redo: [...new Set(prepared.preview.clearedDrafts.map(item => item.month))] };
     }
     async function defer(row, reason, nextDate) {
         const profile = await ensureConfirmed(row, row.confirmed ? '' : draftFor(row).baseline);
@@ -214,9 +232,10 @@
             ${row.confirmed ? '' : `<label class="srb-baseline">Tính hạn xét từ<input type="date" data-f="baseline" data-key="${key}" value="${esc(draft.baseline)}" max="${today()}"><small>${row.estimate?.known ? 'Ước tính từ giá đã nhập. Sửa nếu biết ngày tăng lương thật.' : 'Chưa thấy lịch sử giá; mặc định hôm nay.'}</small></label>`}
             <div class="srb-fields">
                 <div><span class="srb-label">Mức mới (đ/giờ)</span><div class="srb-chips">${ladderChips(row, draft)}<input type="number" inputmode="numeric" data-f="rate" data-key="${key}" value="${esc(draft.rate)}" min="1" step="500" aria-label="Mức mới đ/giờ"></div></div>
-                <label>Áp dụng từ<select data-f="month" data-key="${key}">${targetMonths().map(m => `<option value="${m}" ${m === draft.month ? 'selected' : ''}>${vnMonth(m)}</option>`).join('')}</select></label>
+                <label>Áp dụng từ<select data-f="month" data-key="${key}">${monthOptions(draft.month)}</select></label>
                 <label class="srb-grow">Ghi chú (không bắt buộc)<input data-f="note" data-key="${key}" value="${esc(draft.note)}" maxlength="2000" placeholder="Ví dụ: dạy đều, phụ huynh khen"></label>
             </div>
+            ${backdatedHint(draft.month)}
             <p class="srb-changes">${changes}${next ? `<span class="srb-muted">Lần xét tiếp khoảng ${vnDate(next)}</span>` : ''}</p>
             <div class="srb-actions">
                 <button type="button" class="srb-btn srb-primary" data-action="approve" data-key="${key}">Duyệt tăng lên ${valid ? money(rate) : '…'}</button>
@@ -237,8 +256,9 @@
                 <div class="srb-bulktable">${buckets.map(bucket => { const row = bucket[0], item = items.find(x => x.row.key === row.key).item;
                     return `<div class="srb-bulkrow"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(bucket.flatMap(r => r.subjects.map(s => s.name)))].join(', '))}</small></span><span>${money(row.currentRate)} →</span><input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}"></div>`;
                 }).join('')}</div>
-                <div class="srb-fields"><label>Áp dụng từ<select id="srb-bulk-month">${targetMonths().map(m => `<option value="${m}" ${m === state.bulk.month ? 'selected' : ''}>${vnMonth(m)}</option>`).join('')}</select></label>
+                <div class="srb-fields"><label>Áp dụng từ<select id="srb-bulk-month">${monthOptions(state.bulk.month)}</select></label>
                 <label class="srb-grow">Ghi chú chung (không bắt buộc)<input id="srb-bulk-note" value="${esc(state.bulk.note)}" maxlength="2000"></label></div>
+                ${backdatedHint(state.bulk.month)}
                 <div class="srb-actions"><button type="button" class="srb-btn srb-primary" data-action="bulk-apply">Duyệt ${items.length} mức</button><button type="button" class="srb-btn" data-action="bulk-cancel">Thôi</button></div></div>`;
         }
         if (!rows.length) return '';
@@ -498,13 +518,17 @@
         if (action === 'pick') return;
         if (action === 'not') { draft.mode = 'not'; render(); return; }
         if (action === 'not-cancel') { draft.mode = ''; render(); return; }
+        if (action === 'approve' && !backdatedConfirm(draft.month, row.name)) return;
         withWrite(async () => {
             delete state.results[key];
             if (action === 'approve') {
                 const done = await approve(row, draft);
-                state.results[key] = { text: `Đã duyệt ${money(done.rate)}/giờ từ ${vnMonth(done.month).toLowerCase()}.` };
+                const redo = done.redo.length ? ` Cần tính lại lương giáo viên ${done.redo.map(m => vnMonth(m).toLowerCase()).join(', ')}.` : '';
+                state.results[key] = { text: `Đã duyệt ${money(done.rate)}/giờ từ ${vnMonth(done.month).toLowerCase()}.${redo}` };
                 state.open = ''; delete state.drafts[key];
-                message(`Đã duyệt tăng lương cho ${row.name}. Giá các tháng đã tính lương giữ nguyên.`);
+                message(isBackdated(done.month)
+                    ? `Đã duyệt tăng lương cho ${row.name} từ ${vnMonth(done.month).toLowerCase()}.${redo}`
+                    : `Đã duyệt tăng lương cho ${row.name}. Giá các tháng đã tính lương giữ nguyên.`);
             } else if (action === 'defer') {
                 const next = P.addMonths(today(), 1);
                 await defer(row, draft.note.trim() || 'Hẹn xét lại sau 1 tháng', next);
@@ -526,12 +550,13 @@
     }
     async function bulkApply() {
         const items = state.bulk.items.slice(), month = state.bulk.month, note = state.bulk.note.trim();
-        let done = 0; const failed = [];
+        let done = 0; const failed = [], redo = new Set();
         for (const item of items) {
             const row = rowByKey(item.key);
             if (!row) continue;
             try {
-                await approve(row, { rate: item.rate, month, note, baseline: row.baselineDate });
+                const result = await approve(row, { rate: item.rate, month, note, baseline: row.baselineDate });
+                if (result.redo.length) redo.add(row.name);
                 state.results[item.key] = { text: `Đã duyệt ${money(Number(item.rate))}/giờ từ ${vnMonth(month).toLowerCase()}.` };
                 state.selected.delete(item.key); done++;
             } catch (error) {
@@ -541,7 +566,8 @@
             rebuild();
         }
         state.bulk = null;
-        message(`Đã duyệt ${done}/${items.length} mức.` + (failed.length ? ' Chưa duyệt: ' + failed.join(', ') + ' (xem lý do dưới từng dòng).' : ''), failed.length > 0);
+        message(`Đã duyệt ${done}/${items.length} mức.` + (redo.size ? ` Cần tính lại lương giáo viên ${vnMonth(month).toLowerCase()} cho: ${[...redo].join(', ')}.` : '') +
+            (failed.length ? ' Chưa duyệt: ' + failed.join(', ') + ' (xem lý do dưới từng dòng).' : ''), failed.length > 0);
     }
     function bulkAction(action) {
         const rows = [...state.selected].map(rowByKey).filter(row => row && row.group && !row.pending && !row.disabled);
@@ -549,13 +575,14 @@
         if (action === 'bulk-cancel') { state.bulk = null; render(); return; }
         if (action === 'bulk-increase') {
             if (!rows.length) return;
-            state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: targetMonths()[0], note: '' };
+            state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '' };
             render(); return;
         }
         if (action === 'bulk-apply') {
             try {
                 state.bulk.items.forEach(item => { const row = rowByKey(item.key); if (row) checkRate(item.rate, row); });
             } catch (error) { message(error.message, true); return; }
+            if (!backdatedConfirm(state.bulk.month, state.bulk.items.length + ' mức đã chọn')) return;
             withWrite(bulkApply); return;
         }
         if (action === 'bulk-defer') {
@@ -605,7 +632,7 @@
             if (!rows.length) return;
             if (action === 'teacher-setup') openSetup(rows.map(row => row.key), true);
             else {
-                state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: targetMonths()[0], note: '' };
+                state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '' };
                 render(); $('srb-bulk').scrollIntoView({ block: 'start', behavior: 'smooth' });
             }
             return;
@@ -650,7 +677,7 @@
             render(); return;
         }
         if (el.dataset.select) { el.checked ? state.selected.add(el.dataset.select) : state.selected.delete(el.dataset.select); render(); return; }
-        if (el.id === 'srb-bulk-month' && state.bulk) { state.bulk.month = el.value; return; }
+        if (el.id === 'srb-bulk-month' && state.bulk) { state.bulk.month = el.value; render(); return; }
         if (el.dataset.f === 'month' && el.dataset.key) { const row = rowByKey(el.dataset.key); if (row) { draftFor(row).month = el.value; render(); } }
     });
     $('srb-back').addEventListener('click', showBoard);

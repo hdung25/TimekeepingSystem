@@ -165,7 +165,9 @@
         const actor=await admin(),today=P().dateKey();
         const reason=text(command?.reason),targetMonth=text(command?.targetMonth,7);
         if(!reason)throw Error('Nhập lý do duyệt mức mới.');
-        if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)||targetMonth<=today.slice(0,7))throw Error('Chỉ áp dụng từ đầu một tháng sau tháng hiện tại.');
+        const currentMonth=today.slice(0,7);
+        if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)||targetMonth<A().shiftMonth(currentMonth,-A().PAST_MONTHS)||targetMonth>A().shiftMonth(currentMonth,A().FUTURE_MONTHS))
+            throw Error('Chỉ áp dụng từ đầu tháng trước, tháng này hoặc '+A().FUTURE_MONTHS+' tháng tới.');
         if(!Array.isArray(command.selectedSubjectIds)||!command.selectedSubjectIds.length||command.selectedSubjectIds.length>100)throw Error('Chọn các môn được áp mức mới.');
         const newRate=integer(command.newRate,1,10000000,'Mức mới');
         if(newRate===null)throw Error('Nhập mức mới.');
@@ -174,21 +176,24 @@
         const targetRef=document('salary_settings_monthly',targetMonth+'_'+staffId);
         const months=Array.from({length:6},(_,i)=>A().shiftMonth(targetMonth,-i-1));
         const historyRefs=months.map(month=>document('salary_settings_monthly',month+'_'+staffId));
-        const [profile,config,user,legacy,targetDoc,historyRows,catalog]=await Promise.all([
+        const laterMonths=A().followingMonths(targetMonth,currentMonth);
+        const laterRefs=laterMonths.map(month=>document('salary_settings_monthly',month+'_'+staffId));
+        const [profile,config,user,legacy,targetDoc,historyRows,catalog,laterRows]=await Promise.all([
             read(profileRef),read(settingsRef),read(userRef),read(defaultsRef),read(targetRef),
-            limited(historyRefs,read),all('subjects')
+            limited(historyRefs,read),all('subjects'),limited(laterRefs,read)
         ]);
         if(!user||!P().isTeacher({...user,id:staffId}))throw Error('Nhân viên không còn là giáo viên / trợ giảng đang hoạt động.');
         checkRevision(profile,expectedRevision);
         const group=confirmedGroup(profile,groupId,today);
         const history=Object.fromEntries(months.map((month,i)=>[month,historyRows[i]]));
+        const laterDocs=Object.fromEntries(laterMonths.map((month,i)=>[month,laterRows[i]]));
         const selectedSubjectIds=[...new Set(command.selectedSubjectIds.map(String))];
         const preview=A().buildPreview({staffId,user:{id:staffId,salary_config:user.salary_config||{}},defaults:legacy,targetDoc,
-            history,catalog,group,selectedSubjectIds,newRate,targetMonth,currentMonth:today.slice(0,7),getPayslipLifecycleState:D().getPayslipLifecycleState});
+            history,catalog,group,selectedSubjectIds,newRate,targetMonth,currentMonth,laterDocs,getPayslipLifecycleState:D().getPayslipLifecycleState});
         const operationRef=profileRef.collection('history').doc();
-        const context={operationId:operationRef.id,actorUid:actor.uid,staffId,groupId,reason,newRate,targetMonth,selectedSubjectIds,
-            profileRef,settingsRef,userRef,defaultsRef,targetRef,operationRef,historyRefs,months,catalog,
-            baseline:{profile,config,user:userSource(user),legacy,targetDoc,history},preview};
+        const context={operationId:operationRef.id,actorUid:actor.uid,staffId,groupId,reason,newRate,targetMonth,currentMonth,selectedSubjectIds,
+            profileRef,settingsRef,userRef,defaultsRef,targetRef,operationRef,historyRefs,months,laterRefs,laterMonths,catalog,
+            baseline:{profile,config,user:userSource(user),legacy,targetDoc,history,laterDocs},preview};
         preparedApplications.set(operationRef.id,context);
         if(preparedApplications.size>64)preparedApplications.delete(preparedApplications.keys().next().value);
         // Mutable UI fields are never accepted as the command to commit. The
@@ -215,21 +220,25 @@
                 sourceChanged();
             }
             const refs=[context.profileRef,context.settingsRef,context.userRef,context.defaultsRef,context.targetRef,
-                ...context.historyRefs,...catalogRefs];
+                ...context.historyRefs,...context.laterRefs,...catalogRefs];
             const rows=await Promise.all(refs.map(ref=>tx.get(ref)));
             const data=rows.map(s=>s.exists?s.data():null);
             const [profile,config,user,legacy,targetDoc]=data;
             const history=Object.fromEntries(context.months.map((month,i)=>[month,data[5+i]]));
-            const catalog=rows.slice(5+context.months.length).map((s,i)=>s.exists?{...s.data(),id:context.catalog[i].id}:null);
+            const laterStart=5+context.months.length;
+            const laterDocs=Object.fromEntries(context.laterMonths.map((month,i)=>[month,data[laterStart+i]]));
+            const catalog=rows.slice(laterStart+context.laterMonths.length).map((s,i)=>s.exists?{...s.data(),id:context.catalog[i].id}:null);
             if(stable(profile)!==stable(context.baseline.profile)||stable(config)!==stable(context.baseline.config)||
                 stable(userSource(user))!==stable(context.baseline.user)||stable(legacy)!==stable(context.baseline.legacy)||
-                stable(targetDoc)!==stable(context.baseline.targetDoc)||stable(history)!==stable(context.baseline.history)||
+                stable(targetDoc)!==stable(context.baseline.targetDoc)||stable(history)!==stable(context.baseline.history)||stable(laterDocs)!==stable(context.baseline.laterDocs)||
                 catalog.some(s=>!s)||stable(catalogSource(catalog))!==stable(catalogSource(context.catalog)))sourceChanged();
             if(!P().isTeacher({...user,id:context.staffId}))throw Error('Nhân viên không còn là giáo viên / trợ giảng đang hoạt động.');
             const today=P().dateKey(),group=confirmedGroup(profile,context.groupId,today);
+            // A preview left open across a month boundary would silently change meaning (future → back-dated).
+            if(today.slice(0,7)!==context.currentMonth)throw Error('Bản xem trước được lập từ tháng trước, nay đã sang tháng mới. Hãy xem trước lại.');
             const preview=A().buildPreview({staffId:context.staffId,user:{id:context.staffId,salary_config:user.salary_config||{}},defaults:legacy,targetDoc,
                 history,catalog,group,selectedSubjectIds:context.selectedSubjectIds,newRate:context.newRate,targetMonth:context.targetMonth,
-                currentMonth:today.slice(0,7),getPayslipLifecycleState:D().getPayslipLifecycleState});
+                currentMonth:today.slice(0,7),laterDocs,getPayslipLifecycleState:D().getPayslipLifecycleState});
             const previousGroup={...group};delete previousGroup.scheduledChange;
             const afterGroup={...previousGroup,subjectIds:context.selectedSubjectIds.slice(),currentRate:context.newRate,baselineDate:preview.effectiveFrom,baselineKind:'increase',lastIncreaseDate:preview.effectiveFrom,
                 nextReviewDate:'',lastDecisionId:context.operationId,scheduledChange:{operationId:context.operationId,targetMonth:context.targetMonth,
@@ -244,15 +253,19 @@
                 history:Object.fromEntries(preview.sourceMonths.map(month=>[month,
                     history[month]?.giao_vien||history[month]?.['giao-vien']||null]))};
             tx.set(context.targetRef,preview.patch,{merge:true});
+            // Back-dated raise: lift lower saved rates in later months and drop
+            // teacher payslip drafts computed from the old rate (see buildPreview).
+            preview.carried.forEach(item=>tx.set(document('salary_settings_monthly',item.month+'_'+context.staffId),item.patch,{merge:true}));
             tx.update(context.profileRef,{groups,revision,updatedAt:createdAt,updatedBy:actor.uid,lastHistoryId:context.operationId});
             tx.set(context.operationRef,{kind:'approved',operationId:context.operationId,groupId:context.groupId,groupName:group.name,
                 reason:context.reason,targetMonth:context.targetMonth,effectiveFrom:preview.effectiveFrom,newRate:context.newRate,
                 reviewDate:today,reviewSettings:settings(config||{}),personOverrides:profile.personOverrides||{},
                 selectedSubjectIds:context.selectedSubjectIds,beforeGroup:group,afterGroup,effectiveRoleKey,beforeRoleExists,beforeRole,afterRole,
-                changes:preview.changes,sourceMonths:preview.sourceMonths,sourceRates,revision,createdAt,recordedAt:serverTimestamp(),actorUid:actor.uid,actorUserId:actor.userId});
+                changes:preview.changes,sourceMonths:preview.sourceMonths,sourceRates,backdated:preview.backdated,
+                carried:preview.carried.map(item=>({month:item.month,lifted:item.lifted})),clearedDrafts:preview.clearedDrafts,revision,createdAt,recordedAt:serverTimestamp(),actorUid:actor.uid,actorUserId:actor.userId});
             return {applied:true,alreadyApplied:false,operationId:context.operationId,targetMonth:context.targetMonth};
         });
-        D()._invalidate?.(`all_monthly_salary_settings_${context.targetMonth}`);
+        [context.targetMonth,...context.laterMonths].forEach(month=>D()._invalidate?.(`all_monthly_salary_settings_${month}`));
         return result;
     }
 

@@ -19,8 +19,12 @@ const catalog = [
     {id: 'english', name: 'E1', parentId: 'school'},
     {id: 'communication', name: 'FFS1', parentId: 'talk'}
 ];
+function laterNulls(targetMonth, currentMonth) {
+    try { return Object.fromEntries(Application.followingMonths(targetMonth, currentMonth).map(month => [month, null])); }
+    catch { return {}; }
+}
 function fixture(overrides = {}) {
-    return {
+    const input = {
         staffId: 'teacher', user: {id: 'teacher', salary_config: {class_rates: {'Tin Học': 60000}}},
         defaults: null, targetDoc: null, targetMonth: '2026-10', currentMonth: '2026-09',
         history: {
@@ -29,6 +33,8 @@ function fixture(overrides = {}) {
         }, catalog, group: {id: 'primary', subjectIds: ['m1', 'm2']}, selectedSubjectIds: ['m1'],
         newRate: 36000, getPayslipLifecycleState, ...overrides
     };
+    if (!Object.prototype.hasOwnProperty.call(overrides, 'laterDocs')) input.laterDocs = laterNulls(input.targetMonth, input.currentMonth);
+    return input;
 }
 function rejects(overrides, code) {
     assert.throws(() => Application.buildPreview(fixture(overrides)), error => error.code === `salary-review/${code}`);
@@ -128,8 +134,14 @@ assert.doesNotThrow(() => Application.buildPreview(fixture({targetDoc: {
     published: {role: 'dual', status_gv: 'draft', status_tt: 'received', details_tt: {netPay: 2}}
 }})));
 
-rejects({targetMonth: '2026-09'}, 'invalid-month');
-rejects({targetMonth: '2026-08'}, 'invalid-month');
+rejects({targetMonth: '2026-07'}, 'invalid-month');
+rejects({targetMonth: '2027-01'}, 'invalid-month');
+assert.equal(Application.buildPreview(fixture({targetMonth: '2026-09', history: {'2026-08': null, '2026-07': null, '2026-06': null,
+    '2026-05': null, '2026-04': null, '2026-03': null}})).backdated, true, 'current month is allowed (back-dated)');
+assert.doesNotThrow(() => Application.buildPreview(fixture({targetMonth: '2026-08', history: {'2026-07': null, '2026-06': null,
+    '2026-05': null, '2026-04': null, '2026-03': null, '2026-02': null}})), 'previous month is allowed (back-dated)');
+rejects({laterDocs: {}}, 'incomplete-history');
+rejects({laterDocs: {'2026-11': null, '2026-12': undefined}}, 'incomplete-history');
 rejects({targetMonth: '2026-13'}, 'invalid-month');
 rejects({currentMonth: undefined}, 'invalid-month');
 rejects({targetDoc: undefined}, 'incomplete-source');
@@ -157,6 +169,55 @@ rejects({selectedSubjectIds: ['deleted']}, 'invalid-subject');
 rejects({targetDoc: {giao_vien: {class_rates: []}}}, 'invalid-source');
 rejects({catalog: [...catalog, {id: 'duplicate', name: '  TOÁN 1  '}]}, 'ambiguous-subject');
 rejects({catalog: [...catalog.filter(s => s.id !== 'm1'), {id: 'm1', name: 'Toán 1 + E1'}]}, 'combined-subject');
+
+// Back-dated raise (owner 06/10/2026: "áp dụng từ tháng 9"): today is in
+// October, target September. A teacher DRAFT is dropped so it is recalculated;
+// a sent payslip is refused. Later saved lower rates are lifted, never lowered.
+{
+    const backdated = overrides => Application.buildPreview(fixture({targetMonth: '2026-09', currentMonth: '2026-10',
+        history: {'2026-08': {giao_vien: {class_rates: {'Toán 1': 30000, 'Toán 2': 32000}}}}, ...overrides}));
+    const targetDoc = {giao_vien: {advance: 5000, class_rates: {'Toán 1': 30000, 'Toán 2': 32000}},
+        published: {role: 'giao-vien', status: 'draft', status_gv: 'draft', netPay: 900, details_gv: {netPay: 900}, details: {netPay: 900}, message: 'hi'}};
+    const october = {giao_vien: {class_rates: {'Toán 1': 30000, 'Toán 2': 0, E1: 40000}},
+        published: {role: 'dual', status_gv: 'draft', status_tt: 'received', details_gv: {netPay: 1}, details_tt: {netPay: 2}, details: {netPay: 1}}};
+    const before = JSON.stringify([targetDoc, october]);
+    const preview = backdated({targetDoc, selectedSubjectIds: ['m1', 'm2'],
+        laterDocs: {'2026-10': october, '2026-11': null, '2026-12': {giao_vien: {class_rates: {'Toán 1': 40000}}}, '2027-01': null}});
+    assert.equal(JSON.stringify([targetDoc, october]), before, 'pure preview');
+    assert.equal(preview.backdated, true);
+    assert.equal(preview.patch.giao_vien.class_rates['Toán 1'], 36000);
+    assert.equal(preview.patch.giao_vien.advance, 5000);
+    assert.equal(preview.patch.published.details_gv, null, 'stale September teacher draft is dropped');
+    assert.equal(preview.patch.published.details, null);
+    assert.equal(preview.patch.published.message, 'hi');
+    assert.equal(getPayslipLifecycleState(preview.patch.published).has_gv, false, 'shows as not calculated, cannot be bulk-sent');
+    assert.deepEqual(preview.carried.map(item => item.month), ['2026-10'], 'December already pays more; November has no doc');
+    const oct = preview.carried[0];
+    assert.deepEqual(oct.lifted, [{name: 'Toán 1', beforeRate: 30000, afterRate: 36000}], 'saved 0 stays intact');
+    assert.deepEqual(oct.patch.giao_vien, {class_rates: {'Toán 1': 36000}}, 'merge patch touches only the lifted name');
+    assert.equal(oct.patch.published.details_gv, null);
+    assert.deepEqual(oct.patch.published.details, {netPay: 2}, 'dual: receptionist part kept');
+    assert.equal(oct.patch.published.status_tt, 'received');
+    assert.deepEqual(preview.clearedDrafts.map(item => item.month), ['2026-09', '2026-10']);
+    assert.deepEqual(preview.clearedDrafts[0].before, targetDoc.published, 'audit keeps the dropped draft');
+
+    for (const published of [{role: 'giao-vien', status: 'published', details: {netPay: 1}}, {role: 'dual', status_gv: 'received', details_gv: {netPay: 1}},
+        {status: 'received', netPay: 5000}]) {
+        assert.throws(() => backdated({targetDoc: {published}}), error => error.code === 'salary-review/calculated-target');
+        assert.throws(() => backdated({laterDocs: {'2026-10': {published}, '2026-11': null, '2026-12': null, '2027-01': null}}),
+            error => error.code === 'salary-review/calculated-target', 'a sent later month must be recalled first');
+    }
+    assert.throws(() => backdated({targetDoc: {revisionDrafts: {gv: {version: 1}}}}), error => error.code === 'salary-review/calculated-target');
+    const untouched = backdated({});
+    assert.equal(untouched.patch.published, undefined, 'no payslip: nothing to clear');
+    assert.deepEqual(untouched.carried, []);
+}
+// Future target keeps the strict rule; later months are still lifted.
+{
+    const preview = Application.buildPreview(fixture({laterDocs: {'2026-11': {giao_vien: {class_rates: {'Toán 1': 30000}}}, '2026-12': null}}));
+    assert.equal(preview.backdated, false);
+    assert.deepEqual(preview.carried.map(item => [item.month, item.patch.giao_vien.class_rates['Toán 1']]), [['2026-11', 36000]]);
+}
 
 // The reviewed source token changes even when a concurrent edit is unrelated to
 // the selected rates, so the service can reject stale whole-role updates.
