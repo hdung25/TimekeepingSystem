@@ -167,6 +167,33 @@ const withTimeout = (promise, label) => Promise.race([
     await notDue.window.globalCheckOut({ disabled: false, innerText: '' });
     assert.deepEqual(order, ['auto:true:false', 'checkOut', 'render'], 'chưa tới giờ tan ca thì ra ca như cũ');
 
+    // Còn 1h20 mới tới giờ tan theo lịch: RA CA phải hỏi lại; Hủy thì không ghi gì.
+    const helpers = source.slice(source.indexOf('const SHIFT_END_HINT_KEY'), source.indexOf('// App đang mở đúng lúc tan ca'));
+    const earlyActions = answer => {
+        const window = {};
+        const asked = [];
+        const store = { currentUserId: 'staff-1', tdt_shift_end_hint_v1: JSON.stringify({
+            userId: 'staff-1', session: 's1|x', end: new Date(Date.now() + 80 * 60e3).toISOString(), savedAt: Date.now() }) };
+        new Function('window', 'document', 'localStorage', 'DBService', 'console', 'alert', 'renderGlobalCheckIn',
+            'renderTodayChips', 'globalCheckAutoCheckout', 'UIService', helpers + actionSource + '\nreturn {};')(
+            window, { querySelector: () => null }, { getItem: key => store[key] ?? null, setItem() {}, removeItem() {} },
+            { checkOutPersonal: async () => order.push('checkOut') },
+            quiet, () => {}, async () => order.push('render'), async () => {},
+            async () => false, { confirm: async message => { asked.push(message); return answer; } });
+        return { window, asked };
+    };
+    order.length = 0;
+    const cancelled = earlyActions(false);
+    const button = { disabled: false, innerText: '' };
+    await cancelled.window.globalCheckOut(button);
+    assert.equal(cancelled.asked.length, 1, 'RA CA sớm hơn giờ tan theo lịch phải hỏi lại');
+    assert.deepEqual(order, [], 'bấm Hủy thì không được ra ca');
+    assert.equal(button.disabled, false);
+    assert.equal(button.innerText, 'RA CA');
+    const accepted = earlyActions(true);
+    await accepted.window.globalCheckOut({ disabled: false, innerText: '' });
+    assert.deepEqual(order, ['checkOut', 'render'], 'đồng ý thì ra ca như cũ');
+
     // Khung chấm công hiện ngay (không chờ đọc lịch 3 cơ sở), kiểm tra ca quá giờ chạy
     // nền; nếu vừa khép ca thì vẽ lại khung + chip. Bấm RA CA trong lúc chờ vẫn an toàn vì
     // globalCheckOut khép ca theo mốc tan ca trước (đã kiểm ở trên).
@@ -362,3 +389,24 @@ const withTimeout = (promise, label) => Promise.race([
 
     console.log('auto-checkout.test.js: all assertions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+{
+    // RA CA giữa mạch 18:00–19:30 + 19:30–21:00 (Khánh Ly 22/09: bấm lúc 19:40) phải hỏi lại;
+    // còn ≤ 5 phút tới giờ tan, không có mốc theo lịch, hoặc đã quá giờ thì ra ca ngay như cũ.
+    const constStart = source.indexOf('const EARLY_CHECKOUT_CONFIRM_MS');
+    const msgEnd = source.indexOf('\n}\n', source.indexOf('function earlyCheckoutConfirmMessage'));
+    assert.ok(constStart !== -1 && msgEnd !== -1, 'không tìm thấy earlyCheckoutConfirmMessage trong js/main.js');
+    const early = { Date, Number };
+    vm.createContext(early);
+    vm.runInContext(source.slice(constStart, msgEnd + 3), early);
+    const vn = hm => new Date('2026-09-22T' + hm + ':00+07:00');
+    const message = early.earlyCheckoutConfirmMessage(vn('21:00'), vn('19:40'));
+    assert.ok(message && message.includes('21:00') && message.includes('19:40'), message);
+    assert.equal(early.earlyCheckoutConfirmMessage(vn('21:00'), vn('20:56')), null);
+    assert.equal(early.earlyCheckoutConfirmMessage(null, vn('19:40')), null);
+    assert.equal(early.earlyCheckoutConfirmMessage(vn('19:30'), vn('19:40')), null);
+    // Bấm RA CA phải đi qua bước hỏi lại trước khi ghi.
+    const checkoutFn = source.slice(source.indexOf('window.globalCheckOut'), source.indexOf('// 2. DASHBOARD STATS'));
+    assert.ok(checkoutFn.indexOf('earlyCheckoutConfirmMessage(readFreshShiftEnd(') !== -1 &&
+        checkoutFn.indexOf('earlyCheckoutConfirmMessage(') < checkoutFn.indexOf('DBService.checkOutPersonal(currentUserId)'));
+}

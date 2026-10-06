@@ -794,6 +794,29 @@ function readShiftEndHint(userId, session) {
 }
 if (typeof window !== 'undefined') window.readShiftEndHint = readShiftEndHint;
 
+// RA CA trước giờ tan theo lịch: hỏi lại trước khi ghi. Một chạm nhầm (VD mở app lúc 19:30 để
+// "chấm ca 2" của hai lớp nối liền 18:00–19:30 + 19:30–21:00) từng ra ca lúc 19:40 và mất công
+// 19:40–21:00 (Lê Thị Khánh Ly, 22/09/2026). Chỉ hỏi khi còn hơn EARLY_CHECKOUT_CONFIRM_MS.
+const EARLY_CHECKOUT_CONFIRM_MS = 5 * 60 * 1000;
+function earlyCheckoutConfirmMessage(end, now) {
+    const endMs = end instanceof Date ? end.getTime() : NaN;
+    const nowMs = now instanceof Date ? now.getTime() : NaN;
+    if (!Number.isFinite(endMs) || !Number.isFinite(nowMs) || endMs - nowMs <= EARLY_CHECKOUT_CONFIRM_MS) return null;
+    const label = d => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+    return `Theo lịch, ca của bạn kéo dài tới <b>${label(end)}</b> và hệ thống sẽ tự ra ca lúc đó — không cần bấm RA CA.<br><br>` +
+        `Nếu ra ca bây giờ (${label(now)}), thời gian sau ${label(now)} sẽ <b>không được tính công</b>. Bạn vẫn muốn ra ca?`;
+}
+// Mốc tan vừa được closeOverdueSessionBeforeAttendanceAction tính lại từ máy chủ (≤ 2 phút trước).
+// Không có mốc mới (lỗi mạng, ca không khớp lịch) → không hỏi, giữ cách ra ca như cũ.
+function readFreshShiftEnd(userId) {
+    let hint = null;
+    try { hint = JSON.parse(localStorage.getItem(SHIFT_END_HINT_KEY) || 'null'); } catch (_) { return null; }
+    if (!hint || String(hint.userId) !== String(userId || '') || !hint.end) return null;
+    if (!(Date.now() - Number(hint.savedAt) <= 2 * 60 * 1000)) return null;
+    const end = new Date(hint.end);
+    return Number.isFinite(end.getTime()) ? end : null;
+}
+
 // App đang mở đúng lúc tan ca: hẹn một lượt kiểm tra ngay mốc đó (interval 60 giây vẫn là lưới
 // an toàn). Chỉ hẹn mốc trong 12 giờ tới; mỗi lần tính lại mốc thì hẹn lại, không chồng timer.
 let exactAutoCheckoutTimer = null;
@@ -2228,6 +2251,16 @@ window.globalCheckOut = async function (btn) {
         // giờ bấm muộn. Chưa tới giờ tan ca thì ra ca bằng giờ hiện tại như cũ.
         if (await closeOverdueSessionBeforeAttendanceAction()) {
             await refreshAttendanceAfterCommit();
+            return;
+        }
+        const earlyMessage = typeof earlyCheckoutConfirmMessage === 'function' && typeof readFreshShiftEnd === 'function'
+            ? earlyCheckoutConfirmMessage(readFreshShiftEnd(currentUserId), new Date()) : null;
+        if (earlyMessage && typeof UIService !== 'undefined' && UIService.confirm &&
+            !await UIService.confirm(earlyMessage)) {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "RA CA";
+            }
             return;
         }
         // Like check-in, this write cannot be cancelled. Waiting for the actual
