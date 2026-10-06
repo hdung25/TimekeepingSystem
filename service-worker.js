@@ -1,8 +1,8 @@
-// Service Worker v228 - substitute teacher who drops out can be recorded VP/VĐX.
+// Service Worker v229 - optional personal income tax and grouped teacher review board.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v228-sub-dropout-20261006';
+const APP_RELEASE = 'tdt-chamcong-v229-tax-grouped-20261006';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -35,22 +35,22 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/app-ui.css?v=20261003-chain-v1',
     '/css/login.css?v=20260927-login-v3',
     '/css/shift-oversight.css?v=20260816-cross-branch-auto-v1',
-    '/css/salary-review.css?v=20261006-msnv-v1',
+    '/css/salary-review.css?v=20261006-tax-grouped-v1',
     '/js/salary-review-policy.js?v=20260919-review-v1',
     '/js/salary-review-application.js?v=20260919-review-v1',
     '/js/salary-review-service.js?v=20260919-review-v1',
     '/js/salary-review-notifications.js?v=20260919-review-v1',
     '/js/salary-review.js?v=20261004-review-board-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
-    '/js/salary-review-board-policy.js?v=20261006-msnv-v1',
-    '/js/salary-review-board.js?v=20261006-msnv-v1',
-    '/js/main.js?v=20261006-early-out-v1',
+    '/js/salary-review-board-policy.js?v=20261006-tax-grouped-v1',
+    '/js/salary-review-board.js?v=20261006-tax-grouped-v1',
+    '/js/main.js?v=20261006-tax-grouped-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
     '/js/db-service.js?v=20261006-sub-dropout-v1',
     '/js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1',
     '/js/class-rate-groups.js?v=20261005-class-rate-v1',
-    '/js/report.js?v=20261005-class-rate-v1',
+    '/js/report.js?v=20261006-tax-grouped-v1',
     '/js/teacher-attendance-policy.js?v=20261005-new-mode-v1',
     '/js/teacher-attendance-editor.js?v=20261005-new-mode-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
@@ -80,10 +80,10 @@ const STATIC_ASSETS = Array.from(new Set([
     '/css/staff-notes.css?v=20261003-owner-v3',
     '/js/search-keynav.js?v=20261004-review-board-v1',
     '/js/teacher-shift-state.js?v=20261006-sub-dropout-v1',
-    '/js/pdf-export.js?v=20260908-payroll-review-v2',
+    '/js/pdf-export.js?v=20261006-tax-grouped-v1',
     '/js/receptionist-schedule.js?v=20260926-mobile-ui-v1',
     '/js/timekeeping.js?v=20261003-chain-v1',
-    '/js/salary-bulk-export.js?v=20260922-payroll-list-v1',
+    '/js/salary-bulk-export.js?v=20261006-tax-grouped-v1',
     '/images/TUDUYTRE.jpg',
     '/images/logo-192.webp',
     '/images/lotus_bg.webp',

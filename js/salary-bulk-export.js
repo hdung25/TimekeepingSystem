@@ -282,7 +282,10 @@
         if (net === null) net = num(fallbackNet) || 0;
         const base = num(details && details.baseSalary) || 0;
         const advance = num(details && details.advance) || 0;
-        return { base, advance, other: net - base + advance, net };
+        const taxDeduction = num(details && details.personalIncomeTaxDeduction) || 0;
+        const income = net + advance + taxDeduction;
+        const tax = num(details && details.personalIncomeTax) ?? Math.round(Math.max(0, income) * 0.1);
+        return { base, advance, other: net - base + advance + taxDeduction, tax, taxDeduction, net };
     }
 
     function collectPayroll(allSettings, userMap, scope, statusMode) {
@@ -522,13 +525,13 @@
     function roleSheet(roleKey, list, ctx) {
         const role = ROLE_SIDES[roleKey];
         const other = ROLE_SIDES[roleKey === 'giao-vien' ? 'tiep-tan' : 'giao-vien'];
-        const head = ['STT', 'MSNV', 'Họ và tên', 'Tài khoản', 'Lương cơ bản', 'Phụ cấp / Thưởng / Phạt', 'Tạm ứng', 'Thực lĩnh', 'Trạng thái', 'Ghi chú', 'Ký nhận'];
-        const widths = [6, 9, 28, 16, 15, 17, 13, 16, 19, 38, 14];
+        const head = ['STT', 'MSNV', 'Họ và tên', 'Tài khoản', 'Lương cơ bản', 'Phụ cấp / Thưởng / Phạt', 'Tạm ứng', 'Thực lĩnh', 'TNCN (10%)', 'TNCN khấu trừ', 'Trạng thái', 'Ghi chú', 'Ký nhận'];
+        const widths = [6, 9, 28, 16, 15, 17, 13, 16, 16, 16, 19, 38, 14];
         const lastCol = colName(head.length - 1);
         const rows = [
             { cells: [{ v: `DANH SÁCH LƯƠNG ${role.roleShow.toUpperCase()} - THÁNG ${ctx.month + 1}/${ctx.year}`, s: ST.title }], ht: 26 },
             { cells: [{ v: `${ctx.companyName ? ctx.companyName + ' · ' : ''}Xuất lúc ${ctx.stamp} · Lọc: ${ctx.statusLabel}`, s: ST.sub }] },
-            { cells: [{ v: `Số thứ tự xếp theo MSNV từ nhỏ đến lớn. Người kiêm 2 chức vụ có tên ở cả 2 danh sách; mỗi danh sách chỉ ghi phần lương ${role.roleShow}. Thực lĩnh = Lương cơ bản + Phụ cấp/Thưởng/Phạt − Tạm ứng.`, s: ST.sub }] },
+            { cells: [{ v: `Số thứ tự xếp theo MSNV từ nhỏ đến lớn. Người kiêm 2 chức vụ có tên ở cả 2 danh sách; mỗi danh sách chỉ ghi phần lương ${role.roleShow}. TNCN = 10% thu nhập trước tạm ứng. Thực lĩnh = Lương cơ bản + Phụ cấp/Thưởng/Phạt − Tạm ứng − TNCN khấu trừ (chỉ trừ khi đã chọn).`, s: ST.sub }] },
             { cells: head.map(h => ({ v: h, s: ST.head })), ht: 32 }
         ];
         const headerRow = rows.length;
@@ -554,6 +557,8 @@
                     { v: m.other, s: ST.money },
                     { v: m.advance, s: ST.money },
                     { v: m.net, s: ST.net },
+                    { v: ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? m.tax : 0, s: ST.money },
+                    { v: m.taxDeduction, s: ST.money },
                     { v: statusText(side.status), s: ST.center },
                     { v: note, s: ST.note },
                     { v: '', s: ST.text }
@@ -572,6 +577,8 @@
                 { v: `TỔNG CỘNG (${list.length} người)`, s: ST.totalLabel },
                 { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel },
                 sum('E', 'base'), sum('F', 'other'), sum('G', 'advance'), sum('H', 'net'),
+                { f: list.length ? `SUM(I${firstData}:I${lastData})` : '', v: ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? list.reduce((t, it) => t + it.side.money.tax, 0) : 0, s: ST.totalMoney },
+                sum('J', 'taxDeduction'),
                 { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }
             ],
             ht: 22
@@ -585,8 +592,8 @@
 
     // Tổng chi theo người: mỗi người 1 dòng, cộng cả 2 bên — tiện chuyển khoản 1 lần/người
     function summarySheet(people, ctx) {
-        const head = ['STT', 'MSNV', 'Họ và tên', 'Tài khoản', 'Chức vụ', 'Lương Giáo viên / Trợ giảng', 'Lương Tiếp tân', 'Tổng thực lĩnh', 'Trạng thái', 'Ký nhận'];
-        const widths = [6, 9, 28, 16, 30, 18, 16, 17, 34, 14];
+        const head = ['STT', 'MSNV', 'Họ và tên', 'Tài khoản', 'Chức vụ', 'Lương Giáo viên / Trợ giảng', 'Lương Tiếp tân', 'Tổng thực lĩnh', 'TNCN (10%)', 'TNCN khấu trừ', 'Trạng thái', 'Ký nhận'];
+        const widths = [6, 9, 28, 16, 30, 18, 16, 17, 16, 16, 34, 14];
         const lastCol = colName(head.length - 1);
         const rows = [
             { cells: [{ v: `TỔNG CHI LƯƠNG THEO NGƯỜI - THÁNG ${ctx.month + 1}/${ctx.year}`, s: ST.title }], ht: 26 },
@@ -596,13 +603,16 @@
         ];
         const headerRow = rows.length;
         const firstData = headerRow + 1;
-        let tGv = 0, tTt = 0;
+        let tGv = 0, tTt = 0, tTax = 0, tTaxDeduction = 0;
         people.forEach((person, i) => {
             const gv = person.sides.find(s => s.key === 'giao-vien');
             const tt = person.sides.find(s => s.key === 'tiep-tan');
             const gvNet = gv ? gv.money.net : 0;
             const ttNet = tt ? tt.money.net : 0;
             tGv += gvNet; tTt += ttNet;
+            const tax = ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? person.sides.reduce((sum, side) => sum + side.money.tax, 0) : 0;
+            const taxDeduction = person.sides.reduce((sum, side) => sum + side.money.taxDeduction, 0);
+            tTax += tax; tTaxDeduction += taxDeduction;
             const roleText = gv && tt ? 'Giáo viên / Trợ giảng + Tiếp tân' : (gv ? ROLE_SIDES['giao-vien'].roleShow : ROLE_SIDES['tiep-tan'].roleShow);
             const st = gv && tt
                 ? (gv.status === tt.status ? statusText(gv.status) : `GV/TG: ${statusText(gv.status)} · TT: ${statusText(tt.status)}`)
@@ -617,6 +627,7 @@
                     gv ? { v: gvNet, s: ST.money } : { v: '', s: ST.center },
                     tt ? { v: ttNet, s: ST.money } : { v: '', s: ST.center },
                     { v: gvNet + ttNet, s: ST.net },
+                    { v: tax, s: ST.money }, { v: taxDeduction, s: ST.money },
                     { v: st, s: ST.note },
                     { v: '', s: ST.text }
                 ]
@@ -629,6 +640,7 @@
                 { v: `TỔNG CỘNG (${people.length} người)`, s: ST.totalLabel },
                 { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel },
                 { f: f('F'), v: tGv, s: ST.totalMoney }, { f: f('G'), v: tTt, s: ST.totalMoney }, { f: f('H'), v: tGv + tTt, s: ST.totalMoney },
+                { f: f('I'), v: tTax, s: ST.totalMoney }, { f: f('J'), v: tTaxDeduction, s: ST.totalMoney },
                 { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }
             ],
             ht: 22

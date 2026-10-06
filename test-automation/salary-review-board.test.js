@@ -58,8 +58,15 @@ assert.equal(Math.round(m1.stats.averageHours), 50);
 assert.equal(m1.attendance, 90);
 
 const counts = B.summary(rows);
-assert.equal(counts.setup, rowsA.length, 'every unconfirmed price group needs a baseline');
-assert.ok(counts.due >= 2);
+assert.equal(counts.setup, 1, 'multiple unconfirmed groups count as one teacher');
+assert.equal(counts.due, 1, 'multiple due groups count as one teacher');
+assert.equal(counts.all, 2);
+assert.equal(B.groupByTeacher(rows).length, 2);
+assert.deepEqual(B.groupByTeacher(rows)[0].map(row => row.key), rowsA.map(row => row.key), 'grouping keeps every independent rate and review date');
+const samePrice = [{ staffId: 'a', currentRate: 22000, key: 'a1' }, { staffId: 'a', currentRate: 22000, key: 'a2' },
+    { staffId: 'a', currentRate: 24000, key: 'a3' }, { staffId: 'b', currentRate: 22000, key: 'b1' }];
+assert.deepEqual(B.rateBuckets(samePrice).map(bucket => bucket.map(row => row.key)), [['a1', 'a2'], ['a3'], ['b1']],
+    'same-price subjects share an input, different teachers and prices remain separate');
 assert.equal(B.matchesTab(m1, 'setup'), true);
 
 // Confirmed saved group: stored baseline wins, pending change is its own tab.

@@ -166,7 +166,7 @@
         const low = row.evaluation?.low ? ' <span class="srb-low" title="Ít hơn ngưỡng giờ tham khảo">ít giờ</span>' : '';
         return `${hours(s.averageHours)}${low}${s.complete ? '' : `<small>${s.observed}/3 tháng có phiếu</small>`}`;
     }
-    function rowHtml(row) {
+    function rowHtml(row, grouped = false) {
         const selectable = row.group && !row.pending && !row.disabled;
         const open = state.open === row.key;
         const result = state.results[row.key];
@@ -175,18 +175,18 @@
             : !row.group || row.pending
             ? `<button type="button" class="srb-btn" data-action="detail" data-key="${esc(row.key)}">Chi tiết</button>`
             : `<button type="button" class="srb-btn ${open ? '' : 'srb-primary'}" data-action="toggle" data-key="${esc(row.key)}" aria-expanded="${open}">${open ? 'Đóng' : 'Xét tăng'}</button>`;
-        return `<article class="srb-row${open ? ' open' : ''}${state.selected.has(row.key) ? ' selected' : ''}" data-key="${esc(row.key)}">
+        return `<article class="srb-row${grouped ? ' srb-group-row' : ''}${open ? ' open' : ''}${state.selected.has(row.key) ? ' selected' : ''}" data-key="${esc(row.key)}">
             <div class="srb-line">
                 <span>${selectable ? `<input type="checkbox" data-select="${esc(row.key)}" aria-label="Chọn ${esc(row.name)}" ${state.selected.has(row.key) ? 'checked' : ''}>` : ''}</span>
-                <div class="srb-msnv">${esc(row.msnv || '—')}</div>
-                <div class="srb-who"><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span>
+                <div class="srb-msnv">${grouped ? '' : esc(row.msnv || '—')}</div>
+                <div class="srb-who">${grouped ? '' : `<strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span>`}
                     <small>${row.group ? esc(row.group.name.replace(/ · [\d.]+ đ$/, '')) + ' · ' + esc(row.subjects.map(s => s.name).join(', ')) : 'Chưa có giá môn để xét'}</small></div>
                 <div class="srb-rate">${!row.group ? '' : setupCell(row, row.pending
                     ? `<strong>${money(row.group.scheduledChange.previousGroup?.currentRate)}</strong><small>lên ${money(row.group.scheduledChange.newRate)} từ ${vnDate(row.group.scheduledChange.effectiveFrom)}</small>`
                     : `<strong>${money(row.currentRate)}</strong><small>${esc(baselineText(row))}</small>`)}</div>
                 <div class="srb-due">${row.group ? setupCell(row, statusBadge(row)) : statusBadge(row)}</div>
-                <div class="srb-hours">${hoursCell(row)}</div>
-                <div class="srb-att">${row.attendance == null ? '—' : Math.round(row.attendance) + '%'}</div>
+                <div class="srb-hours">${grouped ? '' : hoursCell(row)}</div>
+                <div class="srb-att">${grouped ? '' : row.attendance == null ? '—' : Math.round(row.attendance) + '%'}</div>
                 <div class="srb-act">${action}</div>
             </div>
             ${result ? `<p class="srb-result ${result.error ? 'error' : ''}">${esc(result.text)}</p>` : ''}
@@ -232,15 +232,18 @@
         const rows = [...state.selected].map(rowByKey).filter(Boolean);
         if (state.bulk) {
             const items = state.bulk.items.map(item => ({ item, row: rowByKey(item.key) })).filter(x => x.row);
-            return `<div class="srb-bulkpanel"><h2>Tăng lương ${items.length} dòng đã chọn</h2>
-                <div class="srb-bulktable">${items.map(({ item, row }) => `<div class="srb-bulkrow"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc(row.subjects.map(s => s.name).join(', '))}</small></span><span>${money(row.currentRate)} →</span><input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)}"></div>`).join('')}</div>
+            const buckets = B.rateBuckets(items.map(x => x.row));
+            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Mỗi nhóm môn vẫn giữ lịch xét riêng.</p>
+                <div class="srb-bulktable">${buckets.map(bucket => { const row = bucket[0], item = items.find(x => x.row.key === row.key).item;
+                    return `<div class="srb-bulkrow"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(bucket.flatMap(r => r.subjects.map(s => s.name)))].join(', '))}</small></span><span>${money(row.currentRate)} →</span><input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}"></div>`;
+                }).join('')}</div>
                 <div class="srb-fields"><label>Áp dụng từ<select id="srb-bulk-month">${targetMonths().map(m => `<option value="${m}" ${m === state.bulk.month ? 'selected' : ''}>${vnMonth(m)}</option>`).join('')}</select></label>
                 <label class="srb-grow">Ghi chú chung (không bắt buộc)<input id="srb-bulk-note" value="${esc(state.bulk.note)}" maxlength="2000"></label></div>
                 <div class="srb-actions"><button type="button" class="srb-btn srb-primary" data-action="bulk-apply">Duyệt ${items.length} mức</button><button type="button" class="srb-btn" data-action="bulk-cancel">Thôi</button></div></div>`;
         }
         if (!rows.length) return '';
         const unconfirmed = rows.filter(row => !row.confirmed).length;
-        return `<div class="srb-bulkbar"><span>Đã chọn ${rows.length}</span>
+        return `<div class="srb-bulkbar"><span>Đã chọn ${rows.length} nhóm môn</span>
             <button type="button" class="srb-btn srb-primary" data-action="bulk-increase">Tăng 1 bậc…</button>
             <button type="button" class="srb-btn" data-action="bulk-defer">Hẹn lại 1 tháng</button>
             <button type="button" class="srb-btn" data-action="bulk-setup">Thiết lập mốc, chu kỳ…</button>
@@ -251,6 +254,30 @@
         const q = P.key(state.query);
         return state.rows.filter(row => B.matchesTab(row, state.tab) &&
             (!q || P.key(row.name + ' ' + row.code + ' ' + (row.group?.name || '') + ' ' + row.subjects.map(s => s.name).join(' ')).includes(q)));
+    }
+    function teacherHtml(rows) {
+        const first = rows[0];
+        const selectable = rows.filter(row => row.group && !row.pending && !row.disabled);
+        const checked = selectable.length && selectable.every(row => state.selected.has(row.key));
+        const partial = selectable.some(row => state.selected.has(row.key)) && !checked;
+        const rates = [...new Set(rows.map(row => row.currentRate).filter(rate => rate != null))].sort((a, b) => a - b);
+        const rateText = rates.length > 1 ? money(rates[0]) + ' – ' + money(rates[rates.length - 1]) : rates.length ? money(rates[0]) : 'Chưa rõ';
+        const earliest = rows.filter(row => row.evaluation?.dueDate && !row.pending && !row.disabled)
+            .sort((a, b) => a.evaluation.dueDate.localeCompare(b.evaluation.dueDate))[0] || first;
+        const open = rows.some(row => row.key === state.open) || state.expanded?.has(first.staffId);
+        return `<details class="srb-teacher" data-teacher="${esc(first.staffId)}" ${open ? 'open' : ''}>
+            <summary class="srb-line">
+                <span>${selectable.length ? `<input type="checkbox" data-select-teacher="${esc(first.staffId)}" aria-label="Chọn các nhóm môn của ${esc(first.name)}" ${checked ? 'checked' : ''} ${partial ? 'data-partial="true"' : ''}>` : ''}</span>
+                <div class="srb-msnv">${esc(first.msnv || '—')}</div>
+                <div class="srb-who"><strong>${esc(first.name)}</strong> <span class="srb-code">${esc(first.code)}</span><small>${rows.length} nhóm môn · ${esc([...new Set(rows.flatMap(row => row.subjects.map(s => s.name)))].join(', '))}</small></div>
+                <div class="srb-rate"><strong>${rateText}</strong><small>Xem giá từng nhóm môn</small></div>
+                <div class="srb-due">${statusBadge(earliest)}</div>
+                <div class="srb-hours">${hoursCell(first)}</div>
+                <div class="srb-att">${first.attendance == null ? '—' : Math.round(first.attendance) + '%'}</div>
+                <div class="srb-act srb-teacher-actions">${selectable.length ? `<button type="button" class="srb-btn srb-primary" data-action="teacher-increase" data-staff="${esc(first.staffId)}">Xét tăng</button><button type="button" class="srb-btn" data-action="teacher-setup" data-staff="${esc(first.staffId)}">Thiết lập chung</button>` : '<span class="srb-btn">Xem các môn</span>'}</div>
+            </summary>
+            <div class="srb-teacher-groups">${rows.map(row => rowHtml(row, true)).join('')}</div>
+        </details>`;
     }
     function render() {
         if (!$('srb')) return;
@@ -263,13 +290,22 @@
         if (state.loading) $('srb-list').innerHTML = '<p class="srb-empty">Đang tải giá và giờ dạy của tất cả giáo viên…</p>';
         else if (!state.index) $('srb-list').innerHTML = '<p class="srb-empty">Đang xác thực…</p>';
         else $('srb-list').innerHTML = rows.length
-            ? `<div class="srb-head"><span></span><span>MSNV</span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span></span></div>${rows.map(rowHtml).join('')}`
+            ? `<div class="srb-head"><span></span><span>MSNV</span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span></span></div>${B.groupByTeacher(rows).map(teacherHtml).join('')}`
             : `<p class="srb-empty">${state.tab === 'due' ? 'Không có ai đến hạn xét trong tháng này.' : 'Không có dòng nào trong mục này.'}</p>`;
         $('srb-bulk').innerHTML = bulkHtml();
         const allBox = $('srb-select-all');
         const selectable = rows.filter(row => row.group && !row.pending && !row.disabled);
         allBox.checked = selectable.length > 0 && selectable.every(row => state.selected.has(row.key));
         allBox.disabled = !selectable.length;
+        $('srb-list').querySelectorAll('[data-partial]').forEach(input => { input.indeterminate = true; });
+        $('srb-list').querySelectorAll('[data-teacher]').forEach(details => {
+            details.addEventListener('toggle', () => {
+                if (!details.isConnected) return;
+                state.expanded = state.expanded || new Set();
+                if (details.open) state.expanded.add(details.dataset.teacher);
+                else state.expanded.delete(details.dataset.teacher);
+            });
+        });
     }
 
     // ---------- setup popup: baseline, cycle, review date, reminders ----------
@@ -342,7 +378,7 @@
     function setupFormHtml(rows, bulk) {
         const row = rows[0];
         const head = bulk
-            ? `<h2 id="srb-setup-title">Thiết lập ${rows.length} dòng đã chọn</h2><p>${esc([...new Set(rows.map(r => r.name))].slice(0, 6).join(', '))}${rows.length > 6 ? '…' : ''}</p>`
+            ? `<h2 id="srb-setup-title">Thiết lập chung cho ${new Set(rows.map(r => r.staffId)).size === 1 ? esc(row.name) : new Set(rows.map(r => r.staffId)).size + ' giáo viên'}</h2><p>Áp dụng cho ${rows.length} nhóm môn. Ô để trống giữ nguyên từng nhóm; giá lương hiện tại giữ nguyên.</p>`
             : `<h2 id="srb-setup-title">${esc(row.name)} <span class="srb-code">${esc(row.code)}</span></h2><p>${esc(row.group.name.replace(/ · [\d.]+ đ$/, ''))} · ${esc(row.subjects.map(s => s.name).join(', '))}</p>`;
         const v = bulk ? { baselineDate: '', baselineKind: 'initial', cycleMonths: '', nextReviewDate: '' } : setupDefaults(row);
         const fallbackCycle = bulk ? state.index.config.cycleMonths
@@ -557,11 +593,23 @@
     }
 
     $('srb').addEventListener('click', event => {
+        if (event.target.closest('[data-select-teacher]')) event.stopPropagation();
         const tab = event.target.closest('[data-tab]');
         if (tab) { state.tab = tab.dataset.tab; render(); return; }
         const button = event.target.closest('[data-action]');
         if (!button || state.busy) return;
         const action = button.dataset.action, key = button.dataset.key;
+        if (action === 'teacher-setup' || action === 'teacher-increase') {
+            event.preventDefault();
+            const rows = state.rows.filter(row => row.staffId === button.dataset.staff && row.group && !row.pending && !row.disabled);
+            if (!rows.length) return;
+            if (action === 'teacher-setup') openSetup(rows.map(row => row.key), true);
+            else {
+                state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: targetMonths()[0], note: '' };
+                render(); $('srb-bulk').scrollIntoView({ block: 'start', behavior: 'smooth' });
+            }
+            return;
+        }
         if (action === 'pick') { const row = rowByKey(key); if (row) { draftFor(row).rate = Number(button.dataset.rate); render(); } return; }
         if (action === 'setup') { openSetup([key]); return; }
         if (action === 'bulk-setup') { openSetup([...state.selected], true); return; }
@@ -570,7 +618,14 @@
     $('srb').addEventListener('input', event => {
         const el = event.target;
         if (el.id === 'srb-search') { state.query = el.value; render(); el.focus(); return; }
-        if (el.dataset.bulkRate && state.bulk) { const item = state.bulk.items.find(i => i.key === el.dataset.bulkRate); if (item) item.rate = el.value; return; }
+        if (el.dataset.bulkRate && state.bulk) {
+            const row = rowByKey(el.dataset.bulkRate);
+            if (row) state.bulk.items.forEach(item => {
+                const target = rowByKey(item.key);
+                if (target?.staffId === row.staffId && target.currentRate === row.currentRate) item.rate = el.value;
+            });
+            return;
+        }
         if (el.id === 'srb-bulk-note' && state.bulk) { state.bulk.note = el.value; return; }
         if (el.dataset.f && el.dataset.key) {
             const row = rowByKey(el.dataset.key); if (!row) return;
@@ -585,6 +640,11 @@
     });
     $('srb').addEventListener('change', event => {
         const el = event.target;
+        if (el.dataset.selectTeacher) {
+            visibleRows().filter(row => row.staffId === el.dataset.selectTeacher && row.group && !row.pending && !row.disabled)
+                .forEach(row => el.checked ? state.selected.add(row.key) : state.selected.delete(row.key));
+            render(); return;
+        }
         if (el.id === 'srb-select-all') {
             visibleRows().filter(row => row.group && !row.pending && !row.disabled).forEach(row => el.checked ? state.selected.add(row.key) : state.selected.delete(row.key));
             render(); return;

@@ -35,6 +35,8 @@
 .srb-head,.srb-line{display:grid;grid-template-columns:26px 46px minmax(0,2fr) minmax(0,1.15fr) minmax(0,.9fr) minmax(0,.9fr) 70px 108px;gap:.75rem;align-items:center;padding:.7rem 1rem}
 .srb-head{font-size:.72rem;font-weight:600;color:#64748b;background:#f8faf9;border-bottom:1px solid #e5ede7}
 .srb-row{border-top:1px solid #edf2ef}.srb-head+.srb-row{border-top:0}.srb-row.selected{background:#f3faf6}.srb-row.open{background:#fbfdfc}
+.srb-teacher{border-top:1px solid #e5ede7}.srb-teacher>summary{cursor:pointer;list-style:none}.srb-teacher>summary::-webkit-details-marker{display:none}.srb-teacher[open]>summary{background:#f3faf6}.srb-teacher-groups{border-left:3px solid #a7d9c2;margin-left:1rem}.srb-group-row .srb-who small{color:#334155}.srb-group-row .srb-hours:empty,.srb-group-row .srb-att:empty{visibility:hidden}
+.srb-teacher-actions{display:flex;flex-direction:column;gap:.35rem}.srb-teacher-actions .srb-btn{white-space:normal;font-size:.75rem}
 .srb-line{font-size:.85rem}.srb-line small{display:block;font-size:.74rem;color:#64748b;margin-top:.15rem;line-height:1.35}
 .srb-msnv{font-variant-numeric:tabular-nums;font-weight:600;color:#334155}.srb-who strong{font-weight:600}.srb-code{font-size:.7rem;font-weight:700;color:#065f46;background:#ecfdf5;border-radius:999px;padding:.05rem .45rem}
 .srb-rate strong{font-weight:600}.srb-muted{color:#64748b;font-size:.78rem}
@@ -68,6 +70,7 @@
  .srb-line{grid-template-columns:26px minmax(0,1fr) auto;row-gap:.45rem}.srb-line>.srb-msnv{display:none}.srb-line>.srb-who{grid-column:2/3}.srb-line>.srb-act{grid-column:3;grid-row:1}
  .srb-line>.srb-rate,.srb-line>.srb-due,.srb-line>.srb-hours,.srb-line>.srb-att{grid-column:2/4}
  .srb-line>.srb-att::before{content:'Chuyên cần: ';color:#64748b}.srb-line>.srb-hours::before{content:'Giờ dạy TB: ';color:#64748b;font-size:.78rem}
+ .srb-group-row .srb-hours,.srb-group-row .srb-att{display:none}
  .srb-panel,.srb-result{padding-left:1rem}#srb-search{width:100%}}
 @media(max-width:520px){.srb-summary{gap:.5rem}.srb-card{padding:.6rem .7rem}.srb-card strong{font-size:1.25rem}.srb-bulkrow{grid-template-columns:minmax(0,1fr) 110px}.srb-bulkrow>span:nth-child(2){display:none}}
 /* Setup popup (v223) */

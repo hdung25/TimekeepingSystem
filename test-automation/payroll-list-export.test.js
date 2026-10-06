@@ -42,6 +42,12 @@ assert.deepEqual(Array.from(collected.lists['giao-vien'], x => x.side.stt), [1, 
 assert.equal(collected.lists['tiep-tan'][1].side.money.net, 4800000);
 assert.equal(collected.lists['tiep-tan'][1].side.money.other, -200000);
 assert.equal(collected.lists['giao-vien'][0].side.money.net, 1500000);
+assert.equal(collected.lists['giao-vien'][0].side.money.tax, 200000, 'advance must not reduce the income used for tax');
+assert.equal(collected.lists['giao-vien'][0].side.money.taxDeduction, 0, 'legacy payslips must not acquire a deduction');
+const taxed = api.collectPayroll({ a: { published: { details_gv: { ...gv(5000000, 300000, 1000000), netPay: 3770000,
+    personalIncomeTax: 530000, personalIncomeTaxDeduction: 530000 }, status_gv: 'published' } } }, users, 'all', 'sent');
+assert.equal(taxed.lists['giao-vien'][0].side.money.other, 300000, 'tax deduction must not appear as a negative bonus');
+assert.equal(taxed.lists['giao-vien'][0].side.money.taxDeduction, 530000);
 assert.ok(collected.skipped.some(s => /Nháp/.test(s.name) && /CHƯA GỬI/.test(s.why)), 'draft must be reported, not silently dropped');
 
 const onlyTT = api.collectPayroll(settings, users, 'tiep-tan', 'any');
@@ -58,6 +64,11 @@ assert.equal(onlyTT.lists['tiep-tan'].length, 2);
     assert.match(text, /Tổng chi theo người/);
     assert.match(text, /Kiêm Tiếp tân/);
     assert.match(text, /SUM\(H5:H6\)/);
+    assert.match(text, /TNCN \(10%\)/);
+    assert.match(text, /TNCN khấu trừ/);
+    const october = Buffer.from(await api.buildPayrollListXlsx(taxed, { ...ctx, month: 9 }, 'all').arrayBuffer()).toString('utf8');
+    assert.match(october, /530000/);
+    assert.match(october, /3770000/);
     if (process.env.XLSX_OUT) fs.writeFileSync(process.env.XLSX_OUT, bytes);
     console.log('payroll-list-export tests passed');
 })().catch(e => { console.error(e); process.exit(1); });

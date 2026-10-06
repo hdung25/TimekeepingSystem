@@ -4152,6 +4152,12 @@ function calculateSalary() {
     updateBonusDisplay(canonicalBonus);
     window.currentMonthSalary = payrollParts.reduce((sum, p) => sum + p.baseSalary, 0);
     const totalSalary = payrollParts.reduce((sum, p) => sum + p.netPay, 0);
+    const taxDisplay = document.getElementById('salary-tax-amount');
+    if (taxDisplay) {
+        const activePart = payrollParts.find(p => p.role === (window.currentLoadedRoleKey === 'tiep_tan' ? 'tiep-tan' : 'giao-vien'));
+        taxDisplay.textContent = formatNumberWithCommas(activePart?.details.personalIncomeTax || 0) + 'đ'
+            + (activePart?.details.personalIncomeTaxEnabled ? ' · Đã khấu trừ' : ' · Không khấu trừ');
+    }
 
     const finalDisplay = document.getElementById('final-salary-display');
     if (finalDisplay) {
@@ -4302,6 +4308,10 @@ function applySalaryVisibility() {
         roles = [roleRaw];
     }
     const isSeniorAssistant = roles.includes('senior_assistant') && !roles.includes('admin');
+    ['salary-tax-enabled', 'modal-salary-tax-enabled'].forEach(id => {
+        const control = document.getElementById(id);
+        if (control?.parentElement?.parentElement) control.parentElement.parentElement.hidden = isSeniorAssistant;
+    });
 
     if (isSeniorAssistant) {
         const modalTables = document.querySelectorAll('#class-rate-modal table');
@@ -4434,6 +4444,7 @@ async function saveSalarySettings() {
     const settingsObj = {
         rate,
         advance,
+        personal_income_tax_enabled: document.getElementById('salary-tax-enabled')?.checked === true,
         evaluation: evaluationData,
         adjust_vdx: loadedSettings.adjust_vdx !== undefined ? loadedSettings.adjust_vdx : 0,
         adjust_vkp: loadedSettings.adjust_vkp !== undefined ? loadedSettings.adjust_vkp : 0,
@@ -4729,6 +4740,7 @@ async function loadSalarySettings(isCurrent = null) {
         }
     }
     document.getElementById('salary-advance').value = formatNumberWithCommas(settings.advance || 0);
+    loadPersonalIncomeTaxControl('salary-tax-enabled', settings);
 
     // Reset/populate receptionist extra inputs from loaded database values to avoid carry-over
     const phiTuVanInput = document.getElementById('pdf-phi-tu-van');
@@ -8004,6 +8016,7 @@ async function populateModalCurrentTab() {
     // 3. Advance & Evaluations Grid
     const modalAdvanceInp = document.getElementById('modal-salary-advance');
     if (modalAdvanceInp) modalAdvanceInp.value = formatNumberWithCommas(roleSettings.advance !== undefined ? roleSettings.advance : 0);
+    loadPersonalIncomeTaxControl('modal-salary-tax-enabled', roleSettings);
 
     // Teachers enter the position allowance here; receptionists keep it as criterion V below.
     const isTeacherModal = window.modalActiveRole !== 'tiep-tan';
@@ -8485,7 +8498,11 @@ function recalculateSalaryModal() {
         ? Math.max(0, parseFormattedNumber(document.getElementById('modal-position-allowance')?.value || '0'))
         : 0;
 
-    const netPay = basePay + criteriaPay + positionAllowance + recepPoolPay + attendanceAdjustments - advance;
+    const income = basePay + criteriaPay + positionAllowance + recepPoolPay + attendanceAdjustments;
+    const tax = calculatePersonalIncomeTax(income, document.getElementById('modal-salary-tax-enabled')?.checked === true);
+    const netPay = income - advance - tax.deduction;
+    const taxDisplay = document.getElementById('modal-salary-tax-amount');
+    if (taxDisplay) taxDisplay.textContent = formatNumberWithCommas(tax.amount) + 'đ' + (tax.enabled ? ' · Đã khấu trừ' : ' · Không khấu trừ');
 
     const displayCell = document.getElementById('modal-final-salary-display');
     if (displayCell) {
@@ -8545,6 +8562,7 @@ async function saveSalarySettingsFromModal() {
     
     const settingsObj = {
         class_rates: classRates,
+        personal_income_tax_enabled: document.getElementById('modal-salary-tax-enabled')?.checked === true,
         evaluation: evaluationData,
         adjust_vdx: adjustVDX,
         adjust_vkp: adjustVKP,
@@ -8597,6 +8615,7 @@ async function saveSalarySettingsFromModal() {
         
         // Sync to background page elements
         const backgroundAdvanceInp = document.getElementById('salary-advance');
+        loadPersonalIncomeTaxControl('salary-tax-enabled', settingsObj);
         if (backgroundAdvanceInp) {
             backgroundAdvanceInp.value = formatNumberWithCommas(advance);
         }
@@ -9219,6 +9238,7 @@ function exportSalaryPDFFromModal() {
     });
     
     exportSalaryPDF({
+        customTaxEnabled: document.getElementById('modal-salary-tax-enabled')?.checked === true,
         customAdvance: advance,
         customEvalItems: evaluationData,
         customPenalties: {
@@ -9936,7 +9956,7 @@ async function loadSalaryDashboard() {
     unsubscribeSalaryDashboard = null;
     salaryDashboardWatchMonth = '';
     const body = document.getElementById('dash-table-body');
-    if (body) body.innerHTML = '<tr><td colspan="11" style="padding:1.5rem;text-align:center;color:#6B7280;">Đang tải bảng lương đúng tháng…</td></tr>';
+    if (body) body.innerHTML = '<tr><td colspan="12" style="padding:1.5rem;text-align:center;color:#6B7280;">Đang tải bảng lương đúng tháng…</td></tr>';
     ['dash-total-payroll', 'dash-total-paid', 'dash-total-unpaid', 'dash-total-draft'].forEach(id => {
         const element = document.getElementById(id); if (element) element.innerText = '…';
     });
@@ -9961,7 +9981,7 @@ async function loadSalaryDashboard() {
     } catch (e) {
         if (generation !== salaryDashboardGeneration) return;
         console.error("Error loading salary dashboard:", e);
-        if (body) body.innerHTML = '<tr><td colspan="11" style="padding:1.5rem;text-align:center;">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="12" style="padding:1.5rem;text-align:center;">Chưa tải được lương tháng này. <button type="button" class="btn" onclick="loadSalaryDashboard()">Tải lại</button></td></tr>';
         UIService.toast("Lỗi khi tải dữ liệu dashboard: " + e.message, "error");
     } finally {
         UIService.hideLoading();
@@ -10131,6 +10151,10 @@ function renderSalaryDashboardTable() {
             baseSalary: baseSalary,
             totalBonus: totalBonus,
             advance: advance,
+            personalIncomeTax: pub ? ([pub.details_gv, pub.details_tt].filter(Boolean).length
+                ? [pub.details_gv, pub.details_tt].filter(Boolean).reduce((sum, part) => sum + (part.personalIncomeTax ?? calculatePersonalIncomeTax(Number(part.netPay || 0) + Number(part.advance || 0) + Number(part.personalIncomeTaxDeduction || 0), false).amount), 0)
+                : calculatePersonalIncomeTax(netPay + advance, false).amount) : 0,
+            personalIncomeTaxDeduction: pub ? [pub.details_gv, pub.details_tt].filter(Boolean).reduce((sum, part) => sum + Number(part.personalIncomeTaxDeduction || 0), 0) : 0,
             netPay: netPay,
             status: status,
             statusBadge: statusBadge,
@@ -10156,7 +10180,7 @@ function renderSalaryDashboardTable() {
     }
     
     if (rows.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="11" style="padding:2rem;text-align:center;color:#9CA3AF;">Không tìm thấy kết quả phù hợp</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="12" style="padding:2rem;text-align:center;color:#9CA3AF;">Không tìm thấy kết quả phù hợp</td></tr>`;
         return;
     }
     
@@ -10213,6 +10237,7 @@ function renderSalaryDashboardTable() {
                 <td style="padding:0.75rem 0.75rem;color:#4B5563;font-weight:500;">${safePrimaryRole}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.baseSalary > 0 ? formatNumberWithCommas(row.baseSalary) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.totalBonus > 0 ? formatNumberWithCommas(row.totalBonus) + 'đ' : '—'}</td>
+                <td style="padding:0.75rem;text-align:right;color:#374151">${row.status !== 'uncalculated' ? formatNumberWithCommas(row.personalIncomeTax) + 'đ' : '—'}<small style="display:block;color:#6B7280">${row.personalIncomeTaxDeduction > 0 ? 'Trừ ' + formatNumberWithCommas(row.personalIncomeTaxDeduction) + 'đ' : 'Không khấu trừ'}</small></td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#EF4444;">${row.advance > 0 ? '-' + formatNumberWithCommas(row.advance) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;font-weight:700;color:${row.netPay < 0 ? '#DC2626' : 'var(--primary-color)'};">${row.netPay !== 0 && row.status !== 'uncalculated' ? (row.netPay < 0 ? '-' : '') + formatNumberWithCommas(Math.abs(row.netPay)) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:center;">${row.statusBadge}</td>
@@ -10398,6 +10423,20 @@ window.filterDashboardTable = renderSalaryDashboardTable;
 // ==========================================
 // BULK PAYROLL PUBLISHING FUNCTIONS (NEW)
 // ==========================================
+
+function calculatePersonalIncomeTax(income, enabled, date = currentDate) {
+    const available = date.getFullYear() * 12 + date.getMonth() >= 2026 * 12 + 9;
+    const amount = available ? Math.round(Math.max(0, Number(income) || 0) * 0.1) : 0;
+    return { amount, deduction: enabled === true ? amount : 0, enabled: available && enabled === true, available };
+}
+
+function loadPersonalIncomeTaxControl(id, settings) {
+    const input = document.getElementById(id);
+    if (!input) return;
+    const available = calculatePersonalIncomeTax(0, false).available;
+    input.checked = available && settings.personal_income_tax_enabled === true;
+    input.disabled = !available;
+}
 
 function getCurrentCalculationPayload(role) {
     const user = window.currentUserContext;
@@ -10837,7 +10876,12 @@ function getCurrentCalculationPayload(role) {
     const positionAllowance = role === 'tiep-tan'
         ? 0
         : Math.max(0, Math.round(Number(roleSettings.position_allowance) || 0));
-    const roundedNetPay = roundedBaseSalary + roundedTotalBonus + positionAllowance + roundedAttendanceAdjustments - roundedAdvance;
+    const taxEnabled = isActiveRole
+        ? (document.getElementById('salary-tax-enabled')?.checked ?? roleSettings.personal_income_tax_enabled === true)
+        : roleSettings.personal_income_tax_enabled === true;
+    const incomeBeforeAdvance = roundedBaseSalary + roundedTotalBonus + positionAllowance + roundedAttendanceAdjustments;
+    const personalIncomeTax = calculatePersonalIncomeTax(incomeBeforeAdvance, taxEnabled);
+    const roundedNetPay = roundedBaseSalary + roundedTotalBonus + positionAllowance + roundedAttendanceAdjustments - roundedAdvance - personalIncomeTax.deduction;
     
     // Stats
     let workedShifts = 0;
@@ -10898,6 +10942,11 @@ function getCurrentCalculationPayload(role) {
         baseSalary: roundedBaseSalary,
         advance: roundedAdvance,
         netPay: roundedNetPay,
+        incomeBeforeAdvance,
+        personalIncomeTax: personalIncomeTax.amount,
+        personalIncomeTaxDeduction: personalIncomeTax.deduction,
+        personalIncomeTaxEnabled: personalIncomeTax.enabled,
+        personalIncomeTaxAvailable: personalIncomeTax.available,
         totalBonus: roundedTotalBonus,
         attendanceAdjustments: roundedAttendanceAdjustments,
         stats: stats

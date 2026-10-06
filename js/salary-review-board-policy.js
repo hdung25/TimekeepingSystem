@@ -120,12 +120,33 @@
     }
 
     function summary(rows) {
-        const count = filter => rows.filter(filter).length;
+        const count = filter => new Set(rows.filter(filter).map(row => row.staffId)).size;
         return {
             due: count(r => r.category === 'due'), soon: count(r => r.category === 'soon'),
             setup: count(r => r.group && !r.confirmed && !r.pending && !r.disabled),
-            pending: count(r => r.category === 'pending'), all: rows.length
+            pending: count(r => r.category === 'pending'), all: count(() => true)
         };
+    }
+
+    function groupByTeacher(rows) {
+        const teachers = new Map();
+        rows.forEach(row => {
+            if (!teachers.has(row.staffId)) teachers.set(row.staffId, []);
+            teachers.get(row.staffId).push(row);
+        });
+        return [...teachers.values()];
+    }
+
+    // One edit per teacher/current price. The underlying review groups remain
+    // independent so different dates and audit histories are never merged.
+    function rateBuckets(rows) {
+        const buckets = new Map();
+        rows.forEach(row => {
+            const id = JSON.stringify([row.staffId, row.currentRate]);
+            if (!buckets.has(id)) buckets.set(id, []);
+            buckets.get(id).push(row);
+        });
+        return [...buckets.values()];
     }
 
     function matchesTab(row, tab) {
@@ -166,7 +187,7 @@
         return problems;
     }
 
-    const api = { STEP_OFF_LADDER, SOON_MONTHS, nextRate, estimateBaseline, attendancePercent, buildRows, summary, matchesTab, confirmDraft, previewProblems };
+    const api = { STEP_OFF_LADDER, SOON_MONTHS, nextRate, estimateBaseline, attendancePercent, buildRows, summary, groupByTeacher, rateBuckets, matchesTab, confirmDraft, previewProblems };
     root.SalaryReviewBoardPolicy = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

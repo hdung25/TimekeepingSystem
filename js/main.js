@@ -3668,7 +3668,7 @@ function renderDetailedSalaryTable(details, status) {
     
     if (details.role === 'tiep-tan') {
         const totalI = (details.baseSalary || 0) + (details.phiTuVan || 0) + (details.chamBaiPhatSinh || 0) + (details.troCapChucVu || 0) + (details.luongHieuSuat || 0) + (details.doanhThuTong || 0) + (details.doanhThuCs2 || 0) + (details.doanhThuCs3 || 0) + (details.phatSinh || 0) + (details.attendanceAdjustments || 0);
-        const finalNetTT = totalI - (details.advance || 0);
+        const finalNetTT = totalI - (details.advance || 0) - (details.personalIncomeTaxDeduction || 0);
         
         rowsHtml = `
             <tr class="ps-row-total" style="background: #FFFBEB;">
@@ -3743,12 +3743,13 @@ function renderDetailedSalaryTable(details, status) {
                 </td>
             </tr>
             
+            ${details.personalIncomeTaxAvailable ? `<tr><td colspan="2" class="ps-k" style="${styleLabelCell}">TNCN 10% ${details.personalIncomeTaxEnabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="ps-v" style="${styleValueCell}">${fmt(details.personalIncomeTax || 0)}</td></tr>` : ''}
             <tr class="ps-row-advance" style="background: #FDF2F8;">
                 <td colspan="2" class="ps-k" style="${styleLabelCell} color: #DB2777; font-weight: 700;">TẠM ỨNG (2)</td>
                 <td class="ps-v" style="${styleValueCell} color: #DB2777; font-weight: 700;">${details.advance > 0 ? fmt(details.advance) : '—'}</td>
             </tr>
             <tr class="ps-row-net" style="background: #ECFDF5; border-top: 2px solid #10B981;">
-                <td colspan="2" class="ps-k" style="${styleHeaderCell} background: #ECFDF5; color: #065F46; font-size: 1.1rem;">THỰC LÃNH (1)-(2)</td>
+                <td colspan="2" class="ps-k" style="${styleHeaderCell} background: #ECFDF5; color: #065F46; font-size: 1.1rem;">THỰC LÃNH (1)-(2)${details.personalIncomeTaxDeduction ? '-(3)' : ''}</td>
                 <td class="ps-v" style="${styleHeaderValCell} background: #ECFDF5; color: #065F46; font-size: 1.3rem; font-weight: 800;">${fmt(finalNetTT)}</td>
             </tr>
         `;
@@ -3760,7 +3761,7 @@ function renderDetailedSalaryTable(details, status) {
         const troCapChucVu = hasPositionAllowance ? (Number(details.troCapChucVu) || 0) : 0;
         const troCapNote = hasPositionAllowance ? (details.troCapNote || '') : '';
         const initialTotal = (details.totalBaseSalary || 0) + (details.totalTinHocSalary || 0) + (details.totalExtraSalary || 0) + (details.totalPreschoolSalary || 0) + (details.totalAffiliateSalary || 0) + (details.totalTutoringSalary || 0) + troCapChucVu + (details.totalBonus || 0) + (details.attendanceAdjustments || 0);
-        const finalNet = initialTotal - (details.advance || 0);
+        const finalNet = initialTotal - (details.advance || 0) - (details.personalIncomeTaxDeduction || 0);
         
         const criteria0 = details.evalItems?.find(item => item.id === 0);
         const criteria1 = details.evalItems?.find(item => item.id === 1);
@@ -3880,12 +3881,13 @@ function renderDetailedSalaryTable(details, status) {
                 <td class="ps-v" style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria9?.amount ? fmt(criteria9.amount) : '—'}</td>
             </tr>
             
+            ${details.personalIncomeTaxAvailable ? `<tr><td colspan="3" class="ps-k" style="${styleLabelCell}">TNCN 10% ${details.personalIncomeTaxEnabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="ps-v" style="${styleValueCell}">${fmt(details.personalIncomeTax || 0)}</td></tr>` : ''}
             <tr class="ps-row-advance" style="background: #FDF2F8;">
                 <td colspan="3" class="ps-k" style="${styleLabelCell} color: #DB2777; font-weight: 700;">TẠM ỨNG (2)</td>
                 <td class="ps-v" style="${styleValueCell} color: #DB2777; font-weight: 700;">${details.advance > 0 ? fmt(details.advance) : '—'}</td>
             </tr>
             <tr class="ps-row-net" style="background: #ECFDF5; border-top: 2px solid #10B981;">
-                <td colspan="3" class="ps-k" style="${styleHeaderCell} background: #ECFDF5; color: #065F46; font-size: 1.1rem;">THỰC LÃNH (1)-(2)</td>
+                <td colspan="3" class="ps-k" style="${styleHeaderCell} background: #ECFDF5; color: #065F46; font-size: 1.1rem;">THỰC LÃNH (1)-(2)${details.personalIncomeTaxDeduction ? '-(3)' : ''}</td>
                 <td class="ps-v" style="${styleHeaderValCell} background: #ECFDF5; color: #065F46; font-size: 1.3rem; font-weight: 800;">${fmt(finalNet)}</td>
             </tr>
         `;

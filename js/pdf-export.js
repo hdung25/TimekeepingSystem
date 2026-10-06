@@ -407,7 +407,9 @@ function exportSalaryPDF(overrides) {
 
     const attendanceAdjustments = - penaltyVDX - penaltyVKP - penaltyLate;
     const initialTotal = baseSalary + totalBonus + attendanceAdjustments;
-    const finalNet = initialTotal - advance;
+    const taxEnabled = overrides?.customTaxEnabled ?? document.getElementById('salary-tax-enabled')?.checked === true;
+    const tax = calculatePersonalIncomeTax(initialTotal, taxEnabled);
+    const finalNet = initialTotal - advance - tax.deduction;
 
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
@@ -497,7 +499,8 @@ function exportSalaryPDF(overrides) {
 
         const phatSinh = (criteriaI?.amount || 0) + (criteriaV?.amount || 0);
         const totalI = baseSalary + phiTuVan + chamBaiPhatSinh + troCapChucVu + luongHieuSuat + doanhThuTong + doanhThuCs2 + doanhThuCs3 + phatSinh + attendanceAdjustments;
-        const finalNetTT = totalI - advance;
+        const taxTT = calculatePersonalIncomeTax(totalI, taxEnabled);
+        const finalNetTT = totalI - advance - taxTT.deduction;
 
         const penaltiesHtml = (penaltyVDX !== 0 || penaltyVKP !== 0 || penaltyLate !== 0)
             ? `<tr>
@@ -581,12 +584,13 @@ function exportSalaryPDF(overrides) {
                 </td>
                 <td class="right">${criteriaV?.amount ? fmt(criteriaV.amount) : ''}</td>
             </tr>
+            ${taxTT.available ? `<tr><td colspan="2">TNCN 10% ${taxTT.enabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="right">${fmt(taxTT.amount)}</td></tr>` : ''}
             <tr>
                 <td colspan="2" class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
             </tr>
             <tr>
-                <td colspan="2" class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                <td colspan="2" class="bold red-text">THỰC LÃNH (1)-(2)${taxTT.deduction ? '-(3)' : ''}</td>
                 <td class="bold red-text right">${fmt(finalNetTT)}</td>
             </tr>
         </table>`;
@@ -724,12 +728,13 @@ function exportSalaryPDF(overrides) {
                 <td class="right">${criteria9?.amount ? fmt(criteria9.amount) : ''}</td>
             </tr>
             
+            ${tax.available ? `<tr><td colspan="3">TNCN 10% ${tax.enabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="right">${fmt(tax.amount)}</td></tr>` : ''}
             <tr>
                 <td colspan="3" class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
             </tr>
             <tr>
-                <td colspan="3" class="bold red-text">THỰC LÃNH (1)-(2)</td>
+                <td colspan="3" class="bold red-text">THỰC LÃNH (1)-(2)${tax.deduction ? '-(3)' : ''}</td>
                 <td class="bold red-text right">${fmt(finalNet)}</td>
             </tr>
         </table>`;
