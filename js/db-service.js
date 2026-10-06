@@ -356,6 +356,7 @@ function _projectInheritedBonus10Row(row, targetDateKey) {
     projected.gvThayTeList = [];
     delete projected.gvThayTheAt;
     delete projected.teacherAbsences;
+    delete projected.substituteAbsences;
     delete projected.teacherAbsenceHistory;
     delete projected.staffingUpdatedAt;
     delete projected.staffingUpdatedById;
@@ -2239,6 +2240,7 @@ const DBService = {
                             newRow.gvThayTe = ''; newRow.gvThayTeId = ''; newRow.gvThayTeList = [];
                             delete newRow.gvThayTheAt;
                             delete newRow.teacherAbsences;
+                            delete newRow.substituteAbsences;
                             delete newRow.teacherAbsenceHistory;
                             delete newRow.staffingUpdatedAt;
                             delete newRow.staffingUpdatedById;

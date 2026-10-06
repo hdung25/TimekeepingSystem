@@ -108,8 +108,33 @@
         return getSubstituteTeachers(row).length > 0;
     }
 
+    // GV dạy thay đã nhận ca rồi báo bận (rút khỏi ca) được lưu RIÊNG ở substituteAbsences,
+    // không trộn vào teacherAbsences (vốn chỉ dành cho GV chính), để Bảng Công vẫn ghi đúng
+    // VP/VĐX cho người rút mà không làm lệch các luật vắng của GV chính.
+    function getSubstituteAbsences(row) {
+        return (Array.isArray(row?.substituteAbsences) ? row.substituteAbsences : [])
+            .filter(item => item && cleanId(item.teacherId || item.id));
+    }
+
+    function getSubstituteAbsenceRecord(row, teacherId) {
+        const id = cleanId(teacherId);
+        if (!id) return null;
+        return getSubstituteAbsences(row).find(item => cleanId(item.teacherId || item.id) === id) || null;
+    }
+
     function getReplacementIdsForTeacher(row, teacherId) {
         const id = cleanId(teacherId);
+        if (id && !getMainTeachers(row).some(item => item.id === id)) {
+            const dropout = getSubstituteAbsenceRecord(row, id);
+            if (dropout) {
+                // Người nhận lại phần dạy thay = GV thay hiện tại của cùng GV chính đó.
+                const covered = uniqueStrings(dropout.replacedTeacherIds);
+                return uniqueStrings(getSubstituteTeachers(row)
+                    .filter(item => item.id !== id &&
+                        uniqueStrings(item.replacesTeacherIds).some(mainId => covered.includes(mainId)))
+                    .map(item => item.id));
+            }
+        }
         const record = getAbsenceRecord(row, id);
         const explicitRecordIds = uniqueStrings(record?.replacementIds);
         if (explicitRecordIds.length) return explicitRecordIds;
@@ -229,10 +254,76 @@
             }));
         });
 
+        // GV dạy thay báo bận. Lệnh cũ không gửi substituteAbsences → giữ nguyên bản ghi đang có
+        // (trừ người vừa được xếp dạy lại trong ca). Lệnh mới gửi danh sách đầy đủ.
+        const oldDropouts = new Map(getSubstituteAbsences(current).map(item => [cleanId(item.teacherId || item.id), item]));
+        const keepCurrentDropouts = !Array.isArray(command?.substituteAbsences);
+        const rawDropouts = keepCurrentDropouts
+            ? Array.from(oldDropouts.values()).map(item => ({ ...item, id: item.teacherId || item.id, name: item.teacherName }))
+            : command.substituteAbsences;
+        const substituteAbsences = [];
+        rawDropouts.forEach(raw => {
+            const id = cleanId(raw?.id || raw?.teacherId);
+            if (!id || substituteAbsences.some(item => item.teacherId === id)) return;
+            const old = oldDropouts.get(id) || {};
+            const name = text(raw.name || raw.teacherName || old.teacherName);
+            if (mainIds.has(id) || substituteIds.has(id)) {
+                if (keepCurrentDropouts) return;
+                throw new Error(`${name || 'Giáo viên này'} đang được xếp dạy ở ca này nên không thể ghi báo bận.`);
+            }
+            const type = normalizeAbsenceType(raw.type || raw.status);
+            if (type === ACTIVE) {
+                if (keepCurrentDropouts) return;
+                throw new Error(`Hãy chọn Vắng có phép hoặc Vắng đột xuất cho ${name || 'GV thay báo bận'}.`);
+            }
+            const replacedTeacherIds = uniqueStrings(raw.replacedTeacherIds || raw.replacesTeacherIds || old.replacedTeacherIds);
+            const replacements = substitutes.filter(item => item.replacesTeacherIds.some(mainId => replacedTeacherIds.includes(mainId)));
+            substituteAbsences.push(compactObject({
+                ...old,
+                teacherId: id,
+                teacherName: name,
+                role: 'substitute',
+                type,
+                reason: text(raw.reason ?? old.reason).slice(0, 300),
+                reportedAt: text(raw.reportedAt) || old.reportedAt || timestamp,
+                reportedById: old.reportedById || who.id,
+                reportedByName: old.reportedByName || who.name,
+                replacedTeacherIds,
+                replacedTeacherNames: replacedTeacherIds
+                    .map(mainId => mains.find(item => item.id === mainId)?.name || '')
+                    .filter(Boolean),
+                replacementIds: replacements.map(item => item.id),
+                replacementNames: replacements.map(item => item.name),
+                updatedAt: timestamp,
+                updatedById: who.id,
+                updatedByName: who.name,
+                schemaVersion: 2
+            }));
+        });
+
         const newAbsences = new Map(teacherAbsences.map(item => [item.teacherId, item]));
         const history = Array.isArray(current.teacherAbsenceHistory)
             ? current.teacherAbsenceHistory.filter(Boolean).slice(-HISTORY_LIMIT)
             : [];
+        const newDropouts = new Map(substituteAbsences.map(item => [item.teacherId, item]));
+        new Set([...oldDropouts.keys(), ...newDropouts.keys()]).forEach(teacherId => {
+            const before = oldDropouts.get(teacherId) || null;
+            const after = newDropouts.get(teacherId) || null;
+            const beforeType = before ? normalizeAbsenceType(before.type) : ACTIVE;
+            const afterType = after ? normalizeAbsenceType(after.type) : ACTIVE;
+            if (beforeType === afterType && text(before?.reason) === text(after?.reason)) return;
+            history.push(compactObject({
+                event: !before ? 'substitute_absent' : (!after ? 'substitute_absence_removed' : 'substitute_absence_changed'),
+                teacherId,
+                teacherName: after?.teacherName || before?.teacherName || '',
+                role: 'substitute',
+                fromStatus: beforeType,
+                toStatus: afterType,
+                at: timestamp,
+                byId: who.id,
+                byName: who.name
+            }));
+        });
         const allTeacherIds = new Set([...oldAbsences.keys(), ...newAbsences.keys()]);
         allTeacherIds.forEach(teacherId => {
             const before = oldAbsences.get(teacherId) || null;
@@ -283,6 +374,7 @@
             gvThayTheId: firstSub.id || '',
             gvThayTheAt: substitutes.length ? (current.gvThayTheAt || timestamp) : '',
             teacherAbsences,
+            ...(substituteAbsences.length || Array.isArray(current.substituteAbsences) ? { substituteAbsences } : {}),
             teacherAbsenceHistory: history.slice(-HISTORY_LIMIT),
             staffingUpdatedAt: timestamp,
             staffingUpdatedById: who.id,
@@ -549,6 +641,8 @@
         isMainTeacherAbsent,
         getReplacementIdsForTeacher,
         getReplacementTeachersForTeacher,
+        getSubstituteAbsences,
+        getSubstituteAbsenceRecord,
         normalizeAbsenceType,
         statusLabel,
         stableShiftId,

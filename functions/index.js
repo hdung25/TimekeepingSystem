@@ -106,6 +106,7 @@ async function resolveDaySchedule(branch, dateKey) {
             delete next.isClosed;
             next.gvThayTeList = []; next.gvThayTheList = []; next.gvThayTeId = ''; next.gvThayTheId = '';
             next.teacherAbsences = [];
+            delete next.substituteAbsences;
             return next;
         });
     });

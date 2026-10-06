@@ -1894,7 +1894,9 @@ function teacherShiftManagerStaffingFingerprint(state) {
         replacesTeacherIds: [...(state.substituteById?.get(id)?.replacesTeacherIds || [])]
             .map(String).sort()
     }));
-    return JSON.stringify({ mainIds, mainMeta, statuses, substitutes });
+    const dropouts = teacherManagerDropoutEntries(state).map(item => ({ id: String(item.id), type: item.type }))
+        .sort((left, right) => left.id.localeCompare(right.id));
+    return JSON.stringify({ mainIds, mainMeta, statuses, substitutes, dropouts });
 }
 
 function teacherAttendanceDraftFingerprint(draft) {
@@ -1962,6 +1964,14 @@ function teacherManagerAbsentMainEntries() {
 function teacherManagerSubEntries() {
     const state = teacherShiftManagerState;
     return (state?.substituteIds || []).map(id => state.substituteById.get(id)).filter(Boolean);
+}
+
+// GV dạy thay đã nhận ca rồi báo bận. Ai đang được xếp lại vào ca (GV chính/GV thay) thì
+// không còn là "báo bận" nữa.
+function teacherManagerDropoutEntries(state = teacherShiftManagerState) {
+    if (!state?.substituteDropouts) return [];
+    return Array.from(state.substituteDropouts.values()).filter(item => item?.id &&
+        !(state.mainIds || []).includes(item.id) && !(state.substituteIds || []).includes(item.id));
 }
 
 function teacherManagerReplacementTarget() {
@@ -2102,6 +2112,26 @@ function substituteCoverageCard(substitute) {
                 const selected = (substitute.replacesTeacherIds || []).includes(main.id);
                 return `<button type="button" data-action="toggle-map" data-substitute-id="${id}" data-main-id="${scheduleEscapeAttr(main.id)}" class="${selected ? 'is-active' : ''}">${selected ? '✓ ' : ''}${scheduleEscapeHTML(main.name)}</button>`;
             }).join('') : '<span class="no-absence-hint">Hãy chọn trạng thái nghỉ cho GV chính trước.</span>'}
+        </div>
+        <div class="substitute-dropout-actions" role="group" aria-label="${scheduleEscapeAttr(substitute.name)} báo bận">
+            <span>Người này báo bận, không dạy được nữa:</span>
+            <button type="button" data-action="substitute-dropout" data-teacher-id="${id}" data-status="VP">Vắng có phép</button>
+            <button type="button" data-action="substitute-dropout" data-teacher-id="${id}" data-status="VDX">Vắng đột xuất</button>
+        </div>
+    </article>`;
+}
+
+function substituteDropoutCard(dropout) {
+    const id = scheduleEscapeAttr(dropout.id);
+    const state = teacherShiftManagerState;
+    const covered = (dropout.replacesTeacherIds || [])
+        .map(mainId => state.teacherById.get(mainId)?.name || '').filter(Boolean).join(', ');
+    return `<article class="substitute-dropout-card">
+        <div><strong>${scheduleEscapeHTML(dropout.name)}</strong><span>Đã nhận dạy thay${covered ? ` cho ${scheduleEscapeHTML(covered)}` : ''} rồi báo bận · Bảng Công ghi vắng ca này</span></div>
+        <div class="teacher-status-segment" role="group" aria-label="Loại vắng của ${scheduleEscapeAttr(dropout.name)}">
+            <button type="button" data-action="substitute-dropout-type" data-teacher-id="${id}" data-status="VP" class="${dropout.type === 'VP' ? 'is-active' : ''}">Vắng có phép</button>
+            <button type="button" data-action="substitute-dropout-type" data-teacher-id="${id}" data-status="VDX" class="${dropout.type === 'VDX' ? 'is-active' : ''}">Vắng đột xuất</button>
+            <button type="button" data-action="substitute-dropout-undo" data-teacher-id="${id}">Hoàn tác</button>
         </div>
     </article>`;
 }
@@ -2610,6 +2640,7 @@ function teacherShiftManagerMarkup() {
     const mains = teacherManagerMainEntries();
     const substitutes = teacherManagerSubEntries();
     const absent = teacherManagerAbsentMainEntries();
+    const dropouts = teacherManagerDropoutEntries(state);
     const primaryRoster = state.teachers.map(teacher => teacherRosterItem(
         teacher,
         'main',
@@ -2636,6 +2667,10 @@ function teacherShiftManagerMarkup() {
             <div class="substitute-coverage-list">
                 ${substitutes.length ? substitutes.map(substituteCoverageCard).join('') : `<div class="teacher-empty-state compact">${absent.length ? 'Chưa chọn GV thay — ca sẽ được lưu ở trạng thái “Đang tìm GV thay”.' : 'Khi GV chính báo nghỉ, chọn người dạy thay ở danh sách bên cạnh.'}</div>`}
             </div>
+            ${dropouts.length ? `<div class="substitute-dropout-list">
+                <div class="substitute-dropout-head">GV dạy thay đã báo bận (${dropouts.length})</div>
+                ${dropouts.map(substituteDropoutCard).join('')}
+            </div>` : ''}
             ${attendanceAdminPanelMarkup()}
         </section>
         <aside class="teacher-roster-column">
@@ -2731,7 +2766,8 @@ function renderTeacherShiftManager() {
     const absent = teacherManagerAbsentMainEntries().length;
     const subs = teacherManagerSubEntries().length;
     const summary = document.getElementById('teacher-shift-manager-summary');
-    if (summary) summary.textContent = `${mains} GV chính · ${absent ? `${absent} GV nghỉ` : 'đủ nhân sự'} · ${subs} GV thay`;
+    const dropoutCount = teacherManagerDropoutEntries().length;
+    if (summary) summary.textContent = `${mains} GV chính · ${absent ? `${absent} GV nghỉ` : 'đủ nhân sự'} · ${subs} GV thay${dropoutCount ? ` · ${dropoutCount} GV thay báo bận` : ''}`;
     body.scrollTop = viewport.bodyTop;
     const nextCommandColumn = body.querySelector('.teacher-command-column');
     if (nextCommandColumn) nextCommandColumn.scrollTop = viewport.commandTop;
@@ -3231,6 +3267,46 @@ function handleTeacherShiftManagerClick(event) {
         UIService.toast(`Đã chọn ${substitute?.name || 'giáo viên này'} dạy thay cho ${main?.name || 'GV chính'}. Bấm Lưu điều phối ca để xác nhận.`, 'info');
         return renderTeacherShiftManager();
     }
+    if (action === 'substitute-dropout') {
+        const substitute = state.substituteById.get(String(teacherId));
+        const type = button.dataset.status === 'VP' ? 'VP' : 'VDX';
+        if (!substitute || !state.substituteIds.includes(String(teacherId))) return;
+        const attendanceEntry = state.attendance?.entries?.get?.(String(teacherId));
+        if (attendanceEntryHasWorkedEvidence(attendanceEntry)) {
+            UIService.toast(`${substitute.name || 'GV này'} đang có phiên công vào/ra ở ca này. Hãy xử lý phiên công trong Bảng Công trước khi ghi báo bận.`, 'error');
+            return;
+        }
+        if (!state.substituteDropouts) state.substituteDropouts = new Map();
+        state.substituteDropouts.set(String(teacherId), {
+            id: String(teacherId),
+            name: substitute.name || state.teacherById.get(String(teacherId))?.name || '',
+            type,
+            reportedAt: new Date().toISOString(),
+            replacesTeacherIds: Array.from(new Set(substitute.replacesTeacherIds || []))
+        });
+        state.substituteIds = state.substituteIds.filter(value => value !== String(teacherId));
+        state.substituteById.delete(String(teacherId));
+        UIService.toast(`Đã ghi ${substitute.name || 'GV thay'} báo bận (${type === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'}). Chọn GV thay khác rồi bấm Lưu điều phối ca.`, 'info');
+        return renderTeacherShiftManager();
+    }
+    if (action === 'substitute-dropout-type') {
+        const dropout = state.substituteDropouts?.get(String(teacherId));
+        if (!dropout) return;
+        dropout.type = button.dataset.status === 'VP' ? 'VP' : 'VDX';
+        return renderTeacherShiftManager();
+    }
+    if (action === 'substitute-dropout-undo') {
+        const dropout = state.substituteDropouts?.get(String(teacherId));
+        if (!dropout) return;
+        state.substituteDropouts.delete(String(teacherId));
+        const absentIds = new Set(teacherManagerAbsentMainEntries().map(item => item.id));
+        const replacesTeacherIds = (dropout.replacesTeacherIds || []).filter(id => absentIds.has(id));
+        if (replacesTeacherIds.length && !state.substituteIds.includes(dropout.id)) {
+            state.substituteIds.push(dropout.id);
+            state.substituteById.set(dropout.id, { id: dropout.id, name: dropout.name, replacesTeacherIds });
+        }
+        return renderTeacherShiftManager();
+    }
     if (action === 'toggle-fixed' && state.mainMeta[teacherId]) {
         state.mainMeta[teacherId].pendingFixed = !state.mainMeta[teacherId].pendingFixed;
         return renderTeacherShiftManager();
@@ -3496,6 +3572,17 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
             statuses,
             substituteIds: substitutes.map(item => item.id),
             substituteById,
+            substituteDropouts: new Map((window.TeacherShiftState.getSubstituteAbsences?.(row) || []).map(item => {
+                const id = String(item.teacherId || item.id);
+                return [id, {
+                    id,
+                    name: item.teacherName || teacherById.get(id)?.name || '',
+                    type: item.type === 'VP' ? 'VP' : 'VDX',
+                    reason: item.reason || '',
+                    reportedAt: item.reportedAt || '',
+                    replacesTeacherIds: Array.isArray(item.replacedTeacherIds) ? item.replacedTeacherIds.map(String) : []
+                }];
+            })),
             originalMainIds,
             originalSubstituteIds,
             activeTab: fieldType === 'gvThayTe' ? 'substitute' : 'main',
@@ -3634,7 +3721,15 @@ window.saveTeacherShiftCommand = async function () {
             id: localStorage.getItem('currentUserId') || '',
             name: localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || ''
         };
-        const command = { shiftId: state.shiftId, mains, substitutes, statuses };
+        const substituteAbsences = teacherManagerDropoutEntries(state).map(item => ({
+            id: item.id,
+            name: item.name,
+            type: item.type,
+            reason: item.reason || '',
+            reportedAt: item.reportedAt || '',
+            replacedTeacherIds: item.replacesTeacherIds || []
+        }));
+        const command = { shiftId: state.shiftId, mains, substitutes, statuses, substituteAbsences };
         const nowISO = new Date().toISOString();
         const committedRow = await DBService.updateScheduleRowAtomic(
             state.compositeKey,
@@ -3840,7 +3935,7 @@ window.executeCopyWeek = async function () {
                             const { registeredTeachers, isClosed, classClosureHistory,
                                 gvThayThe, gvThayTheId, gvThayTheList,
                                 gvThayTe, gvThayTeId, gvThayTeList,
-                                gvThayTheAt, teacherAbsences, teacherAbsenceHistory,
+                                gvThayTheAt, teacherAbsences, teacherAbsenceHistory, substituteAbsences,
                                 staffingUpdatedAt, staffingUpdatedById, staffingUpdatedByName,
                                 shiftId, ...rest } = row;
                             return {

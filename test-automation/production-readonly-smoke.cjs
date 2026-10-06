@@ -48,7 +48,7 @@ const digest = value => crypto.createHash('sha256')
     const chamCongHtml = await (await fetch(origin + '/cham-cong.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) })).text();
     assert.ok(chamCongHtml.includes('js/timekeeping.js?v=' + timekeepingVersion) &&
         chamCongHtml.includes('js/db-service.js?v=' + attendanceVersion) && chamCongHtml.includes('js/main.js?v=' + mainVersion) &&
-        chamCongHtml.includes('js/evaluation-service.js?v=20261004-payroll-rate-v1') && chamCongHtml.includes(pinnedLucide));
+        chamCongHtml.includes('js/evaluation-service.js?v=20261006-sub-dropout-v1') && chamCongHtml.includes(pinnedLucide));
     const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
     assert.equal(scheduleResponse.status, 200);
     assert.ok((await scheduleResponse.text()).includes('js/schedule.js?v=' + scheduleVersion));
@@ -71,9 +71,9 @@ const digest = value => crypto.createHash('sha256')
             return !!(await cache.match('/js/main.js?v=20261006-early-out-v1')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20261003-chain-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
-                !!(await cache.match('/js/db-service.js?v=20260929-owner-round-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20261006-sub-dropout-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1')) &&
-                !!(await cache.match('/js/schedule.js?v=20261003-owner-v1'));
+                !!(await cache.match('/js/schedule.js?v=20261006-sub-dropout-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
         // Let the worker finish its install fetches before enabling request
         // interception. Chromium can hold Cache.addAll() requests when an

@@ -1,8 +1,8 @@
-// Service Worker v227 - RA CA before the scheduled end asks for confirmation.
+// Service Worker v228 - substitute teacher who drops out can be recorded VP/VĐX.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v227-early-out-20261006';
+const APP_RELEASE = 'tdt-chamcong-v228-sub-dropout-20261006';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -47,15 +47,15 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20261006-early-out-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
-    '/js/db-service.js?v=20260929-owner-round-v1',
+    '/js/db-service.js?v=20261006-sub-dropout-v1',
     '/js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1',
     '/js/class-rate-groups.js?v=20261005-class-rate-v1',
     '/js/report.js?v=20261005-class-rate-v1',
     '/js/teacher-attendance-policy.js?v=20261005-new-mode-v1',
     '/js/teacher-attendance-editor.js?v=20261005-new-mode-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
-    '/js/evaluation-service.js?v=20261004-payroll-rate-v1',
-    '/js/shift-absence-state.js?v=20260906-early10-recovery-v1',
+    '/js/evaluation-service.js?v=20261006-sub-dropout-v1',
+    '/js/shift-absence-state.js?v=20261006-sub-dropout-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',
     '/js/shift-oversight.js?v=20260906-early10-recovery-v1',
@@ -71,7 +71,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20261003-owner-v1',
+    '/js/schedule.js?v=20261006-sub-dropout-v1',
     '/js/center-holidays.js?v=20260927-holidays-v1',
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',
@@ -79,7 +79,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/staff-notes.js?v=20261003-owner-v3',
     '/css/staff-notes.css?v=20261003-owner-v3',
     '/js/search-keynav.js?v=20261004-review-board-v1',
-    '/js/teacher-shift-state.js?v=20260906-early10-recovery-v1',
+    '/js/teacher-shift-state.js?v=20261006-sub-dropout-v1',
     '/js/pdf-export.js?v=20260908-payroll-review-v2',
     '/js/receptionist-schedule.js?v=20260926-mobile-ui-v1',
     '/js/timekeeping.js?v=20261003-chain-v1',

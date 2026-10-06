@@ -1281,6 +1281,9 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 ].filter(Boolean))).join(', ');
                 const isPendingReplacement = mappedReplacementIds.length === 0;
                 const absencePrefix = absenceType === 'VP' ? 'VP' : 'VĐX';
+                // GV dạy thay đã nhận ca rồi báo bận (substituteAbsences) — ghi rõ trong tooltip.
+                const absenceLabel = (absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất') +
+                    (absenceRecord?.role === 'substitute' ? ' (đã nhận dạy thay rồi báo bận)' : '');
                 chips.push({
                     text: `${absencePrefix}: ${lopLabel} ${cls.start}–${cls.end}${branchLabel ? ' (' + branchLabel + ')' : ''}`,
                     class: absenceType === 'VP' ? 'chip-gray chip-absence-vp' : 'chip-red chip-absence-vdx',
@@ -1294,8 +1297,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     isPendingReplacement,
                     chipFilterName: normalizeChipFilterName(cls.lop),
                     tooltip: isPendingReplacement
-                        ? `${absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất'} — chưa tìm được GV thay thế`
-                        : `${absenceType === 'VP' ? 'Vắng phép' : 'Vắng đột xuất'} — GV thay thế: ${replacementNames || '?'}`,
+                        ? `${absenceLabel} — chưa tìm được GV thay thế`
+                        : `${absenceLabel} — GV thay thế: ${replacementNames || '?'}`,
                     sessionId: null,
                     schedData: { start: cls.start, end: cls.end, shiftId: cls.shiftId || '' },
                     isClickable: true,

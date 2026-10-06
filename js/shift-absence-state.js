@@ -71,6 +71,14 @@
         ) || null;
     }
 
+    function getSubstituteAbsenceRecord(row, staffId) {
+        const id = clean(staffId);
+        if (!id || !Array.isArray(row && row.substituteAbsences)) return null;
+        return row.substituteAbsences.find(item =>
+            clean(item && (item.teacherId || item.id)) === id
+        ) || null;
+    }
+
     function hasCancellation(cancelledShifts, cancelKey) {
         const key = clean(cancelKey);
         if (!key) return false;
@@ -195,6 +203,22 @@
                 hasCanonicalState: true,
                 record
             });
+        }
+
+        // GV dạy thay đã nhận ca rồi báo bận: người này không còn trong danh sách dạy của
+        // ca nhưng vẫn phải ra chip VP/VĐX đúng ca (Bảng Công/lương).
+        if (!isMain && !isSubstitute) {
+            const dropout = getSubstituteAbsenceRecord(row, staffId);
+            const dropoutType = dropout ? normalizeAbsenceType(dropout.type) : null;
+            if (dropoutType) {
+                return state({
+                    isAbsent: true,
+                    type: dropoutType,
+                    source: 'teacher-absence',
+                    hasCanonicalState: true,
+                    record: dropout
+                });
+            }
         }
 
         if (isAssigned && hasCancellation(input.cancelledShifts, input.cancelKey)) {
