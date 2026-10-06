@@ -6866,7 +6866,7 @@ const DBService = {
             const history = Array.isArray(request.approvalHistory) ? request.approvalHistory.slice(-19) : [];
             history.push({ action: 'approval_revoked', sessionId, reviewedBy: request.reviewedBy || 'Admin',
                 revokedBy: adminName || 'Admin', reason: String(reason || '').slice(0, 500),
-                at: firebase.firestore.FieldValue.serverTimestamp() });
+                at: new Date().toISOString() }); // serverTimestamp() is rejected inside arrays
             transaction.update(requestRef, {
                 status: 'pending', materializedSessionId: '', approvalHistory: history,
                 lastApprovalRevokedBy: adminName || 'Admin',

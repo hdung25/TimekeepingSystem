@@ -304,6 +304,10 @@ async function expectCode(promiseFactory, code) {
         assert.equal(state.request.status, 'pending');
         assert.equal(state.request.materializedSessionId, '');
         assert.equal(state.request.approvalHistory.at(-1).action, 'approval_revoked');
+        // Firestore rejects FieldValue.serverTimestamp() inside arrays (owner 06/10/2026:
+        // "Không thể hủy duyệt ... not currently supported inside arrays").
+        assert.equal(JSON.stringify(state.request.approvalHistory).includes('server-time'), false, 'no server timestamp inside approvalHistory');
+        assert.match(state.request.approvalHistory.at(-1).at, /^\d{4}-\d{2}-\d{2}T/);
         assert.deepEqual(state.attendance.sessions.map(session => session.id), ['independent-admin-session'],
             'revoke must preserve other sessions on the same day');
         assert.equal(state.attendance.checkIn, '2026-08-17T18:00:00+07:00');

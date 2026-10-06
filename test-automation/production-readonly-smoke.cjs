@@ -71,7 +71,7 @@ const digest = value => crypto.createHash('sha256')
             return !!(await cache.match('/js/main.js?v=20261006-early-out-v1')) &&
                 !!(await cache.match('/js/timekeeping.js?v=20261003-chain-v1')) &&
                 !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
-                !!(await cache.match('/js/db-service.js?v=20261006-sub-dropout-v1')) &&
+                !!(await cache.match('/js/db-service.js?v=20261006-makeup-revoke-v1')) &&
                 !!(await cache.match('/js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1')) &&
                 !!(await cache.match('/js/schedule.js?v=20261006-sub-dropout-v1'));
         }, { timeout: 60000 }, serviceWorkerCacheName);
