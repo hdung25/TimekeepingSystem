@@ -387,6 +387,59 @@
     // It must never manufacture teacherAbsences. A source absence is allowed only
     // through the explicit source_absence command, which records the scheduler's
     // chosen VP/VDX decision alongside the transfer history.
+    // Lớp gộp (combined class): một GV chính dạy nhiều hàng lịch CÙNG giờ bắt đầu/kết thúc.
+    // Khi GV đó báo nghỉ / đổi loại vắng / được xếp GV thay ở một hàng, các hàng còn lại phải
+    // nhận cùng trạng thái. Trả về lệnh applyStaffingCommand cho hàng `row`, hoặc null nếu
+    // hàng đó đã khớp (hoặc GV không phải GV chính của hàng). Chỉ đụng tới đúng GV đó; các
+    // GV chính khác và GV thay của họ được giữ nguyên.
+    function buildCombinedClassAbsenceCommand(row, teacherId, sourceRow) {
+        const id = cleanId(teacherId);
+        const mains = getMainTeachers(row);
+        if (!id || !mains.some(item => item.id === id)) return null;
+        if (!getMainTeachers(sourceRow).some(item => item.id === id)) return null;
+
+        const sourceRecord = getAbsenceRecord(sourceRow, id);
+        const sourceType = sourceRecord ? normalizeAbsenceType(sourceRecord.type) : ACTIVE;
+        const currentRecord = getAbsenceRecord(row, id);
+        const currentType = currentRecord ? normalizeAbsenceType(currentRecord.type) : ACTIVE;
+        const mainIds = new Set(mains.map(item => item.id));
+        const sourceSubs = sourceType === ACTIVE ? [] : getSubstituteTeachers(sourceRow)
+            .filter(item => item.id && (item.replacesTeacherIds || []).includes(id) && !mainIds.has(item.id));
+        const currentSubIds = getSubstituteTeachers(row)
+            .filter(item => (item.replacesTeacherIds || []).includes(id)).map(item => item.id).sort();
+        const wantedSubIds = sourceSubs.map(item => item.id).sort();
+        if (sourceType === currentType && arraysEqual(currentSubIds, wantedSubIds) &&
+            (sourceType === ACTIVE || text(currentRecord?.reason) === text(sourceRecord?.reason))) return null;
+
+        const statuses = {};
+        mains.forEach(main => {
+            if (main.id === id) {
+                statuses[main.id] = sourceType === ACTIVE ? { type: ACTIVE } : {
+                    type: sourceType,
+                    reason: text(sourceRecord.reason),
+                    reportedAt: text(sourceRecord.reportedAt)
+                };
+                return;
+            }
+            const record = getAbsenceRecord(row, main.id);
+            statuses[main.id] = record
+                ? { type: normalizeAbsenceType(record.type), reason: text(record.reason), reportedAt: text(record.reportedAt) }
+                : { type: ACTIVE };
+        });
+        const absentOthers = new Set(mains.filter(main => main.id !== id && statuses[main.id].type !== ACTIVE).map(main => main.id));
+        const substitutes = [];
+        getSubstituteTeachers(row).forEach(item => {
+            const replaces = uniqueStrings(item.replacesTeacherIds).filter(mainId => absentOthers.has(mainId));
+            if (item.id && replaces.length) substitutes.push({ id: item.id, name: item.name, replacesTeacherIds: replaces });
+        });
+        sourceSubs.forEach(item => {
+            const existing = substitutes.find(sub => sub.id === item.id);
+            if (existing) existing.replacesTeacherIds = uniqueStrings([...existing.replacesTeacherIds, id]);
+            else substitutes.push({ id: item.id, name: item.name, replacesTeacherIds: [id] });
+        });
+        return { shiftId: text(row?.shiftId), mains, substitutes, statuses };
+    }
+
     function applyTeacherTransferCommand(row, command, actor, nowISO) {
         const current = row && typeof row === 'object' ? row : {};
         const timestamp = text(nowISO) || new Date().toISOString();
@@ -647,6 +700,7 @@
         statusLabel,
         stableShiftId,
         applyStaffingCommand,
+        buildCombinedClassAbsenceCommand,
         applyTeacherTransferCommand,
         projectInheritedRoster
     };

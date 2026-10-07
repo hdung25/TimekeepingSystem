@@ -13,7 +13,9 @@
     const today = () => P.dateKey();
     const TABS = [['due', 'Đến hạn'], ['soon', 'Sắp đến hạn'], ['setup', 'Chưa có mốc'], ['pending', 'Chờ hiệu lực'], ['all', 'Tất cả']];
     const state = { index: null, monthlyByStaff: {}, legacyByStaff: {}, rows: [], tab: 'due', query: '', selected: new Set(),
-        open: '', drafts: {}, bulk: null, busy: false, loading: false, epoch: 0, results: {} };
+        open: '', drafts: {}, bulk: null, busy: false, loading: false, epoch: 0, results: {},
+        recep: { plans: [], rows: [], drafts: {}, results: {}, error: '' } };
+    const R = window.ReceptionSalaryReview;
 
     function message(text, isError = false) {
         const el = $('srb-message');
@@ -56,10 +58,13 @@
         message('Đang tải giá và giờ dạy của tất cả giáo viên…');
         try {
             const now = today(), months = [now.slice(0, 7), ...P.previousMonths(now, 6)];
-            const [maps, legacy] = await Promise.all([
+            const [maps, legacy, plans] = await Promise.all([
                 Promise.all(months.map(month => DBService.getAllMonthlySalarySettings(month, { strict: true }))),
-                S.all('salary_settings')
+                S.all('salary_settings'),
+                R ? R.loadPlans().then(list => { state.recep.error = ''; return list; })
+                    .catch(error => { state.recep.error = error.message; return []; }) : []
             ]);
+            state.recep.plans = plans;
             if (epoch !== state.epoch) return;
             const byStaff = {};
             months.forEach((month, i) => Object.entries(maps[i] || {}).forEach(([staffId, data]) => {
@@ -80,6 +85,8 @@
         state.rows = B.buildRows({ users: state.index.users, subjects: state.index.subjects, profiles: state.index.profiles,
             config: state.index.config, monthlyByStaff: state.monthlyByStaff, legacyByStaff: state.legacyByStaff, today: today(),
             policy: P, overview: O, lifecycle: DBService.getPayslipLifecycleState, rateResolver: window.SubjectRatePolicy });
+        state.recep.rows = R ? R.buildRows({ users: state.index.users, plans: state.recep.plans, monthlyByStaff: state.monthlyByStaff,
+            legacyByStaff: state.legacyByStaff, today: today() }) : [];
         const keys = new Set(state.rows.map(row => row.key));
         [...state.selected].forEach(key => { if (!keys.has(key)) state.selected.delete(key); });
         if (state.open && !keys.has(state.open)) state.open = '';
@@ -362,16 +369,20 @@
     function render() {
         if (!$('srb')) return;
         const counts = B.summary(state.rows);
+        const ttCount = category => state.recep.rows.filter(row => row.category === category).length;
+        counts.due += ttCount('due'); counts.soon += ttCount('soon'); counts.setup += ttCount('setup');
         $('srb-summary').innerHTML = [['due', 'Đến hạn tháng này', counts.due], ['soon', 'Sắp đến hạn (2 tháng)', counts.soon],
             ['setup', 'Chưa có mốc', counts.setup], ['pending', 'Đã duyệt, chờ hiệu lực', counts.pending]]
             .map(([tab, label, n]) => `<button type="button" class="srb-card ${tab === 'due' && n ? 'warn' : ''}" data-tab="${tab}" aria-pressed="${state.tab === tab}"><span>${label}</span><strong>${state.loading ? '…' : n}</strong></button>`).join('');
         $('srb-tabs').innerHTML = TABS.map(([tab, label]) => `<button type="button" class="srb-tab" data-tab="${tab}" aria-pressed="${state.tab === tab}">${label}${tab === 'all' ? '' : ` (${counts[tab] ?? 0})`}</button>`).join('');
         const rows = visibleRows();
+        const ttRows = receptionVisibleRows();
         if (state.loading) $('srb-list').innerHTML = '<p class="srb-empty">Đang tải giá và giờ dạy của tất cả giáo viên…</p>';
         else if (!state.index) $('srb-list').innerHTML = '<p class="srb-empty">Đang xác thực…</p>';
-        else $('srb-list').innerHTML = rows.length
+        else $('srb-list').innerHTML = (rows.length
             ? `<div class="srb-head"><span></span><span>MSNV</span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span></span></div>${B.groupByTeacher(rows).map(teacherHtml).join('')}`
-            : `<p class="srb-empty">${state.tab === 'due' ? 'Không có ai đến hạn xét trong tháng này.' : 'Không có dòng nào trong mục này.'}</p>`;
+            : (ttRows.length ? '' : `<p class="srb-empty">${state.tab === 'due' ? 'Không có ai đến hạn xét trong tháng này.' : 'Không có dòng nào trong mục này.'}</p>`))
+            + receptionSectionHtml(ttRows);
         $('srb-bulk').innerHTML = bulkHtml();
         const allBox = $('srb-select-all');
         const selectable = rows.filter(row => row.group && !row.pending && !row.disabled);
@@ -387,6 +398,141 @@
             });
         });
     }
+
+    // ---------- Tiếp tân: 1 dòng / người, hẹn ngày lên lương → Duyệt hoặc Chờ thêm 1 tháng ----------
+    function receptionVisibleRows() {
+        if (!R) return [];
+        const q = P.key(state.query);
+        return state.recep.rows.filter(row => R.matchesTab(row, state.tab) &&
+            (!q || P.key(row.name + ' ' + row.code + ' tiếp tân').includes(q)));
+    }
+    const ttRowByKey = key => state.recep.rows.find(row => row.key === key);
+    function ttDraft(row) {
+        if (!state.recep.drafts[row.key]) {
+            const plan = row.plan || {};
+            state.recep.drafts[row.key] = {
+                mode: '', dueDate: plan.dueDate || '', plannedRate: plan.plannedRate ?? '', note: plan.note || '', enabled: plan.enabled !== false,
+                rate: plan.plannedRate ?? (row.currentRate != null ? row.currentRate + 2000 : ''),
+                month: R.defaultTargetMonth(plan, today()), approveNote: ''
+            };
+        }
+        return state.recep.drafts[row.key];
+    }
+    function ttBadge(row) {
+        const due = row.plan?.dueDate;
+        if (row.category === 'disabled') return '<span class="srb-badge muted">Tạm ngưng</span>';
+        if (row.category === 'setup') return '<span class="srb-badge muted">Chưa hẹn ngày</span>';
+        if (row.category === 'due') return `<span class="srb-badge ${due < today() ? 'danger' : 'warn'}">Đến hạn</span><small>${vnDate(due)}</small>`;
+        return `<span class="srb-badge ${row.category === 'soon' ? 'soon' : 'muted'}">Chưa đến hạn</span><small>${vnDate(due)}</small>`;
+    }
+    function ttPanelHtml(row) {
+        const d = ttDraft(row), key = esc(row.key);
+        if (d.mode === 'plan') return `<div class="srb-panel">
+            <div class="srb-fields">
+                <label>Ngày lên lương (hẹn xét)<input type="date" data-tt-f="dueDate" data-tt-key="${key}" value="${esc(d.dueDate)}"></label>
+                <label>Mức dự kiến (đ/giờ, không bắt buộc)<input type="number" data-tt-f="plannedRate" data-tt-key="${key}" value="${esc(d.plannedRate)}" min="1" step="500" inputmode="numeric"></label>
+                <label class="srb-grow">Ghi chú<input data-tt-f="note" data-tt-key="${key}" value="${esc(d.note)}" maxlength="2000" placeholder="Ví dụ: hứa lên lương sau 6 tháng làm"></label>
+            </div>
+            <label class="srb-switch"><input type="checkbox" data-tt-f="enabled" data-tt-key="${key}" ${d.enabled ? 'checked' : ''}><span>Nhắc xét cho người này</span></label>
+            <p class="srb-changes"><span class="srb-muted">Đến ngày này dòng hiện ở mục "Đến hạn" để chọn Duyệt hoặc Chờ thêm 1 tháng.</span></p>
+            <div class="srb-actions"><button type="button" class="srb-btn srb-primary" data-tt-action="plan-save" data-tt-key="${key}">Lưu hẹn</button><button type="button" class="srb-btn" data-tt-action="close" data-tt-key="${key}">Thôi</button></div>
+        </div>`;
+        if (d.mode === 'approve') {
+            const rate = Number(d.rate), valid = Number.isSafeInteger(rate) && rate > 0;
+            const delta = valid && row.currentRate != null ? rate - row.currentRate : null;
+            const fixedText = row.fixedRate != null && delta > 0 ? ` · ca cố định ${money(row.fixedRate)} → <b>${money(row.fixedRate + delta)}</b>` : '';
+            return `<div class="srb-panel">
+                <div class="srb-fields">
+                    <label>Mức mới ca bình thường (đ/giờ)<input type="number" data-tt-f="rate" data-tt-key="${key}" value="${esc(d.rate)}" min="1" step="500" inputmode="numeric"></label>
+                    <label>Áp dụng từ<select data-tt-f="month" data-tt-key="${key}">${monthOptions(d.month)}</select></label>
+                    <label class="srb-grow">Ghi chú (không bắt buộc)<input data-tt-f="approveNote" data-tt-key="${key}" value="${esc(d.approveNote)}" maxlength="2000"></label>
+                </div>
+                <p class="srb-changes"><span>Ca bình thường ${money(row.currentRate)} → <b>${valid ? money(rate) : '…'}</b>${fixedText}</span></p>
+                ${isBackdated(d.month) ? `<p class="srb-backdated">Áp lại từ ${esc(vnMonth(d.month).toLowerCase())}: bản tính lương tiếp tân nháp của các tháng này sẽ bị bỏ để tính lại; phiếu đã gửi thì phải thu hồi trước.</p>` : ''}
+                <div class="srb-actions"><button type="button" class="srb-btn srb-primary" data-tt-action="approve-save" data-tt-key="${key}">Duyệt tăng lên ${valid ? money(rate) : '…'}</button><button type="button" class="srb-btn" data-tt-action="close" data-tt-key="${key}">Thôi</button></div>
+            </div>`;
+        }
+        return '';
+    }
+    function ttRowHtml(row) {
+        const d = ttDraft(row), key = esc(row.key), result = state.recep.results[row.key];
+        const plan = row.plan || {};
+        const actions = row.category === 'due'
+            ? `<button type="button" class="srb-btn srb-primary" data-tt-action="approve" data-tt-key="${key}">Duyệt</button><button type="button" class="srb-btn" data-tt-action="snooze" data-tt-key="${key}">Chờ 1 tháng nữa</button><button type="button" class="srb-btn srb-ghost" data-tt-action="plan" data-tt-key="${key}">Đổi ngày</button>`
+            : `<button type="button" class="srb-btn ${row.category === 'setup' ? 'srb-primary' : ''}" data-tt-action="plan" data-tt-key="${key}">${row.category === 'setup' ? 'Hẹn ngày lên lương' : 'Sửa hẹn'}</button><button type="button" class="srb-btn srb-ghost" data-tt-action="approve" data-tt-key="${key}">Duyệt ngay</button>`;
+        const detail = [plan.plannedRate ? 'dự kiến lên ' + money(plan.plannedRate) : '', plan.note || ''].filter(Boolean).join(' · ');
+        return `<article class="srb-row${d.mode ? ' open' : ''}" data-tt-row="${key}">
+            <div class="srb-line">
+                <span></span>
+                <div class="srb-msnv">${esc(row.msnv || '—')}</div>
+                <div class="srb-who"><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>Tiếp tân${detail ? ' · ' + esc(detail) : ''}</small></div>
+                <div class="srb-rate"><strong>${money(row.currentRate)}</strong><small>${row.fixedRate != null ? 'ca cố định ' + money(row.fixedRate) : 'ca bình thường'}${plan.lastIncreaseDate ? ' · tăng từ ' + vnDate(plan.lastIncreaseDate) : ''}</small></div>
+                <div class="srb-due">${ttBadge(row)}</div>
+                <div class="srb-hours"><span class="srb-muted">—</span></div>
+                <div class="srb-att"><span class="srb-muted">—</span></div>
+                <div class="srb-act srb-teacher-actions">${actions}</div>
+            </div>
+            ${result ? `<p class="srb-result ${result.error ? 'error' : ''}">${esc(result.text)}</p>` : ''}
+            ${ttPanelHtml(row)}
+        </article>`;
+    }
+    function receptionSectionHtml(rows) {
+        if (!R) return '';
+        if (state.recep.error) return `<p class="srb-empty">Chưa tải được hẹn xét lương tiếp tân: ${esc(state.recep.error)}</p>`;
+        if (!rows.length) return '';
+        return `<h3 class="srb-section-title">Tiếp tân <small>Hẹn sẵn ngày lên lương — đến ngày hệ thống hỏi lại: Duyệt hoặc Chờ thêm 1 tháng.</small></h3>
+            <div class="srb-head"><span></span><span>MSNV</span><span>Tiếp tân</span><span>Lương hiện tại</span><span>Hẹn xét</span><span></span><span></span><span></span></div>
+            ${rows.map(ttRowHtml).join('')}`;
+    }
+    async function ttRun(key, action) {
+        const row = ttRowByKey(key);
+        if (!row) return;
+        const d = ttDraft(row);
+        if (action === 'plan' || action === 'approve') { d.mode = d.mode === action ? '' : action; render(); return; }
+        if (action === 'close') { d.mode = ''; render(); return; }
+        if (action === 'approve-save' && isBackdated(d.month) &&
+            !window.confirm(`Duyệt mức mới áp lại từ ${vnMonth(d.month).toLowerCase()} cho ${row.name}?` + String.fromCharCode(10, 10) +
+                'Sau khi duyệt cần mở Tính lương tháng đó để tính lại phần tiếp tân trước khi gửi phiếu.')) return;
+        await withWrite(async () => {
+            try {
+                let text = '';
+                if (action === 'plan-save') {
+                    await R.savePlan(row.staffId, { dueDate: d.dueDate, plannedRate: d.plannedRate, note: d.note, enabled: d.enabled }, row.revision);
+                    text = d.enabled && d.dueDate ? `Đã hẹn xét ngày ${vnDate(d.dueDate)}.` : 'Đã lưu.';
+                } else if (action === 'snooze') {
+                    const next = await R.snooze(row.staffId, row.revision);
+                    text = `Đã chờ thêm 1 tháng — ngày ${vnDate(next)} hệ thống hỏi lại.`;
+                } else if (action === 'approve-save') {
+                    const plan = await R.approve(row.staffId, { newRate: d.rate, targetMonth: d.month, note: d.approveNote }, row.revision);
+                    text = `Đã duyệt ${money(plan.newRate)} từ ${vnMonth(plan.targetMonth).toLowerCase()}` +
+                        (plan.newFixed != null ? ` (ca cố định ${money(plan.newFixed)})` : '') +
+                        (plan.clearedMonths.length ? `. Mở Tính lương ${plan.clearedMonths.map(m => vnMonth(m).toLowerCase()).join(', ')} để tính lại phần tiếp tân.` : '.') +
+                        ' Bấm "Hẹn ngày lên lương" để hẹn lần sau.';
+                    await refreshStaffSources(row.staffId).catch(() => {});
+                } else return;
+                state.recep.results[key] = { text };
+                delete state.recep.drafts[key];
+                state.recep.plans = await R.loadPlans();
+            } catch (error) {
+                state.recep.results[key] = { text: error.message || 'Chưa lưu được.', error: true };
+            }
+        });
+    }
+    $('srb').addEventListener('click', event => {
+        const button = event.target.closest('[data-tt-action]');
+        if (!button || state.busy) return;
+        ttRun(button.dataset.ttKey, button.dataset.ttAction);
+    });
+    function ttField(event, rerender) {
+        const el = event.target;
+        if (!el.dataset.ttF || !el.dataset.ttKey) return;
+        const row = ttRowByKey(el.dataset.ttKey);
+        if (!row) return;
+        ttDraft(row)[el.dataset.ttF] = el.type === 'checkbox' ? el.checked : el.value;
+        if (rerender && ['month', 'rate'].includes(el.dataset.ttF)) render();
+    }
+    $('srb').addEventListener('input', event => ttField(event, false));
+    $('srb').addEventListener('change', event => ttField(event, true));
 
     // ---------- setup popup: baseline, cycle, review date, reminders ----------
     const PENCIL = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';

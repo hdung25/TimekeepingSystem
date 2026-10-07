@@ -871,7 +871,52 @@ function addDeterministicLegacyBonus10Awards(
 // isScheduledMainTeacher / isScheduledSubstitute / hasScheduledSubstitute: định nghĩa ở
 // db-service.js (nạp trước mọi trang) — dùng chung để lớp nhiều GV không bị sót GV thứ 2.
 
+// Lớp gộp: cùng cơ sở + cùng giờ bắt đầu/kết thúc + cùng GV chính (vd. EMNGT + UP 2 18:00–19:30).
+// GV báo nghỉ ở một lớp thì các lớp gộp còn lại (chưa ghi gì cho GV đó) cũng là vắng cùng loại —
+// trước đây lớp kia ra chip (V) chưa xác minh. Chỉ suy luận trong bộ nhớ, không ghi Firestore.
+function propagateCombinedClassAbsences(schedule, staffId) {
+    const id = String(staffId || '');
+    if (!schedule || typeof schedule !== 'object' || !id) return schedule;
+    const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+    const sources = new Map();
+    const slotOf = row => `${row._branch || ''}|${row.start}|${row.end}`;
+    sections.forEach(sk => (Array.isArray(schedule[sk]) ? schedule[sk] : []).forEach(row => {
+        if (!row || !row.start || !row.end || row.isClosed === true) return;
+        if (!isScheduledMainTeacher(row, id) || isScheduledSubstitute(row, id)) return;
+        const record = getClassTeacherAbsenceRecord(row, id);
+        if (record && !sources.has(slotOf(row))) sources.set(slotOf(row), { row, record });
+    }));
+    if (!sources.size) return schedule;
+    let changed = false;
+    const next = { ...schedule };
+    sections.forEach(sk => {
+        if (!Array.isArray(schedule[sk])) return;
+        next[sk] = schedule[sk].map(row => {
+            if (!row || !row.start || !row.end || row.isClosed === true) return row;
+            const source = sources.get(slotOf(row));
+            if (!source || source.row === row || !Array.isArray(row.teacherAbsences)) return row;
+            if (!isScheduledMainTeacher(row, id) || isScheduledSubstitute(row, id)) return row;
+            if (getClassTeacherAbsenceRecord(row, id)) return row;
+            const ownReplacementIds = [row.gvThayTeList, row.gvThayTheList].filter(Array.isArray).flat()
+                .filter(item => Array.isArray(item?.replacesTeacherIds) && item.replacesTeacherIds.map(String).includes(id))
+                .map(item => String(item.id)).filter(Boolean);
+            changed = true;
+            return {
+                ...row,
+                teacherAbsences: [...row.teacherAbsences, {
+                    ...source.record,
+                    replacementIds: ownReplacementIds,
+                    replacementNames: [],
+                    combinedClassFrom: source.row.lop || ''
+                }]
+            };
+        });
+    });
+    return changed ? next : schedule;
+}
+
 function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = [], monthFlags = {}) {
+    schedule = propagateCombinedClassAbsences(schedule, staffId);
     // Admin hủy 1 ca sớm 10p → khóa 10p của CẢ THÁNG (và cả phụ cấp lớp đông,
     // xử lý bên report.js). Cờ này do nơi gọi tính sẵn cho cả tháng rồi truyền xuống.
     const early10PenaltyActive = !!(monthFlags && monthFlags.early10PenaltyActive);
@@ -1231,6 +1276,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
     // Dedup set cho loop chính: tránh cùng (branch+start+end) sinh 2 chip
     const _mainSeenSlots = new Set();
+    const _absentSlotChips = new Set();
     // Track time slots đã có session khớp: tránh chip Vắng khi cùng giờ đã match ở branch khác
     const _matchedTimeSlots = new Set();
 
@@ -1257,6 +1303,10 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
             // GV chính đã báo nghỉ → chip lấy đúng loại VP/VĐX theo từng người.
             if (isOriginalVDX && !hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) {
+                // Lớp gộp (cùng cơ sở + giờ): chỉ MỘT chip vắng ghi đủ tên các lớp, đếm 1 ca.
+                const _absentSlotKey = `${cls._branch || ''}_${cls.start}_${cls.end}`;
+                if (_absentSlotChips.has(_absentSlotKey)) return;
+                _absentSlotChips.add(_absentSlotKey);
                 // Trung tâm nghỉ ca/ngày này (lễ, tắt ca): lớp không diễn ra → không ai vắng.
                 if (isCenterClosed(dateStr, secKey, window.centerClosures)) {
                     chips.push(centerOffTeachingChip(cls, secKey, idx, {
@@ -1266,7 +1316,12 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 }
                 // Không có chấm công phủ ca: giữ trạng thái nghỉ đã báo. Nếu GV
                 // thực tế vẫn đi làm thì chấm công thắng và luồng dưới tính công bình thường.
-                const lopLabel = cls.lop ? `${cls.lop}` : 'ca dạy';
+                const _combinedLops = Array.from(new Set(sections.flatMap(sk => (schedule[sk] || [])
+                    .filter(row => row && row.isClosed !== true && row.start === cls.start && row.end === cls.end &&
+                        (row._branch || '') === (cls._branch || '') && getClassTeacherAbsenceRecord(row, staffId))
+                    .map(row => row.lop).filter(Boolean))));
+                if (cls.lop && !_combinedLops.includes(cls.lop)) _combinedLops.unshift(cls.lop);
+                const lopLabel = _combinedLops.length ? _combinedLops.join(' + ') : 'ca dạy';
                 const branchLabel = cls._branch ? cls._branch.toUpperCase() : '';
                 const absenceType = shiftAbsenceState.type === 'VP' ? 'VP' : 'VDX';
                 const mappedReplacementIds = getMappedReplacementIdsForEvaluation(cls, staffId);

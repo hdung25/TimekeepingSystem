@@ -11421,6 +11421,8 @@ async function openBulkPublishModal(opts) {
         
         modal.style.display = 'flex';
         updateBulkSelectedCount();
+        // Hẹn giờ gửi (payslip-schedule.js): danh sách lệnh hẹn + đánh dấu người đã hẹn.
+        if (window.PayslipSchedule) window.PayslipSchedule.renderPanel(monthStr);
         
         if (window.lucide) window.lucide.createIcons();
     } catch (e) {

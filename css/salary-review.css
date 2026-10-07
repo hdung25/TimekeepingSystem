@@ -109,3 +109,8 @@
 .srb-bulkrow-split{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr)}
 .srb-subrates{display:flex;flex-direction:column;gap:.3rem}.srb-subrates label{display:grid;grid-template-columns:minmax(0,1fr) auto 110px;gap:.5rem;align-items:center}
 @media(max-width:520px){.srb-bulkrow-split{grid-template-columns:1fr}.srb-subrates label{grid-template-columns:minmax(0,1fr) 100px}.srb-subrates label>span:nth-child(2){display:none}}
+
+/* Tiếp tân: 1 dòng / người (hẹn ngày lên lương → Duyệt / Chờ 1 tháng nữa) */
+.srb-section-title { margin: 1.4rem 0 0.4rem; font-size: 1rem; font-weight: 800; color: #0F5132; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.srb-section-title small { font-size: 0.78rem; font-weight: 500; color: #6B7280; }
+[data-tt-row] .srb-act { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

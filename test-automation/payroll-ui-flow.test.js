@@ -187,6 +187,18 @@ async function main() {
   await admin.waitForSelector('#bulk-publish-modal',{visible:true});
   await record('bulk-teacher-before-send',await admin.$eval('#bulk-list-teachers',e=>({text:e.innerText,inputs:[...e.querySelectorAll('input')].map(x=>x.outerHTML)})));
   if(!await admin.$eval('.bulk-staff-checkbox[data-id="audit-teacher"]',e=>e.checked)) await click(admin,'.bulk-staff-checkbox[data-id="audit-teacher"]');
+  // Hẹn giờ gửi (08/10/2026): tạo lệnh hẹn rồi hủy — bảng lương vẫn là nháp.
+  await admin.waitForSelector('#bulk-schedule-panel',{visible:true,timeout:15000});
+  await admin.$eval('#bulk-schedule-at',e=>{const d=new Date(Date.now()+2*3600e3);const p=n=>String(n).padStart(2,'0');e.value=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;});
+  await click(admin,'#btn-bulk-schedule');
+  await click(admin,'#modal-confirm-btn');
+  await admin.waitForFunction(()=>/Hủy hẹn/.test(document.getElementById('bulk-schedule-list')?.innerText||'') && /hẹn gửi/.test(document.getElementById('bulk-list-teachers')?.innerText||''),{timeout:20000});
+  await record('bulk-schedule-created',{list:await admin.$eval('#bulk-schedule-list',e=>e.innerText),screenshot:await shot(admin,'bulk-schedule')});
+  assert.equal((await readDoc('audit-teacher')).published.status_gv,'draft','hẹn giờ chưa gửi ngay');
+  await click(admin,'[data-cancel-schedule]');
+  await click(admin,'#modal-confirm-btn');
+  await admin.waitForFunction(()=>!/Hủy hẹn/.test(document.getElementById('bulk-schedule-list')?.innerText||''),{timeout:20000});
+  if(!await admin.$eval('.bulk-staff-checkbox[data-id="audit-teacher"]',e=>e.checked)) await click(admin,'.bulk-staff-checkbox[data-id="audit-teacher"]');
   await click(admin,'button[onclick="submitBulkPublish(\'teachers\')"]');
   await click(admin,'#modal-confirm-btn');
   await record('teacher-published',await waitPublished('audit-teacher','published'));

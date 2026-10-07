@@ -2077,9 +2077,22 @@ function teacherStatusCard(teacher) {
         ${absence ? `<div class="teacher-absence-fields">
             <label><span>Thời điểm báo</span><input type="datetime-local" data-action="reported-at" data-teacher-id="${id}" value="${scheduleEscapeAttr(toLocalDateTimeInput(status.reportedAt))}"></label>
             <label class="reason-field"><span>Lý do / ghi chú điều phối</span><input type="text" maxlength="300" data-action="absence-reason" data-teacher-id="${id}" value="${scheduleEscapeAttr(status.reason || '')}" placeholder="Ví dụ: báo bệnh, việc gia đình..."></label>
-        </div>${coverageActions}` : ''}
+        </div>${coverageActions}${substituteAbsentShortcut(teacher, replacements)}` : ''}
         <button type="button" class="fixed-next-week-btn${pendingFixed ? ' is-active' : ''}" data-action="toggle-fixed" data-teacher-id="${id}"><svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg> ${pendingFixed ? 'Đã đánh dấu cố định tuần sau' : 'Đánh dấu cố định từ tuần sau'}</button>
     </article>`;
+}
+
+// 07/10: chủ trung tâm muốn ghi "Thùy (GV dạy thay) vắng đột xuất" nhưng bấm nhầm nút trạng thái
+// của GV chính (Phương) ngay phía trên — nút đó chỉ đổi loại vắng của GV chính. Đặt lối tắt ghi
+// vắng cho chính GV thay ngay trong thẻ, ghi rõ tên từng người.
+function substituteAbsentShortcut(teacher, replacements) {
+    if (!replacements.length) return '';
+    return `<div class="substitute-dropout-actions substitute-dropout-shortcut">
+        <span>Các nút phía trên là trạng thái của <b>${scheduleEscapeHTML(teacher.name)}</b> (GV chính). Nếu GV dạy thay cũng vắng:</span>
+        ${replacements.map(sub => `<span class="substitute-dropout-shortcut-row"><b>${scheduleEscapeHTML(sub.name)}</b>
+            <button type="button" data-action="substitute-dropout" data-teacher-id="${scheduleEscapeAttr(sub.id)}" data-status="VP">${scheduleEscapeHTML(sub.name)} vắng có phép</button>
+            <button type="button" data-action="substitute-dropout" data-teacher-id="${scheduleEscapeAttr(sub.id)}" data-status="VDX">${scheduleEscapeHTML(sub.name)} vắng đột xuất</button></span>`).join('')}
+    </div>`;
 }
 
 function replacementTargetPickerMarkup() {
@@ -2114,7 +2127,7 @@ function substituteCoverageCard(substitute) {
             }).join('') : '<span class="no-absence-hint">Hãy chọn trạng thái nghỉ cho GV chính trước.</span>'}
         </div>
         <div class="substitute-dropout-actions" role="group" aria-label="${scheduleEscapeAttr(substitute.name)} báo bận">
-            <span>Người này báo bận, không dạy được nữa:</span>
+            <span><b>${scheduleEscapeHTML(substitute.name)}</b> (GV dạy thay) vắng / báo bận, không dạy được:</span>
             <button type="button" data-action="substitute-dropout" data-teacher-id="${id}" data-status="VP">Vắng có phép</button>
             <button type="button" data-action="substitute-dropout" data-teacher-id="${id}" data-status="VDX">Vắng đột xuất</button>
         </div>
@@ -3286,7 +3299,7 @@ function handleTeacherShiftManagerClick(event) {
         });
         state.substituteIds = state.substituteIds.filter(value => value !== String(teacherId));
         state.substituteById.delete(String(teacherId));
-        UIService.toast(`Đã ghi ${substitute.name || 'GV thay'} báo bận (${type === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'}). Chọn GV thay khác rồi bấm Lưu điều phối ca.`, 'info');
+        UIService.toast(`Đã ghi ${substitute.name || 'GV thay'} báo bận (${type === 'VP' ? 'Vắng có phép' : 'Vắng đột xuất'}). Nếu có GV khác dạy thì chọn GV thay, rồi bấm Lưu điều phối ca.`, 'info');
         return renderTeacherShiftManager();
     }
     if (action === 'substitute-dropout-type') {
@@ -3663,6 +3676,93 @@ window.openGVPicker = async function (compositeKey, caType, index, fieldType, tr
     }
 };
 
+// Lớp gộp: cùng cơ sở, cùng ngày, cùng giờ bắt đầu/kết thúc và cùng GV chính (vd. EMNGT + UP 2
+// 18:00–19:30 phòng P03). Báo vắng / đổi loại vắng / xếp GV thay ở một lớp thì hỏi để ghi
+// giống hệt cho các lớp còn lại — trước đây lớp kia vẫn "Chưa xác minh" và Bảng Công ra (V).
+function combinedClassAbsenceKey(row, teacherId) {
+    const record = window.TeacherShiftState?.getAbsenceRecord?.(row, teacherId);
+    const type = record ? String(record.type || '').toUpperCase() : 'ACTIVE';
+    const subs = (window.TeacherShiftState?.getReplacementIdsForTeacher?.(row, teacherId) || []).map(String).sort();
+    return JSON.stringify([type, String(record?.reason || '').trim(), record ? subs : []]);
+}
+
+async function syncCombinedClassAbsences(state, beforeRow, committedRow, actor) {
+    const TS = window.TeacherShiftState;
+    const result = { updated: '', failed: '' };
+    if (!TS?.buildCombinedClassAbsenceCommand || !committedRow?.start || !committedRow?.end || !state?.dayData) return result;
+    const changedIds = TS.getMainTeachers(committedRow).map(item => item.id).filter(id => id &&
+        combinedClassAbsenceKey(beforeRow || {}, id) !== combinedClassAbsenceKey(committedRow, id));
+    if (!changedIds.length) return result;
+    const targets = [];
+    ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(section => {
+        (Array.isArray(state.dayData[section]) ? state.dayData[section] : []).forEach((row, index) => {
+            if (!row || row.isClosed === true || row.start !== committedRow.start || row.end !== committedRow.end) return;
+            if (section === state.caType && (index === state.index ||
+                (row.shiftId && String(row.shiftId) === String(committedRow.shiftId || '')))) return;
+            const teacherIds = changedIds.filter(id => TS.buildCombinedClassAbsenceCommand(row, id, committedRow));
+            if (teacherIds.length) targets.push({ section, index, row, teacherIds });
+        });
+    });
+    if (!targets.length) return result;
+    const names = Array.from(new Set(targets.flatMap(item => item.teacherIds)))
+        .map(id => TS.getMainTeachers(committedRow).find(item => item.id === id)?.name || 'GV')
+        .join(', ');
+    const lops = targets.map(item => item.row.lop || 'lớp chưa đặt tên').join(', ');
+    const agreed = await UIService.confirm(
+        `<b>${scheduleEscapeHTML(names)}</b> cũng là GV chính lớp <b>${scheduleEscapeHTML(lops)}</b> cùng giờ ` +
+        `${scheduleEscapeHTML(committedRow.start)}–${scheduleEscapeHTML(committedRow.end)} (lớp gộp).<br><br>` +
+        'Ghi cùng trạng thái vắng và GV dạy thay cho lớp đó? (Bảng Công chỉ tính 1 ca vắng cho lớp gộp.)'
+    );
+    if (!agreed) return result;
+    const done = [];
+    const failed = [];
+    for (const target of targets) {
+        try {
+            const nowISO = new Date().toISOString();
+            const guardIds = target.teacherIds.filter(id => ['VP', 'VDX'].includes(
+                String(TS.getAbsenceRecord(committedRow, id)?.type || '').toUpperCase()));
+            const saved = await DBService.updateScheduleRowAtomic(
+                state.compositeKey,
+                target.section,
+                {
+                    index: target.index,
+                    shiftId: target.row.shiftId || '',
+                    signature: scheduleRowSignature(target.row),
+                    // Ghi trạng thái nghỉ phải đối chiếu công trong cùng giao dịch (như lớp gốc).
+                    ...(guardIds.length ? {
+                        attendanceAbsenceGuard: {
+                            staffIds: guardIds,
+                            dateKey: state.dateKey,
+                            compositeKey: state.compositeKey,
+                            section: target.section,
+                            start: target.row.start,
+                            end: target.row.end,
+                            persistedShiftId: target.row.shiftId || '',
+                            resolverShiftId: stableScheduleShiftLocatorId(state.compositeKey, target.section, target.row, target.index),
+                            signature: scheduleRowSignature(target.row)
+                        }
+                    } : {})
+                },
+                latestRow => target.teacherIds.reduce((row, teacherId) => {
+                    const command = TS.buildCombinedClassAbsenceCommand(row, teacherId, committedRow);
+                    return command ? TS.applyStaffingCommand(row, command, actor, nowISO) : row;
+                }, latestRow),
+                state.dayData
+            );
+            if (state.dayData?.[target.section]?.[target.index]) {
+                state.dayData[target.section][target.index] = JSON.parse(JSON.stringify(saved));
+            }
+            done.push(target.row.lop || 'lớp gộp');
+        } catch (error) {
+            console.error('Không đồng bộ được lớp gộp:', error);
+            failed.push(target.row.lop || 'lớp gộp');
+        }
+    }
+    result.updated = done.join(', ');
+    result.failed = failed.join(', ');
+    return result;
+}
+
 window.saveTeacherShiftCommand = async function () {
     const state = teacherShiftManagerState;
     if (!state) return;
@@ -3767,6 +3867,12 @@ window.saveTeacherShiftCommand = async function () {
         );
         state.saving = false;
         scheduleLastMutationFailed = false;
+        const combinedSync = await syncCombinedClassAbsences(state, state.originalRow, committedRow, actor);
+        if (combinedSync.failed) {
+            UIService.toast(`Đã lưu ca này nhưng chưa cập nhật được lớp gộp ${combinedSync.failed}. Hãy mở lớp đó và lưu lại trạng thái vắng.`, 'warning');
+        } else if (combinedSync.updated) {
+            UIService.toast(`Đã cập nhật cùng trạng thái cho lớp gộp: ${combinedSync.updated}.`, 'success');
+        }
         if (teacherShiftManagerState === state && state.canEditAttendance && hadStaffingChanges) {
             state.originalRow = JSON.parse(JSON.stringify(committedRow));
             state.originalMainIds = mains.map(item => String(item.id));

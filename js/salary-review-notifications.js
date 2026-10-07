@@ -50,10 +50,16 @@
             const queue = await root.SalaryReviewService.queue();
             if (root.auth?.currentUser?.uid !== actor.uid) return;
             const summary = summarize(queue.profiles, queue.config, today, root.SalaryReviewPolicy);
+            // Tiếp tân: hẹn ngày lên lương đã tới (Duyệt hoặc Chờ thêm 1 tháng trên trang xét).
+            const reception = root.ReceptionSalaryReview;
+            const plans = reception ? await reception.loadPlans().catch(() => []) : [];
+            if (root.auth?.currentUser?.uid !== actor.uid) return;
+            const receptionDue = reception ? plans.filter(plan => reception.category(plan, today) === 'due').length : 0;
             const setupText = summary.setup ? ' ' + summary.setup + ' hồ sơ còn cần xác nhận mốc.' : '';
-            if (summary.people) {
-                show(container, summary.people + ' nhân viên cần xét trong tháng',
-                    summary.groups + ' nhóm môn đến hạn hoặc quá hạn. Admin xem và quyết định mức tăng.' + setupText, 'Mở danh sách xét', today);
+            const receptionText = receptionDue ? ' ' + receptionDue + ' tiếp tân đến ngày hẹn lên lương.' : '';
+            if (summary.people || receptionDue) {
+                show(container, (summary.people + receptionDue) + ' nhân viên cần xét trong tháng',
+                    (summary.groups ? summary.groups + ' nhóm môn đến hạn hoặc quá hạn. ' : '') + 'Admin xem và quyết định mức tăng.' + receptionText + setupText, 'Mở danh sách xét', today);
             } else if (summary.empty || summary.setup) {
                 show(container, summary.setup ? summary.setup + ' hồ sơ cần xác nhận mốc' : 'Thiết lập mốc xét cho từng nhân viên',
                     'Xác nhận mốc và nhóm môn một lần để hệ thống nhắc đúng kỳ. Giá lương hiện có được giữ nguyên.', 'Chuẩn bị hồ sơ', today);

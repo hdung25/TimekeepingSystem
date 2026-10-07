@@ -62,8 +62,8 @@ const digest = value => crypto.createHash('sha256')
             const cache = await caches.open(key);
             return !!(await cache.match('/js/payroll-review.js?v=20260912-payroll-recall-v1')) &&
                 !!(await cache.match('/js/db-service.js?v=20260918-payslip-status-sync-v1')) &&
-                !!(await cache.match('/js/schedule.js?v=20260916-transfer-end-date-v1')) &&
-                !!(await cache.match('/js/teacher-attendance-policy.js?v=20261005-new-mode-v1')) &&
+                !!(await cache.match('/js/schedule.js?v=20261008-owner-round-v1')) &&
+                !!(await cache.match('/js/teacher-attendance-policy.js?v=20261008-owner-round-v1')) &&
                 !!(await cache.match('/js/teacher-attendance-editor.js?v=20261005-new-mode-v1'));
         }, { timeout: 60000 });
         // A first PWA install announces APP_UPDATED and intentionally reloads

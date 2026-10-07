@@ -24,8 +24,10 @@ Thứ tự ưu tiên:
 3. Nếu không, có nghỉ phép và dưới 50 giờ: −1.000 × giờ.
 4. Không vắng phép: dưới 65 giờ được +1.000 × giờ; từ 65 giờ được +2.000 × giờ.
 5. Vắng phép 1 buổi: từ 50 đến dưới 65 giờ được +1.000 × giờ; từ 65 giờ được +2.000 × giờ. Nhánh dưới 50 đã được xử lý ở bước 3.
-6. Vắng phép 2 buổi: trên 64,99 giờ được +2.000 × giờ; còn lại 0, trừ trường hợp bước 3 đã áp dụng.
-7. Các trường hợp còn lại: 0.
+6. Vắng phép 2 buổi: trên 64,99 giờ được +2.000 × giờ; còn lại −1.000 × giờ (sửa 08/10/2026).
+7. Vắng phép từ 3 buổi: −1.000 × giờ (sửa 08/10/2026; trước đây 0).
+
+Cập nhật 08/10/2026 theo chủ trung tâm: mức 50 giờ chỉ miễn 1 ca vắng phép, mức 65 giờ miễn 2 ca; vắng phép vượt số ca được miễn vẫn bị trừ 1.000đ/giờ.
 
 Đây là một kết quả cuối cùng, không cộng chồng thưởng và phạt từng buổi. Ví dụ 60 giờ, nghỉ phép 1 buổi là +60.000đ; 12 giờ, nghỉ phép 3 buổi là −12.000đ. Không vắng, dưới 50 giờ vẫn được +1.000đ/giờ đúng công thức AR4. Giữ nguyên mốc 64,99, không làm tròn giờ trước khi xét; chỉ làm tròn tiền đến đồng.
 

@@ -501,6 +501,51 @@ async function main() {
     assert.deepEqual(evidence.errors,[]);
     await shot('board-desktop-applied');
 
+    // Tiếp tân (08/10/2026): hẹn ngày lên lương → đến hạn hiện Duyệt / Chờ 1 tháng nữa → duyệt.
+    const ttKey = 'tt|' + staff;
+    await click('#srb-tabs [data-tab="all"]');
+    await page.waitForSelector(`[data-tt-row="${ttKey}"]`, { visible: true, timeout: 15000 });
+    await click(`[data-tt-action="plan"][data-tt-key="${ttKey}"]`);
+    await fill(`input[data-tt-f="dueDate"][data-tt-key="${ttKey}"]`, today);
+    await fill(`input[data-tt-f="note"][data-tt-key="${ttKey}"]`, 'Hứa lên lương tháng này');
+    await click(`[data-tt-action="plan-save"][data-tt-key="${ttKey}"]`);
+    await boardReady();
+    let ttPlan = await readRecord('reception_salary_reviews/' + staff);
+    assert.equal(ttPlan.dueDate, today); assert.equal(ttPlan.revision, 1);
+    await click('#srb-tabs [data-tab="due"]');
+    await page.waitForSelector(`[data-tt-action="snooze"][data-tt-key="${ttKey}"]`, { visible: true, timeout: 15000 });
+    await shot('reception-due');
+    await click(`[data-tt-action="snooze"][data-tt-key="${ttKey}"]`);
+    await boardReady();
+    ttPlan = await readRecord('reception_salary_reviews/' + staff);
+    assert.equal(ttPlan.dueDate, Policy.addMonths(today, 1), 'chờ thêm 1 tháng');
+    assert.deepEqual(ttPlan.history.map(item => item.kind), ['plan', 'snooze']);
+    await click('#srb-tabs [data-tab="all"]');
+    await click(`[data-tt-action="approve"][data-tt-key="${ttKey}"]`);
+    assert.equal(await page.$eval(`select[data-tt-f="month"][data-tt-key="${ttKey}"]`, e => e.value), Application.shiftMonth(month, 1));
+    await fill(`input[data-tt-f="rate"][data-tt-key="${ttKey}"]`, 60000);
+    await click(`[data-tt-action="approve-save"][data-tt-key="${ttKey}"]`);
+    await boardReady();
+    // Tháng sau đã có phiếu tiếp tân nhân viên xác nhận → từ chối, không ghi gì.
+    assert.match(await page.$eval(`[data-tt-row="${ttKey}"] .srb-result`, e => e.textContent), /đã gửi phiếu lương tiếp tân/);
+    assert.equal((await readRecord('salary_settings_monthly/' + future + '_' + staff)).tiep_tan.class_rates['Tiếp Tân (Ca Bình Thường)'], 52000);
+    // Áp từ tháng này với 50.000đ: tháng sau đã có giá riêng 52.000đ (cao hơn) và phiếu đã nhận → giữ nguyên, vẫn duyệt được.
+    await fill(`select[data-tt-f="month"][data-tt-key="${ttKey}"]`, month);
+    await fill(`input[data-tt-f="rate"][data-tt-key="${ttKey}"]`, 50000);
+    await click(`[data-tt-action="approve-save"][data-tt-key="${ttKey}"]`);
+    await boardReady();
+    const ttResult = await page.$eval(`[data-tt-row="${ttKey}"] .srb-result`, e => e.textContent);
+    assert.match(ttResult, /Đã duyệt 50\.000đ/, ttResult);
+    const monthDoc = await readRecord('salary_settings_monthly/' + month + '_' + staff);
+    assert.equal(monthDoc.tiep_tan.class_rates['Tiếp Tân (Ca Bình Thường)'], 50000);
+    assert.ok(monthDoc.giao_vien.class_rates['Toán 1'] > 0, 'giá giáo viên giữ nguyên');
+    assert.deepEqual(await readRecord('salary_settings_monthly/' + future + '_' + staff + ''), { ...(await readRecord('salary_settings_monthly/' + future + '_' + staff)) });
+    assert.equal((await readRecord('salary_settings_monthly/' + future + '_' + staff)).tiep_tan.class_rates['Tiếp Tân (Ca Bình Thường)'], 52000, 'tháng sau giữ giá riêng cao hơn');
+    ttPlan = await readRecord('reception_salary_reviews/' + staff);
+    assert.equal(ttPlan.dueDate, ''); assert.equal(ttPlan.currentRate, 50000);
+    await shot('reception-approved');
+    evidence.results.push('Reception: plan date, due row with Duyệt / Chờ 1 tháng nữa, snooze +1 month, approve writes Tiếp Tân rate');
+
     evidence.results.push('Board: estimated baselines, one-click approval, bulk ladder step, deferral, detail round-trip, mobile layout and source preservation');
     console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/board/setup/mobile + source preservation');
 }

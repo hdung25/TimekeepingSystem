@@ -1170,6 +1170,24 @@ service cloud.firestore {
             && isConsultationFeeEvaluationEdit([previousRole.get('evaluation', [])], nextRole.get('evaluation', []), edit.amount))
         );
     }
+    // Hẹn giờ gửi bảng lương. Chỉ Admin chính tạo/hủy/chạy; Cloud Function (admin SDK) bỏ qua rules.
+    // Lệnh chỉ chứa danh sách người + giờ; số tiền vẫn lấy từ salary_settings_monthly lúc gửi.
+    match /payslip_publish_schedules/{scheduleId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated() && isPrimaryAdmin()
+        && request.resource.data.status == 'scheduled'
+        && request.resource.data.month is string && request.resource.data.month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.runAtMs is number
+        && request.resource.data.targets is list && request.resource.data.targets.size() > 0
+        && request.resource.data.targets.size() <= 300;
+      allow update: if isAuthenticated() && isPrimaryAdmin()
+        && request.resource.data.month == resource.data.month
+        && request.resource.data.targets == resource.data.targets
+        && request.resource.data.runAtMs == resource.data.runAtMs
+        && resource.data.status in ['scheduled', 'running']
+        && request.resource.data.status in ['running', 'done', 'failed', 'cancelled'];
+      allow delete: if false;
+    }
     match /salary_settings_monthly/{docId} {
       allow read: if isAuthenticated() && (isOwnMonthlyDocument(docId) || isAdmin());
       allow create: if isAuthenticated() && (isPrimaryAdmin() || isSafeSeniorConsultationFee(docId, {}));
@@ -1270,6 +1288,23 @@ service cloud.firestore {
           && validSalaryReviewHistory('salary_review_settings', 'default', historyId);
         allow update, delete: if false;
       }
+    }
+
+    // Xét tăng lương tiếp tân: hẹn ngày lên lương + lịch sử Duyệt / Chờ 1 tháng (Admin chính).
+    match /reception_salary_reviews/{staffId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create, update: if isAuthenticated() && isPrimaryAdmin()
+        && request.resource.data.keys().hasOnly(['schemaVersion', 'staffId', 'staffName', 'enabled', 'plannedRate',
+          'dueDate', 'note', 'lastIncreaseDate', 'currentRate', 'revision', 'updatedAt', 'updatedBy', 'history'])
+        && request.resource.data.staffId == staffId
+        && exists(/databases/$(database)/documents/users/$(staffId))
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.revision is int
+        && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1)
+        && request.resource.data.history is list && request.resource.data.history.size() <= 40
+        && request.resource.data.dueDate is string && request.resource.data.dueDate.size() <= 10
+        && request.resource.data.note is string && request.resource.data.note.size() <= 2000;
+      allow delete: if false;
     }
 
     match /staff_payroll_profiles/{staffId} {

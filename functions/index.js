@@ -18,6 +18,8 @@ const { setGlobalOptions, logger } = require('firebase-functions/v2');
 const TeacherShiftState = require('./shared/teacher-shift-state.js');
 const R = require('./reminders.js');
 const AC = require('./auto-checkout.js');
+const PayslipScheduleCore = require('./shared/payslip-schedule-core.js');
+const PayslipLifecycle = require('./shared/payslip-lifecycle.js');
 
 initializeApp();
 setGlobalOptions({ region: 'asia-southeast1', maxInstances: 3, memory: '256MiB' });
@@ -244,4 +246,17 @@ exports.autoCheckoutOpenSessions = onSchedule({ schedule: '*/5 * * * *', timeZon
         }
     }
     if (results.length) logger.info('autoCheckoutOpenSessions', { open: openDocs.size, results });
+});
+
+// Hẹn giờ gửi bảng lương: Admin tạo lệnh trong hộp "Gửi bảng lương"; đến giờ hẹn gửi bản tính
+// đang lưu với đúng luật của nút Gửi (payslip-schedule-core.js). Mỗi lượt đọc vài tài liệu lệnh.
+exports.publishScheduledPayslips = onSchedule({ schedule: '*/5 * * * *', timeZone: 'Asia/Ho_Chi_Minh', retryCount: 0 }, async () => {
+    const reports = await PayslipScheduleCore.runDueSchedules(db, {
+        lifecycle: PayslipLifecycle,
+        now: new Date(),
+        serverTimestamp: () => FieldValue.serverTimestamp(),
+        runner: 'cloud-function',
+        logger
+    });
+    if (reports.length) logger.info('[publishScheduledPayslips]', JSON.stringify(reports));
 });

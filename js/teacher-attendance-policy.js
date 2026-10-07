@@ -1,7 +1,7 @@
 /* Pure monthly teacher calculations. No database writes or payslip publication. */
 (function (global) {
     'use strict';
-    const version = 'teacher-attendance-excel-20260909-v2';
+    const version = 'teacher-attendance-excel-20261008-v3';
     const hoursBonusVersion = 'teacher-hours-bonus-20260910-v1';
     const DEFAULT_HOURS_BONUS_TIERS = [
         { minHours: 50, rate: 1000 },
@@ -64,6 +64,9 @@
     }
     // Owner-approved BẢNG LƯƠNG TG!AR4 formula. Keep the exact Excel
     // priorities and boundaries, including >64.99 for two permitted absences.
+    // 08/10/2026 (chủ trung tâm): số ca vắng có phép được miễn tùy mức giờ —
+    // <50h: 0 ca, 50–<65h: 1 ca, ≥65h (>64.99): 2 ca. Vắng phép VƯỢT số ca đó thì
+    // vẫn trừ 1.000đ/giờ (Excel cũ để 0đ cho các trường hợp này).
     function automaticAttendance(mode, source, rate) {
         const hours = number(source.minutes, 'Số phút') / 60;
         const vp = number(source.vp, 'Vắng phép');
@@ -75,7 +78,7 @@
             appliedRate = vkp > 0 ? -3000 : vdx > 0 ? -2000 : vp > 0 && hours < 50 ? -1000
                 : vp === 0 ? (hours < 65 ? 1000 : 2000)
                 : vp === 1 ? (hours < 50 ? 0 : hours < 65 ? 1000 : 2000)
-                : vp === 2 ? (hours > 64.99 ? 2000 : 0) : 0;
+                : vp === 2 ? (hours > 64.99 ? 2000 : -1000) : -1000;
         } else return null;
         const amount = Math.round(hours * appliedRate) || 0;
         if (!Number.isSafeInteger(amount)) throw new Error('Số tiền vượt giới hạn hợp lệ.');
