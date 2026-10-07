@@ -2566,7 +2566,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
 
         // Find matching attendance session
-        const matchedSession = attendanceSessions.find(s => {
+        const _receptionCandidate = s => {
             // FIX bug Ánh: session do admin thêm tay từ chip Vắng đã link cứng vào ca này
             // → match thẳng, bỏ qua kiểm tra khung giờ (vì admin có thể đã nhập giờ lệch).
             if (s[operationalLinkField] && s[operationalLinkField] === rs.shift) {
@@ -2608,7 +2608,25 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             // Ca thường: Match nếu check-in nằm trong khoảng (schedStart - 90 phút) đến schedEnd.
             const earlyLimit = new Date(schedStart.getTime() - 90 * 60 * 1000);
             return checkIn >= earlyLimit && checkIn <= schedEnd;
-        });
+        };
+        // Nhiều phiên cùng khớp (Nguyệt 12/09: bấm vào ca 06:57:56, ra 06:58:02 rồi vào lại
+        // 06:58:32 → 11:30): trước đây lấy phiên ĐẦU TIÊN nên ca sáng thành "V272p" và phiên thật
+        // rơi ra chip lẻ. Nay ưu tiên phiên admin đã gắn cứng, rồi phiên phủ ca nhiều nhất.
+        const _receptionOverlap = s => {
+            const start = safeDate(s.checkIn || s.start);
+            if (!start) return 0;
+            const end = safeDate(s.checkOut) || (now < schedEnd ? now : schedEnd);
+            return Math.max(0, Math.min(end.getTime(), schedEnd.getTime()) - Math.max(start.getTime(), schedStart.getTime()));
+        };
+        const matchedSession = attendanceSessions
+            .map((s, order) => ({ s, order }))
+            .filter(item => _receptionCandidate(item.s))
+            .sort((a, b) => {
+                const linkA = a.s[operationalLinkField] === rs.shift ? 1 : 0;
+                const linkB = b.s[operationalLinkField] === rs.shift ? 1 : 0;
+                return (linkB - linkA) || (_receptionOverlap(b.s) - _receptionOverlap(a.s)) || (a.order - b.order);
+            })
+            .map(item => item.s)[0];
 
         if (matchedSession) {
             usedSessionIdsReceptionist.add(matchedSession.id);
@@ -3133,6 +3151,9 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
         const isUsedForTeaching = usedSessionIdsTeaching.has(s.id);
         if (!usedSessionIdsReceptionist.has(s.id) && (!isUsedForTeaching || hasReceptionistRole)) {
             usedSessionIdsReceptionist.add(s.id);
+            // Bấm vào rồi ra ngay (< 1 phút, đã đóng): bấm nhầm, không phải ca làm — không sinh chip lẻ.
+            const _tapIn = safeDate(s.checkIn || s.start), _tapOut = safeDate(s.checkOut);
+            if (!s.isAbsent && !s.isAdminEdited && _tapIn && _tapOut && _tapOut - _tapIn < 60 * 1000) return;
             
             const chipSessionData = { ...s };
 

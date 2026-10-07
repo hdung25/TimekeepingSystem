@@ -48,7 +48,7 @@ const digest = value => crypto.createHash('sha256')
     const chamCongHtml = await (await fetch(origin + '/cham-cong.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) })).text();
     assert.ok(chamCongHtml.includes('js/timekeeping.js?v=' + timekeepingVersion) &&
         chamCongHtml.includes('js/db-service.js?v=' + attendanceVersion) && chamCongHtml.includes('js/main.js?v=' + mainVersion) &&
-        chamCongHtml.includes('js/evaluation-service.js?v=20261008-owner-round-v1') && chamCongHtml.includes(pinnedLucide));
+        chamCongHtml.includes('js/evaluation-service.js?v=20261008-reception-tap-v1') && chamCongHtml.includes(pinnedLucide));
     const scheduleResponse = await fetch(origin + '/lich-lam.html', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
     assert.equal(scheduleResponse.status, 200);
     assert.ok((await scheduleResponse.text()).includes('js/schedule.js?v=' + scheduleVersion));

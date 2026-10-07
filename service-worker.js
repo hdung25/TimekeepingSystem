@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v235-owner-round-20261008';
+const APP_RELEASE = 'tdt-chamcong-v236-reception-tap-20261008';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -57,7 +57,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/teacher-attendance-policy.js?v=20261008-owner-round-v1',
     '/js/teacher-attendance-editor.js?v=20261005-new-mode-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
-    '/js/evaluation-service.js?v=20261008-owner-round-v1',
+    '/js/evaluation-service.js?v=20261008-reception-tap-v1',
     '/js/shift-absence-state.js?v=20261006-sub-dropout-v1',
     '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
     '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',
