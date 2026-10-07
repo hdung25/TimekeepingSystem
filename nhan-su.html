@@ -377,6 +377,17 @@
                     </div>
 
                     <div class="ns-field">
+                        <label class="ns-label">Khối họp định kỳ</label>
+                        <div class="ns-checks" id="ns-meeting-groups">
+                            <label class="ns-check"><input type="checkbox" value="TG TA"> TG Tiếng Anh</label>
+                            <label class="ns-check"><input type="checkbox" value="TG T-TV"> TG Toán - Tiếng Việt</label>
+                            <label class="ns-check"><input type="checkbox" value="TOÁN TƯ DUY"> Toán tư duy</label>
+                            <label class="ns-check"><input type="checkbox" value="TIẾP TÂN"> Tiếp tân</label>
+                        </div>
+                        <p class="ns-note" id="ns-meeting-groups-note">Tạo cuộc họp sẽ tự mời đúng người theo khối này. Người không thuộc khối không bị tính vắng họp của khối đó.</p>
+                    </div>
+
+                    <div class="ns-field">
                         <label class="ns-label" for="ns-staff-color">Màu lịch</label>
                         <div class="ns-color-row">
                             <input type="color" id="ns-staff-color" value="#4CAF50" oninput="NhanSu.previewColor()">
@@ -507,9 +518,9 @@
     <script src="js/early10.js?v=20260912-early10-nanos-v1"></script>
     <script src="js/payroll-automation.js?v=20260809-payroll-safety-v1"></script>
     <script src="js/subject-rate-policy.js?v=20260809-subject-rate-v1"></script>
-    <script src="js/main.js?v=20261006-tax-grouped-v1"></script>
+    <script src="js/main.js?v=20261007-review-edit-v1"></script>
     <script src="js/auth-helper.js?v=20260906-early10-recovery-v1"></script>
-    <script src="js/personnel.js?v=20260908-incident-recovery-v1"></script>
+    <script src="js/personnel.js?v=20261007-review-edit-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

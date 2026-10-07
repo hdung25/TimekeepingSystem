@@ -92,6 +92,14 @@
         window.dispatchEvent(new CustomEvent('salary-review-profiles-changed', { detail: { staffId, profile } }));
         return profile;
     }
+    // After an approve/cancel the teacher's monthly prices changed: reload them so
+    // the next decision compares against what is really saved (not the page load).
+    async function refreshStaffSources(staffId) {
+        const now = today(), months = [now.slice(0, 7), ...P.previousMonths(now, 6)];
+        const docs = await Promise.all(months.map(month => S.read(S.document('salary_settings_monthly', month + '_' + staffId))));
+        state.monthlyByStaff[staffId] = docs.map((data, i) => data ? { ...data, id: months[i] + '_' + staffId } : null).filter(Boolean);
+        months.forEach(month => DBService._invalidate?.(`all_monthly_salary_settings_${month}`));
+    }
     // A review group must be saved and confirmed before any decision. The board
     // does it for the Admin, using the baseline shown on the row.
     async function ensureConfirmed(row, baselineDate) {
@@ -130,8 +138,42 @@
         if (problems.length) throw Error('Chưa duyệt. ' + problems.join('; ') + '. Mở Chi tiết để kiểm tra từng môn.');
         await S.applyApplication(prepared);
         await freshProfile(row.staffId);
+        await refreshStaffSources(row.staffId).catch(() => {});
+        rebuild();
         return { rate, month: draft.month, redo: [...new Set(prepared.preview.clearedDrafts.map(item => item.month))],
             followers: (prepared.preview.followers || []).map(f => `${f.name} ${money(f.beforeRate)} → ${money(f.afterRate)}`) };
+    }
+    // Owner 07/10: "E4 gom chung với E7" — subjects of one price group may get
+    // different new rates. The group is first split (one saved review group per
+    // new rate, same mốc/chu kỳ; the largest part keeps the original id and
+    // history), then each part is approved through the normal path.
+    async function approveSplit(row, byRate, { month, note }) {
+        byRate.forEach(rate => checkRate(rate, row));
+        const profile = await ensureConfirmed(row, row.confirmed ? '' : row.baselineDate);
+        const saved = profile.groups.find(g => g.id === row.group.id);
+        if (!saved) throw Error('Không tìm thấy nhóm xét đã lưu. Bấm Tải lại.');
+        const fallback = [...byRate.values()][0], parts = new Map();
+        saved.subjectIds.forEach(id => { const rate = byRate.has(id) ? byRate.get(id) : fallback; parts.set(rate, (parts.get(rate) || []).concat(id)); });
+        const ordered = [...parts.entries()].sort((a, b) => b[1].length - a[1].length);
+        const nameOf = id => row.subjects.find(s => s.id === id)?.name || state.index.subjects.find(s => s.id === id)?.name || id;
+        const baseName = String(saved.name || '').replace(/ · [\d.]+ đ$/, '').replace(/ \([^)]*\)$/, '');
+        const stamp = Date.now().toString(36);
+        const groups = ordered.map(([, ids], i) => ({ ...JSON.parse(JSON.stringify(saved)), subjectIds: ids,
+            id: i === 0 ? saved.id : (saved.id.slice(0, 120) + ':tach-' + stamp + i),
+            name: (baseName + ' (' + ids.map(nameOf).join(', ') + ')').slice(0, 180) }));
+        groups.slice(1).forEach(g => { delete g.scheduledChange; delete g.lastDecisionId; });
+        const draft = JSON.parse(JSON.stringify(profile));
+        draft.groups = draft.groups.flatMap(g => g.id === saved.id ? groups : [g]);
+        await S.saveProfile(row.staffId, draft, profile.revision || 0, state.index.subjects);
+        await freshProfile(row.staffId);
+        const results = [];
+        for (const [i, [rate, ids]] of ordered.entries()) {
+            const part = { ...row, key: row.staffId + '|' + groups[i].id, group: groups[i], confirmed: true,
+                subjects: row.subjects.filter(s => ids.includes(s.id)) };
+            const done = await approve(part, { rate, month, note, baseline: '' });
+            results.push({ ...done, names: ids.map(nameOf).join(', ') });
+        }
+        return results;
     }
     async function defer(row, reason, nextDate) {
         const profile = await ensureConfirmed(row, row.confirmed ? '' : draftFor(row).baseline);
@@ -171,7 +213,7 @@
     }
     function statusBadge(row) {
         if (row.category === 'nodata') return '<span class="srb-badge muted">Chưa có giá môn</span>';
-        if (row.pending) return `<span class="srb-badge ok">Chờ hiệu lực</span><small>Cần hủy: mở Chi tiết</small>`;
+        if (row.pending) return `<span class="srb-badge ok">Chờ hiệu lực</span><small>Bấm để sửa / hủy</small>`;
         if (row.disabled) return '<span class="srb-badge muted">Tạm ngưng</span>';
         const ev = row.evaluation;
         if (!ev?.dueDate) return '<span class="srb-badge muted">Chưa rõ</span>';
@@ -191,7 +233,9 @@
         const result = state.results[row.key];
         const action = row.disabled
             ? `<button type="button" class="srb-btn" data-action="setup" data-key="${esc(row.key)}">Thiết lập</button>`
-            : !row.group || row.pending
+            : row.group && row.pending
+            ? `<button type="button" class="srb-btn" data-action="setup" data-key="${esc(row.key)}">Sửa quyết định</button>`
+            : !row.group
             ? `<button type="button" class="srb-btn" data-action="detail" data-key="${esc(row.key)}">Chi tiết</button>`
             : `<button type="button" class="srb-btn ${open ? '' : 'srb-primary'}" data-action="toggle" data-key="${esc(row.key)}" aria-expanded="${open}">${open ? 'Đóng' : 'Xét tăng'}</button>`;
         return `<article class="srb-row${grouped ? ' srb-group-row' : ''}${open ? ' open' : ''}${state.selected.has(row.key) ? ' selected' : ''}" data-key="${esc(row.key)}">
@@ -248,6 +292,17 @@
             ${notForm}
         </div>`;
     }
+    const bucketId = row => row.staffId + '|' + row.currentRate;
+    function subjectRate(row, subjectId) {
+        const item = state.bulk.items.find(x => x.key === row.key);
+        const own = state.bulk.subjectRates[row.key + '|' + subjectId];
+        return own != null && own !== '' ? own : (item?.rate ?? '');
+    }
+    // Chosen new rate of every subject of one bulk row (split buckets: per subject).
+    function ratesBySubject(row, item) {
+        const split = state.bulk.split.has(bucketId(row));
+        return new Map(row.subjects.map(s => [s.id, Number(split ? subjectRate(row, s.id) : item.rate)]));
+    }
     function bulkHtml() {
         const rows = [...state.selected].map(rowByKey).filter(Boolean);
         if (state.bulk) {
@@ -255,7 +310,11 @@
             const buckets = B.rateBuckets(items.map(x => x.row));
             return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Mỗi nhóm môn vẫn giữ lịch xét riêng.</p>
                 <div class="srb-bulktable">${buckets.map(bucket => { const row = bucket[0], item = items.find(x => x.row.key === row.key).item;
-                    return `<div class="srb-bulkrow"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(bucket.flatMap(r => r.subjects.map(s => s.name)))].join(', '))}</small></span><span>${money(row.currentRate)} →</span><input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}"></div>`;
+                    const id = bucketId(row), split = state.bulk.split.has(id), subjects = bucket.flatMap(r => r.subjects.map(s => ({ row: r, s })));
+                    const toggle = subjects.length > 1 ? `<button type="button" class="srb-btn srb-ghost srb-split" data-action="bulk-split" data-bucket="${esc(id)}">${split ? 'Gộp lại 1 mức' : 'Tách từng môn'}</button>` : '';
+                    if (!split) return `<div class="srb-bulkrow"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(subjects.map(x => x.s.name))].join(', '))}</small>${toggle}</span><span>${money(row.currentRate)} →</span><input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}"></div>`;
+                    return `<div class="srb-bulkrow srb-bulkrow-split"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>Mỗi môn một mức (đang ${money(row.currentRate)})</small>${toggle}</span>
+                        <div class="srb-subrates">${subjects.map(({ row: r, s }) => `<label><span>${esc(s.name)}</span><span>${money(s.rate ?? r.currentRate)} →</span><input type="number" data-bulk-subject="${esc(r.key + '|' + s.id)}" value="${esc(subjectRate(r, s.id))}" min="1" step="500" aria-label="Mức mới môn ${esc(s.name)}"></label>`).join('')}</div></div>`;
                 }).join('')}</div>
                 <div class="srb-fields"><label>Áp dụng từ<select id="srb-bulk-month">${monthOptions(state.bulk.month)}</select></label>
                 <label class="srb-grow">Ghi chú chung (không bắt buộc)<input id="srb-bulk-note" value="${esc(state.bulk.note)}" maxlength="2000"></label></div>
@@ -392,14 +451,35 @@
         if (minimum !== null && (!Number.isFinite(minimum) || minimum < 0 || minimum > 744)) throw Error('Ngưỡng giờ từ 0 đến 744 giờ/tháng.');
         return { ...patch, currentRate: rate, minimumHours: minimum, enabled: values.enabled, note: String(values.note || '').slice(0, 2000) };
     }
+    function dueAfter(row, patch) {
+        const group = { ...row.group, ...patch, confirmed: true };
+        if (!group.baselineDate) group.baselineDate = row.baselineDate;
+        return P.evaluate(group, row.stats, state.index.config, today(), profileOf(row.staffId).personOverrides || {});
+    }
+    // "Hẹn xét vào ngày" = mốc + chu kỳ unless typed: show that date live.
+    function autoNextText(rows, values, bulk) {
+        let patch;
+        try { patch = setupPatch({ ...values, nextReviewDate: '', ...(bulk ? { enabled: '' } : {}) }, bulk); }
+        catch (error) { patch = bulk ? {} : null; }
+        const hint = 'Hạn xét tự tính = mốc + chu kỳ. Chỉ nhập ngày khi muốn xét muộn hơn.';
+        if (!patch) return hint;
+        patch = { ...patch, nextReviewDate: '' };
+        const evs = rows.map(row => dueAfter(row, patch)).filter(ev => ev?.baseDueDate);
+        const dates = [...new Set(evs.map(ev => ev.baseDueDate))].sort(), months = [...new Set(evs.map(ev => ev.months))];
+        if (!dates.length) return hint;
+        return `Tự tính: <b>${vnDate(dates[0])}${dates.length > 1 ? ' – ' + vnDate(dates[dates.length - 1]) : ''}</b>${months.length === 1 ? ` (mốc + ${months[0]} tháng)` : ''}. Chỉ nhập ngày khi muốn xét muộn hơn.`;
+    }
     function setupPreviewHtml(rows, values, bulk) {
         let patch;
         try { patch = setupPatch(values, bulk); } catch (error) { return `<span class="srb-setup-warn">${esc(error.message)}</span>`; }
-        if (bulk) return `Áp dụng cho <b>${rows.length}</b> dòng. Ô để trống được giữ nguyên.` +
-            (patch.enabled === false ? ' Các dòng sẽ tạm ngưng nhắc.' : '');
+        if (bulk) {
+            const dates = [...new Set(rows.map(row => dueAfter(row, patch)?.dueDate).filter(Boolean))].sort();
+            const due = !dates.length ? '' : dates.length === 1 ? ` Hạn xét mới: <b>${vnDate(dates[0])}</b>.` : ` Hạn xét mới từ <b>${vnDate(dates[0])}</b> đến <b>${vnDate(dates[dates.length - 1])}</b>.`;
+            return `Áp dụng cho <b>${rows.length}</b> dòng. Ô để trống được giữ nguyên.${patch.enabled === false ? ' Các dòng sẽ tạm ngưng nhắc.' : due}`;
+        }
         const row = rows[0];
         if (patch.enabled === false) return 'Tạm ngưng nhắc: dòng này không hiện trong Đến hạn cho đến khi bật lại.';
-        const ev = P.evaluate({ ...row.group, ...patch, confirmed: true }, row.stats, state.index.config, today(), profileOf(row.staffId).personOverrides || {});
+        const ev = dueAfter(row, patch);
         if (!ev.dueDate) return '<span class="srb-setup-warn">Chưa đủ dữ liệu để tính hạn xét.</span>';
         const source = ev.ruleSources?.cycleMonths === 'group' ? 'riêng' : ev.ruleSources?.cycleMonths === 'person' ? 'riêng của người này' : 'theo quy định chung';
         const ignored = patch.nextReviewDate && patch.nextReviewDate < ev.baseDueDate
@@ -425,7 +505,7 @@
                     <small>${bulk ? 'Để trống để giữ mốc hiện tại của từng dòng.' : !row.confirmed && row.estimate?.known ? 'Đang là mốc ước tính từ giá đã nhập. Sửa nếu biết ngày thật.' : 'Hạn xét = mốc + chu kỳ.'}</small>
                 </fieldset>
                 <label>Chu kỳ xét (tháng)<input type="number" name="cycleMonths" value="${esc(v.cycleMonths)}" min="1" max="36" step="1" placeholder="Theo quy định chung (${fallbackCycle} tháng)"><small>${bulk ? 'Để trống để giữ nguyên.' : 'Để trống = theo quy định chung.'}</small></label>
-                <label>Hẹn xét vào ngày<span class="srb-inline"><input type="date" name="nextReviewDate" value="${esc(v.nextReviewDate)}">${bulk ? '' : '<button type="button" class="srb-btn srb-ghost" data-setup="clear-next">Xóa</button>'}</span><small>Không bắt buộc. Dùng khi muốn xét muộn hơn hạn theo chu kỳ.</small></label>
+                <label>Hẹn xét vào ngày<span class="srb-inline"><input type="date" name="nextReviewDate" value="${esc(v.nextReviewDate)}">${bulk ? '' : '<button type="button" class="srb-btn srb-ghost" data-setup="clear-next">Xóa</button>'}</span><small id="srb-auto-next">${autoNextText(rows, v, bulk)}</small></label>
                 ${bulk ? `<label>Nhắc xét<select name="enabled"><option value="">Giữ nguyên</option><option value="on">Bật nhắc</option><option value="off">Tạm ngưng</option></select></label>`
                     : `<label>Ngưỡng giờ/tháng riêng<input type="number" name="minimumHours" value="${esc(v.minimumHours)}" min="0" max="744" step="0.5" placeholder="Theo quy định chung"><small>Chỉ để cảnh báo “ít giờ”, không tự hoãn.</small></label>
                        <label class="srb-switch srb-span"><input type="checkbox" name="enabled" ${v.enabled ? 'checked' : ''}><span>Nhắc xét cho nhóm môn này</span></label>
@@ -441,11 +521,10 @@
         if (!rows.length) return;
         const pending = rows.filter(row => row.pending);
         if (!bulk && pending.length) {
-            const change = rows[0].group.scheduledChange;
-            $('srb-dialog-content').innerHTML = `<div class="srb-setup"><header class="srb-setup-head"><div><p class="srb-eyebrow">THIẾT LẬP XÉT LƯƠNG</p><h2 id="srb-setup-title">${esc(rows[0].name)}</h2></div><button type="button" class="srb-x" data-setup="close" aria-label="Đóng">×</button></header>
-                <div class="srb-setup-preview">Đã duyệt lên <b>${money(change.newRate)}</b> từ ${vnDate(change.effectiveFrom)}. Mốc và chu kỳ được giữ nguyên đến khi mức mới có hiệu lực. Muốn đổi thì hủy mức chờ hiệu lực trong Chi tiết trước.</div>
-                <footer class="srb-setup-foot"><button type="button" class="srb-btn" data-setup="close">Đóng</button><button type="button" class="srb-btn srb-primary" data-setup="detail" data-staff="${esc(rows[0].staffId)}">Mở Chi tiết</button></footer></div>`;
+            state.setup = null; state.edit = { key: rows[0].key };
+            $('srb-dialog-content').innerHTML = editFormHtml(rows[0]);
         } else {
+            state.edit = null;
             const usable = rows.filter(row => !row.pending);
             state.setup = { keys: usable.map(row => row.key), bulk };
             $('srb-dialog-content').innerHTML = setupFormHtml(usable, bulk);
@@ -453,7 +532,85 @@
         }
         if (!$('srb-dialog').open) $('srb-dialog').showModal();
     }
-    function closeSetup() { if (state.busy) return; state.setup = null; if ($('srb-dialog').open) $('srb-dialog').close(); }
+    function closeSetup() { if (state.busy) return; state.setup = null; state.edit = null; if ($('srb-dialog').open) $('srb-dialog').close(); }
+
+    // ---------- edit an approved, not-yet-effective raise ----------
+    // Sửa = hủy quyết định đang chờ (khôi phục đúng giá cũ, có lịch sử) rồi
+    // duyệt lại với tháng / mức mới qua đúng luồng duyệt thường.
+    function editFormHtml(row) {
+        const change = row.group.scheduledChange, before = change.previousGroup?.currentRate;
+        return `<form id="srb-edit-form" class="srb-setup" novalidate>
+            <header class="srb-setup-head"><div><p class="srb-eyebrow">SỬA QUYẾT ĐỊNH ĐÃ DUYỆT</p><h2 id="srb-setup-title">${esc(row.name)} <span class="srb-code">${esc(row.code)}</span></h2><p>${esc(row.group.name.replace(/ · [\d.]+ đ$/, ''))} · ${esc(row.subjects.map(s => s.name).join(', '))}</p></div><button type="button" class="srb-x" data-setup="close" aria-label="Đóng">×</button></header>
+            <div class="srb-setup-preview">Đang duyệt: <b>${money(before)} → ${money(change.newRate)}</b> từ ${vnDate(change.effectiveFrom)} (chưa có hiệu lực).</div>
+            <div class="srb-setup-body">
+                <label>Mức mới (đ/giờ)<input type="number" name="rate" value="${esc(change.newRate)}" min="1" step="500" inputmode="numeric"><small>Phải cao hơn mức cũ ${money(before)}.</small></label>
+                <label>Áp dụng từ<select name="month">${monthOptions(change.targetMonth)}</select><small>Chọn đúng tháng bắt đầu hưởng mức mới.</small></label>
+                <label class="srb-span">Lý do sửa (không bắt buộc)<input name="reason" maxlength="2000" placeholder="Ví dụ: chọn nhầm tháng"></label>
+            </div>
+            <div id="srb-edit-hint">${backdatedHint(change.targetMonth)}</div>
+            <p id="srb-setup-error" class="srb-setup-error" role="alert"></p>
+            <footer class="srb-setup-foot"><button type="button" class="srb-btn srb-danger" data-setup="edit-cancel">Hủy quyết định, giữ ${money(before)}</button><button type="button" class="srb-btn" data-setup="close">Đóng</button><button type="submit" class="srb-btn srb-primary">Lưu thay đổi</button></footer>
+        </form>`;
+    }
+    function readEditForm() {
+        const data = new FormData($('srb-edit-form'));
+        return { rate: Number(String(data.get('rate') ?? '').trim()), month: String(data.get('month') || ''), reason: String(data.get('reason') || '').trim() };
+    }
+    async function cancelPending(row, reason) {
+        const profile = await freshProfile(row.staffId);
+        const saved = (profile.groups || []).find(g => g.id === row.group.id);
+        if (!(saved?.scheduledChange?.effectiveFrom > today())) throw Error('Quyết định này đã có hiệu lực hoặc đã được hủy. Bấm Tải lại để xem trạng thái mới.');
+        await S.cancelApplication(row.staffId, row.group.id, reason, profile.revision || 0);
+        await freshProfile(row.staffId);
+        await refreshStaffSources(row.staffId).catch(() => {});
+        rebuild();
+        return saved.scheduledChange;
+    }
+    async function editPending(row, values) {
+        const change = row.group.scheduledChange, before = change.previousGroup?.currentRate;
+        if (!Number.isSafeInteger(values.rate) || values.rate <= 0 || values.rate > 10000000) throw Error('Nhập mức mới là số tiền đ/giờ, ví dụ 54000.');
+        if (before != null && values.rate <= before) throw Error(`Mức mới phải cao hơn mức cũ ${money(before)}.`);
+        if (!targetMonths().includes(values.month)) throw Error('Chọn tháng áp dụng trong danh sách.');
+        if (values.rate === change.newRate && values.month === change.targetMonth) throw Error('Chưa đổi mức hoặc tháng áp dụng.');
+        const what = `${money(change.newRate)} từ ${vnMonth(change.targetMonth).toLowerCase()} → ${money(values.rate)} từ ${vnMonth(values.month).toLowerCase()}`;
+        await cancelPending(row, 'Sửa quyết định: ' + what + (values.reason ? '. ' + values.reason : ''));
+        const fresh = rowByKey(row.key);
+        try {
+            if (!fresh || fresh.pending) throw Error('không tìm thấy nhóm môn sau khi hủy.');
+            return await approve(fresh, { rate: values.rate, month: values.month, note: values.reason || 'Sửa quyết định đã duyệt', baseline: '' });
+        } catch (error) {
+            throw Error(`Đã hủy mức cũ (giữ ${money(before)}) nhưng chưa duyệt lại được: ${error.message} Bấm "Xét tăng" ở dòng này để duyệt lại.`);
+        }
+    }
+    function submitEdit(cancelOnly) {
+        if (state.busy || !state.edit) return;
+        const row = rowByKey(state.edit.key);
+        if (!row || !row.pending) { closeSetup(); return; }
+        const values = readEditForm(), change = row.group.scheduledChange;
+        if (cancelOnly && !window.confirm(`Hủy mức ${money(change.newRate)} đã duyệt cho ${row.name}? Giá trở về ${money(change.previousGroup?.currentRate)}.`)) return;
+        if (!cancelOnly && !backdatedConfirm(values.month, row.name)) return;
+        $('srb-setup-error').textContent = '';
+        $('srb-edit-form').querySelectorAll('button').forEach(b => { b.disabled = true; });
+        withWrite(async () => {
+            try {
+                if (cancelOnly) {
+                    await cancelPending(row, 'Hủy quyết định đã duyệt' + (values.reason ? ': ' + values.reason : ''));
+                    state.results[row.key] = { text: `Đã hủy mức đã duyệt, giữ ${money(change.previousGroup?.currentRate)}.` };
+                    message(`Đã hủy quyết định tăng lương của ${row.name}.`);
+                } else {
+                    const done = await editPending(row, values);
+                    const redo = done.redo.length ? ` Cần tính lại lương giáo viên ${done.redo.map(m => vnMonth(m).toLowerCase()).join(', ')}.` : '';
+                    state.results[row.key] = { text: `Đã sửa: ${money(done.rate)}/giờ từ ${vnMonth(done.month).toLowerCase()}.${redo}` };
+                    message(`Đã sửa quyết định tăng lương của ${row.name}.${redo}`);
+                }
+                state.edit = null; if ($('srb-dialog').open) $('srb-dialog').close();
+            } catch (error) {
+                state.edit = null; if ($('srb-dialog').open) $('srb-dialog').close();
+                state.results[row.key] = { text: error.message, error: true };
+                throw error;
+            }
+        });
+    }
     // One profile write per teacher; other groups of that teacher are kept as saved.
     async function saveSetupEntries(entries) {
         const byStaff = new Map();
@@ -504,12 +661,15 @@
         });
     }
     $('srb-dialog').addEventListener('input', () => {
+        if (state.edit && $('srb-edit-form')) { $('srb-setup-error').textContent = ''; $('srb-edit-hint').innerHTML = backdatedHint(readEditForm().month); return; }
         if (!state.setup) return;
         $('srb-setup-error').textContent = '';
         const rows = state.setup.keys.map(rowByKey).filter(Boolean);
-        $('srb-setup-preview').innerHTML = setupPreviewHtml(rows, readSetupForm(state.setup.bulk), state.setup.bulk);
+        const values = readSetupForm(state.setup.bulk);
+        $('srb-setup-preview').innerHTML = setupPreviewHtml(rows, values, state.setup.bulk);
+        $('srb-auto-next').innerHTML = autoNextText(rows, values, state.setup.bulk);
     });
-    $('srb-dialog').addEventListener('submit', event => { event.preventDefault(); submitSetup(); });
+    $('srb-dialog').addEventListener('submit', event => { event.preventDefault(); if (event.target.id === 'srb-edit-form') submitEdit(false); else submitSetup(); });
     $('srb-dialog').addEventListener('click', event => {
         const button = event.target.closest('[data-setup]');
         if (event.target === $('srb-dialog')) { closeSetup(); return; }
@@ -517,8 +677,9 @@
         if (button.dataset.setup === 'close') closeSetup();
         if (button.dataset.setup === 'clear-next') { $('srb-setup-form').elements.nextReviewDate.value = ''; $('srb-dialog').dispatchEvent(new Event('input')); }
         if (button.dataset.setup === 'detail') { closeSetup(); showDetail(button.dataset.staff); }
+        if (button.dataset.setup === 'edit-cancel') submitEdit(true);
     });
-    $('srb-dialog').addEventListener('cancel', event => { if (state.busy) event.preventDefault(); else state.setup = null; });
+    $('srb-dialog').addEventListener('cancel', event => { if (state.busy) event.preventDefault(); else { state.setup = null; state.edit = null; } });
 
     // ---------- events ----------
     function runRow(key, action) {
@@ -567,9 +728,12 @@
             const row = rowByKey(item.key);
             if (!row) continue;
             try {
-                const result = await approve(row, { rate: item.rate, month, note, baseline: row.baselineDate });
-                if (result.redo.length) redo.add(row.name);
-                state.results[item.key] = { text: `Đã duyệt ${money(Number(item.rate))}/giờ từ ${vnMonth(month).toLowerCase()}.` };
+                const byRate = ratesBySubject(row, item), distinct = [...new Set(byRate.values())];
+                const results = distinct.length > 1
+                    ? await approveSplit(row, byRate, { month, note })
+                    : [await approve(row, { rate: distinct[0] ?? item.rate, month, note, baseline: row.baselineDate })];
+                if (results.some(result => result.redo.length)) redo.add(row.name);
+                state.results[item.key] = { text: `Đã duyệt ${results.map(result => money(result.rate) + (result.names ? ' (' + result.names + ')' : '')).join(', ')}/giờ từ ${vnMonth(month).toLowerCase()}.` };
                 state.selected.delete(item.key); done++;
             } catch (error) {
                 state.results[item.key] = { text: 'Chưa duyệt: ' + error.message, error: true };
@@ -587,12 +751,12 @@
         if (action === 'bulk-cancel') { state.bulk = null; render(); return; }
         if (action === 'bulk-increase') {
             if (!rows.length) return;
-            state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '' };
+            state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '', split: new Set(), subjectRates: {} };
             render(); return;
         }
         if (action === 'bulk-apply') {
             try {
-                state.bulk.items.forEach(item => { const row = rowByKey(item.key); if (row) checkRate(item.rate, row); });
+                state.bulk.items.forEach(item => { const row = rowByKey(item.key); if (row) ratesBySubject(row, item).forEach(rate => checkRate(rate, row)); });
             } catch (error) { message(error.message, true); return; }
             if (!backdatedConfirm(state.bulk.month, state.bulk.items.length + ' mức đã chọn')) return;
             withWrite(bulkApply); return;
@@ -644,7 +808,7 @@
             if (!rows.length) return;
             if (action === 'teacher-setup') openSetup(rows.map(row => row.key), true);
             else {
-                state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '' };
+                state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '', split: new Set(), subjectRates: {} };
                 render(); $('srb-bulk').scrollIntoView({ block: 'start', behavior: 'smooth' });
             }
             return;
@@ -652,6 +816,12 @@
         if (action === 'pick') { const row = rowByKey(key); if (row) { draftFor(row).rate = Number(button.dataset.rate); render(); } return; }
         if (action === 'setup') { openSetup([key]); return; }
         if (action === 'bulk-setup') { openSetup([...state.selected], true); return; }
+        if (action === 'bulk-split') {
+            if (!state.bulk) return;
+            const id = button.dataset.bucket;
+            if (state.bulk.split.has(id)) state.bulk.split.delete(id); else state.bulk.split.add(id);
+            render(); return;
+        }
         if (action.startsWith('bulk-')) bulkAction(action); else runRow(key, action);
     });
     $('srb').addEventListener('input', event => {
@@ -666,6 +836,7 @@
             return;
         }
         if (el.id === 'srb-bulk-note' && state.bulk) { state.bulk.note = el.value; return; }
+        if (el.dataset.bulkSubject && state.bulk) { state.bulk.subjectRates[el.dataset.bulkSubject] = el.value; return; }
         if (el.dataset.f && el.dataset.key) {
             const row = rowByKey(el.dataset.key); if (!row) return;
             draftFor(row)[el.dataset.f] = el.value;
@@ -706,6 +877,14 @@
     window.addEventListener('beforeunload', event => { if (state.busy) { event.preventDefault(); event.returnValue = ''; } });
     // salary-review.js asks this before reloading the shared index.
     window.SalaryReviewOverview = { hasPendingChanges: () => state.busy };
+    // "Sửa quyết định…" in the detail view opens the same popup on the board.
+    window.addEventListener('salary-review-edit-pending', event => {
+        const { staffId, groupId } = event.detail || {};
+        showBoard();
+        const row = rowByKey(staffId + '|' + groupId);
+        if (row?.pending) openSetup([row.key]);
+        else message('Không tìm thấy quyết định đang chờ. Bấm Tải lại rồi thử lại.', true);
+    });
     window.SalaryReviewBoard = { state, rebuild, render };
     render();
 })();

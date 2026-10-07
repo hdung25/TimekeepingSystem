@@ -32,6 +32,11 @@
             /^\s*\(\s*\+\s*\d+\s*(?:hs|học\s*sinh)\s*\)$/i.test(String(name).slice(prefix.length));
     }
 
+    // Same rule as ClassRateGroups.isCombined: "+" but not a "(+N HS)" row.
+    function combinedName(name) {
+        return String(name).includes('+') && !/\(\s*\+\s*\d+\s*(?:hs|học\s*sinh)\s*\)/i.test(String(name));
+    }
+
     function validMonth(value) {
         return typeof value === 'string' && /^(?:19|[2-9]\d)\d{2}-(?:0[1-9]|1[0-2])$/.test(value);
     }
@@ -222,6 +227,22 @@
                 followers.push({ name, base: change.name, beforeRate, afterRate: beforeRate + delta, beforeSource: origins[name] || 'unchanged' });
                 mergedRates[name] = beforeRate + delta;
             });
+        });
+        // Lớp ghép "E3+E4" is paid like its highest component. A saved combined
+        // rate that matched the old highest component follows the raise
+        // (38k/38k raised to 40k gives 40k); a different hand-set rate stays.
+        const changedBefore = new Map(changes.map(change => [change.name, Number(change.beforeRate)]));
+        Object.keys(mergedRates).filter(combinedName).forEach(name => {
+            const parts = name.split('+').map(part => payrollName(part.trim())).filter(Boolean);
+            if (parts.length < 2 || !parts.some(part => changedBefore.has(part))) return;
+            const rateAt = (part, before) => Number(before && changedBefore.has(part) ? changedBefore.get(part) : mergedRates[part]) || 0;
+            const oldMax = Math.max(...parts.map(part => rateAt(part, true)));
+            const newMax = Math.max(...parts.map(part => rateAt(part, false)));
+            const beforeRate = Number(mergedRates[name]);
+            if (!(oldMax > 0) || newMax <= oldMax || beforeRate !== oldMax) return;
+            const base = parts.find(part => rateAt(part, false) === newMax);
+            followers.push({ name, base, beforeRate, afterRate: newMax, beforeSource: origins[name] || 'unchanged', combined: true });
+            mergedRates[name] = newMax;
         });
         const selectedNames = new Set([...changes, ...followers].map(change => change.name));
         const preserved = Object.keys(mergedRates).filter(name => !selectedNames.has(name))

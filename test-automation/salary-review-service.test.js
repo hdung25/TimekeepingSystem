@@ -157,6 +157,26 @@ const profileKey='salary_review_profiles/teacher',targetKey='salary_settings_mon
         await assert.rejects(h.service.cancelApplication('teacher','primary','hủy',2),/nhóm xét khác/);
         assert.deepEqual([...h.store],before,'restore cannot introduce overlapping groups after exception subjects were reassigned');
     }
+    // Cancelling (used by "Sửa quyết định") also puts back later-month rates the
+    // approval lifted, and refuses when such a month was edited afterwards.
+    {
+        const h=harness(),novKey='salary_settings_monthly/2026-11_teacher';
+        h.write(novKey,{giao_vien:{class_rates:{'Toán 1':31000,'Toán 2':32000}}});
+        const prepared=await prepare(h);await h.service.applyApplication(prepared);
+        assert.equal(h.read(novKey).giao_vien.class_rates['Toán 1'],36000);
+        await h.service.cancelApplication('teacher','primary','Sửa quyết định: chọn nhầm tháng',2);
+        assert.deepEqual(h.read(novKey).giao_vien.class_rates,{'Toán 1':31000,'Toán 2':32000});
+        assert.equal(h.read(profileKey).groups[0].currentRate,30000);
+    }
+    {
+        const h=harness(),novKey='salary_settings_monthly/2026-11_teacher';
+        h.write(novKey,{giao_vien:{class_rates:{'Toán 1':31000}}});
+        const prepared=await prepare(h);await h.service.applyApplication(prepared);
+        h.write(novKey,{giao_vien:{class_rates:{'Toán 1':38000}}});
+        const before=copy([...h.store]);
+        await assert.rejects(h.service.cancelApplication('teacher','primary','hủy',2),/đã được sửa sau khi duyệt/);
+        assert.deepEqual([...h.store],before,'a later admin edit is never overwritten by cancel');
+    }
     // Every source affects the reviewed result or protects a whole-role write.
     for(const mutate of [
         h=>h.write(profileKey,{...h.read(profileKey),revision:2}),
@@ -187,8 +207,27 @@ const profileKey='salary_review_profiles/teacher',targetKey='salary_settings_mon
         await assert.rejects(h.service.applyApplication(two),/vừa thay đổi/);
         assert.equal(h.audit().length,1);
     }
+    {
+        // Another edit of the same month (e.g. a second subject group approved
+        // afterwards) no longer blocks cancel: only this decision's prices revert.
+        const h=harness(),prepared=await prepare(h);await h.service.applyApplication(prepared);
+        h.write(targetKey,{...h.read(targetKey),giao_vien:{...h.read(targetKey).giao_vien,advance:999,
+            class_rates:{...h.read(targetKey).giao_vien.class_rates,E1:52000}}});
+        await h.service.cancelApplication('teacher','primary','Sửa quyết định',2);
+        const role=h.read(targetKey).giao_vien;
+        assert.equal(role.class_rates['Toán 1'],30000,'raised subject back to its old price');
+        assert.equal(role.class_rates.E1,52000,'the other approval is kept');
+        assert.equal(role.advance,999,'unrelated values are kept');
+        assert.equal(h.read(profileKey).groups[0].currentRate,30000);
+    }
+    {
+        const h=harness(),prepared=await prepare(h);await h.service.applyApplication(prepared);
+        h.write(targetKey,{...h.read(targetKey),giao_vien:{...h.read(targetKey).giao_vien,class_rates:{...h.read(targetKey).giao_vien.class_rates,'Toán 1':37000}}});
+        const before=copy([...h.store]);
+        await assert.rejects(h.service.cancelApplication('teacher','primary','hủy',2),/đã được sửa sau khi duyệt/);
+        assert.deepEqual([...h.store],before,'a raised price edited again is never overwritten');
+    }
     for(const mutate of [
-        h=>h.write(targetKey,{...h.read(targetKey),giao_vien:{...h.read(targetKey).giao_vien,advance:999}}),
         h=>h.write(targetKey,{...h.read(targetKey),published:{role:'giao-vien',status:'draft',details:{netPay:99}}}),
         h=>h.today('2026-10-01')
     ]){

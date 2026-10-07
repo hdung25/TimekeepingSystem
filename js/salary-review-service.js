@@ -261,7 +261,7 @@
                 reason:context.reason,targetMonth:context.targetMonth,effectiveFrom:preview.effectiveFrom,newRate:context.newRate,
                 reviewDate:today,reviewSettings:settings(config||{}),personOverrides:profile.personOverrides||{},
                 selectedSubjectIds:context.selectedSubjectIds,beforeGroup:group,afterGroup,effectiveRoleKey,beforeRoleExists,beforeRole,afterRole,
-                changes:preview.changes,sourceMonths:preview.sourceMonths,sourceRates,backdated:preview.backdated,
+                changes:preview.changes,followers:(preview.followers||[]).map(f=>({name:f.name,base:f.base,beforeRate:f.beforeRate,afterRate:f.afterRate})),sourceMonths:preview.sourceMonths,sourceRates,backdated:preview.backdated,
                 carried:preview.carried.map(item=>({month:item.month,lifted:item.lifted})),clearedDrafts:preview.clearedDrafts,revision,createdAt,recordedAt:serverTimestamp(),actorUid:actor.uid,actorUserId:actor.userId});
             return {applied:true,alreadyApplied:false,operationId:context.operationId,targetMonth:context.targetMonth};
         });
@@ -269,6 +269,30 @@
         return result;
     }
 
+    // class_rates patch that undoes one approval inside a role edited since.
+    // Raised subjects and their followers ("(+N HS)", lớp ghép) go back to the
+    // old price; a price changed again after the approval refuses the cancel.
+    function decisionRevert(original,role) {
+        const edited=()=>Error('Đơn giá tháng đích đã được sửa sau khi duyệt. Không tự hủy để tránh mất mức admin vừa nhập.');
+        if(!role||typeof role!=='object'||!role.class_rates||typeof role.class_rates!=='object')throw edited();
+        const rates=role.class_rates,after=original.afterRole?.class_rates||{},items=new Map();
+        (original.changes||[]).forEach(c=>items.set(c.name,c.beforeRate));
+        if(Array.isArray(original.followers))original.followers.forEach(f=>items.set(f.name,f.beforeRate));
+        else (original.changes||[]).forEach(c=>{
+            // Records from before followers were stored: rebuild crowded-class followers.
+            const delta=Number(original.newRate)-Number(c.beforeRate);
+            if(!(Number(c.beforeRate)>0)||!delta)return;
+            Object.keys(after).filter(name=>name!==c.name&&name.toLowerCase().startsWith(c.name.toLowerCase())&&/^\s*\(\s*\+\s*\d+/.test(name.slice(c.name.length)))
+                .forEach(name=>items.set(name,Number(after[name])-delta));
+        });
+        if(!items.size)throw edited();
+        const patch={};
+        items.forEach((before,name)=>{
+            if(Number(rates[name])!==Number(after[name]))throw edited();
+            patch[name]=Number(before)>0?Number(before):root.firebase.firestore.FieldValue.delete();
+        });
+        return patch;
+    }
     async function cancelApplication(staffId,groupId,reason,expectedRevision) {
         const actor=await admin();reason=text(reason);
         if(!reason)throw Error('Nhập lý do hủy mức mới.');
@@ -283,10 +307,20 @@
             const targetRef=document('salary_settings_monthly',scheduled.targetMonth+'_'+staffId);
             const [originalSnap,targetSnap]=await Promise.all([tx.get(originalRef),tx.get(targetRef)]);
             const original=originalSnap.exists?originalSnap.data():null,targetDoc=targetSnap.exists?targetSnap.data():null;
+            // Later months whose lower saved rate the approval lifted are put back
+            // too, but only while they still hold exactly the lifted value.
+            const lifts=(original?.carried||[]).filter(item=>item&&item.month&&Array.isArray(item.lifted)&&item.lifted.length);
+            const liftRefs=lifts.map(item=>document('salary_settings_monthly',item.month+'_'+staffId));
+            const liftSnaps=await Promise.all(liftRefs.map(ref=>tx.get(ref)));
             if(!original||original.kind!=='approved'||original.groupId!==groupId||original.targetMonth!==scheduled.targetMonth||!targetDoc)sourceChanged();
             const key=original.effectiveRoleKey;
-            if(!['giao_vien','giao-vien'].includes(key)||stable(targetDoc[key])!==stable(original.afterRole))
-                throw Error('Đơn giá tháng đích đã được sửa sau khi duyệt. Không tự hủy để tránh mất mức admin vừa nhập.');
+            if(!['giao_vien','giao-vien'].includes(key))sourceChanged();
+            // Untouched since approval: restore the exact old role. Otherwise
+            // (typically another subject group of the same teacher approved for
+            // the same month afterwards) put back only the prices THIS decision
+            // raised, and only while they still hold the approved value.
+            const exact=stable(targetDoc[key])===stable(original.afterRole);
+            const ratePatch=exact?null:decisionRevert(original,targetDoc[key]);
             const state=D().getPayslipLifecycleState(targetDoc.published||{});
             const role=String(targetDoc.published?.role||'');
             const ambiguousLegacy=targetDoc.published&&!state.has_tt&&!['tiep-tan','tiep_tan','receptionist'].includes(role)&&
@@ -299,14 +333,25 @@
             if((profile.groups||[]).some(g=>g.id!==groupId&&g.enabled!==false&&(g.subjectIds||[]).some(id=>restoredIds.has(id))))
                 throw Error('Môn của nhóm cũ đã được đưa vào nhóm xét khác. Bỏ phần trùng ở nhóm đó trước khi hủy quyết định này.');
             const revision=Number(profile.revision||0)+1,createdAt=new Date().toISOString();
-            tx.update(targetRef,{[key]:original.beforeRoleExists?original.beforeRole:root.firebase.firestore.FieldValue.delete()});
+            const liftUpdates=lifts.map((item,i)=>{
+                const doc=liftSnaps[i].exists?liftSnaps[i].data():null;
+                const roleKey=doc&&Object.prototype.hasOwnProperty.call(doc,'giao_vien')?'giao_vien':'giao-vien';
+                const rates=doc?.[roleKey]?.class_rates||{};
+                return {ref:liftRefs[i],patch:{[roleKey]:{class_rates:Object.fromEntries(item.lifted.map(lift=>{
+                    if(Number(rates[lift.name])!==Number(lift.afterRate))throw Error('Đơn giá '+item.month+' môn '+lift.name+' đã được sửa sau khi duyệt. Không tự hủy để tránh mất mức admin vừa nhập.');
+                    return [lift.name,lift.beforeRate];
+                }))}}};
+            });
+            if(exact)tx.update(targetRef,{[key]:original.beforeRoleExists?original.beforeRole:root.firebase.firestore.FieldValue.delete()});
+            else tx.set(targetRef,{[key]:{class_rates:ratePatch}},{merge:true});
+            liftUpdates.forEach(({ref,patch})=>tx.set(ref,patch,{merge:true}));
             tx.update(profileRef,{groups:profile.groups.map(g=>g.id===groupId?restored:g),revision,updatedAt:createdAt,updatedBy:actor.uid,lastHistoryId:cancelRef.id});
             tx.set(cancelRef,{kind:'cancelled',operationId:scheduled.operationId,groupId,groupName:group.name,reason,targetMonth:scheduled.targetMonth,
                 beforeGroup:group,afterGroup:restored,revision,createdAt,recordedAt:serverTimestamp(),actorUid:actor.uid,actorUserId:actor.userId});
             cancelledMonth=scheduled.targetMonth;
             return {cancelled:true,operationId:scheduled.operationId};
         });
-        if(cancelledMonth)D()._invalidate?.(`all_monthly_salary_settings_${cancelledMonth}`);
+        if(cancelledMonth)[cancelledMonth,...A().followingMonths(cancelledMonth,P().dateKey().slice(0,7))].forEach(month=>D()._invalidate?.(`all_monthly_salary_settings_${month}`));
         return result;
     }
     async function queue() {

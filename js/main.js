@@ -2412,6 +2412,7 @@ window.TTV_NAMES = [
     'NGUYỄN THUÝ NGÂN',
     'LÊ VÕ THANH NGÂN',
     'NGUYỄN PHAN THANH NHÂN',
+    'NGUYỄN PHAN THANH NHÀN',
     'PHẠM THỊ TRÚC MY',
     'PHẠM THỊ TRÚC MỸ',
     'ĐOÀN THỊ THU THÙY',
@@ -2477,6 +2478,10 @@ window.TA_NAMES = [
 ];
 
 window.formatUserSpecialty = function(user) {
+    // Khối họp chọn ở Nhân sự (users.specialties) thắng mọi phỏng đoán bên dưới.
+    const meetingGroups = ['TG TA', 'TG T-TV', 'TOÁN TƯ DUY', 'TIẾP TÂN'];
+    const saved = Array.isArray(user?.specialties) ? meetingGroups.filter(g => user.specialties.includes(g)) : [];
+    if (saved.length) return saved.join(' / ');
     const nameUpper = (user.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
     const usernameLower = (user.username || '').trim().toLowerCase();
     

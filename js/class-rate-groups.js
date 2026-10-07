@@ -61,7 +61,8 @@
         const badge = badgeFor(input);
         if (!badge) return;
         if (input.dataset.combinedAuto === 'true') {
-            badge.innerHTML = from ? `= ${esc(from)} (môn cao nhất)` : 'theo môn cao nhất';
+            badge.innerHTML = (from ? `= ${esc(from)} (môn cao nhất)` : 'theo môn cao nhất') +
+                (input.dataset.combinedStale ? ` · giá cũ ${money(Number(input.dataset.combinedStale))} đã cập nhật` : '');
             badge.className = 'crg-badge auto';
         } else {
             badge.innerHTML = 'chỉnh tay · <button type="button" class="crg-reset" data-crg-reset="1">theo môn cao nhất</button>';
@@ -89,7 +90,11 @@
         inputs().filter(input => isCombined(input.dataset.name) && !input.disabled).forEach(input => {
             const { rate } = combinedRate(input.dataset.name, rowRate);
             const saved = Number(context.explicit[input.dataset.name]) || 0;
-            input.dataset.combinedAuto = rate > 0 && (!saved || saved === rate) ? 'true' : 'false';
+            // A saved rate BELOW the highest component is a stale price left over
+            // from before a raise (e.g. E3+E4 still 38k after E3/E4 went to 40k):
+            // follow the component again. A higher hand-set rate is kept.
+            input.dataset.combinedAuto = rate > 0 && (!saved || saved <= rate) ? 'true' : 'false';
+            input.dataset.combinedStale = rate > 0 && saved > 0 && saved < rate ? String(saved) : '';
         });
         inputs().filter(input => baseOfStudentRow(input.dataset.name) && !input.disabled).forEach(input => {
             const base = inputs().find(item => item.dataset.name === baseOfStudentRow(input.dataset.name) && !item.disabled);
@@ -115,6 +120,8 @@
             });
         }
         syncCombined();
+        // Row totals were drawn with the stale combined price; redraw them.
+        if (inputs().some(input => input.dataset.combinedStale) && typeof global.recalculateSalaryModal === 'function') global.recalculateSalaryModal();
     }
 
     // ---------- "Giá theo khối" popup ----------

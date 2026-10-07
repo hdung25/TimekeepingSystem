@@ -262,4 +262,17 @@ rejects({catalog: [...catalog.filter(s => s.id !== 'm1'), {id: 'm1', name: 'Toá
     assert.equal(Application.shiftMonth('2026-12', 1), '2027-01');
 }
 
+// Lớp ghép follows its highest component when that component is raised
+// (owner 07/10: E3+E4 stayed 38k after E3/E4 went to 40k); a hand-set
+// different rate is kept.
+{
+    const history = {'2026-09': {giao_vien: {class_rates: {'Toán 1': 30000, 'Toán 2': 32000, 'Toán 1+Toán 2': 32000,
+        'Toán 1 + E1': 70000, 'Toán 2 + E1': 40000, 'E1': 40000}}}};
+    const preview = Application.buildPreview(fixture({history, selectedSubjectIds: ['m1', 'm2']}));
+    assert.equal(preview.mergedRates['Toán 1+Toán 2'], 36000, 'combined class follows the raised highest component');
+    assert.equal(preview.mergedRates['Toán 1 + E1'], 70000, 'hand-set combined rate stays');
+    assert.equal(preview.mergedRates['Toán 2 + E1'], 40000, 'highest component (E1) unchanged: combined stays');
+    assert.ok(preview.followers.some(f => f.name === 'Toán 1+Toán 2' && f.beforeRate === 32000 && f.afterRate === 36000 && f.combined));
+}
+
 console.log('salary-review-application.test.js: preserved rates, future periods, lifecycle locks, source completeness and key parity passed');

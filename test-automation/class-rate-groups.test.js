@@ -54,4 +54,21 @@ assert.deepEqual(blocks[blocks.length - 1].rows.map(r => r.name), ['Lớp Lạ']
     assert.equal(crowded.value, '54,000', 'typed by hand: stops following');
     delete global.document;
 }
+// Owner 07/10: "E3+E4" saved 38k (from before the raise) while E3/E4 are 40k
+// now → follows 40k again; a hand-set rate ABOVE the components is kept.
+{
+    const make = (name, value) => ({ dataset: { name }, value, disabled: false, closest: () => null });
+    const e3 = make('E3', '40,000'), e4 = make('E4', '40,000'), combo = make('E3+E4', '38,000'), high = make('E3 + E4 + E5', '45,000');
+    const list = [e3, e4, combo, high];
+    const tbody = { dataset: { crgBound: '1' }, querySelectorAll: () => list, addEventListener() {} };
+    let recalculated = 0;
+    global.recalculateSalaryModal = () => { recalculated++; };
+    global.document = { getElementById: id => id === 'class-rate-table-body' ? tbody : null };
+    G.attach({ explicitRates: { 'E3+E4': 38000, 'E3 + E4 + E5': 45000 } });
+    assert.equal(combo.value, '40,000', 'stale lower combined rate follows the highest component');
+    assert.equal(combo.dataset.combinedStale, '38000');
+    assert.equal(high.value, '45,000', 'hand-set higher combined rate is kept');
+    assert.equal(recalculated, 1, 'row totals are redrawn after the stale price is replaced');
+    delete global.document; delete global.recalculateSalaryModal;
+}
 console.log('class-rate-groups.test.js: combined classes follow highest component, block grouping passed');

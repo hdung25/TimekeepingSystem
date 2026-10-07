@@ -495,6 +495,17 @@
             cb.checked = checkedRoles.indexOf(cb.value) !== -1;
         });
 
+        var meetingGroups = user && Array.isArray(user.specialties) ? user.specialties : [];
+        document.querySelectorAll('#ns-meeting-groups input[type="checkbox"]').forEach(function (cb) {
+            cb.checked = meetingGroups.indexOf(cb.value) !== -1;
+        });
+        var groupsNote = document.getElementById('ns-meeting-groups-note');
+        if (groupsNote) {
+            var guess = user && !meetingGroups.length && typeof window.formatUserSpecialty === 'function' ? window.formatUserSpecialty(user) : '';
+            groupsNote.textContent = (guess ? 'Chưa chọn — máy đang tự đoán: ' + guess + '. ' : '') +
+                'Tạo cuộc họp sẽ tự mời đúng người theo khối này. Người không thuộc khối không bị tính vắng họp của khối đó.';
+        }
+
         setMode(user ? (user.teachingMode === 'old' || user.teachingMode === 'new' ? user.teachingMode : '') : '');
         previewColor();
 
@@ -547,6 +558,10 @@
             roles: checkedRoles,
             teachingMode: state.mode,
             scheduleColor: document.getElementById('ns-staff-color').value,
+            // Khối họp định kỳ (trang Họp dùng để mời và tính vắng). Trống = máy tự đoán.
+            specialties: Array.prototype.slice
+                .call(document.querySelectorAll('#ns-meeting-groups input[type="checkbox"]:checked'))
+                .map(function (cb) { return cb.value; }),
             // Giữ nguyên cấu hình lương đã có — form này không đụng tới nó.
             salary_config: (existing && existing.salary_config) || {}
         };

@@ -418,8 +418,81 @@ async function main() {
     assert.deepEqual(await snapshotSources(), original, 'setup changes never touch salary or attendance');
     evidence.results.push('Setup popup: live due preview, validation, single and bulk save, mobile fit');
 
+    // Owner 07/10: "E4 gom chung với E7" — "Tách từng môn" gives each subject of
+    // one price its own new rate; the review group is split to match.
+    await click(`[data-action="teacher-increase"][data-staff="${third}"]`);
+    await page.waitForSelector('#srb-bulk [data-action="bulk-split"]', { visible: true });
+    const splitBucket = await page.$$eval('#srb-bulk [data-action="bulk-split"]', list => list.map(b => b.dataset.bucket).find(id => id.endsWith('|34000')));
+    assert.ok(splitBucket, 'the 34k bucket of teacher 3 offers "Tách từng môn"');
+    await click(`#srb-bulk [data-action="bulk-split"][data-bucket="${splitBucket}"]`);
+    const subjectInputs = await page.$$eval('.srb-subrates label', list => list.map(l => [l.firstElementChild.textContent, l.querySelector('input').dataset.bulkSubject]));
+    assert.ok(subjectInputs.length >= 2, 'one input per subject: ' + JSON.stringify(subjectInputs));
+    const wanted = { 'Toán 1': 36000, 'Toán 5': 38000 };
+    for (const [name, key] of subjectInputs) await fill(`[data-bulk-subject="${key}"]`, wanted[name] || 36000);
+    await shot('board-bulk-split');
+    // Only the 34k bucket is approved in this step.
+    await page.evaluate(() => { const s = window.SalaryReviewBoard.state; s.bulk.items = s.bulk.items.filter(i => s.rows.find(r => r.key === i.key)?.currentRate === 34000); });
+    await click('[data-action="bulk-apply"]');
+    await boardReady();
+    assert.equal(await boardError(), '', JSON.stringify(await page.evaluate(() => window.SalaryReviewBoard.state.results)));
+    const splitTarget = (await readRecord('salary_settings_monthly/' + future + '_' + third)).giao_vien.class_rates;
+    assert.equal(splitTarget['Toán 1'], 36000); assert.equal(splitTarget['Toán 5'], 38000);
+    const splitGroups = (await readRecord('salary_review_profiles/' + third)).groups.filter(g => g.id.startsWith('review-math:level1:overview:32000'));
+    assert.ok(splitGroups.some(g => g.id.includes(':tach-')), 'a separate review group was created for the split subject');
+    assert.deepEqual(splitGroups.map(g => g.scheduledChange?.newRate).filter(Boolean).sort(), [36000, 38000]);
+    evidence.results.push('Bulk: split one price group into per-subject rates');
+
+    // Setup popup shows the computed review date (mốc + chu kỳ) live.
+    await click(`[data-action="teacher-setup"][data-staff="${staff}"]`);
+    await page.waitForSelector('#srb-dialog[open] #srb-setup-form', { visible: true });
+    await fill('#srb-setup-form [name="baselineDate"]', baseline);
+    await fill('#srb-setup-form [name="cycleMonths"]', 3);
+    const autoText = await page.$eval('#srb-auto-next', e => e.textContent);
+    assert.match(autoText, new RegExp(Policy.addMonths(baseline, 3).split('-').reverse().join('/')), autoText);
+    assert.match(autoText, /mốc \+ 3 tháng/);
+    await shot('board-setup-auto-date');
+    await click('#srb-setup-form [data-setup="close"]');
+    await page.waitForFunction(() => !document.getElementById('srb-dialog').open, { timeout: 30000 });
+
+    // Owner 07/10: an approved raise picked the wrong month → "Sửa quyết định"
+    // moves it (cancel + re-approve), keeping a full audit trail.
+    const later = Application.shiftMonth(month, 2);
+    const secondTargetE5 = (await readRecord('salary_settings_monthly/' + future + '_' + second)).giao_vien.class_rates['E5'];
+    await click(`[data-action="setup"][data-key="${mathKey}"].srb-btn`);
+    await page.waitForSelector('#srb-dialog[open] #srb-edit-form', { visible: true });
+    assert.equal(await page.$eval('#srb-edit-form [name="month"]', e => e.value), future);
+    await fill('#srb-edit-form [name="month"]', later);
+    await fill('#srb-edit-form [name="rate"]', 36000);
+    await fill('#srb-edit-form [name="reason"]', 'Chọn nhầm tháng');
+    await shot('board-edit-pending');
+    await click('#srb-edit-form [type="submit"]');
+    await page.waitForFunction(() => !document.getElementById('srb-dialog').open, { timeout: 30000 });
+    await boardReady(); assert.equal(await boardError(), '');
+    const editedGroup = (await readRecord('salary_review_profiles/' + second)).groups.find(g => g.id === 'review-math:level1:overview:32000');
+    assert.equal(editedGroup.scheduledChange.targetMonth, later);
+    assert.equal(editedGroup.scheduledChange.newRate, 36000);
+    assert.equal(editedGroup.scheduledChange.previousGroup.currentRate, 32000, 'old price is still the price before the raise');
+    const wrongMonth = (await readRecord('salary_settings_monthly/' + future + '_' + second)).giao_vien.class_rates;
+    assert.equal(wrongMonth['Toán 1'], 32000, 'wrong month no longer carries the raise');
+    assert.equal(wrongMonth['E5'], secondTargetE5, 'the English raise approved later in the same month is kept');
+    assert.equal((await readRecord('salary_settings_monthly/' + later + '_' + second)).giao_vien.class_rates['Toán 1'], 36000);
+    assert.match(await page.$eval(`.srb-row[data-key="${mathKey}"]`, e => e.innerText), /Đã sửa|36\.000/);
+
+    // "Hủy quyết định" from the same popup restores the old price.
+    await click(`[data-action="setup"][data-key="${mathKey}"].srb-btn`);
+    await page.waitForSelector('#srb-dialog[open] #srb-edit-form', { visible: true });
+    await click('#srb-edit-form [data-setup="edit-cancel"]');
+    await page.waitForFunction(() => !document.getElementById('srb-dialog').open, { timeout: 30000 });
+    await boardReady(); assert.equal(await boardError(), '');
+    const cancelledGroup = (await readRecord('salary_review_profiles/' + second)).groups.find(g => g.id === 'review-math:level1:overview:32000');
+    assert.equal(cancelledGroup.scheduledChange, undefined);
+    assert.equal(cancelledGroup.currentRate, 32000);
+    assert.equal((await readRecord('salary_settings_monthly/' + later + '_' + second)).giao_vien, undefined);
+    evidence.results.push('Pending decision: edit month + rate, then cancel from the board popup');
+
     // Chi tiết opens the existing detail view; back returns to the board.
-    await click(`[data-action="detail"][data-key="${mathKey}"]`);
+    await click(`[data-action="toggle"][data-key="${mathKey}"]`);
+    await click(`.srb-panel [data-action="detail"][data-key="${mathKey}"]`);
     await readyProfile();
     assert.equal(await page.$eval('#sr-individual', e => e.hidden), false);
     await click('#srb-back');

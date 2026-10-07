@@ -15,8 +15,8 @@ const db = fs.readFileSync(path.join(__dirname, '..', 'js', 'db-service.js'), 'u
     .replace(/\r\n/g, '\n');
 const policy = require('../js/meeting-attendance-policy.js');
 
-const resolverStart = page.indexOf('function resolveAutoStatus(dept, savedValue)');
-const resolverEnd = page.indexOf('// Chuyên môn chỉ quyết định', resolverStart);
+const resolverStart = page.indexOf('function resolveRowStatus(userId, dept, specLabel, savedValue)');
+const resolverEnd = page.indexOf('function updateRowMeetingSelectStates', resolverStart);
 assert.notEqual(resolverStart, -1, 'thiếu bộ phân giải trạng thái họp');
 assert.notEqual(resolverEnd, -1, 'không đọc được bộ phân giải trạng thái họp');
 const resolver = page.slice(resolverStart, resolverEnd);
@@ -134,6 +134,24 @@ assert.equal(policy.calculateMonthly(['Không họp']).amount, 0);
         'hành vi cũ của buổi họp tổ phải giữ nguyên');
     assert.equal(policy.isCustomInvited(custom, 'u1'), true);
     assert.equal(policy.isCustomInvited(deptMeeting, 'u1'), false);
+}
+// Owner 07/10: Nhàn (T-TV) was invited by name to the TG TA meeting because
+// the auto-selection guessed wrong. Not a member → never "Vắng không phép";
+// real attendance or an admin correction still counts.
+{
+    const ta = { id: 'ta-x', department: 'TG TA', date: '2026-09-12', checkInStart: '08:00', endTime: '09:00', attendees: ['nhan', 'mem'] };
+    const logs = { 'ta-x': [{ userId: 'mem2', status: 'Có', checkInTime: '2026-09-12T08:05:00' }] };
+    const ask = (userId, memberOfDepartment, attendance = logs) => policy.resolveDepartmentStatus({
+        meetings: [ta], attendanceByMeeting: attendance, userId, department: 'TG TA', memberOfDepartment, now: new Date(2026, 8, 20)
+    });
+    assert.equal(ask('nhan', false), 'Không họp', 'người ngoài tổ bị mời nhầm không bị tính vắng không phép');
+    assert.equal(ask('mem', true), 'Vắng không phép', 'thành viên tổ vắng vẫn bị tính như cũ');
+    assert.equal(ask('nhan', false, { 'ta-x': [{ userId: 'nhan', status: 'Có', checkInTime: '2026-09-12T08:05:00' }] }), 'Có',
+        'người ngoài tổ đã đi họp vẫn được ghi nhận');
+    assert.equal(ask('nhan', false, { 'ta-x': [{ userId: 'nhan', status: 'Vắng không phép', autoNoShow: true }] }), 'Không họp',
+        'chốt vắng tự động không áp cho người ngoài tổ');
+    assert.equal(ask('nhan', false, { 'ta-x': [{ userId: 'nhan', status: 'Vắng phép', adminOverride: true }] }), 'Vắng phép',
+        'admin tự sửa thì vẫn giữ');
 }
 assert.match(report, /memberOfDepartment: belongsToDepartment\(department\)/,
     'bảng lương phải nói rõ nhân viên có thuộc tổ đó không');

@@ -74,6 +74,19 @@
             return strongestStatus(customRecorded) || 'Không họp';
         }
 
+        // Mời nhầm người không thuộc tổ (vd. danh sách mời tự chọn theo chuyên
+        // môn đoán sai): chỉ việc ĐÃ đi họp hoặc admin tự sửa mới được ghi nhận;
+        // không bao giờ suy ra "Vắng không phép" cho người không thuộc tổ.
+        if (!memberOfDepartment) {
+            const proven = invited.map(meeting => {
+                const logs = attendanceByMeeting?.[meeting.id];
+                const log = Array.isArray(logs) ? logs.find(item => item.userId === userId) : null;
+                const status = statusOf(meeting);
+                return status && (PRESENT.has(status) || log?.adminOverride === true) ? status : null;
+            }).filter(Boolean);
+            return strongestStatus(proven) || 'Không họp';
+        }
+
         const recorded = [];
         let endedWithoutAttendance = false;
         invited.forEach(meeting => {

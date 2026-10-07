@@ -273,7 +273,7 @@
     <script src='js/auth-guard.js?v=20260919-review-v1'></script>
     <script src='js/teacher-shift-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/db-service.js?v=20261006-makeup-revoke-v1'></script>
-    <script src='js/meeting-attendance-policy.js?v=20261004-payroll-rate-v1'></script>
+    <script src='js/meeting-attendance-policy.js?v=20261007-review-edit-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
 
@@ -694,7 +694,7 @@
 
     <!-- UI Animations, Sidebar and Main controller scripts -->
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script><script src="js/search-keynav.js?v=20261004-review-board-v1"></script>
-    <script src="js/main.js?v=20261006-tax-grouped-v1"></script>
+    <script src="js/main.js?v=20261007-review-edit-v1"></script>
     <script src="js/auth-helper.js?v=20260906-early10-recovery-v1"></script>
     
     <script>
@@ -858,7 +858,16 @@
             }
         }
 
+        // Khối họp chọn ở Nhân sự (users.specialties) là nguồn đúng; danh sách
+        // tên cứng bên dưới chỉ là phỏng đoán cho hồ sơ chưa chọn.
+        const MEETING_GROUPS = ['TG TA', 'TG T-TV', 'TOÁN TƯ DUY', 'TIẾP TÂN'];
+        function savedMeetingGroups(user) {
+            const list = Array.isArray(user?.specialties) ? user.specialties.filter(g => MEETING_GROUPS.includes(g)) : [];
+            return MEETING_GROUPS.filter(g => list.includes(g));
+        }
         function formatUserSpecialty(user) {
+            const saved = savedMeetingGroups(user);
+            if (saved.length) return saved.join(' / ');
             const nameUpper = (user.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
             const usernameLower = (user.username || '').trim().toLowerCase();
             
@@ -901,9 +910,41 @@
             });
         }
 
-        function updateRowMeetingSelectStates(row) {
+        const specialtyIncludes = (specLabel, dept) => {
+            const specUpper = (specLabel || '').toUpperCase();
+            if (dept === 'TG TA') return specUpper.includes('TG TA');
+            if (dept === 'TG T-TV') return specUpper.includes('TG T-TV');
+            if (dept === 'TOÁN TƯ DUY') return specUpper.includes('TOÁN TƯ DUY') || specUpper.includes('TTD');
+            if (dept === 'TIẾP TÂN') return specUpper.includes('TIẾP TÂN');
+            return false;
+        };
+        let savedMonthlyRecords = {};
+        function resolveRowStatus(userId, dept, specLabel, savedValue) {
+            const member = specialtyIncludes(specLabel, dept);
+            return MeetingAttendancePolicy.resolveDepartmentStatus({
+                meetings: getInvitedDepartmentMeetings(userId, dept, member),
+                attendanceByMeeting: monthlyAttendanceMap,
+                userId,
+                department: dept,
+                savedStatus: savedValue,
+                memberOfDepartment: member
+            });
+        }
+
+        function updateRowMeetingSelectStates(row, recompute = false) {
             const btn = row.querySelector('.btn-chuyenmon-setup');
             const specLabel = btn ? btn.innerText.trim() : '';
+            // Đổi chuyên môn → tính lại ngay 4 cột họp (vd. bỏ TG TA thì buổi
+            // họp TA mời nhầm không còn thành "Vắng không phép").
+            if (recompute) {
+                const saved = savedMonthlyRecords[row.dataset.userId] || {};
+                [['.hop-ta-select', 'TG TA', saved.hop_tg_tieng_anh], ['.hop-ttv-select', 'TG T-TV', saved.hop_tg_t_tv],
+                    ['.hop-ttd-select', 'TOÁN TƯ DUY', saved.hop_toan_tu_duy], ['.hop-tt-select', 'TIẾP TÂN', saved.hop_tiep_tan]]
+                    .forEach(([selector, dept, value]) => {
+                        const select = row.querySelector(selector);
+                        if (select) select.value = resolveRowStatus(row.dataset.userId, dept, specLabel, value);
+                    });
+            }
             
             const selectTa = row.querySelector('.hop-ta-select');
             const selectTtv = row.querySelector('.hop-ttv-select');
@@ -914,7 +955,7 @@
             const styleEnabled = "background-color: white; color: inherit; cursor: pointer; border-color: #D1D5DB;";
 
             if (selectTa) {
-                const hasRole = specLabel.includes('TG TA');
+                const hasRole = specialtyIncludes(specLabel, 'TG TA');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG TA', hasRole).length > 0;
                 selectTa.disabled = !hasRole || !hasMeeting;
                 if (!hasMeeting) {
@@ -926,7 +967,7 @@
             }
             
             if (selectTtv) {
-                const hasRole = specLabel.includes('TG T-TV');
+                const hasRole = specialtyIncludes(specLabel, 'TG T-TV');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TG T-TV', hasRole).length > 0;
                 selectTtv.disabled = !hasRole || !hasMeeting;
                 if (!hasMeeting) {
@@ -938,7 +979,7 @@
             }
 
             if (selectTtd) {
-                const hasRole = specLabel.includes('TOÁN TƯ DUY') || specLabel.includes('TTD');
+                const hasRole = specialtyIncludes(specLabel, 'TOÁN TƯ DUY');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TOÁN TƯ DUY', hasRole).length > 0;
                 selectTtd.disabled = !hasRole || !hasMeeting;
                 if (!hasMeeting) {
@@ -950,7 +991,7 @@
             }
             
             if (selectTt) {
-                const hasRole = specLabel.includes('TIẾP TÂN') || specLabel.includes('TT');
+                const hasRole = specialtyIncludes(specLabel, 'TIẾP TÂN');
                 const hasMeeting = getInvitedDepartmentMeetings(row.dataset.userId, 'TIẾP TÂN', hasRole).length > 0;
                 selectTt.disabled = !hasRole || !hasMeeting;
                 if (!hasMeeting) {
@@ -1017,6 +1058,7 @@
 
             const tbody = document.getElementById('meetings-tbody');
             tbody.innerHTML = '';
+            savedMonthlyRecords = {};
 
             if (!autoMeetingsLoaded) {
                 tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:#B91C1C;font-weight:600;">Không tải được lịch họp thật. Dữ liệu chưa được suy thành “Không họp”; vui lòng tải lại.</td></tr>';
@@ -1047,25 +1089,8 @@
                 // Helper to resolve auto attendance status
                 // Xét TẤT CẢ cuộc họp đúng bộ phận mà user này được mời (attendees) —
                 // ưu tiên trạng thái đã điểm danh; nếu có họp đã kết thúc mà chưa điểm danh → Vắng không phép.
-                const specUpper = (specLabel || '').toUpperCase();
-                const belongsTo = dept => {
-                    if (dept === 'TG TA') return specUpper.includes('TG TA');
-                    if (dept === 'TG T-TV') return specUpper.includes('TG T-TV');
-                    if (dept === 'TOÁN TƯ DUY') return specUpper.includes('TOÁN TƯ DUY') || specUpper.includes('TTD');
-                    if (dept === 'TIẾP TÂN') return specUpper.includes('TIẾP TÂN');
-                    return false;
-                };
-
-                function resolveAutoStatus(dept, savedValue) {
-                    return MeetingAttendancePolicy.resolveDepartmentStatus({
-                        meetings: getInvitedDepartmentMeetings(userId, dept, belongsTo(dept)),
-                        attendanceByMeeting: monthlyAttendanceMap,
-                        userId,
-                        department: dept,
-                        savedStatus: savedValue,
-                        memberOfDepartment: belongsTo(dept)
-                    });
-                }
+                savedMonthlyRecords[userId] = savedRecord;
+                const resolveAutoStatus = (dept, savedValue) => resolveRowStatus(userId, dept, specLabel, savedValue);
 
                 // Chuyên môn chỉ quyết định cột nào người đó phụ trách; không bao
                 // giờ được dùng làm bằng chứng rằng tháng đó thật sự có họp.
@@ -1326,13 +1351,37 @@
                 btn.innerText = newLabel;
             }
             if (row) {
-                updateRowMeetingSelectStates(row);
+                updateRowMeetingSelectStates(row, true);
             }
-            
+
             closeSpecialtyModal();
-            
+
             // Re-apply filters instantly
             applyFilters();
+            saveMeetingGroupsToProfile(userId, parts);
+        }
+
+        // Lưu luôn vào hồ sơ nhân viên (giống ô "Khối họp định kỳ" ở Nhân sự)
+        // để lần tạo cuộc họp sau tự mời đúng người.
+        async function saveMeetingGroupsToProfile(userId, groups) {
+            const user = employeesList.find(u => u.id === userId);
+            if (!user) return;
+            const before = savedMeetingGroups(user);
+            if (before.join('|') === groups.join('|')) return;
+            try {
+                const payload = {};
+                Object.keys(user).forEach(key => {
+                    if (key.charAt(0) !== '_' && !['password', 'msnv', 'msnvStr'].includes(key)) payload[key] = user[key];
+                });
+                payload.specialties = groups.slice();
+                await DBService.saveUser(payload);
+                user.specialties = groups.slice();
+                try { localStorage.removeItem('users_data'); DBService._invalidate?.('users_all'); } catch (e) {}
+                UIService.toast(`Đã lưu khối họp của ${user.name} vào hồ sơ. Bấm "Lưu Lại" để giữ cho tháng này.`, 'success');
+            } catch (err) {
+                console.error('Could not save meeting groups to profile:', err);
+                UIService.toast('Đã đổi trên bảng, nhưng chưa lưu được vào hồ sơ nhân viên: ' + err.message, 'error');
+            }
         }
 
         // Expose to window scope for inline onclick handlers
