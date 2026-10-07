@@ -79,4 +79,47 @@ const page = read('bao-cao.html');
 assert.match(page, /id="modal-position-allowance"/, 'Admin modal must expose the allowance input');
 assert.match(page, /id="modal-position-allowance-note"/);
 
+// Owner 08/10: "trợ cấp chức vụ ... cho nó kế thừa tháng trước".
+{
+    const report = read('js/report.js').replace(/\r\n/g, '\n');
+    const start = report.indexOf('const CLASS_RATE_INHERIT_LOOKBACK_MONTHS');
+    const end = report.indexOf('// Combined classes ("Toán 1 + Toán 7")');
+    assert.ok(start >= 0 && end > start, 'allowance inheritance must be extractable');
+    assert.match(report, /settingsObj\.position_allowance_confirmed = true;/, 'saving the modal confirms the month');
+    assert.match(report, /await applyInheritedPositionAllowance\(staffId, monthStr, window\.currentMonthlySalarySettingsAll\)/);
+    assert.match(report, /await applyInheritedPositionAllowance\(staffId, monthStr, monthlySettingsAll\)/);
+    const docs = {};
+    const ctx = { window: {}, console, DBService: {
+        getMonthlySalarySettings: async (staff, month) => docs[month] || null,
+        getPayslipLifecycleState: published => ({ has_gv: published.status_gv === 'sent', locked_gv: false })
+    }, getReportViewerRoles: () => ['admin'] };
+    vm.createContext(ctx);
+    vm.runInContext(report.slice(start, end) + '\nthis.apply = applyInheritedPositionAllowance; this.cache = inheritedAllowanceCache;', ctx);
+    const run = async (monthly, month = '2026-10') => { ctx.cache.clear(); await ctx.apply('t1', month, monthly); return monthly; };
+    (async () => {
+        docs['2026-09'] = { giao_vien: { position_allowance: 300000, position_allowance_note: 'Tổ trưởng', position_allowance_confirmed: true } };
+        let m = await run({ giao_vien: { class_rates: {} } });
+        assert.equal(m.giao_vien.position_allowance, 300000, 'new month inherits last month');
+        assert.equal(m.giao_vien.position_allowance_note, 'Tổ trưởng');
+        assert.equal(ctx.window.inheritedPositionAllowanceInfo.month, '2026-09');
+        m = await run({ giao_vien: { position_allowance: 0 } });
+        assert.equal(m.giao_vien.position_allowance, 300000, 'an unconfirmed 0 (saved before this feature) inherits too');
+        m = await run({ giao_vien: { position_allowance: 0, position_allowance_confirmed: true } });
+        assert.equal(m.giao_vien.position_allowance, 0, 'Admin removed the allowance this month: keep 0');
+        m = await run({ giao_vien: { position_allowance: 200000 } });
+        assert.equal(m.giao_vien.position_allowance, 200000, 'own value is kept');
+        m = await run({ giao_vien: {}, published: { status_gv: 'sent', details_gv: { netPay: 1 } } });
+        assert.equal(m.giao_vien.position_allowance, undefined, 'a month already calculated/sent is never changed');
+        docs['2026-09'] = { giao_vien: { position_allowance: 0, position_allowance_confirmed: true } };
+        docs['2026-08'] = { giao_vien: { position_allowance: 300000 } };
+        m = await run({ giao_vien: {} });
+        assert.equal(m.giao_vien.position_allowance, undefined, 'allowance removed last month is not revived from older months');
+        delete docs['2026-09'];
+        m = await run({ giao_vien: {} });
+        assert.equal(m.giao_vien.position_allowance, 300000, 'a month with no payroll is skipped');
+        console.log('position-allowance.test.js: inheritance from the previous month passed');
+    })().catch(error => { console.error(error); process.exit(1); });
+}
+assert.match(page, /id="modal-position-allowance-inherit"/);
+
 console.log('position-allowance.test.js: legacy snapshots, dedicated teacher allowance, receptionist criterion V and modal wiring passed');

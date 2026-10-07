@@ -4584,6 +4584,60 @@ async function applyInheritedClassRates(staffId, monthStr, monthlyAll) {
     });
 }
 
+// Trợ cấp chức vụ giáo viên (owner 08/10: "cho nó kế thừa tháng trước"). Tháng
+// chưa chốt trợ cấp lấy mức của tháng gần nhất đã lưu trợ cấp. Chỉ điền trong bộ
+// nhớ; "Lưu & Tính" ghi position_allowance_confirmed để số 0 Admin chủ động lưu
+// (bỏ trợ cấp) không bị kế thừa đè lên nữa.
+window.inheritedPositionAllowanceInfo = {};
+const inheritedAllowanceCache = new Map();
+function positionAllowanceNeedsInherit(settings) {
+    if (!settings || typeof settings !== 'object') return false;
+    if (settings.position_allowance_confirmed === true) return false;
+    return !(Number(settings.position_allowance) > 0);
+}
+function loadInheritedPositionAllowance(staffId, monthStr) {
+    const cacheKey = `${staffId}__${monthStr}`;
+    if (!inheritedAllowanceCache.has(cacheKey)) {
+        const lookup = (async () => {
+            for (let back = 1; back <= CLASS_RATE_INHERIT_LOOKBACK_MONTHS; back++) {
+                const month = shiftPayrollMonthKey(monthStr, -back);
+                const doc = await DBService.getMonthlySalarySettings(staffId, month) || {};
+                const role = doc.giao_vien || doc['giao-vien'];
+                if (!role || typeof role !== 'object') continue;
+                const amount = Number(role.position_allowance) || 0;
+                if (amount > 0) return { month, amount, note: String(role.position_allowance_note || '') };
+                // Tháng gần nhất đã chốt 0 (hoặc đã lưu ô trợ cấp = 0): không có gì để kế thừa.
+                if (role.position_allowance_confirmed === true || Object.prototype.hasOwnProperty.call(role, 'position_allowance')) return null;
+            }
+            return null;
+        })();
+        inheritedAllowanceCache.set(cacheKey, lookup);
+        lookup.catch(() => inheritedAllowanceCache.delete(cacheKey));
+    }
+    return inheritedAllowanceCache.get(cacheKey);
+}
+async function applyInheritedPositionAllowance(staffId, monthStr, monthlyAll) {
+    const scope = `${staffId}__${monthStr}`;
+    if (window.inheritedPositionAllowanceInfo?.scope !== scope) window.inheritedPositionAllowanceInfo = { scope };
+    if (!staffId || staffId === 'all' || !monthlyAll) return;
+    if (!getReportViewerRoles().some(role => role === 'admin' || role === 'senior_assistant')) return;
+    const settings = monthlyAll.giao_vien || monthlyAll['giao-vien'];
+    if (!positionAllowanceNeedsInherit(settings)) return;
+    // Tháng đã tính / đã gửi phiếu giáo viên: giữ đúng số trên phiếu, không điền thêm.
+    const published = monthlyAll.published;
+    if (published && typeof published === 'object' && Object.keys(published).length) {
+        const lifecycle = DBService.getPayslipLifecycleState?.(published);
+        if (!lifecycle || lifecycle.has_gv || lifecycle.locked_gv || published.details_gv != null) return;
+    }
+    let source;
+    try { source = await loadInheritedPositionAllowance(staffId, monthStr); }
+    catch (error) { console.warn('[Allowance] Không đọc được trợ cấp tháng trước:', error); return; }
+    if (!source) return;
+    settings.position_allowance = source.amount;
+    if (!String(settings.position_allowance_note || '').trim()) settings.position_allowance_note = source.note;
+    window.inheritedPositionAllowanceInfo = { scope, month: source.month, amount: source.amount };
+}
+
 // Combined classes ("Toán 1 + Toán 7") follow their highest component unless a
 // rate was saved for this month. Applied to the shared monthly map so the main
 // page, the popup and the payslip all use the same price.
@@ -4698,6 +4752,7 @@ async function loadSalarySettings(isCurrent = null) {
         }
         
         await applyInheritedClassRates(staffId, monthStr, window.currentMonthlySalarySettingsAll);
+        await applyInheritedPositionAllowance(staffId, monthStr, window.currentMonthlySalarySettingsAll);
         applyCombinedClassRates(staffId, monthStr, window.currentMonthlySalarySettingsAll);
         if (!canCommit()) return;
 
@@ -7681,6 +7736,7 @@ async function populateModalCurrentTab() {
     // Keep cache updated
     window.currentMonthlySalarySettingsAll = monthlySettingsAll;
     await applyInheritedClassRates(staffId, monthStr, monthlySettingsAll);
+    await applyInheritedPositionAllowance(staffId, monthStr, monthlySettingsAll);
     applyCombinedClassRates(staffId, monthStr, monthlySettingsAll);
     
     const activeRoleKey = window.modalActiveRole === 'tiep-tan' ? 'tiep_tan' : 'giao_vien';
@@ -8026,6 +8082,15 @@ async function populateModalCurrentTab() {
     if (allowanceInp) allowanceInp.value = formatNumberWithCommas(isTeacherModal ? (Number(roleSettings.position_allowance) || 0) : 0);
     const allowanceNoteInp = document.getElementById('modal-position-allowance-note');
     if (allowanceNoteInp) allowanceNoteInp.value = isTeacherModal ? (roleSettings.position_allowance_note || '') : '';
+    const allowanceInherit = document.getElementById('modal-position-allowance-inherit');
+    if (allowanceInherit) {
+        const info = window.inheritedPositionAllowanceInfo || {};
+        const fromMonth = isTeacherModal && info.scope === `${staffId}__${monthStr}` ? (info.month || '') : '';
+        allowanceInherit.hidden = !fromMonth;
+        allowanceInherit.textContent = fromMonth
+            ? `Lấy theo tháng ${Number(fromMonth.slice(5))}/${fromMonth.slice(0, 4)}. Bấm “Lưu và Tính” để giữ; tháng này không có trợ cấp thì sửa về 0 rồi lưu.`
+            : '';
+    }
 
     // Recep contribution factors
     const tiepTanContrBox = document.getElementById('modal-tieptan-contribution-factors');
@@ -8572,6 +8637,8 @@ async function saveSalarySettingsFromModal() {
     if (window.modalActiveRole !== 'tiep-tan') {
         settingsObj.position_allowance = Math.max(0, parseFormattedNumber(document.getElementById('modal-position-allowance')?.value || '0'));
         settingsObj.position_allowance_note = String(document.getElementById('modal-position-allowance-note')?.value || '').trim();
+        // Đã chốt trợ cấp cho tháng này (kể cả 0) → không kế thừa tháng trước nữa.
+        settingsObj.position_allowance_confirmed = true;
     }
 
     try {
@@ -8639,6 +8706,7 @@ async function saveSalarySettingsFromModal() {
         
         // Tháng sau phải thấy đúng đơn giá vừa lưu, không dùng kết quả kế thừa cũ.
         inheritedClassRateCache.clear();
+        inheritedAllowanceCache.clear();
         closeClassRateModal();
         await renderMonthReport(currentDate, true);
         // The modal save is role-scoped.  Do not let the post-save report
