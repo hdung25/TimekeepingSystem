@@ -17,6 +17,14 @@ assert.equal(automaticAttendance('old',{minutes:3550,vp:3,vdx:0,vkp:0,unreported
 assert.equal(automaticAttendance('old',stats(60,2)).amount,-60000,'two permitted absences below 65h are penalized');
 assert.equal(automaticAttendance('old',stats(70,2)).amount,140000,'two permitted absences at 65h+ keep the reward');
 assert.equal(automaticAttendance('old',stats(70,3)).amount,-70000,'three permitted absences are penalized at any hours');
+{
+    const { needsAttendanceRecalc } = require('../js/teacher-attendance-policy.js');
+    const saved = { id: 0, manual: false, amount: 0, automatic: 'teacher-attendance-excel-20260909-v2', note: 'Vắng phép: 3; Vắng đột xuất: 0; Vắng không phép: 0' };
+    assert.equal(needsAttendanceRecalc(saved), true, 'Quỳnh tháng 9: lưu luật cũ 0đ');
+    assert.equal(needsAttendanceRecalc({ ...saved, amount: -33000 }), false, 'dưới 50 giờ đã bị trừ — không đổi');
+    assert.equal(needsAttendanceRecalc({ ...saved, note: 'Vắng phép: 2; Vắng đột xuất: 1; Vắng không phép: 0' }), false);
+    assert.equal(needsAttendanceRecalc({ ...saved, manual: true }), false);
+}
 assert.equal(automaticAttendance('old',stats(12,3,0,0,1)).amount,-24000,'unreported absence has unexpected-leave priority');
 assert.equal(automaticAttendance('new',stats(12,3,2,1),0).amount,0);
 assert.equal(automaticAttendance('new',stats(4),1234).amount,4936);

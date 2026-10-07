@@ -11373,8 +11373,14 @@ async function openBulkPublishModal(opts) {
             const showInTeacherList = isTeacher && (!isDual || !pub || pub.details_gv !== null);
             const showInRecepList = isRecep && (!isDual || !pub || pub.details_tt !== null);
             
+            // Bản nháp lưu theo luật chuyên cần cũ mà luật mới tính khác → bắt Lưu & Tính lại.
+            const savedAttendanceRow = ((docData.giao_vien || docData['giao-vien'] || {}).evaluation || [])
+                .find(item => Number(item?.id) === 0);
+            const needsRecalc = teacherStatus === 'draft' &&
+                !!window.TeacherAttendancePolicy?.needsAttendanceRecalc?.(savedAttendanceRow);
             if (showInTeacherList) {
                 teachersList.push({
+                    needsRecalc,
                     id: u.id,
                     name: uName,
                     account: uAccount,
@@ -11522,6 +11528,7 @@ function createBulkStaffRow(item, group, sectionKey) {
     row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.6rem 0.7rem; border: 1px solid #E5E7EB; border-radius: 10px; background: #fff;';
 
     const selectable = sectionKey === 'todo';
+    const needsRecalc = selectable && item.needsRecalc === true;
     // Chỉ phần "Đã gửi" (chưa xác nhận nhận) được thu hồi; "Đã nhận" dùng hiệu chỉnh.
     const recallable = sectionKey === 'done' && item.status === 'published';
     const accent = group === 'teachers' ? '#3B82F6' : '#10B981';
@@ -11558,7 +11565,7 @@ function createBulkStaffRow(item, group, sectionKey) {
     // selectors, counters and publish routing all key off that value.
     const safeGroup = group === 'receps' ? 'receps' : 'teachers';
     const checkboxHtml = selectable
-        ? `<input type="checkbox" class="bulk-staff-checkbox bulk-group-${safeGroup}" checked
+        ? `<input type="checkbox" class="bulk-staff-checkbox bulk-group-${safeGroup}" ${needsRecalc ? '' : 'checked'}
                    title="Chọn để gửi bảng lương cho người này"
                    style="width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; accent-color: ${accent};" />`
         : recallable
@@ -11607,6 +11614,13 @@ function createBulkStaffRow(item, group, sectionKey) {
     if (nameNode) nameNode.insertBefore(document.createTextNode(staffName), nameNode.firstChild);
     const metaNode = row.querySelector('.bulk-staff-meta');
     if (metaNode) metaNode.textContent = `MSNV: ${String(item.msnv || '')}${sentAtStr ? ' · gửi ' + sentAtStr : ''}`;
+    if (needsRecalc && metaNode) {
+        const warn = document.createElement('span');
+        warn.style.cssText = 'display:block;color:#B91C1C;font-weight:700;';
+        warn.textContent = '⚠ Cần mở bảng lương bấm Lưu & Tính lại (luật chuyên cần mới 08/10) — chưa tick gửi';
+        metaNode.appendChild(warn);
+        row.style.borderColor = '#FCA5A5';
+    }
     const recallBox = row.querySelector('.bulk-recall-checkbox');
     if (recallBox) {
         recallBox.dataset.id = staffId;

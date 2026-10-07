@@ -36,6 +36,17 @@ const settings = {
 };
 
 const collected = api.collectPayroll(settings, users, 'all', 'sent');
+// 08/10/2026: xuất "Tất cả đã tính" gồm cả bản chưa gửi; bản lưu theo luật chuyên cần cũ bị nhắc.
+{
+    const P = require('../js/teacher-attendance-policy.js');
+    context.window.TeacherAttendancePolicy = P;
+    const stale = { ...settings, d: { ...settings.d, giao_vien: { evaluation: [{ id: 0, manual: false, amount: 0,
+        automatic: 'teacher-attendance-excel-20260909-v2', note: 'Vắng phép: 3; Vắng đột xuất: 0; Vắng không phép: 0' }] } } };
+    const all = api.collectPayroll(stale, users, 'all', 'any');
+    assert.ok(Array.from(all.lists['giao-vien'], x => x.person.account).includes('nhap1'), 'bản chưa gửi được xuất');
+    assert.deepEqual(Array.from(all.staleDrafts), ['Nháp']);
+    delete context.window.TeacherAttendancePolicy;
+}
 assert.deepEqual(Array.from(collected.lists['giao-vien'], x => x.person.account), ['minh3', 'lan12']);
 assert.deepEqual(Array.from(collected.lists['tiep-tan'], x => x.person.account), ['minh3', 'hoa7']);
 assert.deepEqual(Array.from(collected.lists['giao-vien'], x => x.side.stt), [1, 2]);

@@ -292,6 +292,7 @@
         const allowed = statusAllowedFor(statusMode);
         const people = [];
         const skipped = [];   // {name, why}
+        const staleDrafts = []; // bản nháp lưu theo luật chuyên cần cũ — cần Lưu & Tính lại
 
         Object.keys(allSettings || {}).forEach(staffId => {
             const pub = (allSettings[staffId] || {}).published;
@@ -324,6 +325,13 @@
             });
             if (sides.length === 0) return;
 
+            const savedRow = (((allSettings[staffId] || {}).giao_vien || (allSettings[staffId] || {})['giao-vien'] || {}).evaluation || [])
+                .find(item => Number(item && item.id) === 0);
+            if (sides.some(side => side.key === 'giao-vien' && side.status === 'draft') &&
+                window.TeacherAttendancePolicy && window.TeacherAttendancePolicy.needsAttendanceRecalc &&
+                window.TeacherAttendancePolicy.needsAttendanceRecalc(savedRow)) {
+                staleDrafts.push(staffName);
+            }
             people.push({ staffId, u, pub, staffName, account, msnv: msnvOf(u), allSides: all, sides });
         });
 
@@ -338,7 +346,7 @@
                 list.push({ person, side });
             });
         });
-        return { people, lists, skipped };
+        return { people, lists, skipped, staleDrafts };
     }
 
     async function loadMonthPayroll(monthStr) {
@@ -682,7 +690,7 @@
         const label = document.getElementById('btn-export-payroll-list-label');
         const setLabel = (t) => { if (label) label.innerText = t; };
         const scope = document.getElementById('export-scope')?.value || 'all';
-        const statusMode = document.getElementById('export-status')?.value || 'sent';
+        const statusMode = document.getElementById('export-status')?.value || 'any';
         const { year, month, monthStr } = currentMonthInfo();
 
         try {
@@ -717,6 +725,12 @@
                 + (scope === 'all' ? `\nSheet "Tổng chi theo người": ${collected.people.length} người${dual ? ` (${dual} người kiêm 2 chức vụ đã cộng 2 bên)` : ''}.` : '')
                 + '\nSố thứ tự xếp theo MSNV từ nhỏ đến lớn.';
             msg += skippedText(collected.skipped);
+            if (collected.staleDrafts.length) {
+                msg += `
+
+⚠ ${collected.staleDrafts.length} bản lương lưu theo luật chuyên cần CŨ (chưa trừ vắng phép vượt mức): ` +
+                    `${collected.staleDrafts.join(', ')}. Mở bảng lương từng người, bấm "Lưu & Tính" rồi xuất lại.`;
+            }
             await UIService.notice(msg, 'Tải danh sách lương xong', 'success');
         } catch (e) {
             console.error('[Danh sách lương] Lỗi:', e);
@@ -740,7 +754,7 @@
         }
 
         const scope = document.getElementById('export-scope')?.value || 'all';
-        const statusMode = document.getElementById('export-status')?.value || 'sent';
+        const statusMode = document.getElementById('export-status')?.value || 'any';
         const { year, month, monthStr } = currentMonthInfo();
 
         try {
@@ -833,6 +847,9 @@
                     + `Chia thư mục — ${perFolder}.\n`
                     + `Kèm file danh sách "${listFileName(ctx)}"; số đầu tên file = STT trong danh sách.`;
             msg += skippedText(collected.skipped);
+            if (collected.staleDrafts.length) msg += `
+
+⚠ ${collected.staleDrafts.length} bản lương lưu theo luật chuyên cần CŨ: ${collected.staleDrafts.join(', ')}. Bấm "Lưu & Tính" rồi xuất lại.`;
             await UIService.notice(msg, 'Xuất file xong', 'success');
         } catch (e) {
             console.error('[Xuất bảng lương] Lỗi:', e);

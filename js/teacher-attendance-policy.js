@@ -237,7 +237,20 @@
         if (meetingKey) rows.push(make(9, 'meeting', meetingKey));
         return { version: NEW_MODE_VERSION, hours, cut, rows, keys: { attendanceKey, punctualKey, focusKey, reportKey, meetingKey } };
     }
+    // Bản lương đã LƯU theo luật cũ (v2, trước 08/10/2026) mà luật mới cho kết quả khác:
+    // luật cũ trả 0đ khi chỉ vắng phép ≥ 2 ca (không VĐX/VKP) và từ 50 giờ; luật mới trừ
+    // 1.000đ/giờ (trừ trường hợp 2 ca phép từ 65 giờ, vốn đã +2.000đ ≠ 0). Chỉ cần nhìn dòng I
+    // đã lưu, không cần tải bảng công. Dùng để nhắc "Lưu & Tính lại" trước khi gửi/xuất.
+    function needsAttendanceRecalc(savedRow) {
+        if (!savedRow || savedRow.manual === true) return false;
+        if (savedRow.automatic !== 'teacher-attendance-excel-20260909-v2') return false;
+        const match = /Vắng phép:\s*(\d+);\s*Vắng đột xuất:\s*(\d+);\s*Vắng không phép:\s*(\d+)/.exec(String(savedRow.note || ''));
+        if (!match) return false;
+        const [vp, vdx, vkp] = match.slice(1).map(Number);
+        return vp >= 2 && vdx === 0 && vkp === 0 && Number(savedRow.amount) === 0;
+    }
     global.TeacherAttendancePolicy = {
+        needsAttendanceRecalc,
         version,
         hoursBonusVersion,
         DEFAULT_HOURS_BONUS_TIERS,
