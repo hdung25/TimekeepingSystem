@@ -356,13 +356,42 @@ const LATE_ABSENT_THRESHOLD_MS = 50 * 60 * 1000;
 // thực (đi làm) phủ trùng khung giờ lớp này ≥10 phút — tức đang dạy/hỗ trợ lớp khác —
 // thì lớp này KHÔNG được tính vắng (VD: chị Nhàn bị mượn sang dạy Dự thính, lớp TV4
 // cố định có GV thay thế → không đánh VĐX/Vắng cho chị ở lớp TV4 nữa).
-function hasOverlappingWorkSession(attendanceSessions, dateStr, startStr, endStr) {
+// Ca khác (không báo vắng) của chính người này trong ngày, dùng để biết phần chồng giờ
+// chỉ là vào sớm cho ca sau / ở lại sau ca trước. VD Quỳnh 04/10: VP ca 15:30–17:00 nhưng
+// vào ca 16:41 cho lớp 17:00 → không được coi là "vẫn đi dạy" ca VP.
+const ADJACENT_CLASS_MARGIN_MS = 30 * 60 * 1000;
+function adjacentWorkedClassSlots(schedule, staffId, cls) {
+    if (!schedule || !cls || !cls.start || !cls.end) return [];
+    const toMin = t => { const [h, mm] = String(t).split(':').map(Number); return h * 60 + mm; };
+    const s0 = toMin(cls.start), e0 = toMin(cls.end);
+    const slots = [];
+    ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'].forEach(sk => {
+        (Array.isArray(schedule[sk]) ? schedule[sk] : []).forEach(row => {
+            if (!row || row === cls || !row.start || !row.end || row.isClosed === true) return;
+            const s1 = toMin(row.start), e1 = toMin(row.end);
+            if (s1 < e0 && s0 < e1) return; // chồng giờ ca đang xét (lớp gộp) → không phải ca kề
+            const assigned = isScheduledSubstitute(row, staffId) || isScheduledMainTeacher(row, staffId) ||
+                (row.registeredTeachers || []).some(t => String(t?.id || '') === String(staffId));
+            if (!assigned || getClassTeacherAbsenceRecord(row, staffId)) return;
+            slots.push({ start: row.start, end: row.end });
+        });
+    });
+    return slots;
+}
+
+function hasOverlappingWorkSession(attendanceSessions, dateStr, startStr, endStr, adjacentSlots = []) {
     if (!startStr || !endStr) return false;
     const [y, m, d] = dateStr.split('-').map(Number);
     const [sH, sM] = String(startStr).split(':').map(Number);
     const [eH, eM] = String(endStr).split(':').map(Number);
     const clsStart = new Date(y, m - 1, d, sH, sM, 0, 0);
     const clsEnd = new Date(y, m - 1, d, eH, eM, 0, 0);
+    const at = t => { const [h, mm] = String(t).split(':').map(Number); return new Date(y, m - 1, d, h, mm, 0, 0).getTime(); };
+    // Khoảng "vào sớm" (30' trước ca sau) và "ở lại" (30' sau ca trước) của ca khác.
+    const marginWindows = (adjacentSlots || []).flatMap(slot => [
+        { from: at(slot.start) - ADJACENT_CLASS_MARGIN_MS, to: at(slot.start) },
+        { from: at(slot.end), to: at(slot.end) + ADJACENT_CLASS_MARGIN_MS }
+    ]);
 
     return (attendanceSessions || []).some(s => {
         if (!s || s.isAbsent) return false;
@@ -377,7 +406,19 @@ function hasOverlappingWorkSession(attendanceSessions, dateStr, startStr, endStr
                 ? getLocalDateKey(new Date()) : new Date().toISOString().split('T')[0];
             co = dateStr === todayStr ? new Date() : ci;
         }
-        const overlapMs = Math.min(co.getTime(), clsEnd.getTime()) - Math.max(ci.getTime(), clsStart.getTime());
+        const a = Math.max(ci.getTime(), clsStart.getTime());
+        const b = Math.min(co.getTime(), clsEnd.getTime());
+        let overlapMs = b - a;
+        if (overlapMs > 0 && marginWindows.length) {
+            // Trừ phần chồng nằm trong khoảng vào sớm / ở lại của ca khác (gộp các khoảng giao nhau).
+            const parts = marginWindows.map(w => ({ from: Math.max(a, w.from), to: Math.min(b, w.to) }))
+                .filter(p => p.to > p.from).sort((p, q) => p.from - q.from);
+            let cursor = a;
+            parts.forEach(p => {
+                const from = Math.max(p.from, cursor);
+                if (p.to > from) { overlapMs -= p.to - from; cursor = p.to; }
+            });
+        }
         return overlapMs >= 10 * 60 * 1000; // ≥10 phút để loại session bấm nhầm
     });
 }
@@ -832,7 +873,7 @@ function addDeterministicLegacyBonus10Awards(
                     (row.shiftId && cancelled.includes(`shift:${row.shiftId}`))) return;
                 const isSubstitute = isScheduledSubstitute(row, staffId);
                 const isOriginalAbsent = isMainTeacherAbsentForEvaluation(row, staffId) &&
-                    !hasOverlappingWorkSession(sessions, dateStr, row.start, row.end);
+                    !hasOverlappingWorkSession(sessions, dateStr, row.start, row.end, adjacentWorkedClassSlots(schedule, staffId, row));
                 const isAssigned = isSubstitute || (!isOriginalAbsent && (
                     isScheduledMainTeacher(row, staffId) ||
                     (row.registeredTeachers || []).some(item => String(item?.id || '') === String(staffId))
@@ -925,6 +966,10 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
     // phục vụ tính lương/chip lớp, nhưng không được làm mất mốc lịch khi đối
     // soát một chuỗi tiếp tân → dạy có chip trung gian đã bị xoá.
     const originalSchedule = schedule && typeof schedule === 'object' ? schedule : {};
+    // GV báo vắng ca này nhưng có phiên chấm công phủ ca → coi là vẫn đi dạy (chấm công thắng),
+    // trừ phần chỉ là vào sớm / ở lại của ca kề bên.
+    const _workedAbsentClass = c => hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end,
+        adjacentWorkedClassSlots(originalSchedule, staffId, c));
     bonus10Map = addDeterministicLegacyBonus10Awards(
         bonus10Map,
         originalSchedule,
@@ -1017,7 +1062,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
         (schedule[sk] || []).forEach((c, idx) => {
             if (!c.start || !c.end) return;
             const isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
-                !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
+                !_workedAbsentClass(c);
             const ck = c._compositeKey || null;
             const originalIdx = c._originalIndex !== undefined ? c._originalIndex : idx;
             if (isOriginalVDX) {
@@ -1055,7 +1100,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 if (!c.start || !c.end) return;
                 const _isSubstitute = isScheduledSubstitute(c, staffId);
                 const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
-                    !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
+                    !_workedAbsentClass(c);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
                         (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -1116,7 +1161,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             (schedule[sk] || []).forEach((c, i) => {
                 const _isSubstitute = isScheduledSubstitute(c, staffId);
                 const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
-                    !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
+                    !_workedAbsentClass(c);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
                         (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -1152,7 +1197,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             if (c.isClosed === true) return;
             const _isSubstitute = isScheduledSubstitute(c, staffId);
             const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
-                !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
+                !_workedAbsentClass(c);
             const _isReg = _isSubstitute ||
                 (!_isOriginalVDX && (
                     (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -1183,7 +1228,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 // Là GV thay thế → tính như GV chính; GV gốc bị VĐX → không merge (skip ngay)
                 const _isSubstitute = isScheduledSubstitute(c, staffId);
                 const _isOriginalVDX = isMainTeacherAbsentForEvaluation(c, staffId) &&
-                    !hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end);
+                    !_workedAbsentClass(c);
                 const _isReg = _isSubstitute ||
                     (!_isOriginalVDX && (
                         (c.registeredTeachers || []).some(t => t.id === staffId) || isScheduledMainTeacher(c, staffId)
@@ -1302,7 +1347,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             }
 
             // GV chính đã báo nghỉ → chip lấy đúng loại VP/VĐX theo từng người.
-            if (isOriginalVDX && !hasOverlappingWorkSession(attendanceSessions, dateStr, cls.start, cls.end)) {
+            if (isOriginalVDX && !_workedAbsentClass(cls)) {
                 // Lớp gộp (cùng cơ sở + giờ): chỉ MỘT chip vắng ghi đủ tên các lớp, đếm 1 ca.
                 const _absentSlotKey = `${cls._branch || ''}_${cls.start}_${cls.end}`;
                 if (_absentSlotChips.has(_absentSlotKey)) return;

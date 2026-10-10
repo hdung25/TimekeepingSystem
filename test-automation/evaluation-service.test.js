@@ -1634,6 +1634,39 @@ function observation(lateMinutes) {
 }
 
 {
+    // Quỳnh 04/10: VP ca FFS1 15:30–17:00 (có GV thay), vào ca 16:41 cho lớp E1 17:00.
+    // 19 phút vào sớm chồng lên cuối ca VP không được biến VP thành "(V)" chưa chấm công.
+    const day = '2026-10-04';
+    const vpThenNext = {
+        afternoon2: [{
+            start: '15:30', end: '17:00', lop: 'FFS1', lopId: 'subject-ffs1', gvId: staffId,
+            gvList: [{ id: staffId }], gvThayTeList: [{ id: 'teacher-sub', name: 'Sub', replacesTeacherIds: [staffId] }],
+            teacherAbsences: [{ teacherId: staffId, type: 'VP', status: 'covered', replacementIds: ['teacher-sub'] }],
+            registeredTeachers: [], _branch: 'cs1', _compositeKey: `cs1__${day}`, _originalIndex: 0
+        }],
+        evening1: [{
+            start: '17:00', end: '18:30', lop: 'E1', lopId: 'subject-e1', gvId: staffId, gvList: [{ id: staffId }],
+            teacherAbsences: [], registeredTeachers: [], _branch: 'cs1', _compositeKey: `cs1__${day}`, _originalIndex: 0
+        }]
+    };
+    const earlyForNext = context.window.calculateDailyChips(vpThenNext,
+        [{ id: 'early-e1', source: 'self', checkIn: `${day}T16:41:00+07:00`, checkOut: `${day}T18:30:00+07:00` }],
+        staffId, day, user);
+    const vpChip = earlyForNext.find(chip => chip.isAbsence);
+    assert.ok(vpChip, 'phải còn chip VP cho ca FFS1');
+    assert.equal(vpChip.absenceType, 'VP');
+    assert.match(vpChip.text, /^VP: FFS1 15:30–17:00/);
+    assert.ok(!earlyForNext.some(chip => / \(V\)$/.test(chip.text || '')), 'không được ra chip (V) chưa chấm công');
+    assert.ok(earlyForNext.some(chip => chip.isTeaching && /17:00/.test(chip.text || '')), 'ca E1 vẫn tính công');
+
+    // Thực sự có mặt dạy ca VP (vào từ 15:25) thì chấm công vẫn thắng như trước.
+    const taughtAnyway = context.window.calculateDailyChips(vpThenNext,
+        [{ id: 'taught', source: 'self', checkIn: `${day}T15:25:00+07:00`, checkOut: `${day}T18:30:00+07:00` }],
+        staffId, day, user);
+    assert.ok(!taughtAnyway.some(chip => chip.isAbsence), 'đã dạy ca VP thì không còn chip nghỉ');
+}
+
+{
     // Mảng teacherAbsences rỗng là trạng thái đã khôi phục. Dù dữ liệu ca còn
     // GV thay, hệ thống mới không được suy đoán GV chính vẫn nghỉ như dữ liệu cũ.
     const restoredSchedule = {
