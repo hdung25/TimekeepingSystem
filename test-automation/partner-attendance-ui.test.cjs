@@ -21,8 +21,8 @@ window.fixture.reads++;if(window.fixture.fail)throw new Error('mất kết nối
 if(key!=='cs1__2026-10-01')return {};
 return {morning1:[{start:'08:00',end:'09:00',lop:'VẼ VIDA',lopId:'a',gvList:[{id:'t'}]},
 {start:'09:00',end:'10:00',lop:'Tiếng Anh',lopId:'o',gvList:[{id:'t'}]}]};},
-getCancelledShifts:async()=>[],getShiftObservationsForMonth:async()=>[],getOvertimeRequestsForStaff:async()=>[],getBonus10RequestsForStaff:async()=>[],getMonthlySalarySettings:async()=>({})};
-const query={where(){return this;},async get(){return {docs:[{data:()=>({date:'2026-10-01',userId:'t',sessions:[{id:'s',start:new Date('2026-10-01T08:00:00'),checkIn:new Date('2026-10-01T08:00:00'),checkOut:new Date('2026-10-01T'+(window.fixture.minutes===60?'10:00:00':'08:30:00'))}]})}]};}};
+getCancelledShifts:async(m,id)=>{(window.fixture.evaluated||=[]).push(id);return [];},getShiftObservationsForMonth:async()=>[],getOvertimeRequestsForStaff:async()=>[],getBonus10RequestsForStaff:async()=>[],getMonthlySalarySettings:async()=>({})};
+const query={where(){return this;},async get(){return {docs:[{data:()=>({date:'2026-10-01',userId:'x',sessions:[{id:'sx',start:new Date('2026-10-01T09:00:00'),checkIn:new Date('2026-10-01T09:00:00'),checkOut:new Date('2026-10-01T10:00:00'),role:'o'}]})},{data:()=>({date:'2026-10-01',userId:'t',sessions:[{id:'s',start:new Date('2026-10-01T08:00:00'),checkIn:new Date('2026-10-01T08:00:00'),checkOut:new Date('2026-10-01T'+(window.fixture.minutes===60?'10:00:00':'08:30:00'))}]})}]};}};
 window.db={collection:()=>query};
 `;
 (async()=>{
@@ -44,6 +44,7 @@ window.db={collection:()=>query};
  await page.waitForFunction(()=>document.getElementById('pa-export').disabled===false);
  assert.equal(await page.$$eval('.pa-ci',items=>items.length),1,'calendar is the default view and excludes outside classes');
  assert.equal(await page.$eval('.pa-day[data-date="2026-10-01"] .pa-day-total',node=>node.textContent),'Tổng: 1h 0p');
+ assert.deepEqual(await page.evaluate(()=>Array.from(new Set(fixture.evaluated))),['t'],'staff with no group class are not evaluated');
  assert.equal(await page.$$eval('.pa-day:not(.pa-day-pad)',days=>days.length),31,'calendar shows every day of the month');
  assert.equal(await page.$eval('.pa-cal-head',node=>node.children.length),7);
  await page.type('#pa-search','Ánh');await page.waitForFunction(()=>!!document.querySelector('.pa-ci.kn-active'));await page.keyboard.press('Enter');

@@ -19,7 +19,7 @@
     }
     async function pool(items, task) {
         let index = 0;
-        const results = await Promise.allSettled(Array.from({length:Math.min(5,items.length)},async () => {
+        const results = await Promise.allSettled(Array.from({length:Math.min(10,items.length)},async () => {
             while (index < items.length) { const item = items[index++]; await task(item); }
         }));
         const failed = results.find(r => r.status === 'rejected');
@@ -135,8 +135,17 @@
                 const byDate = logsByUser.get(String(record.userId));
                 byDate[record.date] = (byDate[record.date] || []).concat(sessions);
             });
-            const staffIds = new Set(logsByUser.keys());
+            // Only teachers who can own a chip of this group are evaluated: anyone rostered on a
+            // group class, or whose own sessions mention a group subject (admin-added class,
+            // reclassified work). Everyone else would cost 5 reads each and never produce a row.
+            const selectedIds = new Set(selected.map(s => String(s.id)));
+            const needles = new Set(selected.flatMap(s => [policy.normalize(s.id), policy.normalize(s.name)]).filter(Boolean));
+            const staffIds = new Set();
+            logsByUser.forEach((byDate, userId) => {
+                if (policy.mentionsAny(byDate, needles)) staffIds.add(userId);
+            });
             Object.values(scheduleMap).forEach(day => policy.sections.forEach(sec => (day[sec]||[]).forEach(row => {
+                if (!policy.resolveIds(row, subjects).some(id => selectedIds.has(id))) return;
                 ['gvList','gvThayTeList','gvThayTheList','registeredTeachers'].forEach(field => (row[field]||[]).forEach(u => {if(u?.id)staffIds.add(String(u.id));}));
                 ['gvId','gvThayTheId','gvThayTeId'].forEach(field=>{if(row[field])staffIds.add(String(row[field]));});
             })));

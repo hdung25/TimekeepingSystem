@@ -57,6 +57,11 @@ assert.equal(lateRow.manualLateMinutes,5);assert.equal(policy.toneOf(lateRow),'w
 assert.deepEqual(policy.flagsOf(lateRow).map(f=>f.text),['Trễ 5p · tiếp tân ghi']);
 assert.deepEqual(policy.flagsOf({status:'08:00 (T3p) (V10p) ★+10p',manualLateMinutes:0}).map(f=>f.text),['Trễ 3p','Về sớm 10p','Sớm +10p']);
 assert.deepEqual(policy.flagsOf({status:'★+10p (hủy)'}),[]);
+const needles=new Set(["a",policy.normalize("VẼ VIDA")]);
+assert.equal(policy.mentionsAny({"2026-10-01":[{role:"a",checkIn:new Date()}]},needles),true,"admin-added class in the group is evaluated");
+assert.equal(policy.mentionsAny({d:[{lopId:"outside+a"}]},needles),true);
+assert.equal(policy.mentionsAny({d:[{adminPayrollOverride:{allocations:[{roleName:" vẽ vida "}]}}]},needles),true);
+assert.equal(policy.mentionsAny({d:[{role:"outside",note:"vẽ vida lớp khác",id:"abc"}]},needles),false,"free text and other ids do not match");
 const writerContext={window:{},Blob,TextEncoder,Uint32Array,Uint8Array,DataView,ArrayBuffer,Date};
 vm.createContext(writerContext);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/partner-attendance-xlsx.js'),'utf8'),writerContext);
 (async()=>{

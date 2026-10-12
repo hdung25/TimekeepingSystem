@@ -80,6 +80,15 @@
         return Array.from(map.values()).map(entry => ({...entry, days:entry.dates.size, dates:Array.from(entry.dates).sort()}))
             .sort((a,b) => a.subjectName.localeCompare(b.subjectName,'vi') || a.staffName.localeCompare(b.staffName,'vi'));
     }
+    // True when any string inside value (one '+'-joined part, compared exactly) is a
+    // selected subject id or name. Used to decide which teachers' sessions need evaluating.
+    function mentionsAny(value, needles, depth = 0) {
+        if (value == null || depth > 6) return false;
+        if (typeof value === 'string') return value.split('+').some(part => needles.has(normalize(part)));
+        if (Array.isArray(value)) return value.some(item => mentionsAny(item, needles, depth + 1));
+        if (typeof value === 'object' && !(value instanceof Date)) return Object.values(value).some(item => mentionsAny(item, needles, depth + 1));
+        return false;
+    }
     // Monday-first weeks for a 'YYYY-MM' month; days outside the month are null.
     function monthGrid(month) {
         const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(month));
@@ -115,5 +124,5 @@
         if (/★\?/.test(text)) flags.push({kind: 'warn', text: 'Chờ duyệt sớm'});
         return flags;
     }
-    return {sections, ids, leaves, resolveIds, rowsForChips, summarize, monthGrid, formatMinutes, toneOf, flagsOf};
+    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, mentionsAny, monthGrid, formatMinutes, toneOf, flagsOf};
 });
