@@ -59,7 +59,8 @@
                 start: displayRange?.[1] || chip.classStart || chip.schedData?.start || source?.start || '',
                 end: displayRange?.[2] || chip.classEnd || chip.schedData?.end || source?.end || '',
                 branch: branches.join(' / ') || chip.branch || source?._branch || session.branch || '', minutes: ambiguous ? 0 : minutes,
-                status: chip.text || '', checkIn: session.checkIn || session.start || null,
+                status: chip.text || '', tone: String(chip.class || ''),
+                manualLateMinutes: Math.max(0, Math.round(Number(chip.manualLateMinutes) || 0)), checkIn: session.checkIn || session.start || null,
                 checkOut: session.checkOut || session.end || null, ambiguous,
                 // Paid hours are counted once for a combined class, never once per subject.
                 worked: !ambiguous && minutes > 0,
@@ -79,5 +80,40 @@
         return Array.from(map.values()).map(entry => ({...entry, days:entry.dates.size, dates:Array.from(entry.dates).sort()}))
             .sort((a,b) => a.subjectName.localeCompare(b.subjectName,'vi') || a.staffName.localeCompare(b.staffName,'vi'));
     }
-    return {sections, ids, leaves, resolveIds, rowsForChips, summarize};
+    // Monday-first weeks for a 'YYYY-MM' month; days outside the month are null.
+    function monthGrid(month) {
+        const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(month));
+        if (!match) return [];
+        const year = Number(match[1]), mon = Number(match[2]), days = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+        const offset = (new Date(Date.UTC(year, mon - 1, 1)).getUTCDay() + 6) % 7;
+        const cells = Array.from({length: offset}, () => null);
+        for (let day = 1; day <= days; day++) cells.push({day, date: month + '-' + String(day).padStart(2, '0')});
+        while (cells.length % 7) cells.push(null);
+        return Array.from({length: cells.length / 7}, (_, i) => cells.slice(i * 7, i * 7 + 7));
+    }
+    const formatMinutes = minutes => {
+        const total = Math.max(0, Math.round(Number(minutes) || 0));
+        return Math.floor(total / 60) + 'h ' + (total % 60) + 'p';
+    };
+    // Visual state of one calendar entry; wording and colors stay in the page.
+    function toneOf(row) {
+        const css = String(row.tone || '');
+        if (/chip-absence-vp/.test(css)) return 'vp';
+        if (/chip-absence-vdx|chip-red/.test(css)) return 'vdx';
+        if (/chip-future/.test(css)) return 'future';
+        if (/chip-orange/.test(css)) return 'warn';
+        if (row.worked) return 'ok';
+        if (/chip-blue/.test(css) && !row.checkIn) return 'future';
+        return 'off';
+    }
+    function flagsOf(row) {
+        const text = String(row.status || ''), flags = [];
+        const late = /\(T(\d+)p\)/.exec(text), early = /\(V(\d+)p\)/.exec(text);
+        if (late) flags.push({kind: 'late', text: 'Trễ ' + late[1] + 'p' + (row.manualLateMinutes > 0 && row.manualLateMinutes >= Number(late[1]) ? ' · tiếp tân ghi' : '')});
+        if (early) flags.push({kind: 'warn', text: 'Về sớm ' + early[1] + 'p'});
+        if (/★\+10p(?! \(hủy\))/.test(text)) flags.push({kind: 'ok', text: 'Sớm +10p'});
+        if (/★\?/.test(text)) flags.push({kind: 'warn', text: 'Chờ duyệt sớm'});
+        return flags;
+    }
+    return {sections, ids, leaves, resolveIds, rowsForChips, summarize, monthGrid, formatMinutes, toneOf, flagsOf};
 });

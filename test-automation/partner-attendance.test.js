@@ -42,6 +42,21 @@ const linkedRows=policy.rowsForChips(separated,schedule,staff,date,subjects,['a'
 assert.equal(linkedRows.reduce((s,r)=>s+r.minutes,0),60,'one continuous check-in across different subjects exports only linked time');
 assert.equal(separated.reduce((s,c)=>s+c.paidMinutes,0),normal.reduce((s,c)=>s+c.paidMinutes,0),'separating subjects does not increase total work');
 assert.equal(evaluate(schedule,sessions,'teacher',date,user).length,normal.length,'default payroll merge is unchanged');
+// Calendar helpers: Monday-first grid, tones and flags (late written by the receptionist is labelled).
+const grid=policy.monthGrid('2026-10');
+assert.equal(grid.length,5);assert.ok(grid.every(w=>w.length===7));
+assert.equal(grid[0].findIndex(Boolean),3,'1 Oct 2026 is a Thursday');
+assert.equal(grid.flat().filter(Boolean).length,31);assert.equal(grid.at(-1)[6]?.date,undefined,'31 Oct is a Saturday, trailing Sunday is padding');
+assert.deepEqual(policy.monthGrid('2026-13'),[]);
+assert.equal(policy.formatMinutes(175),'2h 55p');assert.equal(policy.formatMinutes(180),'3h 0p');assert.equal(policy.formatMinutes(-5),'0h 0p');
+assert.equal(policy.toneOf({tone:'chip-green',worked:true}),'ok');assert.equal(policy.toneOf({tone:'chip-orange',worked:true}),'warn');
+assert.equal(policy.toneOf({tone:'chip-future',worked:false}),'future');assert.equal(policy.toneOf({tone:'chip-gray chip-absence-vp'}),'vp');
+assert.equal(policy.toneOf({tone:'chip-red chip-absence-vdx'}),'vdx');assert.equal(policy.toneOf({tone:'chip-gray'}),'off');
+const lateRow=policy.rowsForChips([{...base,text:'18:00–21:00 CS1 (T5p) (Toán 5)',class:'chip-orange',manualLateMinutes:5,paidMinutes:175}],{},staff,date,subjects,['a'])[0];
+assert.equal(lateRow.manualLateMinutes,5);assert.equal(policy.toneOf(lateRow),'warn');
+assert.deepEqual(policy.flagsOf(lateRow).map(f=>f.text),['Trễ 5p · tiếp tân ghi']);
+assert.deepEqual(policy.flagsOf({status:'08:00 (T3p) (V10p) ★+10p',manualLateMinutes:0}).map(f=>f.text),['Trễ 3p','Về sớm 10p','Sớm +10p']);
+assert.deepEqual(policy.flagsOf({status:'★+10p (hủy)'}),[]);
 const writerContext={window:{},Blob,TextEncoder,Uint32Array,Uint8Array,DataView,ArrayBuffer,Date};
 vm.createContext(writerContext);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/partner-attendance-xlsx.js'),'utf8'),writerContext);
 (async()=>{

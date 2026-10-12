@@ -1,7 +1,7 @@
 (function () {
     'use strict';
     const policy = window.PartnerAttendancePolicy;
-    const state = {subjects:[], users:[], rows:[], ready:false, epoch:0, loadedMonth:'', loadedGroup:''};
+    const state = {subjects:[], users:[], rows:[], ready:false, epoch:0, loadedMonth:'', loadedGroup:'', view:'calendar'};
     const el = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const hours = minutes => (minutes / 60).toLocaleString('vi-VN',{maximumFractionDigits:2});
@@ -33,6 +33,54 @@
     function editUrl(row) {
         return 'bao-cao.html?' + new URLSearchParams({staffId:row.staffId,date:row.date,roleView:'giao-vien'});
     }
+    const WEEKDAYS = ['T2','T3','T4','T5','T6','T7','CN'];
+    const todayKey = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(new Date());
+    function entryHtml(row) {
+        const tone = policy.toneOf(row), flags = policy.flagsOf(row);
+        const worked = clock(row.checkIn)+'–'+clock(row.checkOut);
+        const detail = row.checkIn ? worked+' · '+policy.formatMinutes(row.minutes) : 'Chưa có công';
+        return '<div class="pa-ci pa-tone-'+tone+(row.needsReview?' pa-ci-review':'')+'" title="'+esc(row.status)+'">'+
+            '<strong class="pa-ci-name">'+esc(row.staffName)+'</strong>'+
+            '<span class="pa-ci-time">'+esc(row.start)+'–'+esc(row.end)+' · '+esc(row.branch.toUpperCase())+'</span>'+
+            '<span class="pa-ci-subject">'+esc(row.subjectName)+'</span>'+
+            '<span class="pa-ci-work">'+esc(detail)+'</span>'+
+            (row.ambiguous?'<span class="pa-flag pa-flag-warn">Lớp ghép ngoài nhóm</span>':'')+
+            (flags.length?'<span class="pa-flags">'+flags.map(f=>'<span class="pa-flag pa-flag-'+f.kind+'">'+esc(f.text)+'</span>').join('')+'</span>':'')+
+            '<button type="button" class="pa-edit" data-url="'+esc(editUrl(row))+'" data-title="'+esc(row.staffName+' · '+dateLabel(row.date))+'" aria-label="Sửa công '+esc(row.staffName+' ngày '+dateLabel(row.date))+'">Sửa công</button></div>';
+    }
+    function renderCalendar(rows) {
+        const host = el('pa-cal'), month = state.ready && state.loadedMonth ? state.loadedMonth : el('pa-month').value;
+        el('pa-calendar-sec').hidden = state.view !== 'calendar';
+        el('pa-month-label').textContent = /^\d{4}-\d{2}$/.test(month) ? 'Tháng '+month.slice(5)+'/'+month.slice(0,4) : '';
+        if (state.view !== 'calendar') { host.innerHTML = ''; return; }
+        const byDate = new Map();
+        rows.forEach(row => { if (!byDate.has(row.date)) byDate.set(row.date, []); byDate.get(row.date).push(row); });
+        const today = todayKey();
+        const head = '<div class="pa-cal-head" aria-hidden="true">'+WEEKDAYS.map((d,i)=>'<span'+(i===6?' class="pa-sun"':'')+'>'+d+'</span>').join('')+'</div>';
+        const weeks = policy.monthGrid(month).map(week => '<div class="pa-cal-week">'+week.map((cell,i) => {
+            if (!cell) return '<div class="pa-day pa-day-pad" aria-hidden="true"></div>';
+            const items = (byDate.get(cell.date) || []).slice().sort((a,b)=>String(a.start).localeCompare(String(b.start))||a.staffName.localeCompare(b.staffName,'vi')||a.subjectName.localeCompare(b.subjectName,'vi'));
+            const minutes = items.reduce((sum,r)=>sum+r.minutes,0), teachers = new Set(items.filter(r=>r.worked).map(r=>r.staffId)).size;
+            return '<div class="pa-day'+(i===5?' pa-sat':'')+(i===6?' pa-sun-cell':'')+(cell.date===today?' pa-today':'')+(items.length?' pa-has':'')+'" data-date="'+cell.date+'" data-weekday="'+WEEKDAYS[i]+'">'+
+                '<div class="pa-day-top"><span class="pa-day-num"><b>'+cell.day+'</b><small>'+WEEKDAYS[i]+' · '+dateLabel(cell.date)+'</small></span></div>'+
+                '<div class="pa-day-items">'+items.map(entryHtml).join('')+'</div>'+
+                (minutes>0?'<div class="pa-day-total">Tổng: '+policy.formatMinutes(minutes)+(teachers>1?' · '+teachers+' GV':'')+'</div>':'')+'</div>';
+        }).join('')+'</div>').join('');
+        host.innerHTML = head+'<div class="pa-cal-body">'+weeks+'</div>'+(rows.length?'':'<p class="pa-empty pa-cal-empty">Không có công phù hợp với bộ lọc trong tháng này.</p>');
+    }
+    function setView(view) {
+        state.view = view === 'list' ? 'list' : 'calendar';
+        try { localStorage.setItem('paView', state.view); } catch (_) {}
+        ['calendar','list'].forEach(name => el('pa-view-'+name).setAttribute('aria-pressed',String(state.view===name)));
+        render();
+    }
+    function shiftMonth(delta) {
+        const value = el('pa-month').value;
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value) || el('pa-month').disabled) return;
+        const date = new Date(Date.UTC(Number(value.slice(0,4)), Number(value.slice(5))-1+delta, 1));
+        el('pa-month').value = date.getUTCFullYear()+'-'+String(date.getUTCMonth()+1).padStart(2,'0');
+        load();
+    }
     function render() {
         const rows = filtered(), summary = policy.summarize(rows);
         el('pa-stats').innerHTML = '<div><strong>'+new Set(rows.map(r => r.staffId)).size+'</strong><span>Giáo viên</span></div>'+
@@ -41,12 +89,13 @@
         const review = rows.filter(r => r.needsReview).length;
         el('pa-review').textContent = review ? review+' ca cần kiểm tra (chưa cập nhật, đang chờ duyệt hoặc lớp ghép khác nhóm). Mở Sửa công để đối chiếu trước khi gửi.' : '';
         el('pa-summary').innerHTML = summary.length ? summary.map(item => '<article class="pa-summary-card"><h3>'+esc(item.subjectName)+'</h3><p>'+esc(item.staffName)+'</p><div><strong>'+hours(item.minutes)+' giờ</strong><span>'+item.days+' ngày làm · '+item.shifts+' ca lịch/công</span></div></article>').join('') : '<p class="pa-empty">Không có công phù hợp với bộ lọc trong tháng này.</p>';
-        el('pa-body').innerHTML = rows.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.subjectName.localeCompare(b.subjectName,'vi')||a.staffName.localeCompare(b.staffName,'vi')).map(row =>
+        el('pa-body').innerHTML = state.view !== 'list' ? '' : rows.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.subjectName.localeCompare(b.subjectName,'vi')||a.staffName.localeCompare(b.staffName,'vi')).map(row =>
             '<tr'+(row.needsReview?' class="pa-needs-review"':'')+'><td data-label="Ngày">'+dateLabel(row.date)+'</td><td data-label="Môn">'+esc(row.subjectName)+'</td><td data-label="Giáo viên">'+esc(row.staffName)+'</td>'+ 
             '<td data-label="Ca / Cơ sở">'+esc(row.start)+'–'+esc(row.end)+'<small>'+esc(row.branch.toUpperCase())+'</small></td>'+ 
             '<td data-label="Vào / Ra">'+clock(row.checkIn)+' / '+clock(row.checkOut)+'</td><td data-label="Giờ công"><strong>'+hours(row.minutes)+'</strong></td>'+ 
             '<td data-label="Trạng thái">'+esc(row.status)+(row.ambiguous?'<small>Lớp ghép có môn ngoài nhóm: cần đối chiếu</small>':'')+'</td><td><button type="button" class="pa-edit" data-url="'+esc(editUrl(row))+'" data-title="'+esc(row.staffName+' · '+dateLabel(row.date))+'">Sửa công</button></td></tr>').join('');
-        el('pa-detail').hidden = !rows.length;
+        el('pa-detail').hidden = state.view !== 'list' || !rows.length;
+        renderCalendar(rows);
         el('pa-export').disabled = !state.ready || !rows.length || rows.some(r => r.ambiguous);
     }
     async function load() {
@@ -169,7 +218,11 @@
             if(target)el('pa-group').value=target.id;
             if(!groups.length)throw new Error('Chưa có nhóm môn. Hãy tạo nhóm trong Môn học.');
             el('pa-group').addEventListener('change',load);el('pa-month').addEventListener('change',load);
-            el('pa-reload').addEventListener('click',load);el('pa-subject').addEventListener('change',render);el('pa-search').addEventListener('input',render);
+            el('pa-reload').addEventListener('click',load);
+            try{if(localStorage.getItem('paView')==='list')state.view='list';}catch(_){}
+            ['calendar','list'].forEach(name=>{el('pa-view-'+name).setAttribute('aria-pressed',String(state.view===name));el('pa-view-'+name).addEventListener('click',()=>setView(name));});
+            el('pa-prev').addEventListener('click',()=>shiftMonth(-1));el('pa-next').addEventListener('click',()=>shiftMonth(1));
+            el('pa-cal').addEventListener('click',event=>{const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url,button.dataset.title);});el('pa-subject').addEventListener('change',render);el('pa-search').addEventListener('input',render);
             el('pa-export').addEventListener('click',()=>exportExcel().catch(error=>{el('pa-message').textContent='Xuất Excel chưa thành công: '+error.message;}));
             el('pa-body').addEventListener('click',event=>{const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url,button.dataset.title);});
             window.addEventListener('focus',()=>{if(editorOpened && !el('pa-reload').disabled){editorOpened=false;load();}});

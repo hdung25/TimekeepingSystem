@@ -1,8 +1,8 @@
-// Service Worker v229 - optional personal income tax and grouped teacher review board.
+// Service Worker v240 - linked attendance month calendar.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v239-linked-attendance-20261012';
+const APP_RELEASE = 'tdt-chamcong-v240-linked-calendar-20261013';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -30,10 +30,10 @@ const STATIC_ASSETS = Array.from(new Set([
     '/he-thong.html',
     '/mon-hoc.html',
     '/bang-cong-lien-ket.html',
-    '/css/partner-attendance.css?v=20261012-linked-v1',
-    '/js/partner-attendance-policy.js?v=20261012-linked-v1',
+    '/css/partner-attendance.css?v=20261013-calendar-v1',
+    '/js/partner-attendance-policy.js?v=20261013-calendar-v1',
     '/js/partner-attendance-xlsx.js?v=20261012-linked-v1',
-    '/js/partner-attendance.js?v=20261012-linked-v1',
+    '/js/partner-attendance.js?v=20261013-calendar-v1',
     '/js/evaluation-service.js?v=20261012-linked-v1',
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',
@@ -86,7 +86,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/schedule-sheet.js?v=20261003-sheet-v5',
     '/js/staff-notes.js?v=20261003-owner-v3',
     '/css/staff-notes.css?v=20261003-owner-v3',
-    '/js/search-keynav.js?v=20261012-linked-v1',
+    '/js/search-keynav.js?v=20261013-calendar-v1',
     '/js/teacher-shift-state.js?v=20261008-owner-round-v1',
     '/js/pdf-export.js?v=20261006-tax-grouped-v1',
     '/js/receptionist-schedule.js?v=20260926-mobile-ui-v1',
