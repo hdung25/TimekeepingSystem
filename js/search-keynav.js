@@ -31,6 +31,7 @@
         { input: '[data-action="roster-search"]', item: '.teacher-roster-item', pick: 'input:not(:disabled)',
             listOf: input => $(`[data-roster-list="${input.dataset.kind === 'substitute' ? 'substitute' : 'main'}"]`) },
         { input: '#mh-search-input', list: '#mh-tree', item: '.mh-item' },
+        { input: '#pa-search', list: '#pa-body', item: 'tr', pick: '.pa-edit' },
         { input: '#ns-search-input', list: '#ns-list', item: '.ns-card', pick: '.ns-pick' },
         { input: '#f-q', list: '#rows', item: '.row' },
         { input: '#srb-search', list: '#srb-list', item: '.srb-row', pick: '.srb-act button' },

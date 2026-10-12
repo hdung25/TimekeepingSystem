@@ -1286,7 +1286,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             let _mj = _mi + 1;
             while (_mj < _allReg.length) {
                 const _b = _allReg[_mj];
-                if (_b.start === _chainEnd) {
+                // Partner reports need separate subject rows; the normal payroll path keeps its existing merge behavior.
+                if (_b.start === _chainEnd && (!monthFlags.separateSubjectChips || String(_b.lopId || _b.lop) === String(_a.lopId || _a.lop))) {
                     if (_b.branch !== _a.branch) _chainSameBranch = false;
                     _chainBranches.push(_b.branch);
                     

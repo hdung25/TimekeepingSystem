@@ -301,6 +301,7 @@
                     '</span>' +
                 '</div>' +
                 warn +
+                '<div class="mh-partner-link"><a href="bang-cong-lien-ket.html?groupId=' + encodeURIComponent(group.id) + '">Bảng công nhóm · Xuất Excel</a></div>' +
                 '<div class="mh-group-body">' + body + '</div>' +
             '</div>';
     }
@@ -357,6 +358,7 @@
                         '<button class="mh-icon-btn danger" title="Xóa nhóm" onclick="MonHoc.remove(\'' + esc(group.id) + '\')">' + icon('trash-2') + '</button>' +
                     '</span>' +
                 '</div>' + warn +
+                '<div class="mh-partner-link"><a href="bang-cong-lien-ket.html?groupId=' + encodeURIComponent(group.id) + '">Bảng công nhóm · Xuất Excel</a></div>' +
                 '<div class="mh-group-body">' + body + '</div>' +
             '</div>';
     }

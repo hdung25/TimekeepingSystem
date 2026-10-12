@@ -19,3 +19,4 @@ firestore-debug.log
 # Local secrets / env — never commit
 .env.local
 .env*.local
+test-automation/artifacts/
