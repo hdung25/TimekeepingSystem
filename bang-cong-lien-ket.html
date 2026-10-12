@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
     <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20261003-chain-v1">
-    <link rel="stylesheet" href="css/partner-attendance.css?v=20261013-calendar-v1">
+    <link rel="stylesheet" href="css/partner-attendance.css?v=20261013-partner-adjust-v1">
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
@@ -41,19 +41,40 @@
       <p id="pa-review" class="pa-review" role="status"></p>
       <h2>Tổng hợp theo môn / giáo viên</h2><div id="pa-summary" class="pa-summary"></div>
       <div class="pa-viewbar"><h2 id="pa-view-title">Bảng công theo ngày</h2><div class="pa-views" role="group" aria-label="Cách xem"><button type="button" id="pa-view-calendar" data-view="calendar" aria-pressed="true">Lịch tháng</button><button type="button" id="pa-view-list" data-view="list" aria-pressed="false">Danh sách</button></div></div>
-      <section id="pa-calendar-sec"><p class="pa-hint">Mỗi ô là một ngày, liệt kê các giáo viên đã đi dạy trong nhóm. Bấm Sửa công để chỉnh trễ, sớm, tăng ca, vắng phép, đột xuất, không phép. Quay lại đây để tự tải lại kết quả.</p><div class="pa-month-nav"><button type="button" id="pa-prev" aria-label="Tháng trước">‹</button><strong id="pa-month-label"></strong><button type="button" id="pa-next" aria-label="Tháng sau">›</button></div><div id="pa-cal" class="pa-cal"></div></section>
-      <section id="pa-detail" hidden><h2>Chi tiết ngày công</h2><p class="pa-hint">Sửa công mở bảng điều khiển công hiện tại ở tab mới, đúng giáo viên và ngày: đi đủ, trễ, sớm, tăng ca, vắng phép, đột xuất, không phép. Quay lại đây để tự tải lại kết quả.</p><div class="pa-table-wrap"><table><thead><tr><th>Ngày</th><th>Môn</th><th>Giáo viên</th><th>Ca / Cơ sở</th><th>Vào / Ra</th><th>Giờ công</th><th>Trạng thái</th><th>Điều chỉnh</th></tr></thead><tbody id="pa-body"></tbody></table></div></section>
+      <section id="pa-calendar-sec"><p class="pa-hint pa-hint-split"><b>Chỉnh liên kết</b>: chỉ đổi bảng này và file Excel gửi đối tác, <b>lương giáo viên không đổi</b>. <b>Sửa công lương</b>: mở bảng công chính, sửa ở đó sẽ đổi lương (bảng này tự lấy theo nếu ca chưa chỉnh riêng liên kết).</p><div class="pa-month-nav"><button type="button" id="pa-prev" aria-label="Tháng trước">‹</button><strong id="pa-month-label"></strong><button type="button" id="pa-next" aria-label="Tháng sau">›</button></div><div id="pa-cal" class="pa-cal"></div></section>
+      <section id="pa-detail" hidden><h2>Chi tiết ngày công</h2><p class="pa-hint pa-hint-split"><b>Chỉnh liên kết</b>: chỉ đổi bảng này và file Excel gửi đối tác, <b>lương giáo viên không đổi</b>. <b>Sửa công lương</b>: mở bảng công chính, sửa ở đó sẽ đổi lương (bảng này tự lấy theo nếu ca chưa chỉnh riêng liên kết).</p><div class="pa-table-wrap"><table><thead><tr><th>Ngày</th><th>Môn</th><th>Giáo viên</th><th>Ca / Cơ sở</th><th>Vào / Ra</th><th>Giờ công</th><th>Trạng thái</th><th>Điều chỉnh</th></tr></thead><tbody id="pa-body"></tbody></table></div></section>
       </div>
+    <dialog id="pa-adjust" class="pa-dialog" aria-labelledby="pa-adj-title">
+      <form method="dialog" onsubmit="return false">
+        <header><h2 id="pa-adj-title">Chỉnh công cho liên kết</h2><p id="pa-adj-who"></p></header>
+        <p class="pa-adj-safe">Chỉ dùng cho bảng gửi đối tác. <strong>Không thay đổi chấm công và lương giáo viên.</strong></p>
+        <p id="pa-adj-payroll" class="pa-adj-payroll"></p>
+        <label>Trạng thái<select id="pa-adj-status">
+          <option value="du">Đi đủ</option><option value="tre">Đi trễ</option><option value="ve-som">Về sớm</option>
+          <option value="som">Đi sớm</option><option value="tang-ca">Tăng ca</option>
+          <option value="vp">Vắng có phép</option><option value="vdx">Vắng đột xuất</option><option value="vkp">Vắng không phép</option></select></label>
+        <div class="pa-adj-row"><label>Giờ vào<input type="time" id="pa-adj-in"></label><label>Giờ ra<input type="time" id="pa-adj-out"></label></div>
+        <div class="pa-adj-row"><label>Giờ công · giờ<input type="number" id="pa-adj-h" min="0" max="24" step="1" inputmode="numeric"></label><label>phút<input type="number" id="pa-adj-m" min="0" max="59" step="1" inputmode="numeric"></label></div>
+        <label>Ghi chú cho đối tác (tuỳ chọn)<textarea id="pa-adj-note" rows="2" maxlength="500" placeholder="Ví dụ: dạy bù cho buổi 12/10"></textarea></label>
+        <p id="pa-adj-error" class="pa-adj-error" role="status" aria-live="polite"></p>
+        <div class="pa-adj-actions">
+          <button type="button" id="pa-adj-save" class="pa-primary">Lưu cho liên kết</button>
+          <button type="button" id="pa-adj-clear" hidden>Dùng lại công lương</button>
+          <button type="button" id="pa-adj-cancel">Đóng</button>
+        </div>
+        <a id="pa-adj-payroll-link" class="pa-adj-link" href="#">Cần áp dụng vào lương? Mở Sửa công lương (sẽ đổi lương) ↗</a>
+      </form>
+    </dialog>
     </div></main></div>
 <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script>
-<script src="js/search-keynav.js?v=20261013-calendar-v1"></script>
+<script src="js/search-keynav.js?v=20261013-partner-adjust-v1"></script>
 <script src="js/early10.js?v=20260912-early10-nanos-v1"></script>
 <script src="js/main.js?v=20261007-review-edit-v1"></script>
 <script src="js/shift-absence-state.js?v=20261006-sub-dropout-v1"></script>
 <script src="js/admin-payroll-override.js?v=20260906-early10-recovery-v1"></script>
 <script src="js/evaluation-service.js?v=20261012-linked-v1"></script>
-<script src="js/partner-attendance-policy.js?v=20261013-calendar-v2"></script>
+<script src="js/partner-attendance-policy.js?v=20261013-partner-adjust-v1"></script>
 <script src="js/partner-attendance-xlsx.js?v=20261012-linked-v1"></script>
-<script src="js/partner-attendance.js?v=20261013-calendar-v2"></script>
+<script src="js/partner-attendance.js?v=20261013-partner-adjust-v1"></script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js',{updateViaCache:'none'});</script>
 </body></html>

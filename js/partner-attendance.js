@@ -1,7 +1,7 @@
 (function () {
     'use strict';
     const policy = window.PartnerAttendancePolicy;
-    const state = {subjects:[], users:[], rows:[], ready:false, epoch:0, loadedMonth:'', loadedGroup:'', view:'calendar'};
+    const state = {subjects:[], users:[], rows:[], ready:false, epoch:0, loadedMonth:'', loadedGroup:'', view:'calendar', byId:new Map(), orphans:0};
     const el = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const hours = minutes => (minutes / 60).toLocaleString('vi-VN',{maximumFractionDigits:2});
@@ -33,20 +33,32 @@
     function editUrl(row) {
         return 'bao-cao.html?' + new URLSearchParams({staffId:row.staffId,date:row.date,roleView:'giao-vien'});
     }
+    // Shown clock range: a partner correction wins, otherwise the attendance log.
+    function inOut(row) {
+        if (row.adjustment) return [row.adjustment.checkIn || '—', row.adjustment.checkOut || '—'];
+        return [clock(row.checkIn), clock(row.checkOut)];
+    }
+    function actionsHtml(row) {
+        const who = esc(row.staffName+' ngày '+dateLabel(row.date));
+        return '<span class="pa-actions"><button type="button" class="pa-adjust" data-adjust="'+esc(row.id)+'" aria-label="Chỉnh cho liên kết: '+who+'">Chỉnh liên kết</button>'+
+            '<button type="button" class="pa-edit pa-edit-payroll" data-url="'+esc(editUrl(row))+'" title="Mở bảng công chính. Sửa ở đó sẽ thay đổi lương giáo viên." aria-label="Sửa công lương: '+who+'">Sửa công lương</button></span>';
+    }
     const WEEKDAYS = ['T2','T3','T4','T5','T6','T7','CN'];
     const todayKey = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(new Date());
     function entryHtml(row) {
         const tone = policy.toneOf(row), flags = policy.flagsOf(row);
-        const worked = clock(row.checkIn)+'–'+clock(row.checkOut);
-        const detail = row.checkIn ? worked+' · '+policy.formatMinutes(row.minutes) : 'Chưa có công';
+        const [timeIn, timeOut] = inOut(row);
+        const detail = row.adjustment ? (policy.ABSENT.has(row.adjustment.status) ? policy.STATUS[row.adjustment.status] : timeIn+'–'+timeOut+' · '+policy.formatMinutes(row.minutes))
+            : row.checkIn ? timeIn+'–'+timeOut+' · '+policy.formatMinutes(row.minutes) : 'Chưa có công';
+        const payroll = row.adjustment ? '<span class="pa-ci-payroll">Công lương: '+esc(policy.formatMinutes(row.base.minutes))+' (không đổi)</span>' : '';
         return '<div class="pa-ci pa-tone-'+tone+(row.needsReview?' pa-ci-review':'')+'" title="'+esc(row.status)+'">'+
             '<strong class="pa-ci-name">'+esc(row.staffName)+'</strong>'+
             '<span class="pa-ci-time">'+esc(row.start)+'–'+esc(row.end)+' · '+esc(row.branch.toUpperCase())+'</span>'+
             '<span class="pa-ci-subject">'+esc(row.subjectName)+'</span>'+
-            '<span class="pa-ci-work">'+esc(detail)+'</span>'+
+            '<span class="pa-ci-work">'+esc(detail)+'</span>'+payroll+(row.adjustment?.note?'<span class="pa-ci-note">'+esc(row.adjustment.note)+'</span>':'')+
             (row.ambiguous?'<span class="pa-flag pa-flag-warn">Lớp ghép ngoài nhóm</span>':'')+
             (flags.length?'<span class="pa-flags">'+flags.map(f=>'<span class="pa-flag pa-flag-'+f.kind+'">'+esc(f.text)+'</span>').join('')+'</span>':'')+
-            '<button type="button" class="pa-edit" data-url="'+esc(editUrl(row))+'" data-title="'+esc(row.staffName+' · '+dateLabel(row.date))+'" aria-label="Sửa công '+esc(row.staffName+' ngày '+dateLabel(row.date))+'">Sửa công</button></div>';
+            actionsHtml(row)+'</div>';
     }
     function renderCalendar(rows) {
         const host = el('pa-cal'), month = state.ready && state.loadedMonth ? state.loadedMonth : el('pa-month').value;
@@ -87,13 +99,14 @@
             '<div><strong>'+hours(rows.reduce((sum,r) => sum+r.minutes,0))+'</strong><span>Giờ công</span></div>'+
             '<div><strong>'+new Set(rows.filter(r => r.worked).map(r => r.staffId+'|'+r.date)).size+'</strong><span>Ngày công giáo viên</span></div>';
         const review = rows.filter(r => r.needsReview).length;
-        el('pa-review').textContent = review ? review+' ca cần kiểm tra (chưa cập nhật, đang chờ duyệt hoặc lớp ghép khác nhóm). Mở Sửa công để đối chiếu trước khi gửi.' : '';
+        el('pa-review').textContent = (review ? review+' ca cần kiểm tra (chưa cập nhật, đang chờ duyệt hoặc lớp ghép khác nhóm). Bấm Chỉnh liên kết hoặc Sửa công lương để đối chiếu trước khi gửi. ' : '')+
+            (state.orphans ? state.orphans+' chỉnh sửa liên kết không còn khớp ca nào trong lịch (lịch đã đổi), không được tính.' : '');
         el('pa-summary').innerHTML = summary.length ? summary.map(item => '<article class="pa-summary-card"><h3>'+esc(item.subjectName)+'</h3><p>'+esc(item.staffName)+'</p><div><strong>'+hours(item.minutes)+' giờ</strong><span>'+item.days+' ngày làm · '+item.shifts+' ca lịch/công</span></div></article>').join('') : '<p class="pa-empty">Không có công phù hợp với bộ lọc trong tháng này.</p>';
         el('pa-body').innerHTML = state.view !== 'list' ? '' : rows.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.subjectName.localeCompare(b.subjectName,'vi')||a.staffName.localeCompare(b.staffName,'vi')).map(row =>
             '<tr'+(row.needsReview?' class="pa-needs-review"':'')+'><td data-label="Ngày">'+dateLabel(row.date)+'</td><td data-label="Môn">'+esc(row.subjectName)+'</td><td data-label="Giáo viên">'+esc(row.staffName)+'</td>'+ 
             '<td data-label="Ca / Cơ sở">'+esc(row.start)+'–'+esc(row.end)+'<small>'+esc(row.branch.toUpperCase())+'</small></td>'+ 
-            '<td data-label="Vào / Ra">'+clock(row.checkIn)+' / '+clock(row.checkOut)+'</td><td data-label="Giờ công"><strong>'+hours(row.minutes)+'</strong></td>'+ 
-            '<td data-label="Trạng thái">'+esc(row.status)+(row.ambiguous?'<small>Lớp ghép có môn ngoài nhóm: cần đối chiếu</small>':'')+'</td><td><button type="button" class="pa-edit" data-url="'+esc(editUrl(row))+'" data-title="'+esc(row.staffName+' · '+dateLabel(row.date))+'">Sửa công</button></td></tr>').join('');
+            '<td data-label="Vào / Ra">'+inOut(row).join(' / ')+'</td><td data-label="Giờ công"><strong>'+hours(row.minutes)+'</strong></td>'+ 
+            '<td data-label="Trạng thái">'+esc(row.status)+(row.adjustment?'<small>Chỉnh riêng liên kết · công lương '+esc(policy.formatMinutes(row.base.minutes))+' không đổi</small>':'')+(row.ambiguous?'<small>Lớp ghép có môn ngoài nhóm: cần đối chiếu</small>':'')+'</td><td>'+actionsHtml(row)+'</td></tr>').join('');
         el('pa-detail').hidden = state.view !== 'list' || !rows.length;
         renderCalendar(rows);
         el('pa-export').disabled = !state.ready || !rows.length || rows.some(r => r.ambiguous);
@@ -174,10 +187,16 @@
                     allRows.push(...policy.rowsForChips(chips,schedule,staff,date,subjects,selected.map(s=>String(s.id))));
                 });
             });
+            // Partner-only corrections are read last and applied on top; payroll data is untouched.
+            const adjustments = await window.db.collection('partner_attendance_adjustments').where('month','==',month).get({source:'server'});
             if(epoch !== state.epoch)return;
+            const adjById = new Map(adjustments.docs.map(doc => [doc.id, doc.data()]));
+            state.byId = new Map();
+            allRows.forEach(row => { row.id = policy.adjustmentId(row); state.byId.set(row.id,row); policy.applyAdjustment(row, adjById.get(row.id)); });
+            state.orphans = Array.from(adjById).filter(([id,adj]) => adj.active === true && !state.byId.has(id) && staffIds.has(String(adj.staffId))).length;
             state.rows=allRows; state.ready=true; state.loadedMonth=month; state.loadedGroup=groupId;
             el('pa-subject').innerHTML='<option value="">Tất cả môn trong nhóm</option>'+selected.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');
-            el('pa-message').textContent='Đã đối chiếu lúc '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+' · '+selected.length+' môn. Giờ công theo bảng công hiện tại, gồm phần sớm / tăng ca đã được ghi nhận. Lương giáo viên vẫn tính như hiện tại.';
+            el('pa-message').textContent='Đã đối chiếu lúc '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+' · '+selected.length+' môn. Giờ công lấy theo công lương; ca nào bấm Chỉnh liên kết thì chỉ bảng này và file Excel đổi, lương giáo viên không đổi.';
             render();
         } catch(error) {
             state.ready=false;state.rows=[];render();
@@ -188,6 +207,67 @@
     function openEditor(url) {
         editorOpened = true;
         window.open(url,'_blank','noopener');
+    }
+    const toMinutes = value => /^\d{2}:\d{2}$/.test(value) ? Number(value.slice(0,2))*60+Number(value.slice(3)) : null;
+    let editing = null;
+    function syncDialog(autoMinutes) {
+        const absent = policy.ABSENT.has(el('pa-adj-status').value);
+        ['pa-adj-in','pa-adj-out','pa-adj-h','pa-adj-m'].forEach(id => { el(id).disabled = absent; });
+        if (absent) { el('pa-adj-h').value = 0; el('pa-adj-m').value = 0; el('pa-adj-in').value = ''; el('pa-adj-out').value = ''; return; }
+        if (autoMinutes) {
+            const a = toMinutes(el('pa-adj-in').value), b = toMinutes(el('pa-adj-out').value);
+            if (a !== null && b !== null && b > a) { el('pa-adj-h').value = Math.floor((b-a)/60); el('pa-adj-m').value = (b-a)%60; }
+        }
+    }
+    function openAdjust(id) {
+        const row = state.byId.get(id);
+        if (!row || !state.ready) return;
+        editing = row;
+        const adj = row.adjustment, base = row.base || row;
+        const [timeIn, timeOut] = adj ? [adj.checkIn, adj.checkOut] : [clock(row.checkIn), clock(row.checkOut)];
+        el('pa-adj-who').textContent = row.staffName+' · '+dateLabel(row.date)+' · '+row.start+'–'+row.end+' · '+row.subjectName;
+        el('pa-adj-payroll').textContent = 'Công lương (giữ nguyên): '+policy.formatMinutes(base.minutes)+' · '+base.status;
+        const late = /\(T\d+p\)/.test(base.status), early = /\(V\d+p\)/.test(base.status);
+        el('pa-adj-status').value = adj?.status || (late ? 'tre' : early ? 've-som' : 'du');
+        el('pa-adj-in').value = /^\d{2}:\d{2}$/.test(timeIn) ? timeIn : '';
+        el('pa-adj-out').value = /^\d{2}:\d{2}$/.test(timeOut) ? timeOut : '';
+        el('pa-adj-h').value = Math.floor(row.minutes/60); el('pa-adj-m').value = row.minutes%60;
+        el('pa-adj-note').value = adj?.note || '';
+        el('pa-adj-clear').hidden = !adj;
+        el('pa-adj-error').textContent = '';
+        el('pa-adj-payroll-link').href = editUrl(row);
+        syncDialog(false);
+        el('pa-adjust').showModal();
+    }
+    async function saveAdjust(active) {
+        const row = editing; if (!row) return;
+        const status = el('pa-adj-status').value, absent = policy.ABSENT.has(status);
+        const minutes = absent ? 0 : Math.round(Number(el('pa-adj-h').value||0)*60 + Number(el('pa-adj-m').value||0));
+        if (active && (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440)) { el('pa-adj-error').textContent = 'Giờ công phải từ 0 đến 24 giờ.'; return; }
+        const checkIn = absent ? '' : el('pa-adj-in').value, checkOut = absent ? '' : el('pa-adj-out').value;
+        if (active && checkIn && checkOut && toMinutes(checkOut) <= toMinutes(checkIn)) { el('pa-adj-error').textContent = 'Giờ ra phải sau giờ vào.'; return; }
+        const buttons = ['pa-adj-save','pa-adj-clear','pa-adj-cancel'].map(el); buttons.forEach(b => { b.disabled = true; });
+        el('pa-adj-error').textContent = 'Đang lưu…';
+        try {
+            const ref = window.db.collection('partner_attendance_adjustments').doc(row.id);
+            const stamp = firebase.firestore.FieldValue.serverTimestamp();
+            const prev = row.adjustment || {};
+            const data = {staffId:String(row.staffId), date:row.date, month:row.date.slice(0,7), rowKey:row.rowKey, active,
+                status: active ? status : (prev.status || 'du'), checkIn: active ? checkIn : (prev.checkIn || ''), checkOut: active ? checkOut : (prev.checkOut || ''),
+                minutes: active ? minutes : Math.round(Number(prev.minutes) || 0), note: active ? el('pa-adj-note').value.trim().slice(0,500) : (prev.note || ''),
+                updatedByName: String(localStorage.getItem('userFullName') || localStorage.getItem('currentUser') || 'Admin').slice(0,160),
+                updatedByStaffId: String(localStorage.getItem('currentUserId') || '').slice(0,80), updatedAt: stamp};
+            await window.db.runTransaction(async tx => {
+                const snap = await tx.get(ref);
+                if (snap.exists) tx.set(ref, {...data, createdAt: snap.data().createdAt});
+                else if (active) tx.set(ref, {...data, createdAt: stamp});
+            });
+            policy.applyAdjustment(row, active ? data : null);
+            el('pa-adjust').close(); render();
+            el('pa-message').textContent = (active ? 'Đã lưu chỉnh sửa cho liên kết: ' : 'Đã dùng lại công lương: ')+row.staffName+' · '+dateLabel(row.date)+'. Lương giáo viên không thay đổi.';
+        } catch (error) {
+            el('pa-adj-error').textContent = 'Chưa lưu được: '+(error.code === 'permission-denied' ? 'tài khoản không có quyền admin chính.' : error.message);
+        } finally { buttons.forEach(b => { b.disabled = false; }); }
     }
     async function exportExcel() {
         // Re-read before downloading so edits made in the standard editor are reflected.
@@ -206,7 +286,7 @@
             {name:'Chi tiết ngày công',widths:[7,15,30,30,12,12,12,14,14,15,60],headerRow:4,merges:['A1:K1','A2:K2'],rows:[
                 {cells:[{v:title,s:1}],ht:26},{cells:[{v:'Giờ công lấy từ dữ liệu đã đối chiếu; ca vắng / chưa cập nhật có 0 giờ.',s:2}]},{cells:[]},
                 {cells:['STT','Ngày','Môn học','Giáo viên','Cơ sở','Ca từ','Ca đến','Giờ vào','Giờ ra','Giờ công','Trạng thái công'].map(v=>({v,s:3}))},
-                ...rows.slice().sort((a,b)=>a.subjectName.localeCompare(b.subjectName,'vi')||a.date.localeCompare(b.date)||a.staffName.localeCompare(b.staffName,'vi')).map((row,i)=>({cells:[i+1,dateLabel(row.date),row.subjectName,row.staffName,row.branch.toUpperCase(),row.start,row.end,clock(row.checkIn),clock(row.checkOut),row.minutes/60,row.status].map((v,index)=>({v,s:index===9?6:9})),ht:28}))]}
+                ...rows.slice().sort((a,b)=>a.subjectName.localeCompare(b.subjectName,'vi')||a.date.localeCompare(b.date)||a.staffName.localeCompare(b.staffName,'vi')).map((row,i)=>({cells:[i+1,dateLabel(row.date),row.subjectName,row.staffName,row.branch.toUpperCase(),row.start,row.end,...inOut(row),row.minutes/60,row.status].map((v,index)=>({v,s:index===9?6:9})),ht:28}))]}
         ];
         const blob=PartnerAttendanceXlsx.build(sheets), url=URL.createObjectURL(blob), link=document.createElement('a');
         link.href=url;link.download=('Bang cong '+group.name+' '+state.loadedMonth).replace(/[\\/:*?"<>|]/g,'_')+'.xlsx';
@@ -231,9 +311,14 @@
             try{if(localStorage.getItem('paView')==='list')state.view='list';}catch(_){}
             ['calendar','list'].forEach(name=>{el('pa-view-'+name).setAttribute('aria-pressed',String(state.view===name));el('pa-view-'+name).addEventListener('click',()=>setView(name));});
             el('pa-prev').addEventListener('click',()=>shiftMonth(-1));el('pa-next').addEventListener('click',()=>shiftMonth(1));
-            el('pa-cal').addEventListener('click',event=>{const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url,button.dataset.title);});el('pa-subject').addEventListener('change',render);el('pa-search').addEventListener('input',render);
+            const onAction=event=>{const adjust=event.target.closest('[data-adjust]');if(adjust)return openAdjust(adjust.dataset.adjust);const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url);};
+            el('pa-cal').addEventListener('click',onAction);
+            el('pa-adj-status').addEventListener('change',()=>syncDialog(true));['pa-adj-in','pa-adj-out'].forEach(id=>el(id).addEventListener('change',()=>syncDialog(true)));
+            el('pa-adj-save').addEventListener('click',()=>saveAdjust(true));el('pa-adj-clear').addEventListener('click',()=>saveAdjust(false));
+            el('pa-adj-cancel').addEventListener('click',()=>el('pa-adjust').close());
+            el('pa-adj-payroll-link').addEventListener('click',event=>{event.preventDefault();el('pa-adjust').close();openEditor(el('pa-adj-payroll-link').href);});el('pa-subject').addEventListener('change',render);el('pa-search').addEventListener('input',render);
             el('pa-export').addEventListener('click',()=>exportExcel().catch(error=>{el('pa-message').textContent='Xuất Excel chưa thành công: '+error.message;}));
-            el('pa-body').addEventListener('click',event=>{const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url,button.dataset.title);});
+            el('pa-body').addEventListener('click',onAction);
             window.addEventListener('focus',()=>{if(editorOpened && !el('pa-reload').disabled){editorOpened=false;load();}});
             await load();
         } catch(error) {el('pa-message').textContent=error.message;setBusy(false);}

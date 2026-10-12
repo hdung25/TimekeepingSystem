@@ -1087,6 +1087,42 @@ service cloud.firestore {
             && data.get('remindOn', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')))
         && data.updatedAt == request.time;
     }
+    // Partner-only corrections for Bảng công liên kết. They change what the
+    // partner sees and exports, never attendance_logs or payroll. Soft-cleared
+    // with active=false so every change keeps its last author.
+    function isValidPartnerAdjustment(data, adjId) {
+      return data.keys().hasOnly(['staffId', 'date', 'month', 'rowKey', 'active', 'status',
+          'checkIn', 'checkOut', 'minutes', 'note', 'updatedByName', 'updatedByStaffId', 'updatedAt', 'createdAt'])
+        && data.staffId is string && data.staffId.size() > 0 && data.staffId.size() <= 80
+        && data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.month is string && data.month.matches('^[0-9]{4}-[0-9]{2}$')
+        && data.date.matches('^' + data.month + '-[0-9]{2}$')
+        && data.rowKey is string && data.rowKey.size() > 0 && data.rowKey.size() <= 300
+        && adjId.size() <= 400 && adjId.matches('^[A-Za-z0-9_-]+$')
+        && data.active is bool
+        && data.status in ['du', 'tre', 've-som', 'som', 'tang-ca', 'vp', 'vdx', 'vkp']
+        && data.checkIn is string && data.checkIn.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$|^$')
+        && data.checkOut is string && data.checkOut.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$|^$')
+        && data.minutes is int && data.minutes >= 0 && data.minutes <= 1440
+        && data.note is string && data.note.size() <= 500
+        && data.updatedByName is string && data.updatedByName.size() <= 160
+        && data.updatedByStaffId is string && data.updatedByStaffId.size() <= 80
+        && data.updatedAt == request.time;
+    }
+    match /partner_attendance_adjustments/{adjId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated() && isPrimaryAdmin()
+        && isValidPartnerAdjustment(request.resource.data, adjId)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAuthenticated() && isPrimaryAdmin()
+        && isValidPartnerAdjustment(request.resource.data, adjId)
+        && request.resource.data.staffId == resource.data.staffId
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.rowKey == resource.data.rowKey
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
     match /staff_notes/{noteId} {
       allow read: if isAuthenticated()
         && (isAdmin() || isCoreAssistant() || ownsStaffId(resource.data.get('staffId', '')));

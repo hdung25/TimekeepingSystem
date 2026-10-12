@@ -54,7 +54,12 @@
             const label = included.map(id => subjects.find(s => String(s.id) === id)?.name || id).join(' + ');
             const displayRange = String(chip.text || '').match(/(\d{1,2}:\d{2})\s*[–−-]\s*(\d{1,2}:\d{2})/);
             const branches = Array.from(new Set((chip.mergedSegments || []).map(segment=>segment.branch).filter(Boolean)));
-            rows.push({date, staffId: String(staff.id), staffName: staff.fullName || staff.name || staff.username || staff.id,
+            const rowStart = displayRange?.[1] || chip.classStart || chip.schedData?.start || source?.start || '';
+            const rowEnd = displayRange?.[2] || chip.classEnd || chip.schedData?.end || source?.end || '';
+            rows.push({date, staffId: String(staff.id),
+                // Stable identity of this class row for partner-only corrections.
+                rowKey: [chip.classCompositeKey || ((chip.branch || source?._branch || session.branch || 'cs') + '__' + date),
+                    chip.classSectionKey || '', chip.classIndex ?? '', rowStart, rowEnd, included.slice().sort().join('+')].join('|'), staffName: staff.fullName || staff.name || staff.username || staff.id,
                 subjectKey: included.slice().sort().join('+'), subjectName: label,
                 start: displayRange?.[1] || chip.classStart || chip.schedData?.start || source?.start || '',
                 end: displayRange?.[2] || chip.classEnd || chip.schedData?.end || source?.end || '',
@@ -89,6 +94,21 @@
         if (typeof value === 'object' && !(value instanceof Date)) return Object.values(value).some(item => mentionsAny(item, needles, depth + 1));
         return false;
     }
+    // Partner-only corrections: what the partner sees, never payroll.
+    const STATUS = {du: 'Đi đủ', tre: 'Đi trễ', 've-som': 'Về sớm', som: 'Đi sớm', 'tang-ca': 'Tăng ca',
+        vp: 'Vắng có phép', vdx: 'Vắng đột xuất', vkp: 'Vắng không phép'};
+    const ABSENT = new Set(['vp', 'vdx', 'vkp']);
+    const adjustmentId = row => (String(row.staffId) + '__' + row.date + '__' + row.rowKey).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 400);
+    // Recomputes the shown values from the payroll snapshot, so clearing restores them exactly.
+    function applyAdjustment(row, adjustment) {
+        if (!row.base) row.base = {minutes: row.minutes, status: row.status, worked: row.worked, ambiguous: row.ambiguous,
+            checkIn: row.checkIn, checkOut: row.checkOut, needsReview: row.needsReview};
+        Object.assign(row, row.base, {adjustment: null});
+        if (!adjustment || adjustment.active !== true || !STATUS[adjustment.status]) return row;
+        const minutes = Math.max(0, Math.min(1440, Math.round(Number(adjustment.minutes) || 0)));
+        return Object.assign(row, {adjustment, minutes, worked: minutes > 0, ambiguous: false, needsReview: false,
+            status: STATUS[adjustment.status] + (adjustment.note ? ' · ' + adjustment.note : '')});
+    }
     // Monday-first weeks for a 'YYYY-MM' month; days outside the month are null.
     function monthGrid(month) {
         const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(month));
@@ -106,6 +126,8 @@
     };
     // Visual state of one calendar entry; wording and colors stay in the page.
     function toneOf(row) {
+        const adjusted = row.adjustment?.status;
+        if (adjusted) return adjusted === 'vp' ? 'vp' : ABSENT.has(adjusted) ? 'vdx' : (adjusted === 'tre' || adjusted === 've-som') ? 'warn' : 'ok';
         const css = String(row.tone || '');
         if (/chip-absence-vp/.test(css)) return 'vp';
         if (/chip-absence-vdx|chip-red/.test(css)) return 'vdx';
@@ -116,6 +138,7 @@
         return 'off';
     }
     function flagsOf(row) {
+        if (row.adjustment) return [{kind: 'partner', text: 'Chỉnh riêng liên kết'}];
         const text = String(row.status || ''), flags = [];
         const late = /\(T(\d+)p\)/.exec(text), early = /\(V(\d+)p\)/.exec(text);
         if (late) flags.push({kind: 'late', text: 'Trễ ' + late[1] + 'p' + (row.manualLateMinutes > 0 && row.manualLateMinutes >= Number(late[1]) ? ' · tiếp tân ghi' : '')});
@@ -124,5 +147,5 @@
         if (/★\?/.test(text)) flags.push({kind: 'warn', text: 'Chờ duyệt sớm'});
         return flags;
     }
-    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, mentionsAny, monthGrid, formatMinutes, toneOf, flagsOf};
+    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, mentionsAny, STATUS, ABSENT, adjustmentId, applyAdjustment, monthGrid, formatMinutes, toneOf, flagsOf};
 });

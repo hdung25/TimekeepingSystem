@@ -43,3 +43,30 @@
  .pa-day-num small{display:inline;font-size:.8rem}.pa-day-num b{font-size:1.15rem}.pa-ci{font-size:.85rem;padding:10px}.pa-ci-name{font-size:.95rem}
  .pa-viewbar{flex-direction:column;align-items:stretch}.pa-views{width:100%}.pa-page .pa-views button{flex:1}
 }
+/* Partner-only corrections (v242) */
+.pa-hint-split b{color:#065f46}
+.pa-actions{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.pa-page .pa-actions button{width:100%;min-height:36px;padding:5px 8px;font-size:.75rem;white-space:normal;line-height:1.25}
+.pa-page button.pa-adjust{background:#059669;color:#fff;border-color:#059669}
+.pa-page button.pa-edit-payroll{background:rgba(255,255,255,.8);color:#92400e;border-color:#fcd34d;font-weight:600}
+.pa-page .pa-ci .pa-edit{margin-top:0}
+.pa-ci-payroll{font-size:.68rem;color:#6b7280;font-style:normal}.pa-ci-note{font-size:.7rem;font-style:italic}
+.pa-flag-partner{color:#6d28d9}
+.pa-table-wrap .pa-actions{min-width:150px}
+.pa-dialog{border:0;border-radius:16px;padding:0;width:min(520px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-shadow:0 20px 60px rgba(0,0,0,.25);color:#1f2937}
+.pa-dialog::backdrop{background:rgba(15,23,42,.45)}
+.pa-dialog form{display:flex;flex-direction:column;gap:12px;padding:20px;overflow:auto}
+.pa-dialog header h2{margin:0;font-size:1.15rem}.pa-dialog header p{margin:6px 0 0;color:#4b5563;font-size:.88rem;line-height:1.5}
+.pa-adj-safe{margin:0;padding:10px 12px;border-radius:10px;background:#ecfdf5;color:#065f46;font-size:.85rem;line-height:1.5}
+.pa-adj-payroll{margin:0;font-size:.8rem;color:#6b7280}
+.pa-dialog label{display:flex;flex-direction:column;gap:6px;font-size:.85rem;font-weight:600}
+.pa-dialog input,.pa-dialog select,.pa-dialog textarea,.pa-dialog button{min-height:44px;font:inherit;border-radius:10px;border:1px solid #d1d5db;padding:10px 12px;background:#fff;color:inherit;box-sizing:border-box;width:100%}
+.pa-dialog input:disabled{background:#f3f4f6;color:#9ca3af}
+.pa-dialog textarea{min-height:64px;resize:vertical}
+.pa-adj-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pa-adj-error{margin:0;min-height:1.2em;color:#b42318;font-size:.85rem}
+.pa-adj-actions{display:flex;gap:8px;flex-wrap:wrap}.pa-adj-actions button{flex:1;min-width:130px;font-weight:700;cursor:pointer}
+.pa-dialog button.pa-primary{background:#059669;color:#fff;border-color:#059669}
+.pa-adj-link{color:#92400e;font-size:.82rem;text-align:center;padding:8px;min-height:44px;display:flex;align-items:center;justify-content:center}
+.pa-dialog button:focus-visible,.pa-dialog input:focus-visible,.pa-dialog select:focus-visible,.pa-dialog textarea:focus-visible,.pa-adj-link:focus-visible{outline:3px solid #34d399;outline-offset:2px}
+@media(max-width:640px){.pa-adj-actions button{flex-basis:100%}.pa-dialog form{padding:16px}}

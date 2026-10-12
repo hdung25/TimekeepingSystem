@@ -62,6 +62,26 @@ assert.equal(policy.mentionsAny({"2026-10-01":[{role:"a",checkIn:new Date()}]},n
 assert.equal(policy.mentionsAny({d:[{lopId:"outside+a"}]},needles),true);
 assert.equal(policy.mentionsAny({d:[{adminPayrollOverride:{allocations:[{roleName:" vẽ vida "}]}}]},needles),true);
 assert.equal(policy.mentionsAny({d:[{role:"outside",note:"vẽ vida lớp khác",id:"abc"}]},needles),false,"free text and other ids do not match");
+// Partner-only corrections never touch the payroll snapshot and clear back to it exactly.
+const adjRow=policy.rowsForChips([{...base,text:'08:00–09:00 (T5p)',class:'chip-orange',classCompositeKey:'cs1__'+date,classSectionKey:'morning1',classIndex:3,paidMinutes:55}],{},staff,date,subjects,['a'])[0];
+assert.equal(adjRow.rowKey,'cs1__2026-09-01|morning1|3|08:00|09:00|a');
+assert.match(policy.adjustmentId(adjRow),/^teacher__2026-09-01__cs1__2026-09-01_morning1_3_08_00_09_00_a$/);
+assert.equal(policy.adjustmentId({...adjRow,rowKey:'x'.repeat(600)}).length,400);
+const payrollSnapshot=JSON.stringify({minutes:adjRow.minutes,status:adjRow.status,worked:adjRow.worked});
+policy.applyAdjustment(adjRow,{active:true,status:'vdx',minutes:0,checkIn:'',checkOut:'',note:'Báo nghỉ'});
+assert.equal(adjRow.minutes,0);assert.equal(adjRow.worked,false);assert.equal(adjRow.status,'Vắng đột xuất · Báo nghỉ');
+assert.equal(policy.toneOf(adjRow),'vdx');assert.deepEqual(policy.flagsOf(adjRow).map(f=>f.text),['Chỉnh riêng liên kết']);
+assert.equal(JSON.stringify({minutes:adjRow.base.minutes,status:adjRow.base.status,worked:adjRow.base.worked}),payrollSnapshot,'payroll snapshot kept');
+policy.applyAdjustment(adjRow,{active:true,status:'du',minutes:60,checkIn:'07:55',checkOut:'09:00',note:''});
+assert.equal(adjRow.minutes,60);assert.equal(policy.toneOf(adjRow),'ok');
+policy.applyAdjustment(adjRow,{active:false,status:'du',minutes:60});
+assert.equal(JSON.stringify({minutes:adjRow.minutes,status:adjRow.status,worked:adjRow.worked}),payrollSnapshot,'inactive correction restores payroll values');
+assert.equal(adjRow.adjustment,null);
+policy.applyAdjustment(adjRow,{active:true,status:'unknown',minutes:999});
+assert.equal(adjRow.minutes,55,'unknown status is ignored');
+const ambiguousRow={...adjRow,base:undefined,adjustment:undefined,ambiguous:true,minutes:0};
+policy.applyAdjustment(ambiguousRow,{active:true,status:'du',minutes:2000});
+assert.equal(ambiguousRow.minutes,1440);assert.equal(ambiguousRow.ambiguous,false,'an explicit correction resolves a mixed class for export');
 const writerContext={window:{},Blob,TextEncoder,Uint32Array,Uint8Array,DataView,ArrayBuffer,Date};
 vm.createContext(writerContext);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/partner-attendance-xlsx.js'),'utf8'),writerContext);
 (async()=>{
