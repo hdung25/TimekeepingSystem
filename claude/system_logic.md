@@ -989,3 +989,8 @@ là bảng 4 cột với nhãn dọc như cũ.
 - Chưa mở: công liên kết/tại nhà mới, alias editor, hồi tố/giữa tháng, worker push app đóng, XLSX mẫu mới. Hướng dẫn và TODO nêu rõ phần chờ cho phiên sau.
 
 **Kết quả phát hành 19/09/2026:** frontend `1976eb9`, deployment `dpl_9NesVxFVBur9vV8SShB2bpR7t4uh`, đúng alias production `timekeeping-system-tawny.vercel.app`; Rules `timekeeping-69f3f` deploy thành công và compiler không cảnh báo. 69 file npm test, emulator Rules/tài chính/công và 3 suite browser đều qua. HTTP14tệp khớp SHA256, mobile login/guard qua. GET sau deploy so với snapshot trước:112 tài liệu lương tháng +5 cấu hình cũ +74 môn +các trường chiếu76 hồ sơ không đổi. Chưa tạo hồ sơ xét production hoặc tự áp giá. Chi tiết/giới hạn ở release-checklist; file incident cũ vẫn giữ nguyên ngoài commit.
+
+
+### 16/10/2026 — v243: sửa kẹt lưu điều phối lớp gộp
+
+Hộp xác nhận đồng bộ lớp gộp phải nằm trên popup ca dạy. Sau khi ghi ca thành công, cập nhật baseline ngay; giữ khóa thao tác đến hết xác nhận/đồng bộ, luôn phục hồi nút lưu trước khi tải lại dữ liệu công. Lỗi bước sau không báo ca đã ghi là chưa lưu. Không đổi dữ liệu, rules hoặc tính lương. Kiểm thử hồi quy và Chrome desktop/mobile đạt; chi tiết: `release-schedule-save-20261016.md`.

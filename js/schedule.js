@@ -2743,7 +2743,7 @@ function syncTeacherShiftManagerChrome() {
     overlay.querySelectorAll('[data-action="close-manager"], [data-action="save-manager"]').forEach(control => {
         control.disabled = interactionLocked;
     });
-    if (attendanceLocked) {
+    if (interactionLocked) {
         overlay.querySelectorAll('#teacher-shift-manager-body button, #teacher-shift-manager-body input, #teacher-shift-manager-body select, #teacher-shift-manager-body textarea')
             .forEach(control => { control.disabled = true; });
     }
@@ -3154,6 +3154,7 @@ function handleTeacherShiftManagerClick(event) {
     const state = teacherShiftManagerState;
     const action = button.dataset.action;
     if (action === 'close-manager') return closeTeacherShiftManager();
+    if (state.saving) return;
     if (action === 'attendance-auth-retry') return retryTeacherAttendanceAuthorization(state);
     if (isAttendanceSaveInFlight(state)) {
         UIService.toast('Đang lưu công nguyên tử. Các thao tác khác tạm khóa để tránh lệch dữ liệu.', 'warning');
@@ -3794,11 +3795,14 @@ window.saveTeacherShiftCommand = async function () {
     }
     const saveButton = document.querySelector('[data-action="save-manager"]');
     const hadStaffingChanges = state.initialStaffingFingerprint !== teacherShiftManagerStaffingFingerprint(state);
+    let staffingCommitted = false;
+    let refreshAttendance = false;
     state.saving = true;
     if (saveButton) {
         saveButton.disabled = true;
         saveButton.innerHTML = '<span class="manager-spinner"></span> Đang lưu...';
     }
+    syncTeacherShiftManagerChrome();
     try {
         const mains = state.mainIds.map(id => ({
             id,
@@ -3865,46 +3869,60 @@ window.saveTeacherShiftCommand = async function () {
             },
             state.dayData
         );
-        state.saving = false;
+        staffingCommitted = true;
         scheduleLastMutationFailed = false;
-        const combinedSync = await syncCombinedClassAbsences(state, state.originalRow, committedRow, actor);
+        // The primary write is durable even while a follow-up confirmation or
+        // attendance refresh is pending. Rebase before either can wait/fail.
+        const beforeRow = state.originalRow;
+        state.originalRow = JSON.parse(JSON.stringify(committedRow));
+        state.originalMainIds = mains.map(item => String(item.id));
+        state.originalSubstituteIds = substitutes.map(item => String(item.id));
+        state.expectedStaffingUpdatedAt = committedRow.staffingUpdatedAt || '';
+        state.signature = scheduleRowSignature(committedRow);
+        state.shiftId = stableScheduleShiftLocatorId(state.compositeKey, state.caType, committedRow, state.index);
+        if (state.dayData?.[state.caType]?.[state.index]) {
+            state.dayData[state.caType][state.index] = JSON.parse(JSON.stringify(committedRow));
+        }
+        state.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(state);
+        if (saveButton) saveButton.innerHTML = '<span>✓</span> Đã lưu ca · đang đối chiếu lớp gộp';
+        const combinedSync = await syncCombinedClassAbsences(state, beforeRow, committedRow, actor);
         if (combinedSync.failed) {
             UIService.toast(`Đã lưu ca này nhưng chưa cập nhật được lớp gộp ${combinedSync.failed}. Hãy mở lớp đó và lưu lại trạng thái vắng.`, 'warning');
         } else if (combinedSync.updated) {
             UIService.toast(`Đã cập nhật cùng trạng thái cho lớp gộp: ${combinedSync.updated}.`, 'success');
         }
+        state.saving = false;
         if (teacherShiftManagerState === state && state.canEditAttendance && hadStaffingChanges) {
-            state.originalRow = JSON.parse(JSON.stringify(committedRow));
-            state.originalMainIds = mains.map(item => String(item.id));
-            state.originalSubstituteIds = substitutes.map(item => String(item.id));
-            state.expectedStaffingUpdatedAt = committedRow.staffingUpdatedAt || '';
-            state.signature = scheduleRowSignature(committedRow);
-            state.shiftId = stableScheduleShiftLocatorId(state.compositeKey, state.caType, committedRow, state.index);
-            if (state.dayData?.[state.caType]?.[state.index]) {
-                state.dayData[state.caType][state.index] = JSON.parse(JSON.stringify(committedRow));
-            }
             const newlyAssignedIds = [...state.originalMainIds, ...state.originalSubstituteIds]
                 .filter(id => !state.attendance.teacherIds.includes(id));
             state.attendance.teacherIds = Array.from(new Set([...state.originalMainIds, ...state.originalSubstituteIds]));
             state.attendance.selectedId = newlyAssignedIds[0] || state.attendance.selectedId || state.attendance.teacherIds[0] || '';
             state.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(state);
             UIService.toast('Đã lưu phân công. Bạn có thể nhập công ngay cho nhân sự vừa thêm ở bước 3.', 'success');
-            await loadAdminAttendanceEditor(state);
-            await renderTable();
-            return;
+            refreshAttendance = true;
+        } else {
+            if (teacherShiftManagerState === state) closeTeacherShiftManager(true);
+            UIService.toast('Đã lưu điều phối ca và đồng bộ trạng thái GV.', 'success');
         }
-        if (teacherShiftManagerState === state) closeTeacherShiftManager(true);
-        UIService.toast('Đã lưu điều phối ca và đồng bộ trạng thái GV.', 'success');
-        await renderTable();
     } catch (error) {
         console.error('Lỗi lưu điều phối ca:', error);
-        scheduleLastMutationFailed = true;
+        scheduleLastMutationFailed = !staffingCommitted;
+        UIService.toast(staffingCommitted
+            ? 'Đã lưu ca này, nhưng chưa hoàn tất đối chiếu lớp gộp hoặc tải lại giao diện. Hãy tải lại lịch để kiểm tra.'
+            : (error.message || 'Không thể lưu điều phối ca.'), staffingCommitted ? 'warning' : 'error');
+    } finally {
         state.saving = false;
-        if (saveButton) {
+        if (teacherShiftManagerState === state && saveButton) {
             saveButton.disabled = false;
             saveButton.innerHTML = '<span>✓</span> Lưu điều phối ca';
         }
-        UIService.toast(error.message || 'Không thể lưu điều phối ca.', 'error');
+        if (teacherShiftManagerState === state) renderTeacherShiftManager();
+    }
+    // Read-only refreshes run after releasing this write's controls; an older
+    // refresh must never unlock a newer save in its finally block.
+    if (staffingCommitted) {
+        if (refreshAttendance && teacherShiftManagerState === state) await loadAdminAttendanceEditor(state);
+        await renderTable();
     }
 };
 

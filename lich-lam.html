@@ -419,6 +419,15 @@
             overflow: hidden;
         }
 
+        /* Follow-up confirmations must remain clickable above the shift editor. */
+        body.teacher-shift-modal-open .custom-modal-backdrop {
+            z-index: 10040;
+        }
+
+        body.teacher-shift-modal-open .toast-container {
+            z-index: 10050;
+        }
+
         .teacher-shift-overlay {
             position: fixed;
             inset: 0;
@@ -2750,7 +2759,7 @@
     </div>
     <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script><script src="js/search-keynav.js?v=20261013-partner-adjust-v1"></script>
     <script src="js/main.js?v=20261007-review-edit-v1"></script>
-    <script src="js/schedule.js?v=20261008-owner-round-v1"></script>
+    <script src="js/schedule.js?v=20261016-save-followup-v1"></script>
     <script src="js/center-holidays.js?v=20260927-holidays-v1"></script>
     <script src="js/schedule-inheritance.js?v=20260929-inherit-v1"></script>
     <script src="js/schedule-teacher-finder.js?v=20261001-finder-v1"></script>

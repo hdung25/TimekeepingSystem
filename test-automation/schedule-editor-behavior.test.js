@@ -507,6 +507,93 @@ test('copy freezes its source week/branch and reports partial success without ov
     assert.equal(h.run('scheduleMutationsPending.size'), 0);
 });
 
+
+function staffingSaveHarness({ admin = false } = {}) {
+    const h = harness();
+    h.context.TeacherShiftState = require('../js/teacher-shift-state.js');
+    const original = row('shift-a');
+    h.store.set('schedules/' + key, { morning1: [original, row('shift-b', { lop: 'UP 2' })] });
+    h.run(`teacherShiftManagerState = {
+        compositeKey: '${key}', caType: 'morning1', index: 0, dateKey: '${day}',
+        dayData: ${JSON.stringify(h.store.get('schedules/' + key))},
+        originalRow: ${JSON.stringify(original)}, shiftId: 'shift-a', signature: scheduleRowSignature(${JSON.stringify(original)}),
+        expectedStaffingUpdatedAt: '', teacherById: new Map([['teacher-1', { id: 'teacher-1', name: 'Teacher' }]]),
+        mainIds: ['teacher-1'], mainMeta: {}, statuses: { 'teacher-1': { type: 'ACTIVE' } },
+        substituteIds: [], substituteById: new Map(), originalMainIds: ['teacher-1'], originalSubstituteIds: [],
+        canEditAttendance: ${admin}, saving: false,
+        attendance: { teacherIds: ['teacher-1'], selectedId: 'teacher-1', savingId: '', entries: new Map(), loading: false }
+    };
+    teacherShiftManagerState.initialStaffingFingerprint = teacherShiftManagerStaffingFingerprint(teacherShiftManagerState);
+    teacherShiftManagerState.statuses['teacher-1'] = { type: 'VDX', reason: 'fixture' };
+    teacherShiftManagerState.attendance.entries.set('teacher-1', { draft: {} });`);
+    h.context.ScheduleAttendanceAdmin = { workedAttendanceConflictForShift: () => null };
+    const button = { disabled: false, innerHTML: 'Lưu điều phối ca' };
+    h.context.document.querySelector = selector => selector === '[data-action="save-manager"]' ? button : null;
+    h.button = button;
+    return h;
+}
+
+test('combined-class confirmation keeps the saved baseline and blocks duplicate save/close until answered', async () => {
+    for (const accepted of [true, false]) {
+        const h = staffingSaveHarness(), answer = deferred();
+        let confirms = 0;
+        h.context.UIService.confirm = () => { confirms++; return answer.promise; };
+        const saving = h.context.saveTeacherShiftCommand();
+        while (!confirms) await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.store.get('schedules/' + key).morning1[0].teacherAbsences[0].type, 'VDX');
+        assert.equal(h.run('teacherShiftManagerHasUnsavedChanges()'), false, 'durable primary write is acknowledged before confirmation');
+        assert.equal(h.run('teacherShiftManagerState.saving'), true);
+        assert.match(h.button.innerHTML, /Đã lưu ca/);
+        assert.equal(h.context.closeTeacherShiftManager(), false);
+        const before = h.writes.length;
+        await h.context.saveTeacherShiftCommand();
+        assert.equal(h.writes.length, before);
+        answer.resolve(accepted);
+        await saving;
+        assert.equal(h.run('teacherShiftManagerState'), null);
+        assert.equal(h.store.get('schedules/' + key).morning1[1].teacherAbsences?.[0]?.type, accepted ? 'VDX' : undefined);
+    }
+});
+
+test('failed primary save preserves the draft and always releases the save controls', async () => {
+    const h = staffingSaveHarness();
+    h.service.updateScheduleRowAtomic = async () => { throw new Error('permission-denied'); };
+    await h.context.saveTeacherShiftCommand();
+    assert.equal(h.run('teacherShiftManagerState.saving'), false);
+    assert.equal(h.run('teacherShiftManagerHasUnsavedChanges()'), true);
+    assert.equal(h.button.disabled, false);
+    assert.match(h.button.innerHTML, /Lưu điều phối ca/);
+    assert.equal(h.writes.length, 0);
+    assert.equal(h.messages.at(-1).type, 'error');
+});
+
+test('failed follow-up does not label the committed primary schedule as unsaved', async () => {
+    const h = staffingSaveHarness();
+    h.context.UIService.confirm = async () => { throw new Error('follow-up unavailable'); };
+    await h.context.saveTeacherShiftCommand();
+    assert.equal(h.run('teacherShiftManagerState.saving'), false);
+    assert.equal(h.run('teacherShiftManagerHasUnsavedChanges()'), false);
+    assert.equal(h.run('scheduleLastMutationFailed'), false);
+    assert.equal(h.button.disabled, false);
+    assert.match(h.messages.at(-1).text, /Đã lưu ca này/);
+    assert.equal(h.messages.at(-1).type, 'warning');
+    assert.equal(h.context.closeTeacherShiftManager(), true);
+});
+
+test('admin attendance refresh can remain pending after staffing saves without a stale saving button', async () => {
+    const h = staffingSaveHarness({ admin: true }), refresh = deferred();
+    h.run('loadAdminAttendanceEditor = async function () { await window.refreshPromise; };');
+    h.context.refreshPromise = refresh.promise;
+    const saving = h.context.saveTeacherShiftCommand();
+    while (h.run('teacherShiftManagerState.saving') || h.run('teacherShiftManagerHasUnsavedChanges()')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.doesNotMatch(h.button.innerHTML, /Đang lưu/);
+    assert.equal(h.context.closeTeacherShiftManager(), true, 'a read-only refresh must not trap the user');
+    refresh.resolve();
+    await saving;
+});
+
 async function verifyBrowserControls() {
     const puppeteer = require('puppeteer-core');
     const executablePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -572,6 +659,31 @@ async function verifyBrowserControls() {
             assert.deepEqual(errors, []);
             assert.deepEqual(await page.evaluate(() => fixtureMessages.filter(message => message.type === 'error')), []);
             console.log(`PASS actual browser controls: ${role}, add/subject/note/delete/close/reopen/date link`);
+            await page.close();
+        }
+        // Real production CSS + real UIService: the follow-up dialog used to
+        // be hidden at z-index 10000 underneath the staffing editor (10020).
+        for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
+            const page = await browser.newPage();
+            await page.setViewport(viewport);
+            const html = fs.readFileSync(path.join(root, 'lich-lam.html'), 'utf8');
+            const inlineStyles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join('\n');
+            await page.setContent('<body class="teacher-shift-modal-open"><div class="teacher-shift-overlay" id="gv-picker-overlay"><div class="teacher-shift-dialog">Lịch lớp gộp</div></div></body>');
+            await page.addStyleTag({ content: fs.readFileSync(path.join(root, 'css/style.css'), 'utf8') + '\n' + inlineStyles });
+            await page.addScriptTag({ content: fs.readFileSync(path.join(root, 'js/ui-service.js'), 'utf8') });
+            for (const accept of [true, false]) {
+                await page.evaluate(() => { window.confirmationResult = null; UIService.confirm('Đồng bộ trạng thái vắng cho lớp gộp?').then(value => { window.confirmationResult = value; }); });
+                const selector = accept ? '#modal-confirm-btn' : '#modal-cancel-btn';
+                assert.equal(await page.$eval(selector, el => {
+                    const box = el.getBoundingClientRect();
+                    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el;
+                }), true, 'follow-up button must receive real pointer input above staffing overlay');
+                await page.click(selector);
+                await page.waitForFunction(() => window.confirmationResult !== null);
+                assert.equal(await page.evaluate(() => window.confirmationResult), accept);
+                assert.ok(await page.$('#gv-picker-overlay'), 'confirmation must not discard the staffing editor');
+            }
+            console.log('PASS real stacked confirmation: ' + viewport.width + 'px, accept and cancel are clickable');
             await page.close();
         }
     } finally { await browser.close(); }
