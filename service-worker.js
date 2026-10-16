@@ -1,8 +1,8 @@
-// Service Worker v243 - visible schedule follow-up confirmations and accurate save state.
+// Service Worker v244 - reliable schedule row deletion and unordered Firestore map comparison.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v243-schedule-save-20261016';
+const APP_RELEASE = 'tdt-chamcong-v244-schedule-delete-20261016';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -79,7 +79,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20261016-save-followup-v1',
+    '/js/schedule.js?v=20261016-delete-v1',
     '/js/center-holidays.js?v=20260927-holidays-v1',
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',

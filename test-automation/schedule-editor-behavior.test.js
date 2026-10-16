@@ -154,6 +154,86 @@ test('a replaced row with the same signature cannot receive the old row edit on 
     assert.equal(h.messages.at(-1).type, 'error');
 });
 
+
+test('delete waits for a pending room edit on the same row instead of dropping the click', async () => {
+    const h = harness(), original = row('a'), write = deferred();
+    h.store.set('schedules/' + key, { morning1: [original, row('b')] });
+    const update = h.service.updateScheduleRowAtomic;
+    h.service.updateScheduleRowAtomic = async (...args) => { await write.promise; return update(...args); };
+    const editing = h.context.updateRow(key, 'morning1', 0, 'phong', 'P15', h.locator(original));
+    while (!h.run('scheduleMutationsPending.size')) await new Promise(resolve => setImmediate(resolve));
+    const deleting = h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+    await new Promise(resolve => setImmediate(resolve));
+    write.resolve();
+    await Promise.all([editing, deleting]);
+    assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['b']);
+    assert.equal(h.messages.filter(item => item.type === 'error').length, 0);
+});
+
+test('delete rebases the same-page subject commit before checking the server row', async () => {
+    const h = harness(), original = row('a');
+    h.store.set('schedules/' + key, { morning1: [original, row('b')] });
+    h.context._subjectList = [{ name: 'E6', id: 'e6' }];
+    await h.context.updateSubjectRow(key, 'morning1', 0, 'E6', h.locator(original));
+    await h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+    assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['b']);
+});
+
+
+test('delete compares nested Firestore map values independently of field order', async () => {
+    const h = harness();
+    const actual = row('a', { gvList: [{ id: 'teacher-1', name: 'Teacher' }],
+        teacherAbsenceHistory: [{ actor: { id: 'manager', name: 'Manager' }, type: 'restored' }] });
+    h.store.set('schedules/' + key, { morning1: [actual, row('keep')], evening2: [row('other-section')] });
+    h.service.getSchedule = async () => ({ morning1: [{ ...actual,
+        gvList: [{ name: 'Teacher', id: 'teacher-1' }],
+        teacherAbsenceHistory: [{ type: 'restored', actor: { name: 'Manager', id: 'manager' } }] }, row('keep')] });
+    await h.context.deleteRow(key, 'morning1', 0, h.locator(actual));
+    assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['keep']);
+    assert.equal(h.store.get('schedules/' + key).evening2[0].shiftId, 'other-section');
+    assert.equal(h.messages.filter(item => item.type === 'error').length, 0);
+});
+
+test('delete still blocks a real nested roster or history change during confirmation/retry', async () => {
+    for (const field of ['gvList', 'teacherAbsenceHistory']) {
+        const h = harness(), original = row('a', { teacherAbsenceHistory: [{ type: 'original' }] });
+        h.store.set('schedules/' + key, { morning1: [original, row('keep')] });
+        h.race(store => { store.get('schedules/' + key).morning1[0][field] = field === 'gvList'
+            ? [{ id: 'another-teacher', name: 'Other' }] : [{ type: 'changed' }]; });
+        await h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+        assert.equal(h.writes.length, 0);
+        assert.equal(h.store.get('schedules/' + key).morning1.length, 2);
+        assert.equal(h.messages.at(-1).type, 'error');
+    }
+});
+
+test('repeated delete clicks share one queued confirmation and never delete the following row', async () => {
+    const h = harness(), original = row('a'), answer = deferred();
+    h.store.set('schedules/' + key, { morning1: [original, row('keep')] });
+    let confirms = 0;
+    h.context.UIService.confirm = () => { confirms++; return answer.promise; };
+    const first = h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+    const second = h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+    assert.equal(first, second);
+    while (!confirms) await new Promise(resolve => setImmediate(resolve));
+    answer.resolve(true);
+    await Promise.all([first, second]);
+    assert.equal(confirms, 1);
+    assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['keep']);
+});
+
+test('same-page legacy ID materialization is scoped to its date and section', async () => {
+    const h = harness(), original = row('');
+    h.store.set('schedules/' + key, { morning1: [original] });
+    await h.context.updateRow(key, 'morning1', 0, 'phong', 'P15', h.locator(original));
+    const otherKey = 'cs2__2026-09-14';
+    h.store.set('schedules/' + otherKey, { morning1: [{ ...original, phong: 'P15' }] });
+    await h.context.deleteRow(otherKey, 'morning1', 0, h.locator(original));
+    assert.equal(h.store.get('schedules/' + otherKey).morning1.length, 1, 'another branch cannot borrow the first branch commit');
+    await h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+    assert.equal(h.store.get('schedules/' + key).morning1.length, 0);
+});
+
 test('delete safely recovers when an unchanged inherited row is re-keyed after an earlier class moves', async () => {
     const h = harness();
     const rendered = row('shift_inherited_old_key', { note: 'keep identity', soHS: 8 });
@@ -193,8 +273,10 @@ test('delete and subject edit follow the rendered row instead of a reused array 
     h.context._subjectList = [{ name: 'E6', id: 'e6' }];
     await h.context.updateSubjectRow(key, 'morning1', 0, 'E6', h.locator(a));
     assert.equal(h.store.get(`schedules/${key}`).morning1[1].lopId, 'e6');
+    // A same-page commit is rebased; a later external edit must still block it.
+    h.store.get(`schedules/${key}`).morning1[1].phong = 'P99';
     await h.context.deleteRow(key, 'morning1', 0, h.locator(a));
-    assert.equal(h.store.get(`schedules/${key}`).morning1.length, 2, 'old signature cannot delete a changed class');
+    assert.equal(h.store.get(`schedules/${key}`).morning1.length, 2, 'an external change cannot be hidden by a same-page rebase');
     const updated = h.store.get(`schedules/${key}`).morning1[1];
     await h.context.deleteRow(key, 'morning1', 0, h.locator(updated));
     assert.deepEqual(h.store.get(`schedules/${key}`).morning1.map(item => item.shiftId), ['b']);
@@ -632,6 +714,7 @@ async function verifyBrowserControls() {
                     updateScheduleRowAtomic: async (_key, section, locator, apply) => {
                         const index = fixtureRows[section].findIndex(row => row.shiftId === locator.shiftId);
                         fixtureRows[section][index] = apply(structuredClone(fixtureRows[section][index]));
+                        return structuredClone(fixtureRows[section][index]);
                     }
                 };
             }, role);
@@ -650,7 +733,23 @@ async function verifyBrowserControls() {
             await page.keyboard.press('Tab');
             await page.waitForFunction(note => fixtureRows.morning1[0].note === note && !document.getElementById('table-body').inert, {}, note);
             assert.equal(await page.$eval('[data-field="note"] input', el => el.value), note);
+            await page.evaluate(() => {
+                fixtureRows.morning1[0].gvList = [{ id: 'fixture-teacher', name: 'Teacher' }];
+                fixtureRows.morning1[0].teacherAbsenceHistory = [{ type: 'restored', actor: { id: 'manager', name: 'Manager' } }];
+                DBService.getSchedule = async () => JSON.parse(JSON.stringify(fixtureRows, (_key, value) =>
+                    value && typeof value === 'object' && !Array.isArray(value)
+                        ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, value[key]])) : value));
+                const update = DBService.updateScheduleRowAtomic;
+                DBService.updateScheduleRowAtomic = async (...args) => {
+                    await new Promise(resolve => { window.fixtureReleaseWrite = resolve; });
+                    return update(...args);
+                };
+            });
+            await page.type('[data-field="room"] input', '15');
             await page.click('button[title="Xóa lớp"]');
+            await page.waitForFunction(() => typeof fixtureReleaseWrite === 'function');
+            assert.equal(await page.evaluate(() => fixtureRows.morning1.length), 1, 'delete waits for the room write');
+            await page.evaluate(() => fixtureReleaseWrite());
             await page.waitForFunction(() => fixtureRows.morning1.length === 0 && !document.getElementById('table-body').inert);
             await page.click('.section-header input[type="checkbox"]');
             await page.waitForFunction(() => fixtureSettings.centerClosures['2099-09-14']?.includes('morning1') && !document.getElementById('table-body').inert);
@@ -658,7 +757,7 @@ async function verifyBrowserControls() {
             await page.waitForFunction(() => fixtureSettings.centerClosures['2099-09-14']?.length === 0 && !document.getElementById('table-body').inert);
             assert.deepEqual(errors, []);
             assert.deepEqual(await page.evaluate(() => fixtureMessages.filter(message => message.type === 'error')), []);
-            console.log(`PASS actual browser controls: ${role}, add/subject/note/delete/close/reopen/date link`);
+            console.log(`PASS actual browser controls: ${role}, add/subject/note/room-then-delete/unordered-roster/close/reopen/date link`);
             await page.close();
         }
         // Real production CSS + real UIService: the follow-up dialog used to

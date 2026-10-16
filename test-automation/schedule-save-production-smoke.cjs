@@ -12,7 +12,7 @@ const assets = ['lich-lam.html', 'js/schedule.js', 'service-worker.js', 'js/db-s
     'js/report.js', 'js/timekeeping.js', 'js/partner-attendance.js', 'js/main.js', 'bao-cao.html', 'cham-cong.html'];
 (async () => {
     const results = await Promise.allSettled(assets.map(async file => {
-        const response = await fetch(`${origin}/${file}?smoke=v243`, { signal: AbortSignal.timeout(25000), cache: 'no-store' });
+        const response = await fetch(`${origin}/${file}?smoke=v244`, { signal: AbortSignal.timeout(25000), cache: 'no-store' });
         assert.equal(response.status, 200, file);
         assert.equal(hash(Buffer.from(await response.arrayBuffer())), hash(fs.readFileSync(path.join(root, file))), file);
     }));
@@ -47,5 +47,5 @@ const assets = ['lich-lam.html', 'js/schedule.js', 'service-worker.js', 'js/db-s
             await page.close();
         }
     } finally { await browser.close(); }
-    console.log('PASS production v243: 14 asset hashes match; desktop/mobile login redirects; no data writes or page errors');
+    console.log('PASS production v244: 14 asset hashes match; desktop/mobile login redirects; no data writes or page errors');
 })().catch(error => { console.error(error); process.exitCode = 1; });

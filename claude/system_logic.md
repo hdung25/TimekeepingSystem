@@ -994,3 +994,8 @@ là bảng 4 cột với nhãn dọc như cũ.
 ### 16/10/2026 — v243: sửa kẹt lưu điều phối lớp gộp
 
 Hộp xác nhận đồng bộ lớp gộp phải nằm trên popup ca dạy. Sau khi ghi ca thành công, cập nhật baseline ngay; giữ khóa thao tác đến hết xác nhận/đồng bộ, luôn phục hồi nút lưu trước khi tải lại dữ liệu công. Lỗi bước sau không báo ca đã ghi là chưa lưu. Không đổi dữ liệu, rules hoặc tính lương. Kiểm thử hồi quy và Chrome desktop/mobile đạt; chi tiết: `release-schedule-save-20261016.md`.
+
+
+### 16/10/2026 — v244: sửa xóa dòng lớp báo xung đột giả
+
+So sánh nội dung dòng phải chuẩn hóa đệ quy thứ tự khóa map Firestore; giữ nguyên thứ tự array và nội dung thật. Xóa chờ các lần sửa ô cùng dòng, gộp lần bấm trùng và nối đúng commit do trang vừa ghi, giới hạn theo ngày/cơ sở/nhóm ca. Giữ kiểm tra transaction và không xóa lớp có chấm công. Không sửa dữ liệu production; xem `release-schedule-delete-20261016.md`.

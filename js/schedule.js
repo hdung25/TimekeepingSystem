@@ -1184,7 +1184,7 @@ async function updateScheduleRowField(compositeKey, caType, index, field, value,
     if (!beginScheduleMutation(mutationKey, { lockTable: false })) return;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, rebaseScheduleLocator(renderedLocator));
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, rebaseScheduleLocator(renderedLocator, compositeKey, caType));
         const expectedValue = locator.values?.[field] ?? row[field] ?? '';
         const committed = await DBService.updateScheduleRowAtomic(
             compositeKey,
@@ -1211,7 +1211,7 @@ async function updateScheduleRowField(compositeKey, caType, index, field, value,
             },
             dayData
         );
-        rememberScheduleRowCommit(row, committed);
+        rememberScheduleRowCommit(row, committed, compositeKey, caType, locator.index);
         scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
@@ -1220,12 +1220,26 @@ async function updateScheduleRowField(compositeKey, caType, index, field, value,
     }
 }
 
-window.deleteRow = async function (compositeKey, caType, index, renderedLocator) {
+window.deleteRow = function (compositeKey, caType, index, renderedLocator) {
     const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    if (scheduleRowDeleteRequests.has(mutationKey)) return scheduleRowDeleteRequests.get(mutationKey);
+    // A blur/change event may have just queued an edit for this row. Preserve
+    // the delete click and resolve its identity after those writes finish.
+    const deleting = queueScheduleRowEdit(mutationKey, () =>
+        deleteScheduleRow(compositeKey, caType, index, renderedLocator, mutationKey));
+    const request = deleting.finally(() => {
+        if (scheduleRowDeleteRequests.get(mutationKey) === request) scheduleRowDeleteRequests.delete(mutationKey);
+    });
+    scheduleRowDeleteRequests.set(mutationKey, request);
+    return request;
+};
+
+async function deleteScheduleRow(compositeKey, caType, index, renderedLocator, mutationKey) {
     if (!beginScheduleMutation(mutationKey)) return;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, renderedLocator);
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index,
+            rebaseScheduleLocator(renderedLocator, compositeKey, caType));
         const classLabel = `${scheduleEscapeHTML(row.lop || '(chưa chọn môn)')} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)} ngày ${scheduleEscapeHTML(compositeKey.split('__').pop())}`;
         // A started/past class may be removed only while it has no worked
         // attendance; that is verified again inside the delete transaction.
@@ -1260,7 +1274,7 @@ window.deleteRow = async function (compositeKey, caType, index, renderedLocator)
     } finally {
         await finishScheduleMutation(mutationKey);
     }
-};
+}
 
 window.saveScheduleManual = function () {
     if (scheduleMutationsPending.size || teacherShiftManagerState?.saving) {
@@ -1400,7 +1414,7 @@ async function updateScheduleRowSubject(compositeKey, caType, index, subjectName
     if (!beginScheduleMutation(mutationKey, { lockTable: false })) return;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, rebaseScheduleLocator(renderedLocator));
+        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index, rebaseScheduleLocator(renderedLocator, compositeKey, caType));
         const committed = await DBService.updateScheduleRowAtomic(
             compositeKey,
             caType,
@@ -1417,7 +1431,7 @@ async function updateScheduleRowSubject(compositeKey, caType, index, subjectName
             },
             dayData
         );
-        rememberScheduleRowCommit(row, committed);
+        rememberScheduleRowCommit(row, committed, compositeKey, caType, locator.index);
         scheduleLastMutationFailed = false;
     } catch (error) {
         showScheduleMutationError(error);
@@ -1537,7 +1551,13 @@ function scheduleRowContentFingerprint(row) {
         .filter(key => !projectionFields.has(key) && key !== 'registeredTeachers')
         .map(key => [key, row[key]]));
     stored.registeredTeachers = (row.registeredTeachers || []).filter(item => item.registrationSource !== 'schedule_registrations');
-    return JSON.stringify(stored);
+    // Firestore maps are unordered, including maps nested in teacher lists and
+    // audit history. Compare values, never their wire/object insertion order.
+    // Array order still matters and real content changes must still conflict.
+    return JSON.stringify(stored, (_key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
+            : value);
 }
 
 function beginScheduleMutation(key, options = {}) {
@@ -1565,6 +1585,7 @@ async function finishScheduleMutation(key) {
 
 const scheduleLockingMutations = new Set();
 const scheduleRowEditQueues = new Map();
+const scheduleRowDeleteRequests = new Map();
 const scheduleOwnRowCommits = [];
 let scheduleSaveStatusTimer = null;
 
@@ -1581,24 +1602,28 @@ function queueScheduleRowEdit(key, task) {
 // kiểm tra xung đột (data-row-locator) nó mang theo là bản TRƯỚC lần lưu của chính mình.
 // Chỉ "nối" sang bản mới khi mốc cũ khớp đúng bản trước một lần lưu do trang này vừa ghi,
 // nên sửa của người khác vẫn bị chặn như cũ.
-function rememberScheduleRowCommit(before, after) {
+function rememberScheduleRowCommit(before, after, compositeKey, section, index) {
     if (!before || !after || typeof after !== 'object') return;
-    scheduleOwnRowCommits.push({ shiftId: String(before.shiftId || ''), before: { ...before }, after: { ...after } });
+    scheduleOwnRowCommits.push({ compositeKey, section, index,
+        shiftId: String(before.shiftId || ''), before: { ...before }, after: { ...after } });
     if (scheduleOwnRowCommits.length > 40) scheduleOwnRowCommits.shift();
 }
 
-function rebaseScheduleLocator(renderedLocator) {
+function rebaseScheduleLocator(renderedLocator, compositeKey, section) {
     if (!renderedLocator || !scheduleOwnRowCommits.length) return renderedLocator;
     let locator;
     try { locator = JSON.parse(renderedLocator); } catch (_) { return renderedLocator; }
     let rebased = false;
     for (let step = 0; step < scheduleOwnRowCommits.length; step += 1) {
         const commit = [...scheduleOwnRowCommits].reverse().find(item =>
+            item.compositeKey === compositeKey && item.section === section &&
             item.shiftId === String(locator.shiftId || '') &&
-            String(item.after.shiftId || '') === item.shiftId &&
+            (item.shiftId || item.index === locator.index) &&
+            (!item.shiftId || String(item.after.shiftId || '') === item.shiftId) &&
             scheduleRowSignature(item.before) === locator.signature &&
             scheduleRenderedValuesMatch(item.before, locator.values) &&
-            !(scheduleRowSignature(item.after) === locator.signature && scheduleRenderedValuesMatch(item.after, locator.values)));
+            !(String(item.after.shiftId || '') === String(locator.shiftId || '') &&
+                scheduleRowSignature(item.after) === locator.signature && scheduleRenderedValuesMatch(item.after, locator.values)));
         if (!commit) break;
         locator = scheduleEditLocator(commit.after, locator.index);
         rebased = true;
