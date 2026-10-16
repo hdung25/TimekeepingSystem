@@ -503,7 +503,18 @@ function openStaffDropdown() {
     const input = document.getElementById('staff-search-input');
     if (!list) return;
     list.style.display = 'block';
-    if (input) input.style.borderColor = 'var(--primary-color)';
+    if (input) {
+        input.style.borderColor = 'var(--primary-color)';
+        // Ô tìm đang chứa tên người đang xem; trên điện thoại ô hẹp nên chữ gõ thêm bị
+        // nối sau tên cũ ("Nhàn…abc") và không bao giờ khớp. Mở ô tìm = ô trống, tên
+        // đang xem chuyển thành gợi ý; đóng mà không chọn ai thì trả lại tên.
+        if (input.dataset.searching !== '1') {
+            input.dataset.searching = '1';
+            if (input.value) input.placeholder = input.value;
+            input.value = '';
+            filterStaffDropdown('');
+        }
+    }
 
     // Close when clicking outside
     setTimeout(() => {
@@ -527,19 +538,37 @@ function closeStaffDropdown() {
     const list = document.getElementById('staff-dropdown-list');
     const input = document.getElementById('staff-search-input');
     if (list) list.style.display = 'none';
-    if (input) input.style.borderColor = 'var(--border-color)';
+    if (input) {
+        input.style.borderColor = 'var(--border-color)';
+        if (input.dataset.searching === '1') {
+            delete input.dataset.searching;
+            const selectedId = document.getElementById('staff-select')?.value || '';
+            const selected = (window._allStaffList || []).find(u => u.id === selectedId);
+            input.value = selected ? (selected.name || selected.username || '') : '';
+            input.placeholder = 'Tìm tên hoặc mã nhân viên...';
+            if (document.activeElement === input) input.blur();
+        }
+    }
+}
+
+// Bỏ dấu cả khi bàn phím điện thoại gửi dấu tổ hợp (NFD), và chữ đ/Đ.
+function normalizeStaffSearchText(value) {
+    return String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[đĐ]/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// Mọi từ gõ vào đều phải có trong tên hoặc mã: "nhan 20", "20", "ngoc anh" đều ra.
+function staffMatchesSearch(user, query) {
+    const tokens = normalizeStaffSearchText(query).split(' ').filter(Boolean);
+    if (!tokens.length) return true;
+    const haystack = normalizeStaffSearchText(`${user?.name || ''} ${user?.username || ''}`);
+    return tokens.every(token => haystack.includes(token));
 }
 
 function filterStaffDropdown(query) {
     const listToSearch = window._filteredStaffList || window._allStaffList || [];
     // Không phân biệt hoa/thường và dấu: gõ "lan" vẫn ra "Lân", "Lan".
-    const q = normalizeSubjectSearchText(query);
-    const filtered = q
-        ? listToSearch.filter(u =>
-            normalizeSubjectSearchText(u.name).includes(q) ||
-            normalizeSubjectSearchText(u.username).includes(q)
-        )
-        : listToSearch;
+    const filtered = listToSearch.filter(u => staffMatchesSearch(u, query));
 
     renderStaffDropdownItems(filtered.filter(u => !(u.role === 'admin' && u.username === 'admin')));
 

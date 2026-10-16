@@ -146,7 +146,7 @@ function requestClassClosureReason(row, dateKey, isClosed) {
 
 window.toggleClassClosure = async function (compositeKey, caType, index, isChecked, renderedLocator) {
     if (window.__classClosurePending) return;
-    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    const mutationKey = scheduleRowMutationKey(compositeKey, caType, index, renderedLocator);
     if (!beginScheduleMutation(mutationKey)) return;
     window.__classClosurePending = true;
     try {
@@ -159,6 +159,9 @@ window.toggleClassClosure = async function (compositeKey, caType, index, isCheck
         if (renderedLocator) {
             assertScheduleRowIdentity(row, locator);
         }
+        // Same class (by ID) but its room/time may have been edited since the
+        // table was drawn: guard the write against this fresh row, not the old one.
+        locator = { ...locator, index: resolvedIndex, signature: scheduleRowSignature(row) };
         const reason = await requestClassClosureReason(row, compositeKey.split('__').pop(), isChecked === true);
         if (!reason) return;
         locator.closureCommand = {
@@ -1174,7 +1177,7 @@ window.addNewRow = async function (compositeKey, caType, defaultStart, defaultEn
 window.updateRow = function (compositeKey, caType, index, field, value, renderedLocator) {
     const editableFields = new Set(['start', 'end', 'phong', 'note', 'soHS']);
     if (!editableFields.has(field)) return Promise.resolve();
-    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    const mutationKey = scheduleRowMutationKey(compositeKey, caType, index, renderedLocator);
     // Sửa liên tiếp nhiều ô của CÙNG một lớp (giờ → phòng → ghi chú) được xếp hàng lưu lần
     // lượt, không bị bỏ qua khi ô trước còn đang lưu.
     return queueScheduleRowEdit(mutationKey, () => updateScheduleRowField(compositeKey, caType, index, field, value, renderedLocator, mutationKey));
@@ -1221,7 +1224,7 @@ async function updateScheduleRowField(compositeKey, caType, index, field, value,
 }
 
 window.deleteRow = function (compositeKey, caType, index, renderedLocator) {
-    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    const mutationKey = scheduleRowMutationKey(compositeKey, caType, index, renderedLocator);
     if (scheduleRowDeleteRequests.has(mutationKey)) return scheduleRowDeleteRequests.get(mutationKey);
     // A blur/change event may have just queued an edit for this row. Preserve
     // the delete click and resolve its identity after those writes finish.
@@ -1235,24 +1238,35 @@ window.deleteRow = function (compositeKey, caType, index, renderedLocator) {
 };
 
 async function deleteScheduleRow(compositeKey, caType, index, renderedLocator, mutationKey) {
-    if (!beginScheduleMutation(mutationKey)) return;
+    // Rows with a persisted shiftId are found by ID, so the rest of the table
+    // stays usable (next delete/edit) while this one saves.
+    const hasStableId = mutationKey.includes(':id:');
+    if (!beginScheduleMutation(mutationKey, { lockTable: !hasStableId })) return;
     try {
         const dayData = await DBService.getSchedule(compositeKey, { source: 'server' });
-        const { locator, row } = resolveScheduleEditTarget(dayData, caType, index,
+        const { locator, row, changedSinceRender, renderedValues } = resolveScheduleEditTarget(dayData, caType, index,
             rebaseScheduleLocator(renderedLocator, compositeKey, caType));
-        const classLabel = `${scheduleEscapeHTML(row.lop || '(chưa chọn môn)')} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)} ngày ${scheduleEscapeHTML(compositeKey.split('__').pop())}`;
+        const classLabel = `${scheduleEscapeHTML(row.lop || '(chưa chọn môn)')} · ${scheduleEscapeHTML(row.start)}–${scheduleEscapeHTML(row.end)}${row.phong ? ` · ${scheduleEscapeHTML(normalizeScheduleRoomInput(row.phong))}` : ''} ngày ${scheduleEscapeHTML(compositeKey.split('__').pop())}`;
+        // The dialog always shows the latest server row; if someone edited it
+        // after this table was drawn, say what changed instead of refusing.
+        const changeNote = changedSinceRender ? describeScheduleRowChange(row, renderedValues) : '';
         // A started/past class may be removed only while it has no worked
         // attendance; that is verified again inside the delete transaction.
         const startedClass = isScheduleTimePast(compositeKey, row.start);
         const question = startedClass
-            ? `Lớp ${classLabel} đã bắt đầu hoặc đã qua. Hệ thống chỉ xóa khi chưa có ai chấm công cho lớp này. Xóa lớp?`
-            : `Xóa lớp ${classLabel}?`;
+            ? `Lớp ${classLabel} đã bắt đầu hoặc đã qua. Hệ thống chỉ xóa khi chưa có ai chấm công cho lớp này. Xóa lớp?${changeNote}`
+            : `Xóa lớp ${classLabel}?${changeNote}`;
         if (!await UIService.confirm(question)) return;
+        const confirmedFingerprint = scheduleRowDeleteFingerprint(row);
         const findLatest = rows => {
             const latestIndex = resolveScheduleRowIndex(rows, locator);
             if (latestIndex < 0) throw scheduleRowConflictError();
             assertScheduleRowIdentity(rows[latestIndex], locator);
-            if (scheduleRowContentFingerprint(rows[latestIndex]) !== scheduleRowContentFingerprint(row)) throw scheduleRowConflictError();
+            if (scheduleRowDeleteFingerprint(rows[latestIndex]) !== confirmedFingerprint) {
+                const error = new Error('Lớp vừa được người khác sửa (giờ, phòng, môn hoặc giáo viên) trong lúc bạn xác nhận xóa. Bảng đã tải lại bản mới nhất — kiểm tra rồi bấm xóa lại nếu vẫn muốn xóa.');
+                error.code = 'schedule/conflict';
+                throw error;
+            }
             return latestIndex;
         };
         await DBService.mutateScheduleSectionAtomic(compositeKey, caType, rows => {
@@ -1403,7 +1417,7 @@ async function loadTeacherListForSchedule(options = {}) {
 }
 
 window.updateSubjectRow = function (compositeKey, caType, index, subjectName, renderedLocator) {
-    const mutationKey = `row:${compositeKey}:${caType}:${index}`;
+    const mutationKey = scheduleRowMutationKey(compositeKey, caType, index, renderedLocator);
     return queueScheduleRowEdit(mutationKey, () => updateScheduleRowSubject(compositeKey, caType, index, subjectName, renderedLocator, mutationKey));
 };
 
@@ -1497,8 +1511,15 @@ function scheduleEditLocator(row, index) {
 }
 
 function assertScheduleRowIdentity(row, locator) {
-    if (!row || (locator.shiftId && String(row.shiftId || '') !== locator.shiftId) ||
-        scheduleRowSignature(row) !== locator.signature) throw scheduleRowConflictError();
+    if (!row) throw scheduleRowConflictError();
+    // A persisted shiftId names exactly one class. Another scheduler changing its
+    // time/room/subject does not make it a different class; collisions on the
+    // same field are still rejected by each edit's own expected-value check.
+    if (locator.shiftId) {
+        if (String(row.shiftId || '') !== locator.shiftId) throw scheduleRowConflictError();
+        return;
+    }
+    if (scheduleRowSignature(row) !== locator.signature) throw scheduleRowConflictError();
 }
 
 function resolveScheduleEditTarget(dayData, section, index, renderedLocator) {
@@ -1528,8 +1549,40 @@ function resolveScheduleEditTarget(dayData, section, index, renderedLocator) {
         !scheduleRenderedValuesMatch(row, locator.values)) {
         throw scheduleRowConflictError();
     }
-    return { row, locator: { ...locator, index: resolvedIndex,
-        shiftId: String(row.shiftId || ''), signature: scheduleRowSignature(row) } };
+    const changedSinceRender = scheduleRowSignature(row) !== locator.signature ||
+        (!!locator.values && !scheduleRenderedValuesMatch(row, locator.values));
+    return { row, changedSinceRender, renderedValues: locator.values || null,
+        locator: { ...locator, index: resolvedIndex,
+            shiftId: String(row.shiftId || ''), signature: scheduleRowSignature(row) } };
+}
+
+// What a delete confirmation promises: the same class, time, room, subject,
+// teachers and open/closed state. Notes, student counts and audit history may
+// change while the dialog is open without blocking the scheduler.
+function scheduleRowDeleteFingerprint(row) {
+    const ids = list => (Array.isArray(list) ? list : []).map(item => String(item?.id || '')).filter(Boolean).sort();
+    return JSON.stringify([
+        String(row?.shiftId || ''), scheduleRowSignature(row), String(row?.lopId || ''),
+        ids(getGVList(row, 'gv')), ids(getGVList(row, 'sub')), row?.isClosed === true
+    ]);
+}
+
+function describeScheduleRowChange(row, renderedValues) {
+    if (!renderedValues) return '';
+    const labels = { start: 'giờ bắt đầu', end: 'giờ kết thúc', phong: 'phòng', note: 'ghi chú', soHS: 'sĩ số' };
+    const changes = Object.entries(labels)
+        .filter(([field]) => String(row?.[field] ?? '') !== String(renderedValues[field] ?? ''))
+        .map(([field, label]) => `${label}: ${scheduleEscapeHTML(renderedValues[field] || '—')} → ${scheduleEscapeHTML(row?.[field] || '—')}`);
+    if (String(row?.lopId || '') !== String(renderedValues.lopId || '')) changes.push(`môn: ${scheduleEscapeHTML(row?.lop || '—')}`);
+    return changes.length ? ` Lưu ý: lớp vừa được cập nhật (${changes.join('; ')}).` : '';
+}
+
+// Row writes are serialized per class, not per array position: after a delete
+// the next row moves up to the same index and must not share the old queue.
+function scheduleRowMutationKey(compositeKey, caType, index, renderedLocator) {
+    let shiftId = '';
+    try { shiftId = String(JSON.parse(renderedLocator || '{}').shiftId || ''); } catch (_) { shiftId = ''; }
+    return shiftId ? `row:${compositeKey}:${caType}:id:${shiftId}` : `row:${compositeKey}:${caType}:${index}`;
 }
 
 function isInheritedScheduleShiftId(value) {
@@ -1541,23 +1594,6 @@ function scheduleRenderedValuesMatch(row, values) {
     return ['start', 'end', 'phong', 'note', 'soHS', 'lopId'].every(field =>
         String(row?.[field] ?? '') === String(values[field] ?? '')
     );
-}
-
-function scheduleRowContentFingerprint(row) {
-    // These fields are read-only projections, absent from persisted schedule rows.
-    const projectionFields = new Set(['_isInheritedSchedule', '_inheritedFromScheduleDocId',
-        '_inheritedTargetScheduleDocId', '_inheritedSection', '_inheritedIndex']);
-    const stored = Object.fromEntries(Object.keys(row).sort()
-        .filter(key => !projectionFields.has(key) && key !== 'registeredTeachers')
-        .map(key => [key, row[key]]));
-    stored.registeredTeachers = (row.registeredTeachers || []).filter(item => item.registrationSource !== 'schedule_registrations');
-    // Firestore maps are unordered, including maps nested in teacher lists and
-    // audit history. Compare values, never their wire/object insertion order.
-    // Array order still matters and real content changes must still conflict.
-    return JSON.stringify(stored, (_key, value) =>
-        value && typeof value === 'object' && !Array.isArray(value)
-            ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
-            : value);
 }
 
 function beginScheduleMutation(key, options = {}) {
@@ -1785,7 +1821,7 @@ function resolveScheduleRowIndex(rows, locator) {
 }
 
 function scheduleRowConflictError() {
-    const error = new Error('Ca đã được người khác thay đổi hoặc di chuyển. Vui lòng tải lại lịch rồi thử lại.');
+    const error = new Error('Lớp này vừa được người khác xóa hoặc sửa cùng lúc. Bảng đã tự tải lại bản mới nhất — hãy kiểm tra rồi thao tác lại.');
     error.code = 'schedule/conflict';
     return error;
 }

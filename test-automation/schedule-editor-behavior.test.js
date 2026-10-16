@@ -194,17 +194,78 @@ test('delete compares nested Firestore map values independently of field order',
     assert.equal(h.messages.filter(item => item.type === 'error').length, 0);
 });
 
-test('delete still blocks a real nested roster or history change during confirmation/retry', async () => {
-    for (const field of ['gvList', 'teacherAbsenceHistory']) {
+test('delete blocks a roster/time/room/closure change during confirmation, not audit/note/count changes', async () => {
+    const blocking = { gvList: [{ id: 'another-teacher', name: 'Other' }], phong: 'P99', start: '07:45', isClosed: true };
+    for (const [field, value] of Object.entries(blocking)) {
         const h = harness(), original = row('a', { teacherAbsenceHistory: [{ type: 'original' }] });
         h.store.set('schedules/' + key, { morning1: [original, row('keep')] });
-        h.race(store => { store.get('schedules/' + key).morning1[0][field] = field === 'gvList'
-            ? [{ id: 'another-teacher', name: 'Other' }] : [{ type: 'changed' }]; });
+        h.race(store => { store.get('schedules/' + key).morning1[0][field] = value; });
         await h.context.deleteRow(key, 'morning1', 0, h.locator(original));
-        assert.equal(h.writes.length, 0);
-        assert.equal(h.store.get('schedules/' + key).morning1.length, 2);
-        assert.equal(h.messages.at(-1).type, 'error');
+        assert.equal(h.writes.length, 0, field);
+        assert.equal(h.store.get('schedules/' + key).morning1.length, 2, field);
+        assert.equal(h.messages.at(-1).type, 'error', field);
     }
+    const harmless = { teacherAbsenceHistory: [{ type: 'changed' }], note: 'late note', soHS: 14 };
+    for (const [field, value] of Object.entries(harmless)) {
+        const h = harness(), original = row('a', { teacherAbsenceHistory: [{ type: 'original' }] });
+        h.store.set('schedules/' + key, { morning1: [original, row('keep')] });
+        h.race(store => { store.get('schedules/' + key).morning1[0][field] = value; });
+        await h.context.deleteRow(key, 'morning1', 0, h.locator(original));
+        assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['keep'], field);
+        assert.equal(h.messages.filter(item => item.type === 'error').length, 0, field);
+    }
+});
+
+test('a class edited by another scheduler after render can still be deleted after a refreshed confirmation', async () => {
+    const h = harness(), rendered = row('a');
+    h.store.set('schedules/' + key, { morning1: [{ ...rendered, phong: 'P7', note: 'moved' }, row('keep')] });
+    const questions = [];
+    h.context.UIService.confirm = async text => { questions.push(text); return true; };
+    await h.context.deleteRow(key, 'morning1', 0, h.locator(rendered));
+    assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['keep']);
+    assert.match(questions[0], /· P7 ngày/);
+    assert.match(questions[0], /vừa được cập nhật/);
+    assert.match(questions[0], /phòng: P1 → P7/);
+});
+
+test('edits and closure toggles follow the class ID when another scheduler changed its room', async () => {
+    const h = harness(), rendered = row('a');
+    h.store.set('schedules/' + key, { morning1: [row('b'), { ...rendered, phong: 'P9' }] });
+    await h.context.updateRow(key, 'morning1', 0, 'note', 'mine', h.locator(rendered));
+    assert.equal(h.store.get('schedules/' + key).morning1[1].note, 'mine');
+    assert.equal(h.store.get('schedules/' + key).morning1[1].phong, 'P9');
+    // The same field changed by someone else is still a real collision.
+    await h.context.updateRow(key, 'morning1', 0, 'phong', 'P2', h.locator(rendered));
+    assert.equal(h.store.get('schedules/' + key).morning1[1].phong, 'P9');
+    assert.equal(h.messages.at(-1).type, 'error');
+    h.run('requestClassClosureReason = async () => "Lớp nghỉ";');
+    h.service.updateScheduleRowAtomic = async (_key, section, locator, apply) => {
+        const rows = h.store.get(`schedules/${_key}`)[section];
+        const index = rows.findIndex(item => item.shiftId === locator.shiftId);
+        // The transaction's closure guard compares this signature with the stored row.
+        assert.equal(locator.signature, h.context.scheduleRowSignature(rows[index]));
+        rows[index] = apply(rows[index]);
+    };
+    await h.context.toggleClassClosure(key, 'morning1', 0, true, JSON.stringify(h.context.scheduleRowLocator(rendered, 0)));
+    assert.equal(h.store.get('schedules/' + key).morning1[1].isClosed, true);
+    assert.equal(h.store.get('schedules/' + key).morning1[0].isClosed, undefined);
+});
+
+test('two different classes can be deleted back to back without locking the table', async () => {
+    const h = harness(), a = row('a'), b = row('b'), c = row('c');
+    h.store.set('schedules/' + key, { morning1: [a, b, c] });
+    // The fixture has no optimistic-lock retry, so the second dialog is answered
+    // after the first commit (real Firestore retries a contended transaction).
+    let first = null, confirms = 0;
+    h.context.UIService.confirm = async () => { if (confirms++) await first; return true; };
+    first = h.context.deleteRow(key, 'morning1', 0, h.locator(a));
+    assert.equal(h.elements.get('table-body').inert, false);
+    // Same array index after the first delete re-renders, but a different class.
+    const second = h.context.deleteRow(key, 'morning1', 0, h.locator(b));
+    assert.notEqual(first, second);
+    await Promise.all([first, second]);
+    assert.deepEqual(h.store.get('schedules/' + key).morning1.map(item => item.shiftId), ['c']);
+    assert.equal(h.messages.filter(item => item.type === 'error').length, 0);
 });
 
 test('repeated delete clicks share one queued confirmation and never delete the following row', async () => {
@@ -273,12 +334,13 @@ test('delete and subject edit follow the rendered row instead of a reused array 
     h.context._subjectList = [{ name: 'E6', id: 'e6' }];
     await h.context.updateSubjectRow(key, 'morning1', 0, 'E6', h.locator(a));
     assert.equal(h.store.get(`schedules/${key}`).morning1[1].lopId, 'e6');
-    // A same-page commit is rebased; a later external edit must still block it.
+    // A same-page commit is rebased; a later external edit is shown in the
+    // confirmation (never hidden) and the delete targets class A, not index 0.
     h.store.get(`schedules/${key}`).morning1[1].phong = 'P99';
+    const questions = [];
+    h.context.UIService.confirm = async text => { questions.push(text); return true; };
     await h.context.deleteRow(key, 'morning1', 0, h.locator(a));
-    assert.equal(h.store.get(`schedules/${key}`).morning1.length, 2, 'an external change cannot be hidden by a same-page rebase');
-    const updated = h.store.get(`schedules/${key}`).morning1[1];
-    await h.context.deleteRow(key, 'morning1', 0, h.locator(updated));
+    assert.match(questions[0], /phòng: P1 → P99/, 'an external change cannot be hidden by a same-page rebase');
     assert.deepEqual(h.store.get(`schedules/${key}`).morning1.map(item => item.shiftId), ['b']);
 });
 

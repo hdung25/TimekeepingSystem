@@ -999,3 +999,8 @@ Hộp xác nhận đồng bộ lớp gộp phải nằm trên popup ca dạy. Sa
 ### 16/10/2026 — v244: sửa xóa dòng lớp báo xung đột giả
 
 So sánh nội dung dòng phải chuẩn hóa đệ quy thứ tự khóa map Firestore; giữ nguyên thứ tự array và nội dung thật. Xóa chờ các lần sửa ô cùng dòng, gộp lần bấm trùng và nối đúng commit do trang vừa ghi, giới hạn theo ngày/cơ sở/nhóm ca. Giữ kiểm tra transaction và không xóa lớp có chấm công. Không sửa dữ liệu production; xem `release-schedule-delete-20261016.md`.
+
+
+### 16/10/2026 — v245: xếp lịch linh hoạt theo mã lớp, tìm nhân viên trên điện thoại
+
+shiftId là danh tính lớp: người khác đổi phòng/giờ/môn không còn chặn sửa ô khác, Bật/Tắt hoặc xóa lớp đó; trùng cùng một ô vẫn báo xung đột. Hộp xác nhận xóa luôn hiện bản mới nhất và nói rõ thay đổi; trong lúc xác nhận chỉ đổi giờ/phòng/môn/GV/tắt lớp mới chặn xóa. Xóa lớp có mã không khóa cả bảng; hàng chờ ghi theo shiftId. Bảng Tính Lương: mở ô tìm thì ô trống (không nối vào tên đang xem), tìm bỏ dấu nhiều từ/mã, điện thoại ô tìm full-width. Không đổi rules/functions/dữ liệu/tính lương; xem `release-schedule-flex-20261016.md`.
