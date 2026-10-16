@@ -28,7 +28,12 @@ const assets = ['lich-lam.html', 'js/schedule.js', 'service-worker.js', 'js/db-s
             page.on('pageerror', error => errors.push(error.message));
             await page.setRequestInterception(true);
             page.on('request', request => {
-                if (/firestore\.googleapis\.com/.test(request.url()) && request.method() !== 'GET') {
+                // Listen/channel and batchGet are read APIs even when they use
+                // POST. Only the Write stream and document mutations are writes.
+                const url = new URL(request.url());
+                const mutation = /\/Write\/channel|:(commit|batchWrite)$/.test(url.pathname) ||
+                    (/\/documents\//.test(url.pathname) && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method()));
+                if (url.hostname === 'firestore.googleapis.com' && mutation) {
                     writes.push(request.url());
                     return request.abort();
                 }

@@ -9,3 +9,5 @@ Changes: scope confirmation/toast stacking above the shift modal; acknowledge th
 Validation: npm test passed; 31 schedule editor behavioral cases including accept/decline, duplicate save/close protection, primary failure, follow-up failure and stalled attendance refresh. Headless Chrome checks actual table controls for admin and senior_assistant and real confirmation hit-testing at 1365px and 390px. PWA write/update safety and service-worker shell tests passed after release-key change.
 
 No migration, production data repair, Firestore rule, Cloud Function, attendance calculation or payroll changes. Production validation is read-only. Rollback baseline: 087a5a6 / dpl_9gdWWScGaNYqfXtARsE5Nxg3kixJ.
+
+Production verification: fix commit `2317416` deployed as `dpl_FT3QjcBaLajGQSReTh2w16D7274W` (READY), canonical alias confirmed. `schedule-save-production-smoke.cjs` passed: 14 public asset hashes match local tested files; desktop/mobile logged-out routing works; zero page errors and no Firestore mutation requests. Firebase Listen/channel uses POST for reads and is intentionally allowed by the read-only smoke.
