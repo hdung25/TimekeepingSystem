@@ -589,6 +589,10 @@ async function renderTable() {
     if (typeof renderScheduleInheritanceHint === 'function') {
         try { renderScheduleInheritanceHint(dayData, dateKey); } catch (hintError) { console.warn('[Schedule] inheritance hint', hintError); }
     }
+    // Lịch riêng sắp tới không nhận thay đổi của tuần trước → nhắc + nút lấy lại (schedule-carryover.js).
+    if (typeof renderScheduleCarryoverHint === 'function') {
+        renderScheduleCarryoverHint(dayData, dateKey).catch(hintError => console.warn('[Schedule] carryover hint', hintError));
+    }
     window.scrollTo(0, scrollYBefore);
     syncDatePickerValue();
     } catch (error) {
