@@ -1,8 +1,8 @@
-// Service Worker v246 - upcoming own schedule days show when they no longer follow last week, with a one-tap "take last week's layout".
+// Service Worker v247 - "Lấy lịch tuần trước" no longer reports a false conflict from Firestore map key order.
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v246-schedule-carryover-20261020';
+const APP_RELEASE = 'tdt-chamcong-v247-carryover-keyorder-20261021';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -82,7 +82,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/schedule.js?v=20261020-carryover-v1',
     '/js/center-holidays.js?v=20260927-holidays-v1',
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
-    '/js/schedule-carryover.js?v=20261020-carryover-v1',
+    '/js/schedule-carryover.js?v=20261021-carryover-v2',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',
     '/js/schedule-sheet.js?v=20261003-sheet-v5',
     '/js/staff-notes.js?v=20261003-owner-v3',

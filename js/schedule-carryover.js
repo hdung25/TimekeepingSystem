@@ -201,8 +201,15 @@
         return SECTION_KEYS.map(section => rowsOf(day, section)
             .map(row => [row.start, row.end, row.lop, row.phong, teacherIds(row)].map(norm).join('|')).join(';')).join('/');
     }
+    // Firestore KHÔNG giữ thứ tự khoá trong map: cùng một dòng lớp, lần đọc thường và lần đọc
+    // trong giao dịch có thể trả các trường theo thứ tự khác nhau (lỗi "Ca đã được người khác
+    // thay đổi" khi xoá lớp ở v244 cũng vì thế). So sánh theo giá trị, không theo thứ tự khoá;
+    // thứ tự mảng (thứ tự lớp) vẫn phải giống.
     function sectionsJson(day) {
-        return JSON.stringify(SECTION_KEYS.map(section => rowsOf(day, section)));
+        return JSON.stringify(SECTION_KEYS.map(section => rowsOf(day, section)), (_key, value) =>
+            value && typeof value === 'object' && !Array.isArray(value)
+                ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
+                : value);
     }
     const hasStructure = data => !!data && typeof data === 'object' && Object.keys(data).length > 0;
     const isStop = data => {
@@ -299,7 +306,7 @@
             const source = sourceSnap.exists ? sourceSnap.data() || {} : null;
             if (!hasStructure(target) || !hasStructure(source) ||
                 sectionsJson(target) !== expectedTarget || sectionsJson(source) !== expectedSource) {
-                const error = new Error('Lịch vừa được người khác sửa. Đóng và mở lại để xem khác biệt mới.');
+                const error = new Error('Lịch vừa có người sửa. Đã tải lại — bấm lại nút vàng để xem khác biệt mới.');
                 error.code = 'schedule/carryover-conflict';
                 throw error;
             }
@@ -495,12 +502,36 @@
                 <div class="sc-banner-actions"><button type="button" class="sc-primary" data-sc-open="${index}">${pair.role === 'target'
                     ? `Xem &amp; lấy lịch ${escapeHtml(dayLabel(dateOfDoc(pair.sourceId)))}`
                     : `Xem &amp; áp dụng sang ${escapeHtml(dayLabel(dateOfDoc(pair.targetId)))}`}</button></div></div>`).join('');
+        const refresh = () => {
+            invalidate();
+            if (typeof global.renderTable === 'function') global.renderTable();
+            else if (typeof renderTable === 'function') renderTable();
+        };
         hint.querySelectorAll('[data-sc-open]').forEach(button => {
-            button.onclick = () => openDialog(pairs[Number(button.dataset.scOpen)], () => {
-                invalidate();
-                if (typeof global.renderTable === 'function') global.renderTable();
-                else if (typeof renderTable === 'function') renderTable();
-            });
+            button.onclick = async () => {
+                // Đọc mới cả hai ngày ngay lúc mở: hộp thoại luôn là bản mới nhất, không bị
+                // báo nhầm "vừa có người sửa" vì dữ liệu nhắc đã cũ.
+                const shown = pairs[Number(button.dataset.scOpen)];
+                button.disabled = true;
+                let pair = null;
+                try {
+                    const [target, source] = await Promise.all([
+                        readDoc(`schedules/${shown.targetId}`, { fresh: true }),
+                        readDoc(`schedules/${shown.sourceId}`, { fresh: true })
+                    ]);
+                    if (hasStructure(target) && hasStructure(source)) {
+                        pair = { ...shown, target, source, diff: diffDays(source, target) };
+                    }
+                } catch (error) {
+                    console.warn('[ScheduleCarryover] reload', error);
+                    uiService()?.toast?.('Chưa tải được lịch, thử lại sau giây lát.', 'error');
+                    button.disabled = false;
+                    return;
+                }
+                button.disabled = false;
+                if (!pair || !pair.diff.count) { refresh(); return; }
+                openDialog(pair, refresh);
+            };
         });
     }
 

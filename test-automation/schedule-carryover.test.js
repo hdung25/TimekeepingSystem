@@ -12,6 +12,9 @@ const source = fs.readFileSync(path.join(root, 'js/schedule-carryover.js'), 'utf
 const shiftStateSource = fs.readFileSync(path.join(root, 'js/teacher-shift-state.js'), 'utf8');
 const clone = value => JSON.parse(JSON.stringify(value));
 
+const reverseKeys = value => Array.isArray(value) ? value.map(reverseKeys)
+    : (value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, reverseKeys(value[key])])) : value);
+
 function fakeDb(docs) {
     const writes = [];
     const reads = [];
@@ -23,7 +26,8 @@ function fakeDb(docs) {
         writes, reads,
         collection: collection => ({ doc: id => ref(collection, id) }),
         runTransaction: async fn => fn({
-            get: async r => r.get(),
+            // Firestore không giữ thứ tự khoá map giữa các lần đọc: trong giao dịch trả ngược thứ tự.
+            get: async r => { const snap = await r.get(); return { exists: snap.exists, data: () => reverseKeys(snap.data()) }; },
             set: (r, data) => { writes.push([r.path, data]); docs[r.path] = data; }
         })
     };
