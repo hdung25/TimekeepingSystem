@@ -377,4 +377,22 @@ const atSecond = (clock) => new Date(`2026-08-03T${clock}`);
     );
 }
 
+{
+    // 16/10/2026: bỏ chế độ cộng 10 phút chuẩn bị lớp.
+    assert.equal(Early10.POLICY_END_DATE, '2026-10-16');
+    assert.equal(Early10.isEarly10ActiveOnDate('2026-10-15'), true);
+    assert.equal(Early10.isEarly10ActiveOnDate('2026-10-16'), false);
+    assert.equal(Early10.isEarly10ActiveOnDate('2026-11-02'), false);
+    assert.equal(Early10.isEarly10ActiveOnDate(''), true, 'không rõ ngày thì không tự xóa +10p cũ');
+    const subjects = [{ id: 'eng', name: 'Tiếng Anh', allowEarly10: true }];
+    const base = { subjectIds: ['eng'], subjects, user: { teachingMode: 'old' }, classStart: '18:00' };
+    assert.equal(Early10.evaluateEarly10Request({ ...base, checkIn: new Date(2026, 9, 15, 17, 45) }).ok, true);
+    const ended = Early10.evaluateEarly10Request({ ...base, checkIn: new Date(2026, 9, 16, 17, 45) });
+    assert.equal(ended.ok, false);
+    assert.equal(ended.code, 'ended');
+    assert.match(ended.message, /16\/10\/2026/);
+    assert.equal(Early10.evaluatePolicyEligibility({ ...base, dateKey: '2026-10-20' }).code, 'ended');
+    assert.equal(Early10.evaluatePolicyEligibility({ ...base, dateKey: '2026-10-10' }).ok, true);
+}
+
 console.log('early10.test.js: all assertions passed');

@@ -668,10 +668,12 @@ function getClassObservationSummary(observations, staffId, cls, secKey, classInd
         return true;
     });
 
-    const manualLateMinutes = activeItems.reduce(
-        (max, item) => Math.max(max, Math.max(0, Math.round(Number(item.lateMinutes) || 0))),
-        0
-    );
+    // Lệnh tiếp tân mới nhất là bản sửa của lệnh trước (ghi nhầm 50p → sửa 5p).
+    // Mọi trang tính công đều nạp teacher-shift-state.js trước file này; nhánh
+    // dự phòng chỉ phục vụ môi trường test không nạp module đó.
+    const manualLateMinutes = typeof TeacherShiftState !== 'undefined' && TeacherShiftState?.resolveObservationLate
+        ? TeacherShiftState.resolveObservationLate(activeItems).lateMinutes
+        : activeItems.reduce((max, item) => Math.max(max, Math.max(0, Math.round(Number(item.lateMinutes) || 0))), 0);
     const notes = activeItems
         .map(item => String(item.note || '').trim())
         .filter(Boolean);
@@ -956,8 +958,22 @@ function propagateCombinedClassAbsences(schedule, staffId) {
     return changed ? next : schedule;
 }
 
+// Từ 16/10/2026 bỏ chế độ +10 phút chuẩn bị lớp. Mốc dự phòng phải trùng với
+// Early10.POLICY_END_DATE cho trang không nạp early10.js.
+const EARLY10_POLICY_END_DATE_FALLBACK = '2026-10-16';
+function isEarly10PolicyActiveOnDate(dateStr) {
+    if (typeof Early10 !== 'undefined' && Early10 && typeof Early10.isEarly10ActiveOnDate === 'function') {
+        return Early10.isEarly10ActiveOnDate(dateStr);
+    }
+    return !dateStr || String(dateStr) < EARLY10_POLICY_END_DATE_FALLBACK;
+}
+window.isEarly10PolicyActiveOnDate = isEarly10PolicyActiveOnDate;
+
 function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateStr, currentUserContext, receptionistShifts = [], overtimeMap = {}, cancelledShifts = [], bonus10Map = {}, shiftObservations = [], monthFlags = {}) {
     schedule = propagateCombinedClassAbsences(schedule, staffId);
+    // Ngày đã bỏ chế độ 10p: bỏ qua mọi yêu cầu/duyệt/cờ +10p cũ của ngày này.
+    const early10PolicyActive = isEarly10PolicyActiveOnDate(dateStr);
+    if (!early10PolicyActive) bonus10Map = {};
     // Admin hủy 1 ca sớm 10p → khóa 10p của CẢ THÁNG (và cả phụ cấp lớp đông,
     // xử lý bên report.js). Cờ này do nơi gọi tính sẵn cho cả tháng rồi truyền xuống.
     const early10PenaltyActive = !!(monthFlags && monthFlags.early10PenaltyActive);
@@ -970,7 +986,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
     // trừ phần chỉ là vào sớm / ở lại của ca kề bên.
     const _workedAbsentClass = c => hasOverlappingWorkSession(attendanceSessions, dateStr, c.start, c.end,
         adjacentWorkedClassSlots(originalSchedule, staffId, c));
-    bonus10Map = addDeterministicLegacyBonus10Awards(
+    if (early10PolicyActive) bonus10Map = addDeterministicLegacyBonus10Awards(
         bonus10Map,
         originalSchedule,
         attendanceSessions,
@@ -1700,7 +1716,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 let b10EvidenceSessionT = b10DataT
                     ? b10EvidenceSessions.find(session => String(session?.id || '') === String(b10DataT.sessionId || ''))
                     : null;
-                if (!b10DataT) {
+                if (!b10DataT && early10PolicyActive) {
                     b10EvidenceSessionT = b10EvidenceSessions.find(session =>
                         !!getLegacySessionBonus10Award(
                             session,

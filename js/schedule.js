@@ -2568,8 +2568,11 @@ async function loadAdminAttendanceEditor(state = teacherShiftManagerState) {
             const matchingBonusRequests = session
                 ? monthlyBonusRequests.filter(item => String(item.sessionId || '') === String(session.id || ''))
                 : [];
-            const approvedBonus = matchingBonusRequests.find(item => item.status === 'approved') || null;
-            const pendingBonus = matchingBonusRequests.find(item => item.status === 'pending') || null;
+            // Từ 16/10/2026 bỏ chế độ +10p: yêu cầu cũ của ngày này không còn hiệu lực,
+            // không hiện "Đang áp dụng" và không chặn việc lưu giờ công.
+            const early10DateActive = !window.Early10?.isEarly10ActiveOnDate || window.Early10.isEarly10ActiveOnDate(state.dateKey);
+            const approvedBonus = early10DateActive ? (matchingBonusRequests.find(item => item.status === 'approved') || null) : null;
+            const pendingBonus = early10DateActive ? (matchingBonusRequests.find(item => item.status === 'pending') || null) : null;
             const legacyRejectedBonusRequest = monthlyBonusRequests.find(item => item.status === 'rejected') || null;
             const bonus10PenaltyState = source.monthlySettings?.bonus10PenaltyState &&
                 typeof source.monthlySettings.bonus10PenaltyState === 'object'

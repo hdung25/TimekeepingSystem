@@ -591,7 +591,10 @@
         panel.querySelector('#apo-reason').value = saved.reason || '';
         panel.querySelector('#apo-clear-links').checked = false;
         panel.querySelector('#apo-allow-overlap').checked = false;
-        panel.querySelector('#apo-admin-early10').checked = saved.adminEarly10?.enabled === true;
+        // Từ 16/10/2026 bỏ chế độ +10p: ẩn lựa chọn cộng 10 phút cho ca của những ngày này.
+        const early10DateActive = !root.Early10?.isEarly10ActiveOnDate || root.Early10.isEarly10ActiveOnDate(state.dateKey);
+        panel.querySelector('#apo-admin-early10-wrap').style.display = early10DateActive ? '' : 'none';
+        panel.querySelector('#apo-admin-early10').checked = early10DateActive && saved.adminEarly10?.enabled === true;
         panel.querySelector('#apo-revision-badge').textContent = `Bản ${Number(saved.revision || 0)}`;
         renderRows();
         refreshPreview();

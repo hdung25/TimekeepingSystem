@@ -535,7 +535,7 @@
         return groups;
     }
 
-    function buildChip(group, sessionResult, allDaySegments, normalizeName) {
+    function buildChip(group, sessionResult, allDaySegments, normalizeName, dateKey) {
         var entries = group.entries;
         var allocations = entries.map(function (entry) { return entry.allocation; });
         var first = allocations[0];
@@ -573,7 +573,10 @@
         }
         var allocationIds = allocations.map(function (allocation) { return allocation.id; });
         var adminEarly10 = sessionResult.normalized.adminEarly10 || {};
-        var adminEarly10Applies = adminEarly10.enabled === true &&
+        // Từ 16/10/2026 bỏ chế độ +10p: quyết định +10p Admin cũ cũng không cộng nữa.
+        var early10DateActive = !(dateKey && globalThis.Early10 && typeof globalThis.Early10.isEarly10ActiveOnDate === 'function') ||
+            globalThis.Early10.isEarly10ActiveOnDate(dateKey);
+        var adminEarly10Applies = early10DateActive && adminEarly10.enabled === true &&
             adminEarly10.minutes === 10 &&
             basePaidMinutes > 0 &&
             allocations.some(function (allocation) {
@@ -730,7 +733,7 @@
         validResults.forEach(function (validation, validationIndex) {
             var entries = flattened.filter(function (entry) { return entry.validationIndex === validationIndex; });
             groupAssignedEntries(entries).forEach(function (group) {
-                chips.push(buildChip(group, validation, daySegments, settings.normalizeChipFilterName));
+                chips.push(buildChip(group, validation, daySegments, settings.normalizeChipFilterName, settings.dateKey));
             });
         });
         chips.sort(function (left, right) {

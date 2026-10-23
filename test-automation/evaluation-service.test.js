@@ -1855,4 +1855,70 @@ function observation(lateMinutes) {
     }
 }
 
+{
+    // Thúy Hằng 05/10: tiếp tân ghi nhầm 50p rồi sửa lại 5p. Lệnh mới nhất thắng,
+    // không lấy số lớn nhất (chip từng hiện T50p dù nhật ký ca ghi 5p).
+    context.TeacherShiftState = require(path.join(__dirname, '..', 'js', 'teacher-shift-state.js'));
+    try {
+        const at = iso => ({ seconds: Math.floor(new Date(iso).getTime() / 1000), nanoseconds: 0 });
+        const wrong = { ...observation(50), id: 'obs-wrong', createdAt: at('2026-07-14T00:40:00Z') };
+        const fixed = { ...observation(5), id: 'obs-fixed', createdAt: at('2026-07-14T00:41:00Z') };
+        const session = { id: 'late-3', checkIn: '2026-07-14T00:33:00.000Z', checkOut: '2026-07-14T02:00:00.000Z' };
+        const corrected = chipsFor(session, [fixed, wrong]).find(chip => chip.isTeaching);
+        assert.match(corrected.text, /\(T5p\)/, 'lệnh sửa 5p phải thay lệnh ghi nhầm 50p');
+        assert.doesNotMatch(corrected.text, /T50p/);
+
+        const noteOnly = { ...observation(0), id: 'obs-note', note: 'GV báo kẹt xe', createdAt: at('2026-07-14T00:42:00Z') };
+        assert.match(chipsFor(session, [wrong, fixed, noteOnly]).find(chip => chip.isTeaching).text, /\(T5p\)/,
+            'ghi chú cũ 0 phút không xóa số phút đang tính');
+
+        const clearToZero = { ...observation(0), id: 'obs-zero', lateMinutesSet: true, note: '', createdAt: at('2026-07-14T00:43:00Z') };
+        assert.match(chipsFor(session, [wrong, fixed, clearToZero]).find(chip => chip.isTeaching).text, /\(T3p\)/,
+            'sửa về 0 phút thì chỉ còn số phút hệ thống');
+
+        const pendingWrite = { ...observation(7), id: 'obs-pending', createdAt: null };
+        assert.match(chipsFor(session, [wrong, fixed, pendingWrite]).find(chip => chip.isTeaching).text, /\(T7p\)/,
+            'lệnh vừa lưu (serverTimestamp chưa về) là lệnh mới nhất');
+    } finally {
+        delete context.TeacherShiftState;
+    }
+}
+
+{
+    // Từ 16/10/2026 bỏ chế độ +10p chuẩn bị lớp: yêu cầu đã duyệt, cờ cũ trên phiên
+    // đều không còn cộng giờ; ca trước 16/10 giữ nguyên.
+    const staffId = 'nv-sang';
+    const schedule = {
+        afternoon2: [{
+            start: '15:30', end: '18:30', lop: 'PRE-I1', lopId: 'subject-pre-i1',
+            gvId: staffId, registeredTeachers: [], _branch: 'cs1'
+        }]
+    };
+    const run = (dateKey, extraSession = {}) => {
+        const sessionId = `sang-${dateKey}`;
+        const targetShiftKey = context.window.buildEarly10TargetShiftKey(dateKey, schedule.afternoon2[0], 'afternoon2', 0);
+        return context.window.calculateDailyChips(
+            schedule,
+            [{ id: sessionId, checkIn: `${dateKey}T15:12:00+07:00`, checkOut: `${dateKey}T18:30:00+07:00`, ...extraSession }],
+            staffId, dateKey,
+            { roles: ['teaching_assistant'], teachingMode: 'old' },
+            [], {}, [],
+            { [sessionId]: { id: `b10-${dateKey}`, status: 'approved', sessionId, awardScope: 'teaching_shift', targetShiftKey } },
+            [], {}
+        ).find(chip => chip.isTeaching && chip.sessionId === sessionId);
+    };
+    const before = run('2026-10-15');
+    assert.equal(before.bonus10Status, 'approved');
+    assert.equal(before.paidMinutes, 190, 'ca 15/10 vẫn giữ +10p đã duyệt');
+
+    const cutoff = run('2026-10-16');
+    assert.equal(cutoff.bonus10Status, null, 'từ 16/10 không còn trạng thái +10p');
+    assert.equal(cutoff.paidMinutes, 180, 'ca 16/10 không được cộng 10p');
+    assert.doesNotMatch(cutoff.text, /\+10p/);
+
+    const later = run('2026-10-22', { bonus10: true });
+    assert.equal(later.paidMinutes, 180, 'cờ bonus10 cũ trên phiên cũng không cộng sau mốc');
+    assert.equal(later.bonus10Status, null);
+}
+
 console.log('evaluation-service regression tests passed');

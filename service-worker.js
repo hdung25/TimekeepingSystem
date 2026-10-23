@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v247-carryover-keyorder-20261021';
+const APP_RELEASE = 'tdt-chamcong-v248-late-fix-no10p-20261023';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -34,7 +34,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/partner-attendance-policy.js?v=20261013-partner-adjust-v1',
     '/js/partner-attendance-xlsx.js?v=20261012-linked-v1',
     '/js/partner-attendance.js?v=20261013-partner-adjust-v1',
-    '/js/evaluation-service.js?v=20261012-linked-v1',
+    '/js/evaluation-service.js?v=20261023-late-fix-v1',
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',
     '/css/style.css?v=20260925-landscape-v1',
@@ -56,19 +56,19 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20261007-review-edit-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
-    '/js/db-service.js?v=20261006-makeup-revoke-v1',
+    '/js/db-service.js?v=20261023-late-fix-v1',
     '/js/meeting-attendance-policy.js?v=20261007-review-edit-v1',
     '/js/class-rate-groups.js?v=20261007-review-edit-v1',
-    '/js/report.js?v=20261016-staff-search-v1',
+    '/js/report.js?v=20261023-late-fix-v1',
     '/js/teacher-attendance-policy.js?v=20261008-export-all-v1',
     '/js/teacher-attendance-editor.js?v=20261005-new-mode-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
     '/js/shift-absence-state.js?v=20261006-sub-dropout-v1',
-    '/js/admin-payroll-override.js?v=20260906-early10-recovery-v1',
-    '/js/admin-payroll-override-ui.js?v=20260910-admin-override-default-v1',
-    '/js/shift-oversight.js?v=20260906-early10-recovery-v1',
+    '/js/admin-payroll-override.js?v=20261023-late-fix-v1',
+    '/js/admin-payroll-override-ui.js?v=20261023-late-fix-v1',
+    '/js/shift-oversight.js?v=20261023-late-fix-v1',
     '/js/ui-service.js?v=20260912-schedule-blank-guard-v1',
-    '/js/early10.js?v=20260912-early10-nanos-v1',
+    '/js/early10.js?v=20261023-late-fix-v1',
     '/js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1',
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
@@ -79,7 +79,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/chart-service.js?v=20260906-early10-recovery-v1',
     '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
-    '/js/schedule.js?v=20261020-carryover-v1',
+    '/js/schedule.js?v=20261023-late-fix-v1',
     '/js/center-holidays.js?v=20260927-holidays-v1',
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-carryover.js?v=20261021-carryover-v2',
@@ -88,7 +88,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/staff-notes.js?v=20261003-owner-v3',
     '/css/staff-notes.css?v=20261003-owner-v3',
     '/js/search-keynav.js?v=20261013-partner-adjust-v1',
-    '/js/teacher-shift-state.js?v=20261008-owner-round-v1',
+    '/js/teacher-shift-state.js?v=20261023-late-fix-v1',
     '/js/pdf-export.js?v=20261006-tax-grouped-v1',
     '/js/receptionist-schedule.js?v=20260926-mobile-ui-v1',
     '/js/timekeeping.js?v=20261003-chain-v1',

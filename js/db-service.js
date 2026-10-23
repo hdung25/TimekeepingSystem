@@ -5277,7 +5277,9 @@ const DBService = {
                 }
             }
 
-            const keepsExistingBonus10 = !bonus10Dirty && liveActiveRequests.length > 0;
+            // Ngày đã bỏ chế độ 10p: yêu cầu cũ không còn hiệu lực, không chặn việc sửa giờ công.
+            const early10DateActive = !window.Early10.isEarly10ActiveOnDate || window.Early10.isEarly10ActiveOnDate(dateKey);
+            const keepsExistingBonus10 = early10DateActive && !bonus10Dirty && liveActiveRequests.length > 0;
             const requiresBonus10Policy = wantsBonus10 || keepsExistingBonus10;
             if (requiresBonus10Policy && window.Early10.isMonthlyBonusPenaltyActive(
                 monthlySettings,
@@ -7546,7 +7548,11 @@ const DBService = {
 
         const lateMinutes = Math.max(0, Math.min(240, Math.round(Number(payload.lateMinutes) || 0)));
         const note = String(payload.note || '').trim().slice(0, 500);
-        if (lateMinutes === 0 && !note) {
+        // Lệnh mới thay lệnh cũ của cùng lớp/GV; sửa về 0 phút hợp lệ khi đang có lệnh trừ phút.
+        const lateMinutesSet = payload.lateMinutesSet === true;
+        const previousLateMinutes = Math.max(0, Math.min(240, Math.round(Number(payload.previousLateMinutes) || 0)));
+        const replacesObservationId = String(payload.replacesObservationId || '').slice(0, 64);
+        if (lateMinutes === 0 && !note && !(lateMinutesSet && previousLateMinutes > 0)) {
             throw new Error('Vui lòng nhập số phút trễ hoặc nội dung ghi chú.');
         }
 
@@ -7571,7 +7577,12 @@ const DBService = {
             systemLateAtCreation: Math.max(0, Math.round(Number(payload.systemLateAtCreation) || 0)),
             effectiveLateAtCreation: Math.max(lateMinutes, Math.round(Number(payload.systemLateAtCreation) || 0)),
             note,
-            kind: lateMinutes > 0 ? 'late_adjustment' : 'note',
+            lateMinutesSet,
+            previousLateMinutes,
+            replacesObservationId,
+            kind: replacesObservationId && lateMinutes !== previousLateMinutes
+                ? 'late_correction'
+                : (lateMinutes > 0 ? 'late_adjustment' : 'note'),
             status: 'active',
             createdByStaffId: creatorStaffId,
             createdByName: creatorName,
@@ -8961,7 +8972,9 @@ const DBService = {
                 .where('status', '==', 'pending')
                 .limit(100)
                 .get();
-            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Ca từ ngày bỏ chế độ 10p không còn gì để duyệt — ẩn khỏi danh sách chờ.
+            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter(item => !window.Early10?.isEarly10ActiveOnDate || window.Early10.isEarly10ActiveOnDate(item.dateKey));
             list.sort((a, b) => (b.dateKey || '').localeCompare(a.dateKey || ''));
             return list;
         } catch (e) {

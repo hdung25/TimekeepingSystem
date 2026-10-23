@@ -683,11 +683,60 @@
         return { ...current, gvList: mains, gvId: first.id || '', gv: first.name || '' };
     }
 
+    // Quan sát ca: tiếp tân ghi lại số phút trễ cho MỘT lớp/GV. Lệnh lưu sau
+    // là bản sửa của lệnh trước (VD: ghi nhầm 50p rồi sửa lại 5p) nên LỆNH MỚI
+    // NHẤT thắng, không lấy số lớn nhất. Lệnh cũ chỉ ghi chú (0 phút, không có
+    // cờ lateMinutesSet) không làm thay đổi số phút.
+    function observationTimeMs(item) {
+        const value = item && item.createdAt;
+        // serverTimestamp chưa đồng bộ về = lệnh vừa lưu trên máy này.
+        if (!value) return Number.POSITIVE_INFINITY;
+        if (typeof value.toMillis === 'function') return value.toMillis();
+        if (typeof value.seconds === 'number') {
+            return value.seconds * 1000 + Math.floor(Number(value.nanoseconds || 0) / 1e6);
+        }
+        const parsed = new Date(value).getTime();
+        return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    function setsObservationLate(item) {
+        if (!item || item.status === 'cancelled') return false;
+        return item.lateMinutesSet === true || Math.round(Number(item.lateMinutes) || 0) > 0;
+    }
+
+    function resolveObservationLate(items) {
+        const candidates = (Array.isArray(items) ? items : []).filter(setsObservationLate);
+        if (!candidates.length) return { lateMinutes: 0, currentId: '', current: null };
+        const current = candidates.reduce((latest, item) => {
+            const diff = observationTimeMs(item) - observationTimeMs(latest);
+            if (diff > 0) return item;
+            if (diff < 0) return latest;
+            return String(item.id || '') > String(latest.id || '') ? item : latest;
+        });
+        return {
+            lateMinutes: Math.max(0, Math.round(Number(current.lateMinutes) || 0)),
+            currentId: String(current.id || ''),
+            current
+        };
+    }
+
+    // Khóa nhận diện "cùng một lớp/GV" để nhóm các lệnh sửa của nhau.
+    function observationClassKey(item) {
+        if (!item) return '';
+        const place = item.scheduleCompositeKey && item.classSectionKey
+            ? `${item.scheduleCompositeKey}|${item.classSectionKey}|${Number(item.classIndex)}`
+            : `${item.branch || ''}|${item.classStart || ''}`;
+        return `${item.dateKey || ''}|${item.teacherId || ''}|${place}`;
+    }
+
     return {
         ACTIVE,
         VP,
         VDX,
         HISTORY_LIMIT,
+        resolveObservationLate,
+        observationClassKey,
+        setsObservationLate,
         getMainTeachers,
         getSubstituteTeachers,
         getAbsenceRecord,

@@ -267,7 +267,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261012-linked-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261008-owner-round-v1'></script> <script src='js/db-service.js?v=20261006-makeup-revoke-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261023-late-fix-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
 <body>
@@ -289,6 +289,9 @@
                        Bật tại đây chỉ là một điều kiện: nhân sự còn phải thuộc chế độ được áp dụng,
                        vào ca thực tế sớm đủ 10 phút và tự gửi yêu cầu đúng ca. Bấm vào ô môn để tick
                        chọn nhiều môn, rồi xếp nhóm / bật 10p / xóa một lượt.</p>
+                    <p style="margin-top:.5rem;padding:.55rem .75rem;border-radius:10px;background:#FEF3C7;color:#92400E;font-weight:600;">
+                       Từ ngày 16/10/2026 trung tâm đã bỏ chế độ cộng 10 phút chuẩn bị lớp. Cờ 10p bên dưới chỉ còn
+                       dùng để đối chiếu các ca trước ngày này; ca từ 16/10/2026 không được cộng 10p dù môn đang bật.</p>
                 </div>
             </div>
 
@@ -445,7 +448,7 @@
 </div>
 
 <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script><script src="js/search-keynav.js?v=20261013-partner-adjust-v1"></script>
-<script src="js/early10.js?v=20260912-early10-nanos-v1"></script>
+<script src="js/early10.js?v=20261023-late-fix-v1"></script>
 <script src="js/main.js?v=20261007-review-edit-v1"></script>
 <script src="js/mon-hoc.js?v=20261012-linked-v1"></script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>

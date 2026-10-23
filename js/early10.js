@@ -11,6 +11,12 @@
 
     var EARLY10_BONUS_MINUTES = 10;      // số phút được cộng vào ca
     var EARLY10_REQUIRED_MINUTES = 10;   // phải đến sớm ít nhất bằng ngần này
+    // Từ 16/10/2026 trung tâm bỏ chế độ cộng 10 phút chuẩn bị lớp (đề xuất của
+    // quản lý, HCNS + BGĐ duyệt). Ca TRƯỚC ngày này giữ nguyên +10p đã duyệt;
+    // ca từ ngày này trở đi không được yêu cầu, duyệt hay cộng 10p nữa.
+    var EARLY10_POLICY_END_DATE = '2026-10-16';
+    var EARLY10_ENDED_MESSAGE = 'Từ ngày 16/10/2026 trung tâm đã bỏ chế độ cộng thêm 10 phút chuẩn bị lớp. ' +
+        'Ca từ ngày này trở đi không còn được +10p.';
 
     // --- Môn học ---------------------------------------------------------
 
@@ -302,9 +308,39 @@
         return diff;
     }
 
+    // --- Ngày áp dụng ---------------------------------------------------
+
+    function toDateKey(value) {
+        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+        var date = toDate(value);
+        if (!date) return '';
+        return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' +
+            String(date.getDate()).padStart(2, '0');
+    }
+
+    // Ngày không xác định được thì coi như còn áp dụng: chỉ những ca có ngày
+    // rõ ràng từ mốc kết thúc mới bị chặn (dữ liệu cũ không bị mất +10p).
+    function isEarly10ActiveOnDate(dateLike) {
+        var key = toDateKey(dateLike);
+        return !key || key < EARLY10_POLICY_END_DATE;
+    }
+
+    function resolvePolicyDateKey(options) {
+        return toDateKey(options.dateKey || options.dateStr || options.date || '') ||
+            toDateKey(options.checkIn || '');
+    }
+
     // Trạng thái chính sách dùng chung cho chip và bước xác nhận.
     function evaluatePolicyEligibility(input) {
         var options = input || {};
+        if (!isEarly10ActiveOnDate(resolvePolicyDateKey(options))) {
+            return {
+                ok: false,
+                code: 'ended',
+                teachingMode: getTeachingMode(options.user),
+                message: EARLY10_ENDED_MESSAGE
+            };
+        }
         var subjectMap = options.subjectMap || buildSubjectEarly10Map(options.subjects);
         var subjectAllowed = Array.isArray(options.subjectIds) && options.subjectIds.length > 0
             ? isSubjectIdsEarly10Allowed(options.subjectIds, subjectMap)
@@ -361,7 +397,8 @@
             sessionRole: options.sessionRole,
             subjectIds: options.subjectIds,
             subjectMap: subjectMap,
-            user: options.user
+            user: options.user,
+            dateKey: resolvePolicyDateKey(options)
         });
         if (!eligibility.ok) return fail(eligibility.code, eligibility.message);
 
@@ -424,6 +461,9 @@
     var Early10 = {
         BONUS_MINUTES: EARLY10_BONUS_MINUTES,
         REQUIRED_MINUTES: EARLY10_REQUIRED_MINUTES,
+        POLICY_END_DATE: EARLY10_POLICY_END_DATE,
+        ENDED_MESSAGE: EARLY10_ENDED_MESSAGE,
+        isEarly10ActiveOnDate: isEarly10ActiveOnDate,
         classifySubjectFamily: classifySubjectFamily,
         isEarly10RestrictedSubject: isEarly10RestrictedSubject,
         buildSubjectEarly10Map: buildSubjectEarly10Map,

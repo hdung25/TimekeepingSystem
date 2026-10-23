@@ -97,6 +97,10 @@
         return parts.slice(-2).map(part => part.charAt(0).toUpperCase()).join('') || '?';
     }
 
+    function resolveObservationLate(items) {
+        return window.TeacherShiftState.resolveObservationLate(items);
+    }
+
     function refreshIcons() {
         if (window.lucide) window.lucide.createIcons();
     }
@@ -251,7 +255,9 @@
             }
             return item.branch === state.branch && item.classStart === cls.start;
         });
-        const manualLateMinutes = observations.reduce((max, item) => Math.max(max, Number(item.lateMinutes) || 0), 0);
+        // Lệnh mới nhất thay lệnh cũ (ghi nhầm 50p → sửa lại 5p), không lấy số lớn nhất.
+        const resolvedLate = resolveObservationLate(observations);
+        const manualLateMinutes = resolvedLate.lateMinutes;
         return {
             scheduleCompositeKey: compositeKey,
             sectionKey,
@@ -265,6 +271,7 @@
             teacherName,
             systemLateMinutes,
             manualLateMinutes,
+            currentObservation: resolvedLate.current,
             effectiveLateMinutes: Math.max(systemLateMinutes, manualLateMinutes),
             observations
         };
@@ -375,6 +382,9 @@
                             <span class="late-badge manual"><span>Tiếp tân</span><strong>${entry.manualLateMinutes} phút</strong></span>
                             <span class="late-badge effective"><span>Hiệu lực</span><strong>${entry.effectiveLateMinutes} phút</strong></span>
                         </div>
+                        ${entry.currentObservation?.replacesObservationId && Number(entry.currentObservation.previousLateMinutes) !== entry.manualLateMinutes
+                            ? `<div class="observation-note-preview">Đã sửa ${Number(entry.currentObservation.previousLateMinutes) || 0} phút thành ${entry.manualLateMinutes} phút (${escapeHtml(entry.currentObservation.createdByName || 'tiếp tân')})</div>`
+                            : ''}
                         ${notes.length ? `<div class="observation-note-preview">${escapeHtml(notes.join(' / '))}</div>` : ''}
                     </div>
                     <button type="button" class="record-observation-btn" data-class-entry="${index}" ${!state.canOperate || !entry.teacherId ? 'disabled' : ''}>
@@ -401,6 +411,10 @@
         document.getElementById('modal-system-late').textContent = `${entry.systemLateMinutes} phút`;
         document.getElementById('observation-late-minutes').value = entry.manualLateMinutes || 0;
         document.getElementById('observation-note').value = '';
+        const current = entry.currentObservation;
+        document.getElementById('observation-minutes-hint').textContent = current
+            ? `Đang ghi nhận ${entry.manualLateMinutes} phút (${current.createdByName || 'tiếp tân'}, ${formatTimestamp(current.createdAt)}). Ghi nhầm thì nhập lại số đúng rồi lưu: số mới sẽ thay số cũ, kể cả 0 phút.`
+            : 'Số phút lưu sau sẽ thay số đã ghi trước đó, nên ghi nhầm thì nhập lại số đúng rồi lưu.';
         document.getElementById('observation-form-error').classList.remove('visible');
         updateEffectivePreview();
         const modal = document.getElementById('observation-modal');
@@ -433,8 +447,15 @@
         const lateMinutes = Math.max(0, Math.round(Number(document.getElementById('observation-late-minutes').value) || 0));
         const note = document.getElementById('observation-note').value.trim();
         const errorBox = document.getElementById('observation-form-error');
-        if (lateMinutes === 0 && !note) {
+        const previousLateMinutes = entry.manualLateMinutes || 0;
+        // Sửa về 0 phút là hợp lệ khi đang có lệnh trừ phút (VD ghi nhầm GV trễ).
+        if (lateMinutes === 0 && !note && previousLateMinutes === 0) {
             errorBox.textContent = 'Vui lòng nhập số phút trễ hoặc nội dung ghi chú.';
+            errorBox.classList.add('visible');
+            return;
+        }
+        if (lateMinutes === previousLateMinutes && !note) {
+            errorBox.textContent = `Đang ghi nhận đúng ${lateMinutes} phút. Hãy nhập số phút khác hoặc thêm ghi chú.`;
             errorBox.classList.add('visible');
             return;
         }
@@ -457,11 +478,16 @@
                 teacherId: entry.teacherId,
                 teacherName: entry.teacherName,
                 lateMinutes,
+                lateMinutesSet: true,
+                previousLateMinutes,
+                replacesObservationId: entry.currentObservation?.id || '',
                 systemLateAtCreation: entry.systemLateMinutes,
                 note
             });
             closeObservationModal();
-            toast('Đã lưu ghi nhận và cập nhật chip bảng công.', 'success');
+            toast(previousLateMinutes !== lateMinutes && entry.currentObservation
+                ? `Đã sửa ${previousLateMinutes} phút thành ${lateMinutes} phút và cập nhật bảng công.`
+                : 'Đã lưu ghi nhận và cập nhật chip bảng công.', 'success');
             await loadReceptionistView();
         } catch (error) {
             errorBox.textContent = error.message || 'Không thể lưu ghi nhận.';
@@ -514,10 +540,12 @@
                 .some(value => String(value || '').toLocaleLowerCase('vi').includes(keyword));
         });
 
+        const currentIds = currentObservationIds(state.adminRecords);
         const active = records.filter(item => item.status !== 'cancelled');
-        document.getElementById('summary-active').textContent = active.filter(item => Number(item.lateMinutes) > 0).length;
+        const applied = active.filter(item => currentIds.has(item.id));
+        document.getElementById('summary-active').textContent = applied.filter(item => Number(item.lateMinutes) > 0).length;
         document.getElementById('summary-notes').textContent = active.filter(item => String(item.note || '').trim()).length;
-        document.getElementById('summary-minutes').textContent = active.reduce((sum, item) => sum + (Number(item.lateMinutes) || 0), 0);
+        document.getElementById('summary-minutes').textContent = applied.reduce((sum, item) => sum + (Number(item.lateMinutes) || 0), 0);
         document.getElementById('log-result-label').textContent = `${records.length} ghi nhận trong khoảng đã chọn`;
 
         const container = document.getElementById('admin-log-list');
@@ -539,7 +567,7 @@
             return `
                 <section class="log-day-group">
                     <header class="log-day-header"><h3>${escapeHtml(dateLabel)}</h3><span>${items.length} ghi nhận</span></header>
-                    <div>${items.map(renderLogRow).join('')}</div>
+                    <div>${items.map(item => renderLogRow(item, currentIds)).join('')}</div>
                 </section>`;
         }).join('');
 
@@ -549,18 +577,35 @@
         refreshIcons();
     }
 
-    function renderLogRow(item) {
+    // Mỗi lớp/GV chỉ có một lệnh trừ phút đang tính: lệnh mới nhất.
+    function currentObservationIds(records) {
+        const groups = {};
+        records.forEach(item => {
+            const key = window.TeacherShiftState.observationClassKey(item);
+            (groups[key] = groups[key] || []).push(item);
+        });
+        const ids = new Set();
+        Object.values(groups).forEach(items => {
+            const resolved = resolveObservationLate(items);
+            if (resolved.currentId) ids.add(resolved.currentId);
+        });
+        return ids;
+    }
+
+    function renderLogRow(item, currentIds) {
         const cancelled = item.status === 'cancelled';
+        const superseded = !cancelled && window.TeacherShiftState.setsObservationLate(item) && !currentIds.has(item.id);
         const createdAt = formatTimestamp(item.createdAt);
         const effective = Math.max(Number(item.systemLateAtCreation) || 0, Number(item.lateMinutes) || 0);
+        const statusLabel = cancelled ? 'Đã hủy' : (superseded ? 'Đã sửa bằng lệnh sau' : 'Đang áp dụng');
         return `
             <div class="log-row ${cancelled ? 'is-cancelled' : ''}">
                 <div class="log-main"><span class="log-cell-label">Ca</span><strong>${escapeHtml(item.classStart)} - ${escapeHtml(item.classEnd)}</strong><span>${escapeHtml((item.branch || '').toUpperCase())}, ca ${escapeHtml(SHIFT_LABELS[item.shiftKey] || item.shiftKey)}</span></div>
                 <div class="log-main"><span class="log-cell-label">Lớp / giáo viên</span><strong>${escapeHtml(item.teacherName || 'Không rõ')}</strong><span>${escapeHtml(item.className || 'Lớp chưa đặt tên')}</span></div>
                 <div class="log-main"><span class="log-cell-label">Người tạo</span><strong>${escapeHtml(item.createdByName || 'Không rõ')}</strong><span>${escapeHtml(createdAt)}</span></div>
-                <div class="log-note"><span class="log-cell-label">Nội dung</span>${item.note ? `<strong>${escapeHtml(item.note)}</strong>` : 'Không có ghi chú'}<div class="log-command"><span>Hệ thống ${Number(item.systemLateAtCreation) || 0}p, lệnh ${Number(item.lateMinutes) || 0}p</span><strong>Hiệu lực ${effective} phút</strong></div></div>
-                <div><span class="log-cell-label">Trạng thái</span><span class="log-status ${cancelled ? 'cancelled' : ''}">${cancelled ? 'Đã hủy' : 'Đang áp dụng'}</span></div>
-                <div>${cancelled ? '' : `<button type="button" class="cancel-log-btn" data-cancel-observation="${escapeHtml(item.id)}">Hủy lệnh</button>`}</div>
+                <div class="log-note"><span class="log-cell-label">Nội dung</span>${item.note ? `<strong>${escapeHtml(item.note)}</strong>` : 'Không có ghi chú'}<div class="log-command"><span>Hệ thống ${Number(item.systemLateAtCreation) || 0}p, lệnh ${Number(item.lateMinutes) || 0}p${item.replacesObservationId ? ` (sửa từ ${Number(item.previousLateMinutes) || 0}p)` : ''}</span><strong>${superseded ? 'Không còn tính' : `Hiệu lực ${effective} phút`}</strong></div></div>
+                <div><span class="log-cell-label">Trạng thái</span><span class="log-status ${cancelled || superseded ? 'cancelled' : ''}">${statusLabel}</span></div>
+                <div>${cancelled || superseded ? '' : `<button type="button" class="cancel-log-btn" data-cancel-observation="${escapeHtml(item.id)}">Hủy lệnh</button>`}</div>
             </div>`;
     }
 

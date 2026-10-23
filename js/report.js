@@ -2479,12 +2479,16 @@ async function _renderMonthReport(date, forceServer = false) {
                         ? Early10.getChipSubjectIds(chip, subjectCatalogForEarly10)
                         : [],
                     subjectMap: subjectMapForEarly10,
-                    user: _targetCtx
+                    user: _targetCtx,
+                    dateKey: dateStr
                 })
                 : { ok: false, code: 'module', teachingMode: 'unset' };
             const chipMayRequestEarly10 = early10Eligibility.ok === true;
+            // Từ 16/10/2026 bỏ chế độ +10p: ca của những ngày này không còn nút
+            // "Sớm"/"Không áp dụng" (bảng công không cộng 10p nữa).
+            const early10PolicyEnded = early10Eligibility.code === 'ended';
 
-            if (canSeeBonus10 && chip.sessionId &&
+            if (canSeeBonus10 && !early10PolicyEnded && chip.sessionId &&
                 chip.class !== 'chip-blue' &&
                 chip.class !== 'chip-gray' &&
                 chip.class !== 'chip-future' &&
@@ -6152,7 +6156,13 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
                 b10Container.style.display = 'flex';
                 b10Actions.innerHTML = '';
                 const b10Status = chip.bonus10Status;
-                if (b10Status === 'admin_override') {
+                const early10Ended = typeof Early10 !== 'undefined' && Early10.isEarly10ActiveOnDate &&
+                    !Early10.isEarly10ActiveOnDate(dateKey);
+                if (early10Ended) {
+                    b10Actions.innerHTML = `
+                        <span style="color: #6B7280; font-size: 0.9rem;">Đã bỏ chế độ +10p chuẩn bị lớp từ 16/10/2026</span>
+                    `;
+                } else if (b10Status === 'admin_override') {
                     b10Actions.innerHTML = `
                         <span style="color: #166534; font-weight: 600; font-size: 0.9rem; margin-right: 8px;">★ +10p theo quyết định Admin</span>
                         <span style="display:block;font-size:.78rem;color:#475569;margin-top:4px;">Mở phần “Quyền Admin · nguồn tính chip”, bỏ chọn “Cộng +10 phút theo quyết định Admin” rồi lưu nếu cần hủy.</span>
