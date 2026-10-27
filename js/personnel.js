@@ -491,8 +491,11 @@
         document.getElementById('ns-staff-color').value = (user && user.scheduleColor) || '#4CAF50';
 
         var checkedRoles = user ? rolesOf(user) : ['staff'];
+        // Trợ lý cấp cao không được cấp/đổi vai trò Admin hay Trợ lý cấp cao.
+        var actorIsSenior = localStorage.getItem('currentRole') === 'senior_assistant';
         document.querySelectorAll('#ns-roles input[type="checkbox"]').forEach(function (cb) {
             cb.checked = checkedRoles.indexOf(cb.value) !== -1;
+            cb.disabled = actorIsSenior && (cb.value === 'admin' || cb.value === 'senior_assistant');
         });
 
         var meetingGroups = user && Array.isArray(user.specialties) ? user.specialties : [];

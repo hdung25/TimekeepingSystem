@@ -20,7 +20,8 @@ const {
     setDoc,
     Timestamp,
     updateDoc,
-    where
+    where,
+    writeBatch
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-timekeeping';
@@ -191,6 +192,61 @@ test('senior assistant cannot mint or rewrite security mappings; primary admin c
         role: 'assistant', roles: ['assistant']
     }));
     await assertSucceeds(deleteDoc(doc(adminDb, 'user_roles', 'uid-primary-created')));
+});
+
+function seniorOnboardBatch(db, { staffId, authUid, username = 'newbie', roles = ['teacher'], extra = {}, mappingUserId }) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'user_roles', authUid), {
+        userId: mappingUserId || staffId, username, role: roles[0], roles,
+        updatedByAdmin: true, updatedAt: serverTimestamp()
+    });
+    batch.set(doc(db, 'users', staffId), {
+        id: staffId, name: 'Newbie', username, role: roles[0], roles,
+        authUid, teachingMode: 'new', salary_config: {}, createdAt: '2026-10-27T00:00:00.000Z',
+        ...extra
+    });
+    batch.set(doc(db, 'staff_directory', staffId), {
+        id: staffId, name: 'Newbie', username, role: roles[0], roles
+    });
+    batch.set(doc(db, 'user_credentials', staffId), {
+        staffId, password: 'secret123', updatedAt: serverTimestamp()
+    });
+    return batch;
+}
+
+test('senior assistant can onboard a brand-new staff member in one batch', async () => {
+    await assertSucceeds(seniorOnboardBatch(seniorDb, {
+        staffId: 'nv_1777000000001', authUid: 'uid-newbie-1'
+    }).commit());
+    // privileged roles stay primary-Admin only
+    await assertFails(seniorOnboardBatch(seniorDb, {
+        staffId: 'nv_1777000000002', authUid: 'uid-newbie-2', roles: ['admin']
+    }).commit());
+    await assertFails(seniorOnboardBatch(seniorDb, {
+        staffId: 'nv_1777000000003', authUid: 'uid-newbie-3', roles: ['teacher', 'senior_assistant']
+    }).commit());
+    // payroll config stays primary-Admin only
+    await assertFails(seniorOnboardBatch(seniorDb, {
+        staffId: 'nv_1777000000004', authUid: 'uid-newbie-4',
+        extra: { salary_config: { attendance_rate: 1 } }
+    }).commit());
+    // a new login can never be attached to an existing staff member
+    await assertFails(seniorOnboardBatch(seniorDb, {
+        staffId: 'nv_1777000000001', authUid: 'uid-hijack'
+    }).commit());
+    await assertFails(setDoc(doc(seniorDb, 'user_roles', 'uid-hijack-2'), {
+        userId: 'staff-2', username: 'staff2', role: 'teacher', roles: ['teacher']
+    }));
+    // the mapping must point at the profile created in the same batch
+    await assertFails(seniorOnboardBatch(seniorDb, {
+        staffId: 'nv_1777000000005', authUid: 'uid-newbie-5', mappingUserId: 'staff-2'
+    }).commit());
+    // plain staff cannot onboard
+    await assertFails(seniorOnboardBatch(staffDb, {
+        staffId: 'nv_1777000000006', authUid: 'uid-newbie-6'
+    }).commit());
+    // and the senior still cannot read passwords back
+    await assertFails(getDoc(doc(seniorDb, 'user_credentials', 'nv_1777000000001')));
 });
 
 test('senior may edit existing non-security profile fields but cannot mutate identity or lifecycle', async () => {

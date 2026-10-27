@@ -94,12 +94,18 @@ assert.doesNotMatch(managerRoleSync, /localStorage\.getItem\('currentRole'\)/,
 const saveUserFlow = db.slice(db.indexOf('saveUser: async'), db.indexOf('deleteUser: async'));
 assert.match(profileSaveBoundary, /getAuthenticatedAuthorizationContext\(true\)/,
     'profile saves must authorize against a server-verified Firebase role mapping');
-assert.match(managerRoleSync, /if \(!authorization\.roles\.includes\('admin'\)\) return false;/,
-    'only the primary Admin may sync user_roles');
+assert.match(managerRoleSync, /if \(!authorization\.roles\.includes\('admin'\)\) \{\s*[\s\S]*?if \(!allowSeniorCreate \|\| !batch \|\| !targetAuthUid\) return false;/,
+    'only the primary Admin may sync user_roles, except a senior onboarding a new staff in one batch');
+assert.match(profileSaveBoundary, /SENIOR_FORBIDDEN_GRANT_ROLES\.includes/,
+    'a senior onboarding must refuse privileged roles before any write');
+assert.match(profileSaveBoundary, /isSeniorCreate: true/);
 assert.match(saveUserFlow, /_syncUserRoleMappingAsManager\([\s\S]*saveAuthorization\.authorization/,
     'profile, credential and UID role mapping must share one Firestore batch');
-assert.match(saveUserFlow, /password && saveAuthorization\.isPrimaryAdmin/,
-    'senior profile maintenance must never write compatibility credentials');
+assert.match(saveUserFlow, /canWriteSecurity = saveAuthorization\.isPrimaryAdmin \|\| isSeniorCreate/);
+assert.match(saveUserFlow, /password && canWriteSecurity/,
+    'senior profile maintenance must never write compatibility credentials (only on onboarding)');
+assert.match(profileSaveBoundary, /isSeniorCreate: true[\s\S]*hasOwnProperty\.call\(user \|\| \{\}, 'password'\)[\s\S]*không được thay đổi mật khẩu/,
+    'an existing staff password stays primary-Admin only');
 assert.match(saveUserFlow, /Object\.entries\(safeProfile\)\.filter[\s\S]*'id', 'username', 'role', 'roles', 'authUid'/,
     'senior profile batches must omit every protected identity/role field even when unchanged');
 assert.doesNotMatch(saveUserFlow, /Could not sync user_roles/,

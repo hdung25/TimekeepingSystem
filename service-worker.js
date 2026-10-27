@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v248-late-fix-no10p-20261023';
+const APP_RELEASE = 'tdt-chamcong-v249-senior-create-20261027';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -56,7 +56,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20261007-review-edit-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
-    '/js/db-service.js?v=20261023-late-fix-v1',
+    '/js/db-service.js?v=20261027-senior-create-v1',
     '/js/meeting-attendance-policy.js?v=20261007-review-edit-v1',
     '/js/class-rate-groups.js?v=20261007-review-edit-v1',
     '/js/report.js?v=20261023-late-fix-v1',
@@ -73,7 +73,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/payroll-automation.js?v=20260809-payroll-safety-v1',
     '/js/subject-rate-policy.js?v=20260809-subject-rate-v1',
     '/js/mon-hoc.js?v=20261012-linked-v1',
-    '/js/personnel.js?v=20261007-review-edit-v1',
+    '/js/personnel.js?v=20261027-senior-create-v1',
     '/js/auth-guard.js?v=20261012-linked-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
     '/js/chart-service.js?v=20260906-early10-recovery-v1',

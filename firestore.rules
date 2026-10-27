@@ -52,6 +52,41 @@ service cloud.firestore {
           'salary_config', 'teachingMode'
         ]) == false;
     }
+    // A senior assistant may onboard a brand-new staff member in ONE batch:
+    // users + staff_directory + user_credentials + user_roles, all for a
+    // staffId that did not exist before the batch and an Auth UID whose new
+    // mapping points back at it. Privileged roles and payroll config stay
+    // primary-Admin only, and an existing staffId can never gain a new login.
+    function isSeniorGrantableRoleList(roles) {
+      return roles is list && roles.size() > 0 && roles.size() <= 12
+        && !roles.hasAny(['admin', 'senior_assistant']);
+    }
+    function isSeniorGrantableRole(role) {
+      return role is string && role.size() > 0
+        && !(role in ['admin', 'senior_assistant']);
+    }
+    function isSeniorNewStaffLink(staffId, authUid) {
+      let usersPath = /databases/$(database)/documents/users/$(staffId);
+      let rolePathFor = /databases/$(database)/documents/user_roles/$(authUid);
+      return isSeniorAssistant()
+        && staffId.matches('nv_[0-9]{10,16}')
+        && authUid is string && authUid.size() > 0
+        && !exists(usersPath)
+        && existsAfter(usersPath)
+        && existsAfter(rolePathFor)
+        && getAfter(usersPath).data.get('authUid', '') == authUid
+        && getAfter(rolePathFor).data.get('userId', '') == staffId;
+    }
+    function isSeniorNewStaffProfile(userId) {
+      let data = request.resource.data;
+      return isSeniorNewStaffLink(userId, data.get('authUid', ''))
+        && data.get('id', '') == userId
+        && data.get('username', '') is string && data.get('username', '').size() > 0
+        && isSeniorGrantableRole(data.get('role', ''))
+        && isSeniorGrantableRoleList(data.get('roles', []))
+        && data.get('salary_config', {}) == {}
+        && !('password' in data);
+    }
     // A senior assistant may continue ordinary attendance maintenance, but a
     // primary-Admin payroll decision embedded in a session is immutable to that
     // role. List.removeAll turns a one-session edit into one removed + one added
@@ -686,7 +721,18 @@ service cloud.firestore {
     match /user_roles/{authUid} {
       allow get: if isAuthenticated() && (request.auth.uid == authUid || isAdmin());
       allow list: if isAuthenticated() && isAdmin();
-      allow create, update, delete: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated() && (isPrimaryAdmin() || (
+        isSeniorNewStaffLink(request.resource.data.get('userId', ''), authUid)
+        && request.resource.data.get('username', '') is string
+        && request.resource.data.get('username', '').size() > 0
+        && getAfter(/databases/$(database)/documents/users/$(request.resource.data.get('userId', ''))).data.get('username', '') == request.resource.data.get('username', '')
+        && isSeniorGrantableRole(request.resource.data.get('role', ''))
+        && isSeniorGrantableRoleList(request.resource.data.get('roles', []))
+        && request.resource.data.keys().hasOnly([
+          'userId', 'username', 'role', 'roles', 'updatedByAdmin', 'updatedAt'
+        ])
+      ));
+      allow update, delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     // Full profiles contain private payroll configuration. Staff can read only
@@ -694,7 +740,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isAuthenticated() && (isAdmin() || ownsStaffId(userId));
       allow list: if isAuthenticated() && isAdmin();
-      allow create, delete: if isAuthenticated() && isPrimaryAdmin();
+      allow create: if isAuthenticated() && (
+        isPrimaryAdmin() || isSeniorNewStaffProfile(userId)
+      );
+      allow delete: if isAuthenticated() && isPrimaryAdmin();
       allow update: if isAuthenticated() && (
         isPrimaryAdmin() || isSafeSeniorProfileUpdate()
       );
@@ -702,7 +751,12 @@ service cloud.firestore {
 
     match /staff_directory/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isPrimaryAdmin()
+      allow create: if isAuthenticated()
+        && (isPrimaryAdmin() || (
+          isSeniorNewStaffLink(userId, getAfter(/databases/$(database)/documents/users/$(userId)).data.get('authUid', ''))
+          && isSeniorGrantableRole(request.resource.data.get('role', ''))
+          && isSeniorGrantableRoleList(request.resource.data.get('roles', []))
+        ))
         && isSafeStaffDirectoryProfile(userId);
       allow update: if isAuthenticated()
         && (isPrimaryAdmin() || isSafeSeniorProfileUpdate())
@@ -715,6 +769,14 @@ service cloud.firestore {
     match /user_credentials/{staffId} {
       allow read: if isAuthenticated() && isPrimaryAdmin();
       allow create: if isAuthenticated() && (isPrimaryAdmin() || (
+        isSeniorNewStaffLink(staffId, getAfter(/databases/$(database)/documents/users/$(staffId)).data.get('authUid', ''))
+        && request.resource.data.get('staffId', '') == staffId
+        && request.resource.data.get('password', '') is string
+        && request.resource.data.get('password', '').size() >= 6
+        && request.resource.data.get('password', '').size() <= 256
+        && request.resource.data.get('updatedAt', null) == request.time
+        && request.resource.data.keys().hasOnly(['staffId', 'password', 'updatedAt'])
+      ) || (
         ownsStaffId(staffId)
         && request.resource.data.get('staffId', '') == staffId
         && request.resource.data.get('password', '') is string

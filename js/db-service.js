@@ -1200,6 +1200,9 @@ function _normalizeRoleList(value) {
         .filter(Boolean))];
 }
 
+// Roles a senior assistant can never hand out when onboarding a new staff member.
+const SENIOR_FORBIDDEN_GRANT_ROLES = ['admin', 'senior_assistant'];
+
 function _clearStoredAuthSession() {
     if (typeof window === 'undefined') return;
     if (typeof window.clearAuthSessionStorage === 'function') {
@@ -1796,21 +1799,39 @@ const DBService = {
                 'auth/profile-id-missing'
             );
         }
+        // Read the current private profile from the server before building the
+        // batch.  This prevents stale local data from changing identity or role
+        // fields, and tells a brand-new onboarding apart from an edit.
+        const existingSnapshot = await db.collection('users').doc(userId).get({ source: 'server' });
+        if (!existingSnapshot.exists) {
+            // Onboarding a new staff member: allowed (rules re-check all of
+            // this), but never with a privileged role or payroll config.
+            const newRoles = _normalizeRoleList(user);
+            if (newRoles.some(role => SENIOR_FORBIDDEN_GRANT_ROLES.includes(role)) ||
+                SENIOR_FORBIDDEN_GRANT_ROLES.includes(String(user.role || '').trim())) {
+                throw _createAuthProfileError(
+                    'Trợ lý cấp cao không được cấp vai trò Admin hoặc Trợ lý cấp cao.',
+                    'auth/security-field-change'
+                );
+            }
+            if (!/^nv_\d{10,16}$/.test(userId) || !String(user.authUid || '').trim()) {
+                throw _createAuthProfileError(
+                    'Thiếu tài khoản đăng nhập cho nhân sự mới.',
+                    'auth/profile-create-forbidden'
+                );
+            }
+            if (user.salary_config && Object.keys(user.salary_config).length) {
+                throw _createAuthProfileError(
+                    'Trợ lý cấp cao không được đặt cấu hình lương khi tạo nhân sự.',
+                    'auth/security-field-change'
+                );
+            }
+            return { authorization, isPrimaryAdmin: false, isSeniorCreate: true, existingProfile: null };
+        }
         if (Object.prototype.hasOwnProperty.call(user || {}, 'password')) {
             throw _createAuthProfileError(
                 'Trợ lý cấp cao không được thay đổi mật khẩu nhân sự.',
                 'auth/security-field-change'
-            );
-        }
-
-        // Read the current private profile from the server before building the
-        // batch.  This makes a senior save fail closed for new/deleted profiles
-        // and prevents stale local data from changing identity or role fields.
-        const existingSnapshot = await db.collection('users').doc(userId).get({ source: 'server' });
-        if (!existingSnapshot.exists) {
-            throw _createAuthProfileError(
-                'Trợ lý cấp cao chỉ được cập nhật hồ sơ nhân sự đã tồn tại.',
-                'auth/profile-create-forbidden'
             );
         }
         const existingProfile = existingSnapshot.data() || {};
@@ -1831,15 +1852,19 @@ const DBService = {
         return { authorization, isPrimaryAdmin: false, existingProfile };
     },
 
-    _syncUserRoleMappingAsManager: async (user, batch = null, verifiedAuthorization = null) => {
+    _syncUserRoleMappingAsManager: async (user, batch = null, verifiedAuthorization = null, allowSeniorCreate = false) => {
         // Client storage is never authorization. Only a server-verified primary
         // Admin may write the UID-keyed security mapping; senior assistants are
         // deliberately limited to non-security profile maintenance.
         const authorization = verifiedAuthorization ||
             await DBService.getAuthenticatedAuthorizationContext(true);
-        if (!authorization.roles.includes('admin')) return false;
-
         const targetAuthUid = String(user.authUid || '').trim();
+        if (!authorization.roles.includes('admin')) {
+            // Senior assistants may only create the mapping of a brand-new
+            // staff member, in the same batch as the profile (see rules).
+            if (!allowSeniorCreate || !batch || !targetAuthUid) return false;
+        }
+
         let targetRef = targetAuthUid ? db.collection('user_roles').doc(targetAuthUid) : null;
         if (!targetRef) {
             const targetSnapshot = await db.collection('user_roles')
@@ -1878,27 +1903,30 @@ const DBService = {
             const { password, ...safeProfile } = user;
             const saveAuthorization = await DBService._authorizeUserProfileSave(user);
             const batch = db.batch();
-            const roleWasSynced = saveAuthorization.isPrimaryAdmin
+            const isSeniorCreate = !!saveAuthorization.isSeniorCreate;
+            const canWriteSecurity = saveAuthorization.isPrimaryAdmin || isSeniorCreate;
+            const roleWasSynced = canWriteSecurity
                 ? await DBService._syncUserRoleMappingAsManager(
                     user,
                     batch,
-                    saveAuthorization.authorization
+                    saveAuthorization.authorization,
+                    isSeniorCreate
                 )
                 : false;
-            if (saveAuthorization.isPrimaryAdmin && user.authUid && !roleWasSynced) {
+            if (canWriteSecurity && user.authUid && !roleWasSynced) {
                 throw new Error('Không thể tạo ánh xạ quyền cho tài khoản đăng nhập. Chưa lưu hồ sơ.');
             }
-            const profilePatch = saveAuthorization.isPrimaryAdmin
+            const profilePatch = canWriteSecurity
                 ? safeProfile
                 : Object.fromEntries(Object.entries(safeProfile).filter(([key]) =>
                     !['id', 'username', 'role', 'roles', 'authUid'].includes(key)
                 ));
             batch.set(ref, profilePatch, { merge: true });
-            const directorySource = saveAuthorization.isPrimaryAdmin
+            const directorySource = canWriteSecurity
                 ? safeProfile
                 : { ...saveAuthorization.existingProfile, ...safeProfile };
             batch.set(directoryRef, DBService._toStaffDirectoryProfile(directorySource));
-            if (password && saveAuthorization.isPrimaryAdmin) {
+            if (password && canWriteSecurity) {
                 batch.set(db.collection('user_credentials').doc(user.id), {
                     staffId: user.id,
                     password,
