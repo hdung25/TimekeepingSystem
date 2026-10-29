@@ -925,6 +925,16 @@ window.toggleStudentCountSelectMode = function () {
     renderMonthReport(currentDate);
 };
 
+// Chạm chip chỉ đổi khung chọn tại chỗ, không tải lại cả Bảng Công: tải lại làm
+// lưới nhấp nháy "Đang tải", nhảy vị trí cuộn và Lưu phải chờ.
+function paintStudentCountSelection(key, isAdminViewer) {
+    const selected = !!(window.selectedStudentCountChips || {})[key];
+    const className = isAdminViewer ? 'student-count-admin-selected' : 'student-count-selected';
+    document.querySelectorAll('[data-student-count-key]').forEach(el => {
+        if (el.dataset.studentCountKey === key) el.classList.toggle(className, selected);
+    });
+}
+
 window.exitStudentCountSelectMode = function () {
     // toggle() đảo trạng thái: đặt true trước để lần đảo này THOÁT chế độ chọn.
     // Trước đây đặt false nên "Hủy"/sau khi lưu lại bật chế độ chọn với danh sách cũ.
@@ -2487,8 +2497,12 @@ async function _renderMonthReport(date, forceServer = false) {
             // Từ 16/10/2026 bỏ chế độ +10p: ca của những ngày này không còn nút
             // "Sớm"/"Không áp dụng" (bảng công không cộng 10p nữa).
             const early10PolicyEnded = early10Eligibility.code === 'ended';
+            // Đang chọn ca (Ca đông học sinh / +10p / ca cố định): cả chip là vùng chạm.
+            // Nút "Không áp dụng"/"Tăng ca" từng chiếm nửa chip trên điện thoại và
+            // nuốt cú chạm, nên chạm 3–4 lần ca vẫn không được chọn (Mỹ Yến, 29/10/2026).
+            const chipPickModeActive = !!(window.isStudentCountSelectMode || window.isBonusSelectMode || window.isFixedShiftMode);
 
-            if (canSeeBonus10 && !early10PolicyEnded && chip.sessionId &&
+            if (canSeeBonus10 && !chipPickModeActive && !early10PolicyEnded && chip.sessionId &&
                 chip.class !== 'chip-blue' &&
                 chip.class !== 'chip-gray' &&
                 chip.class !== 'chip-future' &&
@@ -2660,6 +2674,7 @@ async function _renderMonthReport(date, forceServer = false) {
                     const key = chip.dateStr + '_' + chip.sessionId;
                     const isSelected = !!window.selectedStudentCountChips[key];
                     div.classList.add('student-count-selecting');
+                    div.dataset.studentCountKey = key;
                     if (isSelected) {
                         div.classList.add(isAdminViewer ? 'student-count-admin-selected' : 'student-count-selected');
                     }
@@ -2713,7 +2728,7 @@ async function _renderMonthReport(date, forceServer = false) {
                                     status: chip.studentCountStatus || 'pending'
                                 };
                             }
-                            renderMonthReport(currentDate);
+                            paintStudentCountSelection(key, true);
                         } else {
                             const pubStatus = getCurrentPayslipComponentStatus('gv');
                             const isMonthLocked = pubStatus === 'published' || pubStatus === 'received';
@@ -2746,7 +2761,7 @@ async function _renderMonthReport(date, forceServer = false) {
                                     status: 'pending'
                                 };
                             }
-                            renderMonthReport(currentDate);
+                            paintStudentCountSelection(key, false);
                         }
                     } else if (window.isBonusSelectMode) {
                         if (chip.sessionId) {
@@ -2828,7 +2843,7 @@ async function _renderMonthReport(date, forceServer = false) {
             }
 
             // Add Edit Icon for Admin if there is an underlying session
-            if (isAdminRole && chip.sessionId) {
+            if (isAdminRole && chip.sessionId && !chipPickModeActive) {
                 const editBtn = document.createElement('button');
                 editBtn.type = 'button';
                 editBtn.className = 'report-chip-action';
@@ -2856,7 +2871,7 @@ async function _renderMonthReport(date, forceServer = false) {
 
             // Tăng ca là chức năng khác hoàn toàn với "Sớm 10p". Dùng nút có
             // chữ rõ ràng thay cho một icon đồng hồ đơn độc để tránh bấm nhầm.
-            if (role !== 'admin' && chip.sessionId && chip.sessionData && chip.sessionData.checkOut && !chip.overtimePending && !chip.overtimeMinutes) {
+            if (role !== 'admin' && !chipPickModeActive && chip.sessionId && chip.sessionData && chip.sessionData.checkOut && !chip.overtimePending && !chip.overtimeMinutes) {
                 const otBtn = document.createElement('button');
                 otBtn.type = 'button';
                 otBtn.className = 'report-chip-action report-chip-overtime-action';

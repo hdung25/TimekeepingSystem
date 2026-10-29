@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v249-senior-create-20261027';
+const APP_RELEASE = 'tdt-chamcong-v250-student-count-tap-20261029';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -59,7 +59,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/db-service.js?v=20261027-senior-create-v1',
     '/js/meeting-attendance-policy.js?v=20261007-review-edit-v1',
     '/js/class-rate-groups.js?v=20261007-review-edit-v1',
-    '/js/report.js?v=20261023-late-fix-v1',
+    '/js/report.js?v=20261029-student-count-tap-v1',
     '/js/teacher-attendance-policy.js?v=20261008-export-all-v1',
     '/js/teacher-attendance-editor.js?v=20261005-new-mode-v1',
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',

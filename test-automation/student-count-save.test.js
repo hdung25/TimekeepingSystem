@@ -172,6 +172,43 @@ function createHarness() {
         assert.ok(h.toasts.some(t => t.type === 'warning' && /đang tải/.test(t.message)));
     }
 
+    // 9. Phone tap target (Mỹ Yến, 29/10/2026): "Không áp dụng"/"Tăng ca" covered half of
+    //    the chip and swallowed taps, so a chip needed 3–4 taps or never got selected.
+    //    In any pick mode the chip carries no action buttons, and a tap repaints the
+    //    selection in place instead of reloading the whole report.
+    assert.match(report, /const chipPickModeActive = !!\(window\.isStudentCountSelectMode \|\| window\.isBonusSelectMode \|\| window\.isFixedShiftMode\);/);
+    assert.match(report, /if \(canSeeBonus10 && !chipPickModeActive && /, 'Sớm/Không áp dụng button hidden while picking');
+    assert.match(report, /if \(role !== 'admin' && !chipPickModeActive && chip\.sessionId/, 'Tăng ca button hidden while picking');
+    assert.match(report, /if \(isAdminRole && chip\.sessionId && !chipPickModeActive\)/, 'Sửa công button hidden while picking');
+    {
+        const tapStart = report.indexOf('if (window.isStudentCountSelectMode) {\r\n                        if (chip.isReceptionist') >= 0
+            ? report.indexOf('if (window.isStudentCountSelectMode) {\r\n                        if (chip.isReceptionist')
+            : report.indexOf('if (window.isStudentCountSelectMode) {\n                        if (chip.isReceptionist');
+        const tapEnd = report.indexOf('} else if (window.isBonusSelectMode) {', tapStart);
+        assert.ok(tapStart > 0 && tapEnd > tapStart, 'student-count tap handler must exist');
+        const tap = report.slice(tapStart, tapEnd);
+        assert.doesNotMatch(tap, /renderMonthReport\(/, 'a chip tap must not reload the report');
+        assert.equal((tap.match(/paintStudentCountSelection\(key, (true|false)\)/g) || []).length, 2);
+    }
+    {
+        const h = createHarness();
+        const els = [
+            { dataset: { studentCountKey: '2026-10-08_s1' }, classList: new Set() },
+            { dataset: { studentCountKey: '2026-10-08_s1' }, classList: new Set() },
+            { dataset: { studentCountKey: '2026-10-09_s2' }, classList: new Set() }
+        ];
+        els.forEach(el => { el.classList.toggle = (c, on) => (on ? el.classList.add(c) : el.classList.delete(c)); });
+        h.context.document.querySelectorAll = () => els;
+        h.window.selectedStudentCountChips = { '2026-10-08_s1': { studentCount: 10 } };
+        vm.runInContext("paintStudentCountSelection('2026-10-08_s1', false)", h.context);
+        assert.deepEqual(els.map(el => el.classList.has('student-count-selected')), [true, true, false],
+            'every chip of the session (ca gộp) is painted, others untouched');
+        h.window.selectedStudentCountChips = {};
+        vm.runInContext("paintStudentCountSelection('2026-10-08_s1', false)", h.context);
+        assert.deepEqual(els.map(el => el.classList.has('student-count-selected')), [false, false, false]);
+        assert.equal(h.renders.length, 0);
+    }
+
     assert.match(report, /window\.currentReportRenderPromise = renderPromise;/,
         'renderMonthReport must expose its in-flight promise for chip-dependent actions');
     console.log('student-count-save.test.js passed');
