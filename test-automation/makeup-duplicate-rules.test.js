@@ -47,6 +47,27 @@ const scheduled = (start, end, extra = {}) => ({
         const staff = serviceFor(staffDb, staffId);
         const admin = serviceFor(adminDb, 'mk-admin');
 
+        // Ghi sai ngày: nhân viên tự xóa đơn đang chờ rồi gửi lại được; không xóa được đơn người khác,
+        // đơn đã duyệt, hay đơn từng hủy duyệt (phải giữ vết).
+        await staff.createMakeupRequests([scheduled('18:00', '21:00')]);
+        const wrongId = staff._makeupRequestFixedId(scheduled('18:00', '21:00'));
+        await env.withSecurityRulesDisabled(async context => {
+            await context.firestore().collection('user_roles').doc('mk-other-uid').set({ userId: 'mk-other', role: 'teacher', roles: ['teacher'] });
+        });
+        const otherDb = env.authenticatedContext('mk-other-uid').firestore();
+        await assert.rejects(otherDb.collection('makeup_requests').doc(wrongId).delete());
+        await staff.deleteMakeupRequest(wrongId, 'Fixture');
+        assert.equal((await adminDb.collection('makeup_requests').doc(wrongId).get()).exists, false);
+        await staff.createMakeupRequests([scheduled('18:00', '21:00')]);
+        await adminDb.collection('makeup_requests').doc(wrongId).update({ status: 'approved' });
+        await assert.rejects(staffDb.collection('makeup_requests').doc(wrongId).delete());
+        await assert.rejects(staff.deleteMakeupRequest(wrongId, 'Fixture'), { code: 'MAKEUP_REQUEST_STALE' });
+        await assert.rejects(admin.deleteMakeupRequest(wrongId, 'QL'), { code: 'MAKEUP_REQUEST_STALE' });
+        await adminDb.collection('makeup_requests').doc(wrongId).update({ status: 'pending', approvalHistory: [{ action: 'approval_revoked' }] });
+        await assert.rejects(staffDb.collection('makeup_requests').doc(wrongId).delete());
+        await admin.deleteMakeupRequest(wrongId, 'QL');
+        assert.equal((await adminDb.collection('makeup_requests').doc(wrongId).get()).exists, false);
+
         await staff.createMakeupRequests([scheduled('18:00', '21:00')]);
         await assert.rejects(staff.createMakeupRequests([scheduled('18:00', '21:00')]), { code: 'MAKEUP_DUPLICATE' });
         await assert.rejects(staff.createMakeupRequests([scheduled('19:30', '21:00', { scheduleLocators: [{ kind: 'gv', compositeKey: `cs1__${dateKey}`, section: 'evening2', rowIndex: 0, start: '19:30', end: '21:00' }] })]),

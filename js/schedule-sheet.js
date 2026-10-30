@@ -16,6 +16,7 @@
         { key: 'evening', label: 'Tối' },
         { key: 'all', label: 'Cả ngày' }
     ];
+    const BUOI_ORDER = ['morning', 'afternoon', 'evening'];
     const DAY_NAMES = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
     const HTML2CANVAS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
     // Khổ ảnh theo tờ A4 dọc của bản giấy; cột SS · Lớp · Phòng · GV · Ghi chú giữ đúng tỉ lệ đo trên tờ giấy.
@@ -39,6 +40,22 @@
 
     function shortDate(dateKey) {
         return `${dateKey.slice(8, 10)}/${dateKey.slice(5, 7)}/${dateKey.slice(0, 4)}`;
+    }
+
+    // Chọn nhiều buổi: "morning,afternoon" (luôn theo thứ tự trong ngày); đủ 3 buổi là 'all'.
+    function buoiKeys(buoi) {
+        if (buoi === 'all') return BUOI_ORDER.slice();
+        const picked = Array.isArray(buoi) ? buoi : String(buoi || '').split(',');
+        return BUOI_ORDER.filter(key => picked.includes(key));
+    }
+
+    function normalizeBuoi(buoi) {
+        const keys = buoiKeys(buoi);
+        return keys.length === BUOI_ORDER.length ? 'all' : keys.join(',');
+    }
+
+    function buoiLabels(buoi) {
+        return buoiKeys(buoi).map(key => BUOI.find(b => b.key === key).label);
     }
 
     function sectionNumber(section) {
@@ -110,9 +127,11 @@
 
     // Dữ liệu thuần của tờ lịch: dùng cho cả ảnh, chữ và kiểm thử.
     function buildSheetModel(dayData, options) {
-        const { dateKey, branch, buoi = 'all', closures = {}, showClosed = true, reportedCount = null } = options;
+        const { dateKey, branch, closures = {}, showClosed = true, reportedCount = null } = options;
+        const buoi = normalizeBuoi(options.buoi === undefined ? 'all' : options.buoi);
+        const keys = buoiKeys(buoi);
         const sections = SECTIONS
-            .filter(section => buoi === 'all' || section.key.startsWith(buoi))
+            .filter(section => keys.some(key => section.key.startsWith(key)))
             .map(section => {
                 const centerClosed = isCenterClosed(dateKey, section.key, closures);
                 const rows = (Array.isArray(dayData?.[section.key]) ? dayData[section.key] : [])
@@ -175,8 +194,7 @@
     }
 
     function defaultTitle(dateKey, buoi) {
-        const b = BUOI.find(item => item.key === buoi);
-        const part = b && buoi !== 'all' ? `${b.label} ` : '';
+        const part = normalizeBuoi(buoi) === 'all' ? '' : `${buoiLabels(buoi).join(' + ')} `;
         return `Lịch dạy ${part}${dayName(dateKey)}`.replace(/\s+/g, ' ').trim();
     }
 
@@ -260,7 +278,7 @@
         // Dòng trống cuối mỗi ca: tiếp tân ghi tay lớp phát sinh sau khi in/gửi (như tờ giấy).
         const blankRows = '<tr class="ss-blank"><td></td><td></td><td></td><td></td><td></td></tr>'.repeat(blanks);
         const body = model.sections.map(section => {
-            const showBuoi = model.buoi === 'all';
+            const showBuoi = buoiKeys(model.buoi).length > 1;
             const head = `<tr class="ss-sec"><td colspan="5"><div class="ss-sec-in">
                 <span class="ss-sec-name">${showBuoi ? esc(section.buoiLabel) + ' · ' : ''}${esc(section.title)}</span>
                 <span class="ss-sec-time">(${esc(section.start)} – ${esc(section.end)})</span>
@@ -315,7 +333,7 @@
         const title = sheetTitle(model, opts);
         const lines = [`${title.toLocaleUpperCase('vi')} — ${shortDate(model.dateKey)} — ${BRANCH_LABEL[model.branch] || model.branch}`];
         model.sections.forEach(section => {
-            const prefix = model.buoi === 'all' ? `${section.buoiLabel} · ` : '';
+            const prefix = buoiKeys(model.buoi).length > 1 ? `${section.buoiLabel} · ` : '';
             lines.push('', `▸ ${prefix}${section.title} (${section.start}–${section.end})`);
             if (section.centerClosed) { lines.push('  Trung tâm nghỉ ca này'); return; }
             if (section.offTimeCount) lines.push(`  ⚠ ${section.offTimeCount} lớp học giờ khác (ghi trong ngoặc)`);
@@ -423,7 +441,7 @@
         ];
         const blanks = blankRowCount(opts);
         model.sections.forEach(section => {
-            const prefix = model.buoi === 'all' ? `${section.buoiLabel} · ` : '';
+            const prefix = buoiKeys(model.buoi).length > 1 ? `${section.buoiLabel} · ` : '';
             const meta = section.centerClosed ? '' : ` · ${section.classCount} lớp${section.studentCount ? ` · ${section.studentCount} HS` : ''}`;
             rows.push(merged(`${prefix}${section.title} (${section.start} – ${section.end})${meta}`, XS.sec, 24));
             if (section.centerClosed) {
@@ -695,6 +713,15 @@
         return 'evening';
     }
 
+    // Bấm Sáng/Chiều/Tối để bật/tắt từng buổi, "Cả ngày" chọn cả 3; luôn còn ít nhất một buổi.
+    function toggledBuoi(current, key) {
+        if (key === 'all') return 'all';
+        if (!BUOI_ORDER.includes(key)) return current;
+        const keys = buoiKeys(current);
+        const next = keys.includes(key) ? keys.filter(item => item !== key) : [...keys, key];
+        return next.length ? normalizeBuoi(next) : current;
+    }
+
     function ensureModal() {
         if ($('ssheet-overlay')) return;
         injectStyle();
@@ -711,7 +738,7 @@
                         <label>Ngày<input type="date" id="ssm-date"></label>
                         <label>Cơ sở<select id="ssm-branch"><option value="cs1">Cơ sở 1</option><option value="cs2">Cơ sở 2</option><option value="cs3">Cơ sở 3</option></select></label>
                     </div>
-                    <div><div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:4px">Buổi</div>
+                    <div><div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:4px">Buổi (chọn được nhiều)</div>
                         <div class="ssm-seg" id="ssm-buoi">${BUOI.map(b => `<button type="button" data-buoi="${b.key}">${b.label}</button>`).join('')}</div></div>
                     <label>Tiêu đề<input type="text" id="ssm-title" maxlength="80" placeholder="VD: Tiếng Anh Tối thứ 5"></label>
                     <label>Ghi chú cuối tờ<textarea id="ssm-footer" maxlength="400" placeholder="VD: Hoàng Anh test 1/10 (UP1)"></textarea></label>
@@ -735,8 +762,9 @@
         overlay.addEventListener('click', event => {
             if (event.target === overlay || event.target.closest('[data-ss-close]')) close();
             const b = event.target.closest('[data-buoi]');
-            if (b && BUOI.some(x => x.key === b.dataset.buoi) && b.dataset.buoi !== state.buoi) {
-                state.buoi = b.dataset.buoi;
+            const nextBuoi = b ? toggledBuoi(state.buoi, b.dataset.buoi) : state.buoi;
+            if (nextBuoi !== state.buoi) {
+                state.buoi = nextBuoi;
                 state.titleEdited = false; // "Lịch dạy Tối…" không còn đúng khi chuyển sang buổi khác
                 refresh(false);
             }
@@ -794,7 +822,12 @@
     function syncForm() {
         $('ssm-date').value = state.dateKey;
         $('ssm-branch').value = state.branch;
-        document.querySelectorAll('#ssm-buoi [data-buoi]').forEach(b => b.classList.toggle('on', b.dataset.buoi === state.buoi));
+        const pickedBuoi = buoiKeys(state.buoi);
+        document.querySelectorAll('#ssm-buoi [data-buoi]').forEach(b => {
+            const on = b.dataset.buoi === 'all' ? state.buoi === 'all' : pickedBuoi.includes(b.dataset.buoi);
+            b.classList.toggle('on', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
         if (!state.titleEdited) {
             state.title = defaultTitle(state.dateKey, state.buoi);
             $('ssm-title').value = state.title;
@@ -928,8 +961,7 @@
     }
 
     function fileName(ext = 'png') {
-        const b = BUOI.find(x => x.key === state.buoi);
-        const slug = String(b?.label || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/\s+/g, '-');
+        const slug = (state.buoi === 'all' ? 'Cả ngày' : buoiLabels(state.buoi).join(' ')).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/\s+/g, '-');
         return `lich-${state.branch}-${state.dateKey}-${slug}.${ext}`;
     }
 
@@ -1057,7 +1089,7 @@
         btn.id = 'btn-schedule-sheet';
         btn.type = 'button';
         btn.className = 'btn';
-        btn.title = 'Tạo tờ lịch (ảnh) của một buổi để gửi lên nhóm giáo viên';
+        btn.title = 'Tạo tờ lịch (ảnh) của một hoặc nhiều buổi để gửi lên nhóm giáo viên';
         btn.style.cssText = 'display:flex;align-items:center;gap:0.4rem;background:#ECFDF5;border:1.5px solid #6EE7B7;color:#065F46;font-weight:700;';
         btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg><span class="btn-label">Bảng lịch gửi GV</span>`;
         // Tiếp tân chỉ xem lịch: nút này là chỗ chép ảnh / xuất Excel của họ.
@@ -1065,7 +1097,7 @@
         const roles = typeof parseRoles === 'function' ? parseRoles(roleRaw) : (roleRaw ? [roleRaw] : []);
         if (!roles.some(r => ['admin', 'assistant', 'senior_assistant'].includes(r))) {
             btn.querySelector('.btn-label').textContent = 'Bảng lịch · Chép ảnh / Excel';
-            btn.title = 'Xem tờ lịch của một buổi, chép ảnh hoặc xuất Excel (chỉ xem, không sửa lịch)';
+            btn.title = 'Xem tờ lịch của một hoặc nhiều buổi, chép ảnh hoặc xuất Excel (chỉ xem, không sửa lịch)';
         }
         btn.addEventListener('click', open);
         actions.insertBefore(btn, actions.firstChild);
@@ -1079,5 +1111,5 @@
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-    global.ScheduleSheet = { buildSheetModel, renderSheetHtml, sheetText, sheetRows, buildSheetXlsx, cleanText, isValidDateKey, shortName, defaultTitle, open, close };
+    global.ScheduleSheet = { toggledBuoi, buildSheetModel, renderSheetHtml, sheetText, sheetRows, buildSheetXlsx, cleanText, isValidDateKey, shortName, defaultTitle, open, close };
 })(window);

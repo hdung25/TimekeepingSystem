@@ -98,6 +98,18 @@ async function main() {
         assert.match(await page.$eval('#day-list', el => el.textContent), /Chờ duyệt/);
         assert.equal(await page.$$eval('#my-reqs .req', els => els.length), 1);
 
+        // 3b. Ghi sai ngày: tự xóa đơn đang chờ → ca về "Chưa chấm công", gửi lại được.
+        assert.equal(await page.$$eval('#my-reqs .req button', els => els.filter(b => /Xóa đơn/.test(b.textContent)).length), 1);
+        await page.$$eval('#my-reqs .req button', els => els.find(b => /Xóa đơn/.test(b.textContent)).click());
+        await page.waitForFunction(() => !sending && lastRequests && lastRequests.length === 0 && /Chưa chấm công/.test(document.getElementById('day-list').textContent), { timeout: 15000 });
+        assert.ok(dialogs.some(m => /Xóa yêu cầu chấm bù này/.test(m)));
+        assert.ok(dialogs.some(m => /Đã xóa yêu cầu chấm bù/.test(m)));
+        assert.match(await page.$eval('#my-reqs', el => el.textContent), /Chưa có yêu cầu/);
+        await page.click('#day-list .sc .b-pick');
+        await page.type('#s-reason', 'Quên chấm công (gửi lại)');
+        await page.evaluate(() => { document.querySelector('#day-list .b-main').click(); });
+        await page.waitForFunction(() => !monthLoading && lastRequests && lastRequests.length === 1 && /Chờ duyệt/.test(document.getElementById('day-list').textContent), { timeout: 15000 });
+
         // 4. Mất mạng: làm mới phải BÁO LỖI nhưng GIỮ lịch cũ; tuyệt đối không biến ca thành "Chưa chấm công".
         await page.setOfflineMode(true);
         await page.evaluate(() => { lastResumeRefreshAt=0; refreshMakeupAfterResume(); });

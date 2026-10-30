@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261012-linked-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261027-senior-create-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261030-makeup-delete-v1'></script>
     <script src='js/shift-absence-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/evaluation-service.js?v=20261023-late-fix-v1'></script>
     <script src='js/ui-service.js?v=20260912-schedule-blank-guard-v1'></script><script src='js/search-keynav.js?v=20261013-partner-adjust-v1'></script>
@@ -1126,6 +1126,10 @@ function openSheet(on){
     document.body.style.overflow=on?'hidden':'';
 }
 
+function deleteRequestButton(r,label){
+    return '<div class="acts" style="margin-top:.6rem"><button class="btn b-ghost" onclick="deleteRequest(\''+r.id+'\')"><i data-lucide="trash-2" style="width:15px;height:15px"></i> '+label+'</button></div>';
+}
+
 function renderDetail(){
     const el=document.getElementById('detail');
     const r=curReqs.find(x=>x.id===activeId);
@@ -1172,16 +1176,19 @@ function renderDetail(){
                 '<button class="btn b-ghost" onclick="openCompleteForm(\''+r.id+'\')"><i data-lucide="edit-3" style="width:15px;height:15px"></i> Sửa thông tin ca</button></div>'+
                 '<div id="fix-box"></div>';
         }
+        actions+=deleteRequestButton(r,'Xóa đơn (ghi sai ngày/ca)');
     }else if(curTab==='approved'){
         actions='<div class="why" style="margin-top:.8rem">Đã duyệt bởi <b>'+esc(r.reviewedBy||'Admin')+'</b>'+
             (r.materializedSessionId?' · đã ghi vào Bảng Công':'')+'.</div>'+
             '<div class="acts" style="margin-top:.7rem">'+
             '<button class="btn b-no" onclick="revokeApprovedOne(\''+r.id+'\')"><i data-lucide="undo-2" style="width:15px;height:15px"></i> Hủy duyệt & gỡ khỏi Bảng Công</button>'+
+            '<button class="btn b-ghost" onclick="deleteRequest(\''+r.id+'\')"><i data-lucide="trash-2" style="width:15px;height:15px"></i> Hủy duyệt & xóa đơn</button>'+
             '</div><div class="why" style="margin-top:.5rem;background:#FFF7ED;border-color:#FED7AA;color:#9A3412">'+
             'Chỉ hủy khi duyệt nhầm. Hệ thống chỉ gỡ đúng phiên công do đơn này tạo, hoàn tác tăng ca kèm theo và giữ lịch sử thao tác.</div>';
     }else{
         actions='<div class="why" style="margin-top:.8rem;background:var(--dan-s);border-color:#FCA5A5;color:#991B1B">'+
-            'Từ chối bởi <b>'+esc(r.reviewedBy||'Admin')+'</b> · Lý do: '+esc(r.rejectReason||'(không ghi)')+'</div>';
+            'Từ chối bởi <b>'+esc(r.reviewedBy||'Admin')+'</b> · Lý do: '+esc(r.rejectReason||'(không ghi)')+'</div>'+
+            deleteRequestButton(r,'Xóa đơn');
     }
 
     el.innerHTML=
@@ -1392,6 +1399,35 @@ window.approveOne=async function(id){
 window.approveSelected=async function(){
     const list=curReqs.filter(r=>selected.has(r.id)&&DBService.missingMakeupFields(r).length===0);
     await doApprove(list,'Các mục đang chọn đều thiếu thông tin — hãy bổ sung trước.');
+};
+
+// Đơn ghi sai ngày/ca: xóa hẳn để ca đó trở lại như chưa gửi. Đơn đã duyệt thì gỡ khỏi Bảng Công trước.
+window.deleteRequest=async function(id){
+    const r=curReqs.find(x=>x.id===id); if(!r)return;
+    const approved=r.status==='approved';
+    const ok=await UIService.confirm('<b>Xóa yêu cầu chấm bù này?</b><br><br>'+
+        esc(r.staffName||'')+' · '+esc(fmtDate(r.dateKey))+' · '+esc(r.shiftLabel||'')+'<br><br>'+
+        (approved?'Ca chấm bù đã duyệt sẽ được gỡ khỏi Bảng Công và tăng ca kèm theo không còn tính lương. ':'')+
+        'Đơn bị xóa hẳn, không khôi phục được; nhân viên nhận thông báo và có thể gửi lại đúng ngày.');
+    if(!ok)return;
+    let revoked=false;
+    try{
+        UIService.showLoading('Đang xóa đơn chấm bù...');
+        if(approved){
+            await DBService.revokeMakeupApproval(r.id,adminName(),'Quản lý xóa đơn ghi sai');
+            revoked=true;
+        }
+        await DBService.deleteMakeupRequest(r.id,adminName());
+        UIService.hideLoading();
+        toast('Đã xóa đơn chấm bù.','success');
+        activeId=null;
+        await loadTab(curTab);
+        refreshPendingCount();
+    }catch(e){
+        UIService.hideLoading();
+        toast((revoked?'Đã gỡ khỏi Bảng Công (đơn về Chờ duyệt) nhưng chưa xóa được đơn: ':'Không xóa được: ')+(e.message||e),'error');
+        if(revoked){activeId=null;await loadTab('pending');refreshPendingCount()}
+    }
 };
 
 window.revokeApprovedOne=async function(id){

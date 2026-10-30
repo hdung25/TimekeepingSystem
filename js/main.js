@@ -1251,7 +1251,7 @@ function staffNotificationTitle(n) {
         select_role: 'Quản lý đã chọn vai trò ca', makeup_approved: 'Chấm bù đã được duyệt', makeup_rejected: 'Chấm bù bị từ chối',
         makeup_covered: 'Ca đã có công', payslip_published: 'Đã có bảng lương', overtime_approved: 'Tăng ca được duyệt',
         overtime_rejected: 'Tăng ca không được duyệt', bonus10_approved: '+10 phút được duyệt',
-        revoke_makeup_approval: 'Chấm bù đã bị huỷ duyệt', announcement: 'Thông báo'
+        revoke_makeup_approval: 'Chấm bù đã bị huỷ duyệt', makeup_deleted: 'Đơn chấm bù đã bị xóa', announcement: 'Thông báo'
     })[n.action] || 'Thông báo mới';
 }
 
@@ -1344,7 +1344,7 @@ function showNotificationPopup(notifications) {
         }
         const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const label = actionLabels[n.action] || esc(n.title || staffNotificationTitle(n));
-        const isWarning = ['makeup_rejected', 'overtime_rejected', 'revoke_makeup_approval'].includes(n.action);
+        const isWarning = ['makeup_rejected', 'makeup_deleted', 'overtime_rejected', 'revoke_makeup_approval'].includes(n.action);
         const safeLink = /^[a-z0-9-]+\.html$/i.test(String(n.link || '')) ? n.link : '';
         return `
             <div class="notif-item${isWarning ? ' notif-item--warning' : ''}">

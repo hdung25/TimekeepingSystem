@@ -14,6 +14,7 @@ const sandbox = {
     DBService: { getSchedule: async () => null },
     SECTIONS: [
         { key: 'morning1', defaultStart: '07:30', defaultEnd: '09:00' },
+        { key: 'afternoon1', defaultStart: '14:00', defaultEnd: '15:30' },
         { key: 'evening1', defaultStart: '18:00', defaultEnd: '19:30' },
         { key: 'evening2', defaultStart: '19:30', defaultEnd: '21:00' }
     ],
@@ -163,6 +164,7 @@ assert.ok(nastyRows[0].ht >= 50, 'tiêu đề dài → hàng cao hơn, chữ xu�
 const nastyFooter = nastyRows[nastyRows.length - 1];
 assert.ok(Array.from(nastyFooter.cells[0].v).length <= 400 && nastyFooter.ht <= 400);
 // Chỉ lấy nội dung các file XML trong zip (phần đầu zip vốn có byte 0).
+const xmlPartsOf = bytes => Buffer.from(bytes).toString('utf8');
 const xmlParts = bytes => Buffer.from(bytes).toString('utf8')
     .match(/<\?xml[\s\S]*?(?=PK\u0003\u0004|PK\u0001\u0002)/g).join('');
 const nastyXml = xmlParts(S.buildSheetXlsx(model, nasty));
@@ -177,9 +179,32 @@ assert.doesNotMatch(oddXml, /[\u0001\uFFFE]/);
 assert.match(oddXml, /E1 &lt;A&amp;B&gt;/);
 assert.match(oddXml, /<sheet name="Chủ nhật 04-10"/, 'tên trang tính không có dấu /');
 
+// Chọn nhiều buổi: Sáng + Chiều gộp một tờ, đúng thứ tự, ghi rõ buổi ở đầu mỗi ca
+const multiDay = {
+    evening1: [{ lop: 'TOI', phong: 'P1', gvList: [{ id: 'c', name: 'C' }] }],
+    afternoon1: [{ lop: 'CHIEU', phong: 'P2', gvList: [{ id: 'b', name: 'B' }] }],
+    morning1: [{ lop: 'SANG', phong: 'P3', gvList: [{ id: 'a', name: 'A' }] }]
+};
+const multi = S.buildSheetModel(multiDay, { dateKey: '2026-10-01', branch: 'cs1', buoi: ['afternoon', 'morning'], closures: {} });
+assert.equal(multi.buoi, 'morning,afternoon');
+assert.deepEqual(Array.from(multi.sections, s => s.key), ['morning1', 'afternoon1']);
+assert.equal(S.defaultTitle('2026-10-01', multi.buoi), 'Lịch dạy Sáng + Chiều Thứ 5');
+const multiHtml = S.renderSheetHtml(multi, {});
+assert.match(multiHtml, /Sáng · Ca 1/);
+assert.match(multiHtml, /Chiều · Ca 1/);
+assert.doesNotMatch(multiHtml, /TOI/);
+assert.match(S.sheetText(multi, {}), /Chiều · Ca 1/);
+assert.match(xmlPartsOf(S.buildSheetXlsx(multi, {})), /Sáng · Ca 1/);
+assert.equal(S.buildSheetModel(multiDay, { dateKey: '2026-10-01', branch: 'cs1', buoi: ['morning', 'afternoon', 'evening'], closures: {} }).buoi, 'all');
+assert.equal(S.toggledBuoi('morning', 'afternoon'), 'morning,afternoon');
+assert.equal(S.toggledBuoi('morning,afternoon', 'evening'), 'all');
+assert.equal(S.toggledBuoi('all', 'evening'), 'morning,afternoon');
+assert.equal(S.toggledBuoi('morning', 'morning'), 'morning', 'luôn còn ít nhất một buổi');
+assert.equal(S.toggledBuoi('morning', 'all'), 'all');
+
 // Gắn vào trang + cache offline
 const page = read('lich-lam.html');
-assert.match(page, /js\/schedule-sheet\.js\?v=20261003-sheet-v5/);
+assert.match(page, /js\/schedule-sheet\.js\?v=20261030-sheet-v6/);
 assert.ok(page.indexOf('schedule-sheet.js') > page.indexOf('js/schedule.js'), 'nạp sau schedule.js');
-assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261003-sheet-v5'/);
+assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261030-sheet-v6'/);
 console.log('schedule-sheet.test.js: all assertions passed');

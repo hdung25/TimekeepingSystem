@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261012-linked-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261027-senior-create-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261030-makeup-delete-v1'></script>
     <script src='js/shift-absence-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/evaluation-service.js?v=20261023-late-fix-v1'></script>
     <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
@@ -854,6 +854,21 @@ window.submitExtra=async function(){
     finally{sending=false;setSendingUI(false)}
 };
 
+// Ghi sai ngày/ca: tự xóa khi đơn còn chờ duyệt. Đơn đã duyệt hoặc từng hủy duyệt phải nhờ quản lý.
+function canDeleteOwn(r){return r.status==='pending'&&!(Array.isArray(r.approvalHistory)&&r.approvalHistory.length)}
+window.deleteMyRequest=async function(id){
+    const r=(lastRequests||[]).find(x=>x.id===id); if(!r||sending)return;
+    if(!confirm('Xóa yêu cầu chấm bù này?\n'+r.dateKey+' — '+(r.shiftLabel||'')+'\n\nCa đó sẽ trở lại như chưa gửi, muốn chấm bù đúng ngày thì gửi yêu cầu mới.'))return;
+    sending=true;
+    try{
+        await DBService.deleteMakeupRequest(id,uname());
+        alert('Đã xóa yêu cầu chấm bù.');
+        picked.clear();
+        await Promise.all([loadMy({fresh:true}),loadMonth({fresh:true})]);
+    }catch(e){alert('Không xóa được: '+(e.message||e))}
+    finally{sending=false}
+};
+
 async function loadMy(options={}){
     const el=document.getElementById('my-reqs');
     try{
@@ -865,7 +880,9 @@ async function loadMy(options={}){
                 '<div style="font-weight:600;font-size:.86rem">'+esc(r.dateKey)+' — '+esc(r.shiftLabel||'')+'</div>'+
                 '<div style="font-size:.72rem;color:var(--mut)">'+(r.type==='scheduled'?'Ca có lịch':'Ca ngoài lịch')+' · '+esc(r.reason||'')+'</div>'+
                 (r.status==='rejected'&&r.rejectReason?'<div style="font-size:.72rem;color:'+(r.resolution==='covered_by_attendance'?'#047857':'#991B1B')+'">'+(r.resolution==='covered_by_attendance'?'':'Lý do từ chối: ')+esc(r.rejectReason)+'</div>':'')+
-            '</div><span class="bdg '+s[1]+'">'+s[0]+'</span></div>'}).join('');
+            '</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0"><span class="bdg '+s[1]+'">'+s[0]+'</span>'+
+            (canDeleteOwn(r)?'<button class="sy-retry" style="margin:0;color:#991B1B;border-color:#FCA5A5" onclick="deleteMyRequest(\''+esc(r.id)+'\')">Xóa đơn</button>':'')+
+            '</div></div>'}).join('');
     }catch(e){
         console.warn('[ChamBu] Không tải được danh sách yêu cầu:',e);
         // Có danh sách cũ thì giữ nguyên (không thay bằng "lỗi" trống); chỉ báo khi chưa có gì.

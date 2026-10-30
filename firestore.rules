@@ -1519,7 +1519,14 @@ service cloud.firestore {
     match /makeup_requests/{requestId} {
       allow read: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
       allow create: if isAuthenticated() && (isAdmin() || isOwnPendingRequest());
-      allow update, delete: if isAuthenticated() && isAdmin();
+      allow update: if isAuthenticated() && isAdmin();
+      // Nhân viên tự xóa đơn ghi sai khi đơn còn chờ duyệt. Đơn đã có lịch sử duyệt/hủy duyệt
+      // (approvalHistory) phải giữ lại vết, chỉ quản lý mới xóa được.
+      allow delete: if isAuthenticated() && (isAdmin() || (
+        ownsStaffId(resource.data.get('staffId', ''))
+        && resource.data.get('status', '') == 'pending'
+        && resource.data.get('approvalHistory', []).size() == 0
+      ));
     }
 
     // Web push device tokens. Document id = sha256(token). A device belongs to the

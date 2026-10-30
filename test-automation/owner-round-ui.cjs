@@ -202,6 +202,21 @@ async function main() {
         await tt.waitForFunction(() => { const o = document.getElementById('ssheet-overlay'); return o && !o.hidden; }, { timeout: 10000 });
         await new Promise(r => setTimeout(r, 2500));
         await shot(tt, '8-reception-sheet-phone');
+        // Bảng lịch chọn nhiều buổi: bật/tắt từng buổi, tiêu đề + nút theo các buổi đã chọn.
+        const pickBuoi = key => tt.$eval(`#ssm-buoi [data-buoi="${key}"]`, b => b.click());
+        const onBuoi = () => tt.$$eval('#ssm-buoi button.on', els => els.map(b => b.dataset.buoi));
+        await pickBuoi('morning');
+        await pickBuoi('evening'); await pickBuoi('afternoon');
+        const before = await onBuoi();
+        await pickBuoi('all');
+        assert.deepEqual(await onBuoi(), ['morning', 'afternoon', 'evening', 'all']);
+        await pickBuoi('evening');
+        assert.deepEqual(await onBuoi(), ['morning', 'afternoon']);
+        await new Promise(r => setTimeout(r, 500));
+        assert.match(await tt.$eval('#ssm-title', el => el.value), /Sáng \+ Chiều/);
+        await shot(tt, '8b-reception-sheet-sang-chieu');
+        console.log('buoi toggles', before);
+        await tt.click('[data-ss-close]');
 
         // 5. Trợ lý cấp cao: xem được ghi chú mọi nhân viên + có sổ riêng ở Tổng quan
         const senior = await open(users.senior, desktop);
@@ -234,6 +249,39 @@ async function main() {
         await assistant.waitForFunction(() => document.querySelectorAll('#sn-list [data-note-id]').length === 3, { timeout: 20000 });
         assert.match(await assistant.$eval('#sn-list', el => el.textContent), /Ghi chú của tiếp tân/);
         await shot(assistant, '11-assistant-team-notes');
+
+        // 8. Quản lý xóa đơn chấm bù ghi sai: đơn chờ duyệt và đơn đã duyệt (gỡ luôn khỏi Bảng Công).
+        const wrongDate = '2026-09-15';
+        const wrongRequest = (id, extra) => ({ staffId: users.van.id, staffName: users.van.name, type: 'unscheduled', dateKey: wrongDate, branch: 'cs1',
+            shiftLabel: '18:00–19:30 CS1 (' + id + ')', className: id, approvedBy: 'QL', reason: 'Ghi sai ngày',
+            session: { checkIn: wrongDate + 'T11:00:00.000Z', checkOut: wrongDate + 'T12:30:00.000Z' }, ...extra });
+        await env.withSecurityRulesDisabled(async c => {
+            const db = c.firestore();
+            await db.collection('makeup_requests').doc('wrong-pending').set(wrongRequest('wrong-pending', { status: 'pending' }));
+            await db.collection('makeup_requests').doc('wrong-approved').set(wrongRequest('wrong-approved', { status: 'approved', materializedSessionId: 'wrong-session', reviewedBy: 'QL' }));
+            await db.collection('attendance_logs').doc(wrongDate + '_' + users.van.id).set({ staffId: users.van.id, dateKey: wrongDate,
+                sessions: [{ id: 'wrong-session', makeupRequestId: 'wrong-approved', checkIn: wrongDate + 'T11:00:00.000Z', checkOut: wrongDate + 'T12:30:00.000Z' }] });
+        });
+        const pickRequest = async (tab, id, label) => {
+            await admin.evaluate(t => loadTab(t), tab);
+            await admin.waitForFunction(rid => curReqs.some(r => r.id === rid), { timeout: 20000 }, id);
+            await admin.evaluate(rid => { activeId = rid; renderDetail(); }, id);
+            await admin.$$eval('#detail button', (els, text) => els.find(b => b.textContent.includes(text)).click(), label);
+            await admin.waitForSelector('#modal-confirm-btn', { visible: true, timeout: 10000 });
+            await admin.click('#modal-confirm-btn');
+            await env.withSecurityRulesDisabled(async c => {
+                const ref = c.firestore().collection('makeup_requests').doc(id);
+                for (let i = 0; i < 40 && (await ref.get()).exists; i++) await new Promise(r => setTimeout(r, 250));
+                assert.equal((await ref.get()).exists, false, id + ' phải bị xóa');
+            });
+        };
+        await admin.goto(origin + '/tuong-trinh.html', { waitUntil: 'domcontentloaded' });
+        await pickRequest('pending', 'wrong-pending', 'Xóa đơn (ghi sai ngày/ca)');
+        await pickRequest('approved', 'wrong-approved', 'Hủy duyệt & xóa đơn');
+        await env.withSecurityRulesDisabled(async c => {
+            const log = await c.firestore().collection('attendance_logs').doc(wrongDate + '_' + users.van.id).get();
+            assert.equal(log.data().sessions.length, 0, 'phiên chấm bù được gỡ khỏi Bảng Công');
+        });
 
         console.log('errors:', errors);
         assert.deepEqual(errors, []);

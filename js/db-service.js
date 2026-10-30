@@ -6943,6 +6943,33 @@ const DBService = {
         return outcome;
     },
 
+    // Xóa hẳn đơn chấm bù ghi sai (sai ngày, sai ca): ca đó trở lại như chưa gửi và gửi lại được.
+    // Đơn đã duyệt đang có phiên trong Bảng Công thì không xóa thẳng: phải hủy duyệt trước.
+    deleteMakeupRequest: async (reqId, actorName = '') => {
+        const requestId = String(reqId || '').trim();
+        if (!requestId) throw new Error('Thiếu mã yêu cầu chấm bù cần xóa.');
+        const requestRef = db.collection('makeup_requests').doc(requestId);
+        let request = null;
+        await db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(requestRef);
+            if (!snapshot.exists) throw new Error('Yêu cầu chấm bù không còn tồn tại. Vui lòng tải lại.');
+            request = snapshot.data() || {};
+            if (String(request.status || '') === 'approved') {
+                const error = new Error('Đơn đã được duyệt nên chưa xóa được. Quản lý cần hủy duyệt trước.');
+                error.code = 'MAKEUP_REQUEST_STALE';
+                throw error;
+            }
+            transaction.delete(requestRef);
+        });
+        const currentId = localStorage.getItem('currentUserId');
+        if (request.staffId && String(request.staffId) !== String(currentId || '')) {
+            DBService.createAdminNotification(request.staffId, request.staffName, 'makeup_deleted', request.dateKey,
+                `${actorName || 'Quản lý'} đã xóa yêu cầu chấm bù ${request.shiftLabel || request.dateKey}. Nếu vẫn cần chấm bù, bạn gửi lại ở trang Chấm Công Bù.`,
+                { title: 'Đơn chấm bù đã bị xóa', link: 'cham-bu.html' }).catch(() => {});
+        }
+        return { staffId: request.staffId, dateKey: request.dateKey };
+    },
+
     rejectMakeupRequest: async (reqId, adminName, reason) => {
         const ref = db.collection('makeup_requests').doc(reqId);
         const before = await ref.get();
