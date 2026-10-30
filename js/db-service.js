@@ -6428,6 +6428,112 @@ const DBService = {
         return uncovered <= 10 * 60 * 1000 ? worked.map(item => item.id) : null;
     },
 
+    // Đơn gộp nhiều ca liên tiếp mà một ca sau đó đã có công thật: tách ra ca CÒN THIẾU và ca
+    // ĐÃ CÓ CÔNG theo từng dòng lịch. null = không tách được (đơn một ca, thiếu định danh giờ,
+    // mọi ca đều có công / không ca nào có công, hoặc ca còn thiếu không liền nhau).
+    _splitMakeupRequestByAttendance: (request, sessions) => {
+        const toMinutes = value => {
+            const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''));
+            return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
+        };
+        const span = DBService._makeupRequestSpan(request);
+        const baseMinutes = toMinutes(request?.shiftStart);
+        const locators = (Array.isArray(request?.scheduleLocators) ? request.scheduleLocators : [])
+            .filter(locator => locator && typeof locator === 'object');
+        if (request?.type !== 'scheduled' || !span || !Number.isFinite(baseMinutes) || locators.length < 2) return null;
+        const parts = locators.map(locator => ({ locator, startMin: toMinutes(locator.start), endMin: toMinutes(locator.end) }));
+        if (parts.some(part => !Number.isFinite(part.startMin) || !Number.isFinite(part.endMin) || part.endMin <= part.startMin)) return null;
+        const worked = (Array.isArray(sessions) ? sessions : [])
+            .filter(session => session && !session.isAbsent && (session.checkIn || session.start)
+                && String(session.makeupRequestId || '') !== String(request.id || ''))
+            .map(session => {
+                const start = new Date(session.checkIn || session.start).getTime();
+                return { id: String(session.id || ''), start, end: session.checkOut ? new Date(session.checkOut).getTime() : start };
+            });
+        const msOf = minutes => span.start + (minutes - baseMinutes) * 60000;
+        const keep = [], covered = [], coveredBy = new Set();
+        parts.forEach(part => {
+            // Cùng ngưỡng 10 phút với addSession: vào sớm vài phút trước ca sau không tính là chồng.
+            const hits = worked.filter(item => Math.min(msOf(part.endMin), item.end) - Math.max(msOf(part.startMin), item.start) >= 10 * 60 * 1000);
+            hits.forEach(item => coveredBy.add(item.id));
+            (hits.length ? covered : keep).push(part);
+        });
+        if (!keep.length || !covered.length) return null;
+        keep.sort((a, b) => a.startMin - b.startMin);
+        let reach = keep[0].startMin;
+        for (const part of keep) {
+            if (part.startMin > reach) return null;
+            reach = Math.max(reach, part.endMin);
+        }
+        const hm = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+        const names = list => Array.from(new Set(list.map(part => String(part.locator.className || '').trim()).filter(Boolean)));
+        return {
+            keep: keep.map(part => part.locator),
+            covered: covered.map(part => part.locator),
+            coveredSessionIds: Array.from(coveredBy).filter(Boolean),
+            start: hm(keep[0].startMin),
+            end: hm(reach),
+            startISO: new Date(msOf(keep[0].startMin)).toISOString(),
+            endISO: new Date(msOf(reach)).toISOString(),
+            classNames: names(keep),
+            classIds: Array.from(new Set(keep.map(part => String(part.locator.classId || '').trim()).filter(Boolean)))
+        };
+    },
+
+    // Thu đơn về đúng ca còn thiếu, đọc lại đơn + công trong transaction. Chỉ sửa ĐƠN; công thật
+    // của ca đã vào không bị đụng tới. Trả về đơn sau khi thu để duyệt tiếp qua luồng thường.
+    narrowMakeupRequestToMissing: async (reqId, adminName) => {
+        const requestId = String(reqId || '').trim();
+        if (!requestId) throw new Error('Thiếu mã yêu cầu chấm bù.');
+        const requestRef = db.collection('makeup_requests').doc(requestId);
+        return db.runTransaction(async transaction => {
+            const snapshot = await transaction.get(requestRef);
+            const fail = (message, code) => {
+                const error = new Error(message);
+                error.code = code;
+                throw error;
+            };
+            if (!snapshot.exists) fail('Yêu cầu chấm bù không còn tồn tại.', 'MAKEUP_REQUEST_NOT_FOUND');
+            const live = { id: requestId, ...(snapshot.data() || {}) };
+            if (live.status !== 'pending') fail('Yêu cầu không còn ở trạng thái chờ duyệt. Hãy tải lại danh sách.', 'MAKEUP_REQUEST_STALE');
+            const attendance = await transaction.get(db.collection('attendance_logs').doc(`${live.dateKey}_${live.staffId}`));
+            const split = DBService._splitMakeupRequestByAttendance(live, attendance.exists ? attendance.data()?.sessions : []);
+            if (!split) fail('Đơn này không còn tách được theo ca. Hãy tải lại danh sách để xem đối chiếu mới nhất.', 'MAKEUP_NOT_SPLITTABLE');
+            const label = split.classNames.join(' + ');
+            const patch = {
+                shiftStart: split.start,
+                shiftEnd: split.end,
+                shiftLabel: `${split.start}–${split.end} ${String(live.branch || '').toUpperCase()} (${label})`,
+                className: label,
+                classNames: split.classNames,
+                classId: split.classIds.length === 1 ? split.classIds[0] : '',
+                classIds: split.classIds,
+                scheduleLocators: split.keep,
+                session: { ...(live.session || {}), checkIn: split.startISO, checkOut: split.endISO, roleName: label },
+                narrowedFrom: {
+                    shiftLabel: live.shiftLabel || '',
+                    shiftStart: live.shiftStart || '',
+                    shiftEnd: live.shiftEnd || '',
+                    scheduleLocators: live.scheduleLocators,
+                    coveredSessionIds: split.coveredSessionIds,
+                    by: adminName || 'Admin',
+                    at: new Date().toISOString()
+                },
+                completedBy: adminName || 'Admin',
+                completedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            if (split.keep.length === 1) {
+                const only = split.keep[0];
+                patch.scheduleCompositeKey = only.compositeKey || '';
+                patch.scheduleSection = only.section || '';
+                patch.scheduleShiftId = only.shiftId || '';
+                if (Number.isInteger(only.rowIndex)) patch.scheduleRowIndex = only.rowIndex;
+            }
+            transaction.update(requestRef, patch);
+            return { ...live, ...patch };
+        });
+    },
+
     getMyMakeupRequests: async (staffId, options = {}) => {
         try {
             const query = db.collection('makeup_requests').where('staffId', '==', staffId).limit(100);

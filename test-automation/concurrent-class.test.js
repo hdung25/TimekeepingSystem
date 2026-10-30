@@ -203,6 +203,11 @@ const cutFrom = (src, start, file) => {
         assert.equal(kept.length, 2, 'ca đã có công không bị kéo vào đơn chấm bù');
         const otherBranch = context.mergeConsecutiveOpen([open('18:00', '19:30', 'E4'), open('19:30', '21:00', 'E5', { branch: 'cs2' })]);
         assert.equal(otherBranch.length, 2, 'khác cơ sở không gộp');
+        // Đức Đại 03/10: gửi đơn lúc 18:27, ca 19:30 chưa diễn ra → không được kéo vào đơn.
+        const running = context.mergeConsecutiveOpen([open('18:00', '19:30', 'E7', { notEnded: true }), open('19:30', '21:00', 'Mover 1', { notEnded: true, notYet: true })]);
+        assert.equal(running.length, 2, 'ca chưa kết thúc không gộp, tránh chồng giờ với công thật về sau');
+        const ended = context.mergeConsecutiveOpen([open('18:00', '19:30', 'E7', { notEnded: false }), open('19:30', '21:00', 'Mover 1', { notEnded: true })]);
+        assert.equal(ended.length, 2, 'ca sau đang dạy cũng chưa gộp');
     }
 }
 

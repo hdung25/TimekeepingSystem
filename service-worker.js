@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v251-makeup-delete-sheet-buoi-20261030';
+const APP_RELEASE = 'tdt-chamcong-v252-makeup-narrow-20261030';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -56,7 +56,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20261030-makeup-delete-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
-    '/js/db-service.js?v=20261030-makeup-delete-v1',
+    '/js/db-service.js?v=20261030-makeup-narrow-v1',
     '/js/meeting-attendance-policy.js?v=20261030-makeup-delete-v1',
     '/js/class-rate-groups.js?v=20261030-makeup-delete-v1',
     '/js/report.js?v=20261029-student-count-tap-v1',

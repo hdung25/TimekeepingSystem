@@ -291,6 +291,20 @@ function observation(lateMinutes) {
     assert.equal(chips.length, 1);
     assert.equal(chips[0].paidMinutes, 180);
     assert.match(chips[0].text, /18:00–21:00/);
+
+    // Đức Đại 03/10: chấm bù ca 1 (18:00–19:30) + công thật ca 2 vào 19:29:59, về 20:58
+    // → không tính trùng: 90p ca 1 + 88p ca 2, cả hai lớp vẫn nằm trong chip.
+    const mixed = context.window.calculateDailyChips(
+        consecutiveSchedule,
+        [
+            { id: 'real-evening-2', source: 'self', checkIn: '2026-07-25T19:29:59+07:00', checkOut: '2026-07-25T20:58:12+07:00' },
+            { id: 'makeup-evening-1', checkIn: '2026-07-25T18:00:00+07:00', checkOut: '2026-07-25T19:30:00+07:00', isAdminEdited: true, type: 'makeup', linkedClassStart: '18:00' }
+        ],
+        staffId,
+        '2026-07-25',
+        user
+    );
+    assert.equal(mixed.reduce((sum, chip) => sum + chip.paidMinutes, 0), 178);
 }
 
 {

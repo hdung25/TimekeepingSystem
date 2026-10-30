@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261012-linked-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261030-makeup-delete-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261030-makeup-narrow-v1'></script>
     <script src='js/shift-absence-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/evaluation-service.js?v=20261023-late-fix-v1'></script>
     <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
@@ -354,7 +354,9 @@ function requestFor(reqs,aStart,aEnd,includeRejected){
 // lần vào ca — Bảng Công ghép một phiên cho cả chuỗi. Gộp thành một mục chấm bù duy nhất,
 // chỉ khi cả hai đều đang cần chấm bù (ca đã có công/đã gửi đơn giữ nguyên riêng).
 function mergeConsecutiveOpen(list){
-    const open=s=>s.kind==='gv'&&!s.done&&!s.request&&!s.locked&&!s.noSubject;
+    // Ca chưa KẾT THÚC (đang dạy / chưa tới giờ) không gộp: nhân viên còn vào ca thật được, gộp
+    // vào đơn sẽ chồng giờ với công thật và quản lý không duyệt được (Đức Đại 03/10).
+    const open=s=>s.kind==='gv'&&!s.done&&!s.request&&!s.locked&&!s.noSubject&&!s.notEnded;
     const out=[];
     list.forEach(s=>{
         const prev=out[out.length-1];
@@ -547,6 +549,9 @@ async function loadMonth(options={}){
                 s.request=s.done?null:requestFor(reqMap[k],ms(k,s.start),ms(k,s.end));
                 s.lastRejected=s.done||s.request?null:requestFor(reqMap[k],ms(k,s.start),ms(k,s.end),true);
                 s.locked=!!s.absenceState?.isAbsent;
+                // Ca đang diễn ra vẫn xin chấm bù được (mất mạng giữa ca); ca chưa tới giờ thì chưa.
+                s.notEnded=Date.now()<ms(k,s.end);
+                s.notYet=Date.now()<ms(k,s.start);
             });
             allMerged.filter(s=>s.closedClass).forEach(s=>{
                 s.done=false; s.locked=true; s.lastRejected=null;
@@ -561,7 +566,7 @@ async function loadMonth(options={}){
                 s.rejected=!!s.lastRejected;
             });
             if(shown.length)nextMap[k]={shifts:shown,
-                miss:shown.filter(s=>!s.done&&!s.request&&!s.locked).length,
+                miss:shown.filter(s=>!s.done&&!s.request&&!s.locked&&!s.notYet).length,
                 pend:shown.filter(s=>s.pending).length};
         });
         const oldDay=sameMonth&&selDate?monthMap[selDate]:null;
@@ -592,7 +597,7 @@ function refreshSelectedDay(wasPicked){
     if(!info){pickDay(selDate);return}
     const keep=wasPicked||new Set();
     picked=new Set();
-    info.shifts.forEach((s,i)=>{if(keep.has(shiftKeyOf(s))&&!s.done&&!s.request&&!s.locked&&!s.closedClass)picked.add(i)});
+    info.shifts.forEach((s,i)=>{if(keep.has(shiftKeyOf(s))&&!s.done&&!s.request&&!s.locked&&!s.closedClass&&!s.notYet)picked.add(i)});
     renderCal(); renderDay();
 }
 
@@ -655,6 +660,9 @@ function renderDay(){
              if(s.coveredByOther)act='<div class="warnbox" style="margin:0">Bảng Công đã có ca <b>chồng khung giờ</b> này rồi nên không cần chấm bù. Nếu bạn thấy thiếu lớp, báo quản lý sửa tên lớp của ca đã có — xin thêm một ca nữa sẽ thành tính công hai lần.</div>'}
         else if(s.pending){bdg='<span class="bdg b-i">Chờ duyệt</span>';cls=' off'}
         else if(s.request&&s.request.status==='approved'){bdg='<span class="bdg b-g">Đã duyệt</span>';cls=' off'}
+        else if(s.notYet&&!s.locked){
+             bdg='<span class="bdg b-i">Chưa tới giờ</span>';cls=' off';
+             act='<div class="note" style="margin:0">Ca này chưa bắt đầu. Tới giờ hãy vào ca bình thường; chỉ xin chấm bù khi không vào ca được.</div>'}
         else if(s.rejected&&!s.locked){
              bdg='<span class="bdg b-r">Bị từ chối</span>';
              act='<div class="warnbox" style="margin:0 0 .6rem">Yêu cầu trước đã bị từ chối'+(s.lastRejected.rejectReason?': <b>'+esc(s.lastRejected.rejectReason)+'</b>':'')+'. Bạn có thể bổ sung lý do rõ hơn và gửi lại.</div>'+
@@ -712,6 +720,8 @@ window.submitSched=async function(){
     if(!sel.length){alert('Vui lòng chọn ít nhất 1 ca.');return}
     const blocked=sel.find(s=>s.locked);
     if(blocked){alert('Ca '+blocked.lbl+' đã được ghi nhận "'+blocked.excuse+'" nên không chấm bù được.');return}
+    const early=sel.find(s=>ms(selDate,s.start)>Date.now());
+    if(early){alert('Ca '+early.lbl+' chưa tới giờ nên chưa xin chấm bù được.');return}
     const dup=sel.find(s=>s.done||s.request);
     if(dup){alert('Ca '+dup.lbl+' đã có công hoặc đã gửi yêu cầu chấm bù rồi. Mỗi ca chỉ gửi một lần.');return}
     if(!confirm('Gửi yêu cầu chấm bù '+sel.length+' ca ngày '+selDate+'?'))return;

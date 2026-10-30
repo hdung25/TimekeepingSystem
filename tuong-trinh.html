@@ -12,7 +12,7 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261012-linked-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261030-makeup-delete-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261030-makeup-narrow-v1'></script>
     <script src='js/shift-absence-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/evaluation-service.js?v=20261023-late-fix-v1'></script>
     <script src='js/ui-service.js?v=20260912-schedule-blank-guard-v1'></script><script src='js/search-keynav.js?v=20261013-partner-adjust-v1'></script>
@@ -489,6 +489,10 @@ async function buildVerdicts(reqs){
                 });
             }
 
+            // Đơn gộp ca liên tiếp, gửi xong nhân viên mới vào được một ca: tách ra ca còn thiếu.
+            const split=overlapped&&!missing.length&&r.status==='pending'?DBService._splitMakeupRequestByAttendance(r,sess):null;
+            const splitLine=list=>list.map(x=>x.start+'–'+x.end+(x.className?' ('+x.className+')':'')).join(', ');
+
             // 1b) Trùng giờ với một yêu cầu KHÁC cũng đang chờ duyệt (nhân viên tách hai lớp dạy
             // song song thành hai đơn) → chỉ được duyệt một, không phải cả hai.
             let twinReq=null;
@@ -575,6 +579,10 @@ async function buildVerdicts(reqs){
                 level='miss'; title='Thiếu thông tin — chưa duyệt được';
                 reasons.push('Chưa khai: '+missing.join(', ')+'.');
                 reasons.push('Thiếu những mục này thì quản lý không có căn cứ kiểm chứng và Bảng Công cũng không áp được đơn giá. Hãy bấm "Bổ sung thông tin" để điền, hoặc từ chối và yêu cầu nhân viên khai lại.');
+            }else if(split){
+                level='warn'; title='Đơn gộp nhiều ca — một ca đã có công';
+                reasons.push('Đơn gộp '+r.shiftLabel+' nhưng '+splitLine(split.covered)+' đã có công thật, nên không duyệt cả đơn được.');
+                reasons.push('Còn thiếu công: '+splitLine(split.keep)+'. Bấm "Duyệt ca còn thiếu" để chỉ ghi công ca này; công đã có giữ nguyên.');
             }else if(overlapped){
                 level='bad'; title='Đã có công trùng giờ';
                 reasons.push('Bảng công đã có ca chồng khung giờ này — duyệt sẽ tính lương 2 lần.');
@@ -624,7 +632,8 @@ async function buildVerdicts(reqs){
             // Công đã phủ TRỌN khung giờ đơn (thường do quản lý thêm ca ở trang Tính lương)
             // → đơn không còn cần duyệt; loadTab sẽ đóng đơn này.
             const covered=!missing.length&&!!DBService._sessionsCoveringSpan(sess,DBService._makeupRequestSpan(r),r.id);
-            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted,missing:missing,covered:covered};
+            out[r.id]={level:level,title:title,text:reasons.join(' '),quick:quick,trusted:trusted,missing:missing,covered:covered,
+                splitLabel:split?split.start+'–'+split.end+' '+split.classNames.join(' + '):''};
         });
     }));
     return out;
@@ -1171,7 +1180,9 @@ function renderDetail(){
                 '<div id="fix-box"></div>';
         }else{
             actions='<div class="acts">'+
-                '<button class="btn b-ok" onclick="approveOne(\''+r.id+'\')"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt</button>'+
+                (v.splitLabel
+                    ?'<button class="btn b-ok" onclick="approveMissingPart(\''+r.id+'\')"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt ca còn thiếu: '+esc(v.splitLabel)+'</button>'
+                    :'<button class="btn b-ok" onclick="approveOne(\''+r.id+'\')"><i data-lucide="check" style="width:15px;height:15px"></i> Duyệt</button>')+
                 '<button class="btn b-no" onclick="rejectOne(\''+r.id+'\')"><i data-lucide="x" style="width:15px;height:15px"></i> Từ chối</button>'+
                 '<button class="btn b-ghost" onclick="openCompleteForm(\''+r.id+'\')"><i data-lucide="edit-3" style="width:15px;height:15px"></i> Sửa thông tin ca</button></div>'+
                 '<div id="fix-box"></div>';
@@ -1394,6 +1405,28 @@ window.approveOne=async function(id){
         }
         toast('Lỗi duyệt: '+(e.message||e),'error');
     }
+};
+
+// Đơn gộp ca liên tiếp mà một ca đã có công: thu đơn về ca còn thiếu rồi duyệt như đơn thường
+// (vẫn qua đủ kiểm tra lịch/vắng/trùng giờ). Không bao giờ dùng allowOverlap ở đây.
+window.approveMissingPart=async function(id){
+    const r=curReqs.find(x=>x.id===id); if(!r)return;
+    const pick=await askPayout([r]);
+    if(!pick)return;
+    const payout=pick(r);
+    let narrowed=false;
+    try{
+        UIService.showLoading('Đang duyệt ca còn thiếu...');
+        const fresh=await DBService.narrowMakeupRequestToMissing(r.id,adminName());
+        narrowed=true;
+        await DBService.approveMakeupRequest(fresh,adminName(),payout);
+        UIService.hideLoading();
+        toast('Đã duyệt ca '+fresh.shiftLabel+'. Công đã có giữ nguyên.','success');
+    }catch(e){
+        UIService.hideLoading();
+        toast((narrowed?'Đã thu đơn về ca còn thiếu nhưng chưa duyệt được: ':'Lỗi duyệt: ')+(e.message||e),'error');
+    }
+    await loadTab(curTab); refreshPendingCount();
 };
 
 window.approveSelected=async function(){

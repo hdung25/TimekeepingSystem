@@ -120,6 +120,62 @@ const scheduled = (start, end, extra = {}) => ({
         await assert.rejects(staff.createMakeupRequests([scheduled('18:00', '21:00')]), { code: 'MAKEUP_DUPLICATE' },
             'the resubmission itself cannot be duplicated');
         console.log('PASS a rejected request can be sent again exactly once while pending');
+
+        // Đức Đại 03/10: đơn gộp 18:00–21:00 gửi lúc 18:27, sau đó vào thật ca 19:30 (19:29:59–20:58).
+        // Duyệt = chỉ ghi ca còn thiếu, công thật không đổi, đơn giữ vết.
+        const chainDate = '2026-10-03';
+        const chainStaff = 'mk-chain';
+        const chainId = 'mks_chain_fixture';
+        const chainLocators = [
+            { kind: 'gv', compositeKey: `cs1__${chainDate}`, section: 'evening1', rowIndex: 0, shiftId: 's-e7', start: '18:00', end: '19:30', branch: 'cs1', classId: 'id-e7', className: 'E7' },
+            { kind: 'gv', compositeKey: `cs1__${chainDate}`, section: 'evening2', rowIndex: 10, shiftId: 's-m1', start: '19:30', end: '21:00', branch: 'cs1', classId: 'id-m1', className: 'Mover 1' }
+        ];
+        const chainRequest = {
+            staffId: chainStaff, staffName: 'Fixture', type: 'scheduled', dateKey: chainDate, branch: 'cs1', status: 'pending',
+            shiftLabel: '18:00–21:00 CS1 (E7 + Mover 1)', className: 'E7 + Mover 1', classNames: ['E7', 'Mover 1'], classId: '', classIds: ['id-e7', 'id-m1'],
+            shiftStart: '18:00', shiftEnd: '21:00', shiftKind: 'gv', scheduleLocators: chainLocators,
+            session: { checkIn: '2026-10-03T11:00:00.000Z', checkOut: '2026-10-03T14:00:00.000Z', role: null, roleName: 'E7 + Mover 1' }, reason: 'Điện thoại bị mất wifi'
+        };
+        const realSession = { id: 'real-m1', source: 'self', checkIn: '2026-10-03T12:29:59.823Z', start: '2026-10-03T12:29:59.823Z', checkOut: '2026-10-03T13:58:12.660Z', status: 'closed' };
+        const morningSession = { id: 'real-am', source: 'self', checkIn: '2026-10-03T02:15:00.000Z', start: '2026-10-03T02:15:00.000Z', checkOut: '2026-10-03T03:45:00.000Z', status: 'closed' };
+        await env.withSecurityRulesDisabled(async context => {
+            const db = context.firestore();
+            await db.collection('makeup_requests').doc(chainId).set(chainRequest);
+            await db.collection('attendance_logs').doc(`${chainDate}_${chainStaff}`).set({ userId: chainStaff, date: chainDate, sessions: [morningSession, realSession] });
+        });
+        const split = admin._splitMakeupRequestByAttendance({ id: chainId, ...chainRequest }, [morningSession, realSession]);
+        assert.deepEqual(split.keep.map(item => item.className), ['E7']);
+        assert.deepEqual(split.covered.map(item => item.className), ['Mover 1']);
+        assert.equal(admin._splitMakeupRequestByAttendance({ id: chainId, ...chainRequest }, []), null, 'no attendance: nothing to split');
+        assert.equal(admin._splitMakeupRequestByAttendance({ id: chainId, ...chainRequest }, [{ checkIn: chainRequest.session.checkIn, checkOut: chainRequest.session.checkOut }]), null, 'all covered: nothing left to approve');
+        assert.equal(admin._splitMakeupRequestByAttendance({ id: chainId, ...chainRequest, scheduleLocators: [chainLocators[0]] }, [realSession]), null, 'single-shift request is a real overlap, never split');
+        await assert.rejects(staffDb.collection('makeup_requests').doc(chainId).update({ shiftEnd: '19:30' }), { code: 'permission-denied' });
+
+        const narrowed = await admin.narrowMakeupRequestToMissing(chainId, 'QL');
+        assert.equal(narrowed.shiftLabel, '18:00–19:30 CS1 (E7)');
+        const liveNarrowed = (await adminDb.collection('makeup_requests').doc(chainId).get()).data();
+        assert.equal(liveNarrowed.status, 'pending');
+        assert.equal(liveNarrowed.session.checkIn, '2026-10-03T11:00:00.000Z');
+        assert.equal(liveNarrowed.session.checkOut, '2026-10-03T12:30:00.000Z');
+        assert.deepEqual(liveNarrowed.classIds, ['id-e7']);
+        assert.equal(liveNarrowed.classId, 'id-e7');
+        assert.equal(liveNarrowed.scheduleLocators.length, 1);
+        assert.equal(liveNarrowed.scheduleShiftId, 's-e7');
+        assert.equal(liveNarrowed.narrowedFrom.shiftLabel, '18:00–21:00 CS1 (E7 + Mover 1)');
+        assert.deepEqual(liveNarrowed.narrowedFrom.coveredSessionIds, ['real-m1']);
+        await assert.rejects(admin.narrowMakeupRequestToMissing(chainId, 'QL'), { code: 'MAKEUP_NOT_SPLITTABLE' }, 'running twice changes nothing');
+
+        // The ordinary overlap guard must now accept it (19:29:59 only touches 19:30) and keep the real session.
+        const sessionId = await admin.addSession(chainStaff, chainDate, { ...liveNarrowed.session, type: 'makeup', makeupRequestId: chainId, linkedClassStart: '18:00', isAdminEdited: true }, {
+            makeupApproval: { requestId: chainId, reviewedBy: 'QL', staffName: 'Fixture', overtimeMinutes: 0 }
+        });
+        const chainLog = (await adminDb.collection('attendance_logs').doc(`${chainDate}_${chainStaff}`).get()).data();
+        assert.equal(chainLog.sessions.length, 3);
+        const untouched = chainLog.sessions.find(item => item.id === 'real-m1');
+        assert.equal(untouched.checkIn, realSession.checkIn);
+        assert.equal(untouched.checkOut, realSession.checkOut);
+        assert.equal(chainLog.sessions.find(item => item.id === sessionId).checkOut, '2026-10-03T12:30:00.000Z');
+        console.log('PASS chain request narrows to the missing shift; real attendance is untouched');
         console.log('makeup-duplicate-rules.test.js: all assertions passed');
     } finally {
         await env.cleanup();
