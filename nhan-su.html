@@ -337,12 +337,18 @@
 
                     <div class="ns-field">
                         <label class="ns-label" for="ns-staff-name">Họ tên <i>*</i></label>
-                        <input type="text" id="ns-staff-name" class="ns-input" placeholder="Nguyễn Văn A" required>
+                        <input type="text" id="ns-staff-name" class="ns-input" placeholder="Nguyễn Văn A" required oninput="NhanSu.fillSuggestedUsername()">
+                    </div>
+
+                    <div class="ns-field" id="ns-staff-code-field">
+                        <label class="ns-label" for="ns-staff-code">Mã số nhân viên <i>*</i></label>
+                        <input type="text" id="ns-staff-code" class="ns-input" placeholder="Ví dụ: 77, N6, V2" autocomplete="off" oninput="NhanSu.fillSuggestedUsername()">
+                        <p class="ns-note" id="ns-staff-code-free"></p>
                     </div>
 
                     <div class="ns-field">
                         <label class="ns-label" for="ns-staff-username">Tên đăng nhập <i>*</i></label>
-                        <input type="text" id="ns-staff-username" class="ns-input" placeholder="user1" required>
+                        <input type="text" id="ns-staff-username" class="ns-input" placeholder="Tự điền theo họ tên và mã số" required oninput="NhanSu.markUsernameTouched()">
                     </div>
 
                     <div class="ns-field">
@@ -520,7 +526,7 @@
     <script src="js/subject-rate-policy.js?v=20260809-subject-rate-v1"></script>
     <script src="js/main.js?v=20261030-makeup-delete-v1"></script>
     <script src="js/auth-helper.js?v=20260906-early10-recovery-v1"></script>
-    <script src="js/personnel.js?v=20261030-makeup-delete-v1"></script>
+    <script src="js/personnel.js?v=20261031-staff-code-v1"></script>
     <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {

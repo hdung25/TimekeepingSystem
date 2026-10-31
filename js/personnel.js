@@ -156,18 +156,90 @@
 
     // --- Lọc & sắp xếp ----------------------------------------------------
 
+    // MSNV nằm ở cuối tên đăng nhập: dung39 → 39, anhv3 → V3, huyenn1 → N1.
+    // Tên Việt hay tận cùng bằng "n" (van75, an08) nên chữ n viết thường chỉ là mã
+    // khi đi với 1 chữ số; mã N từ 10 trở lên viết hoa chữ N (huyenN10). Đăng nhập
+    // không phân biệt hoa thường nên viết hoa không ảnh hưởng tài khoản.
+    function parseStaffCode(username) {
+        var match = String(username || '').trim().match(/^(.*?)(\d+)$/);
+        if (!match || /^admin$/i.test(match[1])) return null;
+        var before = match[1], digits = match[2];
+        var last = before.slice(-1), prev = before.slice(-2, -1);
+        var isLetterCode = (/[A-Z]/.test(last) && !/[A-Z]/.test(prev)) || /v/i.test(last) ||
+            (last === 'n' && digits.length === 1);
+        var number = parseInt(digits, 10);
+        if (!isLetterCode) return { letter: '', number: number, text: digits };
+        return { letter: last.toUpperCase(), number: number, text: last.toUpperCase() + digits };
+    }
+
+    // Số trước (nhỏ → lớn), rồi chữ theo A→Z (N1, N2… rồi V1, V2…), không có mã xuống cuối.
+    function compareStaffCodes(a, b) {
+        var codeA = parseStaffCode(a.username), codeB = parseStaffCode(b.username);
+        if (codeA && !codeB) return -1;
+        if (!codeA && codeB) return 1;
+        if (codeA && codeB) {
+            if (codeA.letter !== codeB.letter) return codeA.letter < codeB.letter ? -1 : 1;
+            if (codeA.number !== codeB.number) return codeA.number - codeB.number;
+        }
+        return String(a.username || '').localeCompare(String(b.username || ''));
+    }
+
     function sortUsers(users) {
         users.forEach(function (u) {
-            var match = String(u.username || '').match(/\d+$/);
-            u._msnvStr = match ? match[0] : '';
-            u._msnv = match ? parseInt(match[0], 10) : null;
+            var code = parseStaffCode(u.username);
+            u._msnvStr = code ? code.text : '';
+            u._msnv = code ? code.number : null;
         });
-        return users.sort(function (a, b) {
-            if (a._msnv !== null && b._msnv !== null) return a._msnv - b._msnv;
-            if (a._msnv !== null) return -1;
-            if (b._msnv !== null) return 1;
-            return String(a.username || '').localeCompare(String(b.username || ''));
+        return users.sort(compareStaffCodes);
+    }
+
+    // Chuẩn hóa mã nhập tay: 5 → 05, n6 → N6. Không hợp lệ thì trả về chuỗi rỗng.
+    function normalizeStaffCode(value) {
+        var raw = String(value || '').trim().toUpperCase();
+        var match = raw.match(/^([A-Z]?)(\d{1,4})$/);
+        if (!match || parseInt(match[2], 10) === 0) return '';
+        if (match[1]) return match[1] + parseInt(match[2], 10);
+        return match[2].length < 2 ? '0' + match[2] : match[2];
+    }
+
+    // Tên đăng nhập gợi ý = tên riêng không dấu + mã, giữ đúng cách đọc của parseStaffCode.
+    function suggestUsername(name, code) {
+        var words = stripTones(name).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/);
+        var base = words[words.length - 1];
+        if (!base || !code) return '';
+        var lower = base + code.toLowerCase();
+        var parsed = parseStaffCode(lower);
+        return parsed && parsed.text === code ? lower : base + code;
+    }
+
+    function formatRanges(numbers, pad) {
+        var show = function (n) { return pad && n < 10 ? '0' + n : String(n); };
+        var parts = [];
+        for (var i = 0; i < numbers.length; i++) {
+            var start = numbers[i];
+            while (i + 1 < numbers.length && numbers[i + 1] === numbers[i] + 1) i++;
+            parts.push(numbers[i] === start ? show(start) : show(start) + '–' + show(numbers[i]));
+        }
+        return parts.join(', ');
+    }
+
+    // "Số còn trống" trong từng nhóm mã để biết chỗ nào có thể thêm nhân viên.
+    function describeFreeCodes(users) {
+        var groups = {};
+        users.forEach(function (u) {
+            var code = parseStaffCode(u.username);
+            if (!code) return;
+            (groups[code.letter] = groups[code.letter] || {})[code.number] = true;
         });
+        return Object.keys(groups).sort().map(function (letter) {
+            var used = groups[letter];
+            var max = Math.max.apply(null, Object.keys(used).map(Number));
+            var free = [];
+            for (var n = 1; n < max; n++) { if (!used[n]) free.push(n); }
+            var next = letter + (!letter && max + 1 < 10 ? '0' : '') + (max + 1);
+            return (letter ? 'Mã ' + letter : 'Mã số') + ': ' +
+                (free.length ? 'trống ' + formatRanges(free, !letter) + '; ' : 'không có chỗ trống; ') + 'tiếp theo ' + next;
+        }).join(' · ');
     }
 
     function passesFilter(user) {
@@ -484,6 +556,11 @@
         document.getElementById('ns-staff-id').value = user ? user.id : '';
         document.getElementById('ns-staff-name').value = user ? (user.name || '') : '';
         document.getElementById('ns-staff-username').value = user ? (user.username || '') : '';
+        // Mã số chỉ nhập khi tạo mới; người đã có tài khoản đổi mã bằng cách sửa tên đăng nhập.
+        state.usernameTouched = false;
+        document.getElementById('ns-staff-code').value = '';
+        document.getElementById('ns-staff-code-field').style.display = user ? 'none' : '';
+        document.getElementById('ns-staff-code-free').textContent = user ? '' : describeFreeCodes(state.users);
         var passwordInput = document.getElementById('ns-staff-password');
         passwordInput.value = '';
         passwordInput.required = !user;
@@ -523,6 +600,17 @@
         document.getElementById('ns-staff-sheet').classList.remove('open');
     }
 
+    // Tự điền tên đăng nhập theo họ tên + mã, cho tới khi người dùng tự gõ vào ô đó.
+    function fillSuggestedUsername() {
+        if (state.editing || state.usernameTouched) return;
+        document.getElementById('ns-staff-username').value = suggestUsername(
+            document.getElementById('ns-staff-name').value,
+            normalizeStaffCode(document.getElementById('ns-staff-code').value)
+        );
+    }
+
+    function markUsernameTouched() { state.usernameTouched = true; }
+
     async function submitStaff(event) {
         event.preventDefault();
 
@@ -544,6 +632,27 @@
         var primaryRole = ROLE_PRIORITY.find(function (r) { return checkedRoles.indexOf(r) !== -1; }) || checkedRoles[0];
         var isNew = !state.editing || !id;
         var existing = id ? state.users.find(function (u) { return u.id === id; }) : null;
+
+        if (isNew) {
+            var staffCode = normalizeStaffCode(document.getElementById('ns-staff-code').value);
+            if (!staffCode) {
+                UIService.toast('Vui lòng nhập mã số nhân viên, ví dụ 77, N6 hoặc V2.', 'error');
+                return;
+            }
+            var parsedCode = parseStaffCode(username);
+            if (!parsedCode || parsedCode.text !== staffCode) {
+                UIService.toast('Tên đăng nhập phải kết thúc bằng mã ' + staffCode + ', ví dụ ' + (suggestUsername(name, staffCode) || 'ten' + staffCode.toLowerCase()) + '.', 'error');
+                return;
+            }
+            var codeOwner = state.users.find(function (u) {
+                var code = parseStaffCode(u.username);
+                return code && code.letter === parsedCode.letter && code.number === parsedCode.number;
+            });
+            if (codeOwner) {
+                UIService.toast('Mã ' + staffCode + ' đã thuộc về ' + (codeOwner.name || codeOwner.username) + '.', 'error');
+                return;
+            }
+        }
 
         if (isNew && password.length < 6) {
             UIService.toast('Mật khẩu mới phải có ít nhất 6 ký tự.', 'error');
@@ -1107,6 +1216,13 @@
     window.NhanSu = {
         openStaffSheet: function (user) { openStaffSheet(user || null); },
         closeStaffSheet: closeStaffSheet,
+        fillSuggestedUsername: fillSuggestedUsername,
+        markUsernameTouched: markUsernameTouched,
+        _parseStaffCode: parseStaffCode,
+        _sortUsers: sortUsers,
+        _normalizeStaffCode: normalizeStaffCode,
+        _suggestUsername: suggestUsername,
+        _describeFreeCodes: describeFreeCodes,
         submitStaff: submitStaff,
         editStaff: editStaff,
         deleteStaff: deleteStaff,
