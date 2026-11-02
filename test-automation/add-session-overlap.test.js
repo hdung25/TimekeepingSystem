@@ -76,4 +76,33 @@ const existing = { sessions: [{ id: 1, checkIn: iso('09:15'), checkOut: iso('10:
     assert.equal(context.runGuard(DAY, absentDay, { checkIn: iso('09:15'), checkOut: iso('10:45') }, {}), 'ADDED');
 }
 
+{
+    // Cô Vy 23/10: đã có ca tự chấm 16:15–18:00 và ca 18:00–21:00; Admin thêm 16:00–18:00
+    // → gợi ý nới ca 16:15–18:00 thành 16:00–18:00 (không đè ca 18:00–21:00).
+    const day = { sessions: [
+        { id: 'a', checkIn: iso('16:15'), checkOut: iso('18:00') },
+        { id: 'b', checkIn: iso('18:00'), checkOut: iso('21:00') }
+    ] };
+    assert.throws(
+        () => context.runGuard(DAY, day, { checkIn: iso('16:00'), checkOut: iso('18:00') }, {}),
+        e => e.code === 'SESSION_OVERLAP' && e.mergeRange &&
+            e.mergeRange.sessionId === 'a' &&
+            e.mergeRange.checkIn === new Date(iso('16:00')).toISOString() &&
+            e.mergeRange.checkOut === new Date(iso('18:00')).toISOString(),
+        'phải gợi ý nới ca có sẵn thành khung gộp'
+    );
+    // Khung gộp đè lên ca khác → không gợi ý nới (tránh tạo trùng mới).
+    assert.throws(
+        () => context.runGuard(DAY, day, { checkIn: iso('16:00'), checkOut: iso('19:00') }, {}),
+        e => e.code === 'SESSION_OVERLAP' && !e.mergeRange
+    );
+    // Ca có phân bổ lương Admin đang hiệu lực → không gợi ý nới.
+    const overridden = { sessions: [{ id: 'a', checkIn: iso('16:15'), checkOut: iso('18:00'),
+        adminPayrollOverride: { mode: 'absolute' } }] };
+    assert.throws(
+        () => context.runGuard(DAY, overridden, { checkIn: iso('16:00'), checkOut: iso('18:00') }, {}),
+        e => e.code === 'SESSION_OVERLAP' && !e.mergeRange
+    );
+}
+
 console.log('add-session-overlap.test.js: all assertions passed');

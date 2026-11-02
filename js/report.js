@@ -6296,6 +6296,45 @@ function closeEditModal() {
     document.getElementById('edit-time-modal').style.display = 'none';
 }
 
+function formatOverlapClock(iso) {
+    return new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Popup khi ca thêm mới trùng giờ một ca có sẵn. Trả về 'merge' (nới ca có sẵn),
+// 'add' (vẫn thêm ca thứ hai) hoặc null (hủy).
+function chooseSessionOverlapAction(clashMessage, mergeRange) {
+    return new Promise((resolve) => {
+        const esc = (text) => String(text == null ? '' : text)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\n/g, '<br>');
+        const mergeText = mergeRange
+            ? `Thường ca đó là ca nhân viên tự chấm công. Chọn <b>Sửa ca có sẵn</b> để đổi ca đó thành ` +
+              `<b>${esc(formatOverlapClock(mergeRange.checkIn))}–${esc(formatOverlapClock(mergeRange.checkOut))}</b> ` +
+              `với Vai trò/Môn vừa chọn — vẫn chỉ MỘT ca, không tính lương đôi.`
+            : 'Giáo viên dạy 2 lớp cùng khung giờ thì chỉ cần MỘT ca: mở ca đó và chọn cả 2 môn trong ô "Môn học".';
+        const backdrop = document.createElement('div');
+        backdrop.className = 'custom-modal-backdrop';
+        backdrop.innerHTML = `
+            <div class="custom-modal-box">
+                <h3 style="margin-bottom: 0.5rem; color: var(--primary-color);">Ca bị trùng giờ</h3>
+                <p style="color: var(--text-muted); margin-bottom: 0.75rem;">${esc(clashMessage)}</p>
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">${mergeText}</p>
+                <div class="custom-modal-actions" style="flex-wrap: wrap;">
+                    <button type="button" data-choice="" class="btn" style="background: #E5E7EB; color: #374151;">Hủy bỏ</button>
+                    <button type="button" data-choice="add" class="btn" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">Vẫn thêm ca trùng</button>
+                    ${mergeRange ? '<button type="button" data-choice="merge" class="btn btn-primary">Sửa ca có sẵn</button>' : ''}
+                </div>
+            </div>
+        `;
+        const close = (value) => { backdrop.remove(); resolve(value || null); };
+        backdrop.querySelectorAll('[data-choice]').forEach((button) => {
+            button.onclick = () => close(button.dataset.choice);
+        });
+        backdrop.onclick = (event) => { if (event.target === backdrop) close(null); };
+        document.body.appendChild(backdrop);
+    });
+}
+
 async function saveEditedTime() {
     if (window.__adminPayrollSavePending) return;
     window.__adminPayrollSavePending = true;
@@ -6476,6 +6515,8 @@ async function saveEditedTimeOperation() {
 
     let coreCommitted = false;
     let savedMessage = '';
+    // Khi Admin chọn nới ca có sẵn thay vì thêm ca trùng: nhãn giờ của ca sau khi nới.
+    let mergedLabel = '';
     try {
         let finalSessionId = null;
         let payrollOverrideResult = null;
@@ -6486,14 +6527,23 @@ async function saveEditedTimeOperation() {
                 // Ca mới trùng khung giờ ca đã có → hỏi lại, vì thêm là bảng công tính
                 // lương hai lần cho cùng một giờ làm (nhân viên chỉ bấm vào ca một lần).
                 if (errAdd && errAdd.code === 'SESSION_OVERLAP') {
-                    const goOn = await UIService.confirm(
-                        'KHÔNG THÊM ĐƯỢC — ' + errAdd.message +
-                        '\n\nThường gặp khi giáo viên dạy 2 lớp cùng một khung giờ: chỉ cần MỘT ca, ' +
-                        'chọn cả 2 môn trong ô "Môn học" của ca đó.' +
-                        '\n\nVẫn thêm ca thứ hai cùng khung giờ?'
-                    );
-                    if (!goOn) return;
-                    finalSessionId = await DBService.addSession(staffId, dateKey, newData, { allowOverlap: true });
+                    // Ca trùng thường là ca nhân viên tự chấm (VD 16:15–18:00 khi Admin muốn
+                    // ghi 16:00–18:00): cách đúng là nới ca đó, không thêm ca thứ hai.
+                    const merge = errAdd.mergeRange || null;
+                    const choice = await chooseSessionOverlapAction(errAdd.message, merge);
+                    if (!choice) return;
+                    if (choice === 'merge' && merge) {
+                        await DBService.updateSession(staffId, dateKey, merge.sessionId, {
+                            ...newData,
+                            checkIn: merge.checkIn,
+                            start: merge.checkIn,
+                            checkOut: merge.checkOut
+                        });
+                        mergedLabel = `${formatOverlapClock(merge.checkIn)} - ${formatOverlapClock(merge.checkOut)}`;
+                        finalSessionId = merge.sessionId;
+                    } else {
+                        finalSessionId = await DBService.addSession(staffId, dateKey, newData, { allowOverlap: true });
+                    }
                 } else {
                     throw errAdd;
                 }
@@ -6501,10 +6551,14 @@ async function saveEditedTimeOperation() {
             coreCommitted = true;
             // Send notification to staff
             await DBService.createAdminNotification(
-                staffId, staffName, 'add_session', dateKey,
-                `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`
+                staffId, staffName, mergedLabel ? 'edit_session' : 'add_session', dateKey,
+                mergedLabel
+                    ? `Admin đã chỉnh sửa giờ làm: ${mergedLabel}`
+                    : `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`
             );
-            savedMessage = 'Đã tạo ca làm việc mới!';
+            savedMessage = mergedLabel
+                ? `Đã sửa ca có sẵn thành ${mergedLabel} (không thêm ca thứ hai).`
+                : 'Đã tạo ca làm việc mới!';
         } else {
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
             const overrideContext = window.currentAdminPayrollEditContext;
@@ -6604,7 +6658,11 @@ async function saveEditedTimeOperation() {
         
         if (otInput && finalSessionId && isAdminViewer) {
             const newOtMinutes = parseInt(otInput.value, 10) || 0;
-            await DBService.saveAdminOvertimeConfig(staffId, staffName, dateKey, finalSessionId, newOtMinutes);
+            // Ca được nới là ca có sẵn: ô tăng ca của form thêm mới để trống thì giữ
+            // nguyên tăng ca cũ của ca đó, không ghi đè về 0.
+            if (!(mergedLabel && newOtMinutes === 0)) {
+                await DBService.saveAdminOvertimeConfig(staffId, staffName, dateKey, finalSessionId, newOtMinutes);
+            }
         }
 
         // Ca vừa thêm/sửa đã phủ trọn khung giờ một yêu cầu chấm bù đang chờ → đóng yêu cầu

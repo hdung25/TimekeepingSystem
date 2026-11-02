@@ -5949,6 +5949,27 @@ const DBService = {
                         );
                         err.code = 'SESSION_OVERLAP';
                         err.clash = clash;
+                        // Thường ca trùng chính là ca nhân viên tự chấm (VD 16:15–18:00 khi
+                        // Admin muốn ghi 16:00–18:00): gợi ý nới ca đó thay vì thêm ca thứ hai.
+                        // Chỉ gợi ý khi khung gộp không đè lên ca nào khác và ca đó không có
+                        // phân bổ lương Admin (đổi giờ sẽ làm lệch phân bổ).
+                        const u1 = Math.min(a1, new Date(clash.checkIn || clash.start).getTime());
+                        const u2 = Math.max(a2, new Date(clash.checkOut).getTime());
+                        const hitsOther = data.sessions.some(x => {
+                            if (!x || x === clash || x.isAbsent || !(x.checkIn || x.start)) return false;
+                            const b1 = new Date(x.checkIn || x.start).getTime();
+                            const b2 = x.checkOut ? new Date(x.checkOut).getTime() : b1 + 24 * 60 * 60 * 1000;
+                            return Math.min(u2, b2) - Math.max(u1, b1) >= 10 * 60 * 1000;
+                        });
+                        const overrideMode = clash.adminPayrollOverride?.mode;
+                        if (!hitsOther && (!overrideMode || overrideMode === 'schedule') &&
+                            clash.id != null && u2 - u1 <= 24 * 60 * 60 * 1000) {
+                            err.mergeRange = {
+                                sessionId: String(clash.id),
+                                checkIn: new Date(u1).toISOString(),
+                                checkOut: new Date(u2).toISOString()
+                            };
+                        }
                         throw err;
                     }
                 }

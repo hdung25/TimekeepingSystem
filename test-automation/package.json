@@ -17,7 +17,8 @@
     "test:meeting-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node meeting-flow-ui.test.js\"",
     "test:owner-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node owner-round-ui.cjs\"",
     "test:salary-review-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node salary-review-ui-flow.test.js\"",
-    "test:partner-ui": "node partner-attendance-ui.test.cjs"
+    "test:partner-ui": "node partner-attendance-ui.test.cjs",
+    "test:overlap-ui": "firebase emulators:exec --only auth,firestore --project demo-timekeeping --config ../firebase.browser.json \"node add-session-overlap-merge-ui.cjs\""
   },
   "keywords": [],
   "author": "",
