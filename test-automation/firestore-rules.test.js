@@ -171,10 +171,12 @@ test('staff cannot self-escalate user_roles; manager can provision a mapping', a
     }));
 });
 
-test('senior assistant cannot mint or rewrite security mappings; primary admin can', async () => {
-    await assertFails(updateDoc(doc(seniorDb, 'user_roles', 'uid-senior'), {
-        role: 'admin', roles: ['admin']
+test('senior assistant edits roles only, never the identity of a mapping; primary admin can', async () => {
+    await assertSucceeds(updateDoc(doc(seniorDb, 'user_roles', 'uid-other'), {
+        role: 'teacher', roles: ['teacher'], updatedByAdmin: true
     }));
+    await assertFails(updateDoc(doc(seniorDb, 'user_roles', 'uid-other'), { username: 'renamed' }));
+    await assertFails(updateDoc(doc(staffDb, 'user_roles', 'uid-other'), { role: 'admin', roles: ['admin'] }));
     await assertFails(updateDoc(doc(seniorDb, 'user_roles', 'uid-other'), {
         userId: 'staff-senior', role: 'admin', roles: ['admin']
     }));
@@ -254,8 +256,8 @@ test('senior may edit existing non-security profile fields but cannot mutate ide
     await assertFails(updateDoc(doc(staffDb, 'users', 'staff-2'), { name: 'Tampered' }));
     await assertSucceeds(updateDoc(doc(seniorDb, 'users', 'staff-2'), { name: 'Staff Two Updated' }));
     await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { username: 'staff2-renamed' }));
-    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { role: 'admin' }));
-    await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { roles: ['admin'] }));
+    await assertSucceeds(updateDoc(doc(seniorDb, 'users', 'staff-2'), { role: 'teacher' }));
+    await assertSucceeds(updateDoc(doc(seniorDb, 'users', 'staff-2'), { roles: ['teacher'] }));
     await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { authUid: 'uid-senior' }));
     await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), { password: 'should-never-live-here' }));
     await assertFails(updateDoc(doc(seniorDb, 'users', 'staff-2'), {
@@ -271,7 +273,7 @@ test('senior may edit existing non-security profile fields but cannot mutate ide
         name: 'Staff Two Directory Updated'
     }));
     await assertFails(updateDoc(doc(seniorDb, 'staff_directory', 'staff-2'), { username: 'staff2-renamed' }));
-    await assertFails(updateDoc(doc(seniorDb, 'staff_directory', 'staff-2'), { roles: ['admin'] }));
+    await assertSucceeds(updateDoc(doc(seniorDb, 'staff_directory', 'staff-2'), { roles: ['teacher'] }));
     await assertFails(setDoc(doc(seniorDb, 'staff_directory', 'staff-senior-created'), {
         id: 'staff-senior-created', name: 'Senior Created', username: 'senior-created', role: 'staff'
     }));

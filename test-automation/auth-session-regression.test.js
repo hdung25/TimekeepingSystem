@@ -94,8 +94,8 @@ assert.doesNotMatch(managerRoleSync, /localStorage\.getItem\('currentRole'\)/,
 const saveUserFlow = db.slice(db.indexOf('saveUser: async'), db.indexOf('deleteUser: async'));
 assert.match(profileSaveBoundary, /getAuthenticatedAuthorizationContext\(true\)/,
     'profile saves must authorize against a server-verified Firebase role mapping');
-assert.match(managerRoleSync, /if \(!authorization\.roles\.includes\('admin'\)\) \{\s*[\s\S]*?if \(!allowSeniorCreate \|\| !batch \|\| !targetAuthUid\) return false;/,
-    'only the primary Admin may sync user_roles, except a senior onboarding a new staff in one batch');
+assert.match(managerRoleSync, /if \(!authorization\.roles\.includes\('admin'\)\) \{\s*[\s\S]*?if \(!allowSeniorCreate \|\| !batch\) return false;/,
+    'only the primary Admin may sync user_roles outside a batch; a senior only for onboarding or a role edit');
 assert.match(profileSaveBoundary, /SENIOR_FORBIDDEN_GRANT_ROLES\.includes/,
     'a senior onboarding must refuse privileged roles before any write');
 assert.match(profileSaveBoundary, /isSeniorCreate: true/);
@@ -106,7 +106,7 @@ assert.match(saveUserFlow, /password && canWriteSecurity/,
     'senior profile maintenance must never write compatibility credentials (only on onboarding)');
 assert.match(profileSaveBoundary, /isSeniorCreate: true[\s\S]*hasOwnProperty\.call\(user \|\| \{\}, 'password'\)[\s\S]*không được thay đổi mật khẩu/,
     'an existing staff password stays primary-Admin only');
-assert.match(saveUserFlow, /Object\.entries\(safeProfile\)\.filter[\s\S]*'id', 'username', 'role', 'roles', 'authUid'/,
+assert.match(saveUserFlow, /Object\.entries\(safeProfile\)\.filter[\s\S]*'id', 'username', 'authUid', \.\.\.\(isSeniorRoleEdit \? \[\] : \['role', 'roles'\]\)/,
     'senior profile batches must omit every protected identity/role field even when unchanged');
 assert.doesNotMatch(saveUserFlow, /Could not sync user_roles/,
     'a failed role sync must never be hidden behind a successful profile toast');
@@ -452,10 +452,20 @@ async function verifySeniorProfileSaveBoundary() {
     assert.equal(fake.writeLog.some(item => item.path === 'user_credentials/staff-target'), false,
         'senior profile save must not enqueue a credential write');
 
+    // Trợ lý cấp cao đổi vai trò nhân viên cũ: hồ sơ, danh bạ và ánh xạ quyền cùng đổi, mật khẩu không đụng tới.
+    await service.saveUser({ ...unchangedSecurity, role: 'teaching_assistant', roles: ['teaching_assistant', 'receptionist'] });
+    await service.saveUser({ ...unchangedSecurity, role: 'teaching_assistant', roles: ['teaching_assistant'] });
+    for (const key of [fake.keyOf('users', 'staff-target'), fake.keyOf('staff_directory', 'staff-target'), fake.keyOf('user_roles', 'uid-target')]) {
+        assert.deepEqual([...fake.store.get(key).roles], ['teaching_assistant'], key);
+        assert.equal(fake.store.get(key).role, 'teaching_assistant', key);
+    }
+    assert.equal(fake.store.get(fake.keyOf('user_roles', 'uid-target')).userId, 'staff-target');
+    assert.equal(fake.store.get(fake.keyOf('user_credentials', 'staff-target')).password, 'original-password');
+    await service.saveUser(unchangedSecurity);
+    assert.deepEqual([...fake.store.get(fake.keyOf('user_roles', 'uid-target')).roles], ['staff']);
+
     const forbiddenPayloads = [
         { ...unchangedSecurity, username: 'renamed-target' },
-        { ...unchangedSecurity, role: 'admin' },
-        { ...unchangedSecurity, roles: ['admin'] },
         { ...unchangedSecurity, authUid: 'uid-senior' },
         { ...unchangedSecurity, password: 'forbidden-password' }
     ];

@@ -1835,34 +1835,38 @@ const DBService = {
             );
         }
         const existingProfile = existingSnapshot.data() || {};
-        const protectedScalarFields = ['username', 'role', 'authUid'];
+        // Vai trò được phép đổi như Admin; tên đăng nhập và UID vẫn khóa.
+        const protectedScalarFields = ['username', 'authUid'];
         const changedScalar = protectedScalarFields.find(field =>
             Object.prototype.hasOwnProperty.call(user || {}, field) &&
             String(user[field] ?? '') !== String(existingProfile[field] ?? '')
         );
-        const rolesChanged = Object.prototype.hasOwnProperty.call(user || {}, 'roles') &&
-            JSON.stringify(user.roles) !== JSON.stringify(existingProfile.roles);
-        if (changedScalar || rolesChanged) {
+        if (changedScalar) {
             throw _createAuthProfileError(
-                'Trợ lý cấp cao không được thay đổi tên đăng nhập, UID hoặc vai trò nhân sự.',
+                'Trợ lý cấp cao không được thay đổi tên đăng nhập hoặc UID nhân sự.',
                 'auth/security-field-change'
             );
         }
+        const roleSignature = profile => JSON.stringify([
+            String(profile?.role || '').trim(),
+            [..._normalizeRoleList(profile)].sort()
+        ]);
+        const hasRoleFields = ['role', 'roles'].some(field =>
+            Object.prototype.hasOwnProperty.call(user || {}, field));
+        const isSeniorRoleEdit = hasRoleFields && roleSignature(user) !== roleSignature(existingProfile);
 
-        return { authorization, isPrimaryAdmin: false, existingProfile };
+        return { authorization, isPrimaryAdmin: false, isSeniorRoleEdit, existingProfile };
     },
 
     _syncUserRoleMappingAsManager: async (user, batch = null, verifiedAuthorization = null, allowSeniorCreate = false) => {
-        // Client storage is never authorization. Only a server-verified primary
-        // Admin may write the UID-keyed security mapping; senior assistants are
-        // deliberately limited to non-security profile maintenance.
+        // Client storage is never authorization. A server-verified primary Admin
+        // may write the UID-keyed mapping; a senior assistant may too, only in the
+        // batch of a new-staff onboarding or a role edit (see rules).
         const authorization = verifiedAuthorization ||
             await DBService.getAuthenticatedAuthorizationContext(true);
         const targetAuthUid = String(user.authUid || '').trim();
         if (!authorization.roles.includes('admin')) {
-            // Senior assistants may only create the mapping of a brand-new
-            // staff member, in the same batch as the profile (see rules).
-            if (!allowSeniorCreate || !batch || !targetAuthUid) return false;
+            if (!allowSeniorCreate || !batch) return false;
         }
 
         let targetRef = targetAuthUid ? db.collection('user_roles').doc(targetAuthUid) : null;
@@ -1904,22 +1908,27 @@ const DBService = {
             const saveAuthorization = await DBService._authorizeUserProfileSave(user);
             const batch = db.batch();
             const isSeniorCreate = !!saveAuthorization.isSeniorCreate;
+            const isSeniorRoleEdit = !!saveAuthorization.isSeniorRoleEdit;
             const canWriteSecurity = saveAuthorization.isPrimaryAdmin || isSeniorCreate;
-            const roleWasSynced = canWriteSecurity
+            const roleWasSynced = canWriteSecurity || isSeniorRoleEdit
                 ? await DBService._syncUserRoleMappingAsManager(
                     user,
                     batch,
                     saveAuthorization.authorization,
-                    isSeniorCreate
+                    isSeniorCreate || isSeniorRoleEdit
                 )
                 : false;
+            // Vai trò trong hồ sơ không được lệch khỏi ánh xạ quyền thật.
+            if (isSeniorRoleEdit && !roleWasSynced) {
+                throw new Error('Không tìm thấy tài khoản đăng nhập của nhân sự này. Chưa đổi vai trò.');
+            }
             if (canWriteSecurity && user.authUid && !roleWasSynced) {
                 throw new Error('Không thể tạo ánh xạ quyền cho tài khoản đăng nhập. Chưa lưu hồ sơ.');
             }
             const profilePatch = canWriteSecurity
                 ? safeProfile
                 : Object.fromEntries(Object.entries(safeProfile).filter(([key]) =>
-                    !['id', 'username', 'role', 'roles', 'authUid'].includes(key)
+                    !['id', 'username', 'authUid', ...(isSeniorRoleEdit ? [] : ['role', 'roles'])].includes(key)
                 ));
             batch.set(ref, profilePatch, { merge: true });
             const directorySource = canWriteSecurity

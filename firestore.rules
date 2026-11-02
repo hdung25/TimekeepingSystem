@@ -46,7 +46,9 @@ service cloud.firestore {
     function isSafeSeniorProfileUpdate() {
       return isSeniorAssistant()
         && request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'id', 'username', 'role', 'roles', 'authUid', 'password',
+          // role/roles stay editable: the owner lets senior assistants manage
+          // staff roles like the primary Admin (user_roles update rule below).
+          'id', 'username', 'authUid', 'password',
           // Payroll policy belongs to the primary Admin. These two fields
           // directly control hourly rates and +10 eligibility.
           'salary_config', 'teachingMode'
@@ -732,7 +734,12 @@ service cloud.firestore {
           'userId', 'username', 'role', 'roles', 'updatedByAdmin', 'updatedAt'
         ])
       ));
-      allow update, delete: if isAuthenticated() && isPrimaryAdmin();
+      allow update: if isAuthenticated() && (isPrimaryAdmin() || (
+        isSeniorAssistant()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['role', 'roles', 'updatedByAdmin', 'updatedAt'])
+      ));
+      allow delete: if isAuthenticated() && isPrimaryAdmin();
     }
 
     // Full profiles contain private payroll configuration. Staff can read only
