@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v253-staff-code-20261031';
+const APP_RELEASE = 'tdt-chamcong-v254-closed-class-grace-20261102';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -34,7 +34,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/partner-attendance-policy.js?v=20261013-partner-adjust-v1',
     '/js/partner-attendance-xlsx.js?v=20261012-linked-v1',
     '/js/partner-attendance.js?v=20261013-partner-adjust-v1',
-    '/js/evaluation-service.js?v=20261023-late-fix-v1',
+    '/js/evaluation-service.js?v=20261102-closed-class-grace-v1',
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',
     '/css/style.css?v=20260925-landscape-v1',
@@ -66,7 +66,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/shift-absence-state.js?v=20261006-sub-dropout-v1',
     '/js/admin-payroll-override.js?v=20261023-late-fix-v1',
     '/js/admin-payroll-override-ui.js?v=20261023-late-fix-v1',
-    '/js/shift-oversight.js?v=20261023-late-fix-v1',
+    '/js/shift-oversight.js?v=20261102-closed-class-grace-v1',
     '/js/ui-service.js?v=20260912-schedule-blank-guard-v1',
     '/js/early10.js?v=20261023-late-fix-v1',
     '/js/schedule-attendance-admin.js?v=20260906-early10-recovery-v1',
@@ -76,7 +76,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/personnel.js?v=20261031-staff-code-v1',
     '/js/auth-guard.js?v=20261012-linked-v1',
     '/js/auth-helper.js?v=20260906-early10-recovery-v1',
-    '/js/chart-service.js?v=20260906-early10-recovery-v1',
+    '/js/chart-service.js?v=20261102-closed-class-grace-v1',
     '/js/analytics.js?v=20260923-fast-login-v2',
     '/js/note-repair.js?v=20260805-note-owner-fix-v1',
     '/js/schedule.js?v=20261023-late-fix-v1',

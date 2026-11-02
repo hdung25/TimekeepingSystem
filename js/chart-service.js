@@ -140,7 +140,8 @@ const ChartService = {
                 } else {
                     const checkIn = new Date(matched.checkIn || matched.start);
                     const diffMs = schedStart - checkIn;
-                    if (diffMs < 0 && Math.round(Math.abs(diffMs) / 60000) > 0) late++;
+                    // Trễ tối đa 30 giây vẫn là đúng giờ, như Bảng Công.
+                    if (diffMs < -30 * 1000) late++;
                     else ontime++;
                 }
             });

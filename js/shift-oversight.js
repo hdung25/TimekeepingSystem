@@ -297,7 +297,8 @@
         }
         if (!session) return 0;
         const checkIn = safeDate(session.checkIn || session.start);
-        if (!checkIn || checkIn <= scheduledStart) return 0;
+        // Cùng mức ân hạn 30 giây với Bảng Công (TEACHING_LATE_GRACE_MS).
+        if (!checkIn || checkIn - scheduledStart <= 30 * 1000) return 0;
         return Math.max(0, Math.round((checkIn - scheduledStart) / 60000));
     }
 

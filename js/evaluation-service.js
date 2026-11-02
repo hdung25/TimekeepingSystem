@@ -351,6 +351,11 @@ function mergeAdjacentShifts(shifts) {
 
 // Trễ quá ngưỡng này so với giờ bắt đầu một ca con (trong ca gộp) → ca con đó tính VẮNG.
 const LATE_ABSENT_THRESHOLD_MS = 50 * 60 * 1000;
+// GV/trợ giảng vào trễ tối đa 30 giây vẫn tính đúng giờ: không ghi T, không trừ công.
+const TEACHING_LATE_GRACE_MS = 30 * 1000;
+function isWithinTeachingLateGrace(actualStart, schedStart) {
+    return !!actualStart && !!schedStart && actualStart - schedStart <= TEACHING_LATE_GRACE_MS;
+}
 
 // Quy tắc GĐ: cùng một khung giờ chỉ có thể dạy ở MỘT lớp. Nếu GV có session chấm công
 // thực (đi làm) phủ trùng khung giờ lớp này ≥10 phút — tức đang dạy/hỗ trợ lớp khác —
@@ -1133,7 +1138,9 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             });
         });
 
-        const teachingClasses = rawRegisteredClasses.filter(c => !c._isOriginalVDX);
+        // Lớp đã tắt không dự chọn: nếu không, lớp tắt thắng rồi bị bỏ qua, lớp còn mở
+        // cùng giờ mất luôn và phiên công rơi xuống chip "(Role?)" (cô Thảo 03/10).
+        const teachingClasses = rawRegisteredClasses.filter(c => !c._isOriginalVDX && c.isClosed !== true);
         const vdxClasses = rawRegisteredClasses.filter(c => c._isOriginalVDX);
 
         teachingClasses.forEach(c => {
@@ -1436,12 +1443,14 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
             if (!isRegistered) return; // Skip if not assigned to this class
             if (!cls.start || !cls.end) return; // skip malformed rows missing start/end
 
+            // Lớp đã tắt phải bị loại TRƯỚC dedup: nếu giữ chỗ khung giờ, lớp còn mở
+            // cùng giờ của GV này (Starters tắt, Flyers học) sẽ mất chip công.
+            if (cls.isClosed === true) return; // Skip closed class
+
             // Dedup: bỏ qua nếu đã có entry cùng (branch+start+end) → tránh chip V giả
             const _mainSlotKey = `${cls._branch || ''}_${cls.start}_${cls.end}`;
             if (_mainSeenSlots.has(_mainSlotKey)) return;
             _mainSeenSlots.add(_mainSlotKey);
-
-            if (cls.isClosed === true) return; // Skip closed class
 
             // --- MERGE: bỏ qua ca không phải đầu chuỗi (đã được gộp vào ca trước) ---
             const _mk = `${secKey}_${idx}`;
@@ -1811,7 +1820,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     dateStr
                 );
                 const actualStartForLate = safeDate(matchedSession.checkIn || matchedSession.start);
-                const systemLateMinutes = actualStartForLate && actualStartForLate > schedStart
+                const systemLateMinutes = actualStartForLate && !isWithinTeachingLateGrace(actualStartForLate, schedStart)
                     ? Math.max(0, Math.round((actualStartForLate - schedStart) / 60000))
                     : 0;
                 const manualLateMinutes = observationSummary.manualLateMinutes;
@@ -1869,7 +1878,9 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     // trong khung lịch. Giờ vào sớm/ra muộn chỉ là trạng thái
                     // đối soát; không được làm chip dài hơn ca đã xếp. Giờ vào
                     // trễ hoặc ra sớm mới cắt phần công chưa có mặt.
-                    const effectiveStart = new Date(Math.max(schedStart.getTime(), actualStart.getTime()));
+                    const effectiveStart = isWithinTeachingLateGrace(actualStart, schedStart)
+                        ? schedStart
+                        : actualStart;
                     const effectiveEnd = new Date(Math.min(schedEnd.getTime(), actualEnd.getTime()));
                     minutes = Math.max(0, Math.round((effectiveEnd - effectiveStart) / 60000));
                     let isLate = effectiveLateMinutes > 0;
@@ -2050,7 +2061,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     }
                     if (isPastDay || now > new Date(classEndTime.getTime() + 90 * 60000)) {
                         minutes = Math.max(0, schedDuration - effectiveLateMinutes);
-                        _paidFrom = (actualStartNoCO && actualStartNoCO > schedStart) ? actualStartNoCO : schedStart;
+                        _paidFrom = (actualStartNoCO && !isWithinTeachingLateGrace(actualStartNoCO, schedStart)) ? actualStartNoCO : schedStart;
                         _paidTo = schedEnd;
                         if (minutes > 0) applyEarly10Award();
                         cssClass = effectiveLateMinutes > 0 ? 'chip-orange' : 'chip-green';
