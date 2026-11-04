@@ -5927,12 +5927,47 @@ const DBService = {
                 // Helper to get Start Time from ISO or legacy
                 const newStart = sessionData.checkIn || sessionData.start || new Date().toISOString();
 
+                // === DẠY THAY ĐỘT XUẤT TRONG CA TIẾP TÂN ===
+                // Phiên dạy ghi tay nằm TRONG phiên tiếp tân (options.inShiftHostId). Bảng
+                // công khoét đúng khoảng này khỏi giờ tiếp tân, nên được phép chồng lên
+                // phiên chủ — nhưng chỉ phiên chủ, và phải nằm gọn trong giờ vào/ra của nó.
+                const inShiftHostId = options.inShiftHostId != null ? String(options.inShiftHostId) : '';
+                let inShiftHost = null;
+                if (inShiftHostId) {
+                    inShiftHost = data.sessions.find(x => x && String(x.id) === inShiftHostId) || null;
+                    const hostRole = String(inShiftHost?.role || '');
+                    const hostIsOperational = !hostRole ||
+                        ['tiep-tan', 'tiep_tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'].includes(hostRole);
+                    if (!inShiftHost || inShiftHost.isAbsent || inShiftHost.inShiftTeaching === true || !hostIsOperational) {
+                        const err = new Error('Không tìm thấy ca tiếp tân đang làm để ghi phần dạy thay. Hãy tải lại trang rồi thử lại.');
+                        err.code = 'IN_SHIFT_HOST_MISSING';
+                        throw err;
+                    }
+                    const hostMode = inShiftHost.adminPayrollOverride?.mode;
+                    if (hostMode && hostMode !== 'schedule') {
+                        const err = new Error('Ca tiếp tân này đang có phân bổ lương Admin. Hãy bỏ phân bổ đó trước khi tách phần dạy thay.');
+                        err.code = 'IN_SHIFT_HOST_OVERRIDE';
+                        throw err;
+                    }
+                    const h1 = new Date(inShiftHost.checkIn || inShiftHost.start).getTime();
+                    const h2 = inShiftHost.checkOut ? new Date(inShiftHost.checkOut).getTime() : Date.now();
+                    const t1 = new Date(newStart).getTime();
+                    const t2 = new Date(sessionData.checkOut || 0).getTime();
+                    // Giờ chọn theo phút, giờ vào/ra thật có giây → nới 59 giây hai đầu.
+                    if (!sessionData.checkOut || !(t2 > t1) || t1 < h1 - 59000 || t2 > h2 + 59000) {
+                        const err = new Error('Giờ dạy thay phải nằm trong giờ vào/ra của ca tiếp tân.');
+                        err.code = 'IN_SHIFT_OUTSIDE_HOST';
+                        throw err;
+                    }
+                }
+
                 // === CHẶN CA TRÙNG GIỜ ===
                 if (!options.allowOverlap && !sessionData.isAbsent && sessionData.checkOut) {
                     const a1 = new Date(newStart).getTime();
                     const a2 = new Date(sessionData.checkOut).getTime();
                     const clash = data.sessions.find(x => {
                         if (!x || x.isAbsent || !(x.checkIn || x.start)) return false;
+                        if (options.inShiftHostId != null && String(x.id) === String(options.inShiftHostId)) return false;
                         const b1 = new Date(x.checkIn || x.start).getTime();
                         const b2 = x.checkOut ? new Date(x.checkOut).getTime() : b1;
                         // Chồng nhau từ 10 phút trở lên mới coi là trùng (tránh bắt lỗi ca
@@ -5985,6 +6020,13 @@ const DBService = {
                     checkOut: sessionData.checkOut || null,
                     type: sessionData.type || 'admin_add'
                 };
+                // Cờ dạy thay trong ca chỉ có nghĩa khi đã kiểm tra phiên chủ ở trên.
+                delete newSession.inShiftTeaching;
+                delete newSession.hostSessionId;
+                if (inShiftHost) {
+                    newSession.inShiftTeaching = true;
+                    newSession.hostSessionId = inShiftHostId;
+                }
 
                 data.sessions.push(newSession);
 

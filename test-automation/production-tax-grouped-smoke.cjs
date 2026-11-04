@@ -30,7 +30,7 @@ const hash = bytes => crypto.createHash('sha256').update(bytes.toString('utf8').
             if (!registration?.active) return false;
             const cache = await caches.open('tdt-chamcong-assets');
             return !!(await cache.match('/js/main.js?v=20261006-tax-grouped-v1')) &&
-                !!(await cache.match('/js/report.js?v=20261102-overlap-merge-v1'));
+                !!(await cache.match('/js/report.js?v=20261104-in-shift-teaching-v1'));
         }, { timeout: 60000 });
         await page.waitForNetworkIdle({ idleTime: 1000, timeout: 30000 });
         await page.waitForSelector('#login-form', { visible: true });

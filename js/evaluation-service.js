@@ -1060,12 +1060,13 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
     // Số phút của [from,to] đã nằm trong khoảng đã trả công của phiên KHÁC. Bỏ qua khoảng
     // của chính phiên này vì phần đó đã được trừ riêng qua teachingMinutesMap.
-    const _alreadyPaidMinutes = (from, to, sessionId) => {
+    const _alreadyPaidMinutes = (from, to, sessionId, ignoreSessionIds = null) => {
         const a = _msOf(from), b = _msOf(to);
         if (!a || !b || !(b > a)) return 0;
         const key = sessionId != null ? String(sessionId) : null;
         const parts = _paidClockRanges
             .filter(r => key === null || r.sessionId !== key)
+            .filter(r => !ignoreSessionIds || !ignoreSessionIds.has(r.sessionId))
             .map(r => ({ from: Math.max(a, r.from), to: Math.min(b, r.to) }))
             .filter(r => r.to > r.from)
             .sort((x, y) => x.from - y.from);
@@ -2127,7 +2128,11 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                             })
                             .filter(Boolean)
                             .filter(item => item.overlap >= _minSegmentOverlapMs)
-                            .sort((a, b) => b.overlap - a.overlap || a.sessionStart - b.sessionStart);
+                            // Phần dạy thay ghi tay nằm trong phiên tiếp tân: cùng độ chồng
+                            // thì gắn lớp vào phiên dạy đó, không gắn vào phiên tiếp tân.
+                            .sort((a, b) => b.overlap - a.overlap ||
+                                ((b.session.inShiftTeaching === true) - (a.session.inShiftTeaching === true)) ||
+                                a.sessionStart - b.sessionStart);
                         return candidates[0] || null;
                     };
 
@@ -2576,6 +2581,68 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
         };
     };
 
+    // === DẠY THAY ĐỘT XUẤT TRONG CA TIẾP TÂN ===
+    // Đang trực thì được nhờ dạy thay (thiếu GV, không kịp xếp lịch): Admin/TLCC ghi
+    // thêm một phiên dạy `inShiftTeaching` nằm TRONG phiên tiếp tân. Phiên dạy tự tính
+    // giá môn của nó ở bước "Unmatched"; ở đây chỉ khoét đúng khoảng đó khỏi phiên
+    // tiếp tân chứa nó để giờ tiếp tân không bị tính trùng. Phần đã được một lớp
+    // trong lịch khoét sẵn thì không trừ lần hai.
+    {
+        const _hmOf = dt => `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+        const [_iy, _im, _id] = String(dateStr).split('-').map(Number);
+        const _clockOf = text => {
+            const [h, mi] = String(text || '').split(':').map(Number);
+            return Number.isFinite(h) && Number.isFinite(mi) ? new Date(_iy, _im - 1, _id, h, mi, 0, 0).getTime() : null;
+        };
+        const _uncoveredMinutes = (from, to, ranges) => {
+            const parts = ranges
+                .map(r => ({ from: Math.max(from, r.from), to: Math.min(to, r.to) }))
+                .filter(r => r.to > r.from)
+                .sort((a, b) => a.from - b.from);
+            let covered = 0, cursor = from;
+            parts.forEach(p => {
+                const start = Math.max(p.from, cursor);
+                if (p.to > start) { covered += p.to - start; cursor = p.to; }
+            });
+            return Math.max(0, Math.round((to - from - covered) / 60000));
+        };
+        attendanceSessions
+            .filter(s => s && s.inShiftTeaching === true && !s.isAbsent && s.checkOut)
+            .forEach(teach => {
+                const tStart = safeDate(teach.checkIn || teach.start);
+                const tEnd = safeDate(teach.checkOut);
+                if (!tStart || !tEnd || tEnd <= tStart) return;
+                attendanceSessions.forEach(host => {
+                    if (!host || host === teach || host.inShiftTeaching === true || host.isAbsent) return;
+                    if (host.role && !_isReceptionistSession(host)) return;
+                    const hStart = safeDate(host.checkIn || host.start);
+                    if (!hStart) return;
+                    const hEnd = safeDate(host.checkOut) || tEnd;
+                    // Mốc phút như các khúc lịch, để khoét khớp đúng khung hiển thị.
+                    const from = new Date(Math.max(tStart.getTime(), hStart.getTime()));
+                    const to = new Date(Math.min(tEnd.getTime(), hEnd.getTime()));
+                    const fromMs = _clockOf(_hmOf(from)), toMs = _clockOf(_hmOf(to));
+                    if (fromMs === null || toMs === null || toMs - fromMs < 60 * 1000) return;
+                    const key = host.id;
+                    if (!teachingSessionsMap[key]) teachingSessionsMap[key] = [];
+                    if (!teachingMinutesMap[key]) teachingMinutesMap[key] = 0;
+                    const existing = teachingSessionsMap[key]
+                        .map(seg => ({ from: _clockOf(seg.start), to: _clockOf(seg.end) }))
+                        .filter(r => r.from !== null && r.to !== null);
+                    const extraMinutes = _uncoveredMinutes(fromMs, toMs, existing);
+                    teachingSessionsMap[key].push({
+                        start: _hmOf(from),
+                        end: _hmOf(to),
+                        lop: teach.roleName ? `Dạy thay: ${teach.roleName}` : 'Dạy thay',
+                        paidMinutes: extraMinutes,
+                        branch: '',
+                        inShiftTeaching: true
+                    });
+                    teachingMinutesMap[key] += extraMinutes;
+                });
+            });
+    }
+
     receptionistShifts = mergeAdjacentShifts(receptionistShifts);
 
     // Yêu cầu: process ca Cố Định trước, rồi mới process ca thường
@@ -2640,6 +2707,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
         // Find matching attendance session
         const _receptionCandidate = s => {
+            // Phần dạy thay trong ca là một khúc DẠY, không bao giờ là phiên tiếp tân.
+            if (s.inShiftTeaching === true) return false;
             // FIX bug Ánh: session do admin thêm tay từ chip Vắng đã link cứng vào ca này
             // → match thẳng, bỏ qua kiểm tra khung giờ (vì admin có thể đã nhập giờ lệch).
             if (s[operationalLinkField] && s[operationalLinkField] === rs.shift) {
@@ -3568,6 +3637,11 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         const _dnU2 = chipSessionData.roleName || chipSessionData.role;
                         cssClass = 'chip-green';
                         label = `${startStr}–${endStr} (${_dnU2})`;
+                        if (s.inShiftTeaching === true) {
+                            label += ' · dạy thay trong ca';
+                            tooltip += ' | Dạy thay đột xuất trong ca tiếp tân: tính giá môn dạy, giờ này đã trừ khỏi ca tiếp tân';
+                            isUnmatchedWarning = false;
+                        }
                         // Ca được duyệt "trả tháng sau": giờ công vẫn nằm ở tháng này, chỉ
                         // tiền là dồn sang tháng sau — ghi rõ để admin không tưởng thiếu.
                         if (chipSessionData.payoutMonth) {
@@ -3588,11 +3662,33 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     }
                 }
 
+                // Phiên tiếp tân có phần dạy thay ghi tay bên trong: ghi rõ đã trừ bao nhiêu.
+                const _inShiftSegs = (teachingSessionsMap[s.id] || []).filter(seg => seg.inShiftTeaching);
+                if (_inShiftSegs.length > 0 && !s.inShiftTeaching) {
+                    const _isMin = _inShiftSegs.reduce((sum, seg) => sum + (seg.paidMinutes || 0), 0);
+                    if (_isMin > 0) {
+                        const _isH = Math.floor(_isMin / 60), _isM = _isMin % 60;
+                        label += ` (−${_isH > 0 ? `${_isH}h${_isM > 0 ? _isM + 'p' : ''}` : `${_isM}p`} dạy)`;
+                    }
+                    tooltip += ` | Đã trừ phần dạy thay trong ca (${_inShiftSegs.map(seg => `${seg.start}–${seg.end}`).join(', ')}) — phần dạy tính ở chip riêng`;
+                }
+
                 // === CHẶN TÍNH TRÙNG KHUNG GIỜ ===
                 // GV dạy 2 lớp cùng giờ (hoặc 2 phiên chấm bù trùng giờ) sinh 2 chip cùng
                 // khung 09:15–10:45; trước đây mỗi chip tính đủ 1h30 nên tổng ngày dôi ra
                 // đúng một ca. Khung giờ đã trả công ở chip trước thì chip sau không tính lại.
-                const _dupMins = _alreadyPaidMinutes(_uPaidFrom, _uPaidTo, s.id);
+                // Phiên tiếp tân và phần dạy thay bên trong đã chia giờ cho nhau (khoét ở
+                // trên), nên khung giờ của bên này không được trừ thêm lần nữa ở bên kia.
+                let _dupIgnore = null;
+                if (s.inShiftTeaching === true) {
+                    _dupIgnore = new Set(Object.keys(teachingSessionsMap)
+                        .filter(key => teachingSessionsMap[key].some(seg => seg.inShiftTeaching)));
+                } else if ((teachingSessionsMap[s.id] || []).some(seg => seg.inShiftTeaching)) {
+                    _dupIgnore = new Set(attendanceSessions
+                        .filter(item => item && item.inShiftTeaching === true)
+                        .map(item => String(item.id)));
+                }
+                const _dupMins = _alreadyPaidMinutes(_uPaidFrom, _uPaidTo, s.id, _dupIgnore);
                 if (_dupMins > 0 && duration > 0) {
                     duration = Math.max(0, duration - _dupMins);
                     label += ' (trùng giờ)';

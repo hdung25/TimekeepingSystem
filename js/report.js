@@ -6113,6 +6113,8 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
         }
     }
 
+    renderInShiftTeachingEntry(dateKey, sessionId, rawSession, linkType);
+
     // --- TÁCH CA GỘP: chỉ hiện với ca tiếp tân gộp từ nhiều ca con ---
     const splitContainer = document.getElementById('edit-split-subshift-container');
     const splitList = document.getElementById('edit-split-subshift-list');
@@ -6288,6 +6290,160 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
     document.querySelector('#edit-time-modal button.btn-primary').innerText = "Lưu Thay Đổi";
     const delSection = document.querySelector('#edit-time-modal .delete-section');
     if (delSection) delSection.style.display = 'block';
+}
+
+// === DẠY THAY ĐỘT XUẤT TRONG CA TIẾP TÂN ===
+// Đang trực tiếp tân thì được nhờ dạy thay (thiếu GV, không kịp xếp lịch). Admin/TLCC
+// ghi phần dạy ngay trên ca tiếp tân: hệ thống tạo một phiên dạy nằm trong ca đó, bảng
+// công tính phần dạy theo giá môn và tự trừ đúng khoảng đó khỏi giờ tiếp tân.
+function canRecordInShiftTeaching() {
+    const roles = getReportViewerRoles();
+    return roles.includes('admin') || roles.includes('senior_assistant');
+}
+
+function renderInShiftTeachingEntry(dateKey, sessionId, session, linkType) {
+    const anchor = document.getElementById('edit-day-breakdown');
+    if (!anchor || !anchor.parentNode) return;
+    let box = document.getElementById('edit-in-shift-teaching');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'edit-in-shift-teaching';
+        box.style.cssText = 'display:none; margin-bottom:1.25rem; border:1.5px dashed #F59E0B; background:#FFFBEB; border-radius:12px; padding:0.8rem 1rem;';
+        anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    }
+    const hostId = String(sessionId == null ? '' : sessionId);
+    const show = canRecordInShiftTeaching() && linkType !== 'teaching' &&
+        hostId && hostId !== 'NEW' && hostId !== 'null' && hostId !== 'undefined' &&
+        session && !session.isAbsent && session.inShiftTeaching !== true && !!(session.checkIn || session.start);
+    if (!show) {
+        box.style.display = 'none';
+        box.innerHTML = '';
+        return;
+    }
+    const covers = (window.currentAttendanceMap?.[dateKey] || [])
+        .filter(item => item && item.inShiftTeaching === true && !item.isAbsent && String(item.hostSessionId || '') === hostId);
+    const coverText = covers.length
+        ? `Đã ghi: ${covers.map(item => `${formatOverlapClock(item.checkIn || item.start)}–${formatOverlapClock(item.checkOut)} ${escapeReportHtml(item.roleName || '')}`).join(', ')}. Muốn sửa/xóa thì bấm chip dạy thay ngoài bảng công.`
+        : 'Đang trực mà được nhờ dạy thay (thiếu GV, chưa kịp xếp lịch) thì ghi phần dạy ở đây: phần dạy tính giá môn, giờ tiếp tân tự trừ đúng khoảng đó.';
+    box.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <strong style="font-size:0.92rem; color:#92400E;">Dạy thay đột xuất trong ca</strong>
+            <button type="button" id="btn-open-in-shift-teaching" class="btn" style="background:#F59E0B; color:#fff; border:none; padding:0.45rem 0.8rem; border-radius:8px; font-weight:700; cursor:pointer;">+ Ghi phần dạy thay</button>
+        </div>
+        <small style="display:block; margin-top:0.45rem; color:#B45309; font-size:0.78rem; line-height:1.5;">${coverText}</small>`;
+    box.style.display = 'block';
+    box.querySelector('#btn-open-in-shift-teaching').onclick = () =>
+        openInShiftTeachingDialog(dateKey, hostId, session);
+}
+
+function openInShiftTeachingDialog(dateKey, hostId, host) {
+    const hhmm = iso => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+    const hostIn = host.checkIn || host.start;
+    const hostOut = host.checkOut || null;
+    const subjects = (Array.isArray(allAvailableSubjects) ? allAvailableSubjects : []).filter(item => item && item.id);
+    const options = subjects.map(item =>
+        `<option value="${escapeReportHtml(item.id)}">${escapeReportHtml(item.name || item.id)}</option>`).join('');
+    const inputStyle = 'width:100%; height:42px; border:2px solid #E5E7EB; border-radius:8px; padding:0 0.6rem; font-size:0.95rem; box-sizing:border-box; background:#F9FAFB; margin-top:0.25rem;';
+    const backdrop = document.createElement('div');
+    backdrop.className = 'custom-modal-backdrop';
+    backdrop.id = 'in-shift-teaching-dialog';
+    backdrop.innerHTML = `
+        <div class="custom-modal-box" style="max-width:440px; width:94%; text-align:left;">
+            <h3 style="margin-bottom:0.35rem; color:var(--primary-color);">Ghi phần dạy thay trong ca</h3>
+            <p style="color:var(--text-muted); margin-bottom:0.9rem; font-size:0.88rem;">Ca tiếp tân ${escapeReportHtml(hhmm(hostIn))}–${escapeReportHtml(hostOut ? hhmm(hostOut) : 'đang làm')} · ${escapeReportHtml(dateKey)}</p>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-bottom:0.7rem;">
+                <label style="font-size:0.85rem; font-weight:600; color:#374151;">Dạy từ<input type="time" data-field="from" style="${inputStyle}"></label>
+                <label style="font-size:0.85rem; font-weight:600; color:#374151;">Đến<input type="time" data-field="to" style="${inputStyle}"></label>
+            </div>
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#374151; margin-bottom:0.7rem;">Môn / lớp dạy thay (tính theo đơn giá môn)
+                <select data-field="subject" style="${inputStyle}"><option value="">— Chọn môn —</option>${options}</select>
+            </label>
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#374151; margin-bottom:0.4rem;">Ghi chú (không bắt buộc)
+                <input type="text" data-field="note" maxlength="120" placeholder="VD: dạy thay lớp E3 vì thiếu GV" style="${inputStyle}">
+            </label>
+            <p data-field="error" style="display:none; color:#B91C1C; font-size:0.85rem; margin:0.4rem 0 0;"></p>
+            <div class="custom-modal-actions" style="margin-top:1rem;">
+                <button type="button" data-action="cancel" class="btn" style="background:#E5E7EB; color:#374151;">Hủy bỏ</button>
+                <button type="button" data-action="save" class="btn btn-primary">Lưu phần dạy thay</button>
+            </div>
+        </div>`;
+    const field = name => backdrop.querySelector(`[data-field="${name}"]`);
+    field('from').value = hhmm(hostIn);
+    field('to').value = hostOut ? hhmm(hostOut) : '';
+    if (subjects.length === 1) field('subject').value = subjects[0].id;
+    const close = () => backdrop.remove();
+    const showError = text => {
+        const el = field('error');
+        el.textContent = text;
+        el.style.display = text ? 'block' : 'none';
+    };
+    backdrop.querySelector('[data-action="cancel"]').onclick = close;
+    backdrop.onclick = event => { if (event.target === backdrop) close(); };
+    const saveButton = backdrop.querySelector('[data-action="save"]');
+    saveButton.onclick = async () => {
+        const from = field('from').value;
+        const to = field('to').value;
+        const subject = subjects.find(item => String(item.id) === field('subject').value);
+        if (!from || !to) return showError('Vui lòng nhập đủ giờ bắt đầu và kết thúc dạy.');
+        if (!subject) return showError('Vui lòng chọn môn/lớp dạy thay để tính đúng đơn giá.');
+        const [y, m, d] = String(dateKey).split('-').map(Number);
+        const at = text => {
+            const [h, mi] = text.split(':').map(Number);
+            return new Date(y, m - 1, d, h, mi, 0, 0);
+        };
+        const start = at(from), end = at(to);
+        if (!(end > start)) return showError('Giờ kết thúc phải sau giờ bắt đầu.');
+        const note = field('note').value.trim();
+        showError('');
+        saveButton.disabled = true;
+        saveButton.textContent = 'Đang lưu...';
+        try {
+            const staffId = getTargetStaffId();
+            const staffName = getTargetStaffName();
+            await DBService.addSession(staffId, dateKey, {
+                checkIn: start.toISOString(),
+                start: start.toISOString(),
+                checkOut: end.toISOString(),
+                type: 'admin_add',
+                isAdminEdited: true,
+                isAbsent: false,
+                isFixedShift: false,
+                role: subject.id,
+                roleName: subject.name,
+                roleRate: Number(subject.rate || 0),
+                roleAssignmentSource: 'manual',
+                subjectOverride: false,
+                ...(note ? { note } : {}),
+                editMeta: {
+                    source: 'report_in_shift_teaching',
+                    editor: localStorage.getItem('currentUserName') || null
+                }
+            }, { inShiftHostId: hostId });
+            const label = `${from} - ${to}`;
+            try {
+                await DBService.createAdminNotification(
+                    staffId, staffName, 'add_session', dateKey,
+                    `Admin đã ghi phần dạy thay trong ca tiếp tân: ${label} (${subject.name})`
+                );
+            } catch (notifyError) {
+                console.warn('[InShiftTeaching] Không gửi được thông báo:', notifyError);
+            }
+            close();
+            closeEditModal();
+            _cachedStaffId = null;
+            alert(`Đã ghi phần dạy thay ${label} (${subject.name}). Giờ tiếp tân đã tự trừ khoảng này.`);
+            await renderMonthReport(currentDate, true);
+        } catch (error) {
+            saveButton.disabled = false;
+            saveButton.textContent = 'Lưu phần dạy thay';
+            showError(error?.message || 'Không lưu được phần dạy thay.');
+        }
+    };
+    document.body.appendChild(backdrop);
 }
 
 function closeEditModal() {
