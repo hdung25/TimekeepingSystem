@@ -5746,6 +5746,12 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     if (staleSplitContainer) staleSplitContainer.style.display = 'none';
     if (staleSplitList) staleSplitList.innerHTML = '';
     hideInShiftTeachingEntry();
+    // Thêm ca cho một ngày đã có ca tiếp tân: đưa lối tắt ghi phần dạy thay của
+    // chính ngày đó (không bao giờ dùng lại ca của ngày đã mở trước).
+    if (!classCompositeKey) {
+        const host = findInShiftHostSessions(dateKey)[0];
+        if (host) renderInShiftTeachingEntry(dateKey, host.id, host, 'receptionist');
+    }
 
     // Reset class metadata fields just in case
     if (document.getElementById('edit-class-composite-key')) {
@@ -6312,6 +6318,32 @@ function hideInShiftTeachingEntry() {
     box.innerHTML = '';
 }
 
+const IN_SHIFT_HOST_ROLES = ['tiep-tan', 'tiep_tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'];
+
+// Phiên chưa chọn vai trò chỉ được coi là ca tiếp tân khi nhân sự đang xem có vai
+// trò tiếp tân/văn phòng (GV thuần tự chấm công thì không phải "trong ca tiếp tân").
+function targetStaffHasOperationalRole() {
+    const ctx = window.currentUserContext || {};
+    const roles = [ctx.role, ...(Array.isArray(ctx.roles) ? ctx.roles : [])].map(r => String(r || ''));
+    return roles.some(role => ['tiep-tan', 'receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff',
+        'senior_assistant', 'office_staff', 'van-phong', 'van_phong'].includes(role));
+}
+
+function isInShiftHostSession(session) {
+    if (!session || session.isAbsent || session.inShiftTeaching === true || !(session.checkIn || session.start)) return false;
+    if (session.role) return IN_SHIFT_HOST_ROLES.includes(String(session.role));
+    return targetStaffHasOperationalRole();
+}
+
+function findInShiftHostSessions(dateKey) {
+    return (window.currentAttendanceMap?.[dateKey] || []).filter(isInShiftHostSession);
+}
+
+function formatInShiftDateLabel(dateKey) {
+    const [y, m, d] = String(dateKey).split('-');
+    return `${d}/${m}/${y}`;
+}
+
 // Lớp trong lịch của chính nhân viên ngày đó đã được tính dạy (và đã trừ khỏi giờ
 // tiếp tân) — ghi phần dạy thay trùng giờ chỉ tạo bản ghi thừa.
 function findScheduledTeachingClash(dateKey, start, end) {
@@ -6344,6 +6376,7 @@ function renderInShiftTeachingEntry(dateKey, sessionId, session, linkType) {
     const show = canRecordInShiftTeaching() && linkType !== 'teaching' &&
         hostId && hostId !== 'NEW' && hostId !== 'null' && hostId !== 'undefined' &&
         session && !session.isAbsent && session.inShiftTeaching !== true && !!(session.checkIn || session.start);
+    box.dataset.dateKey = show ? String(dateKey) : '';
     if (!show) {
         box.style.display = 'none';
         box.innerHTML = '';
@@ -6354,9 +6387,10 @@ function renderInShiftTeachingEntry(dateKey, sessionId, session, linkType) {
     const coverText = covers.length
         ? `Đã ghi: ${covers.map(item => `${formatOverlapClock(item.checkIn || item.start)}–${formatOverlapClock(item.checkOut)} ${escapeReportHtml(item.roleName || '')}`).join(', ')}. Muốn sửa/xóa thì bấm chip dạy thay ngoài bảng công.`
         : 'Đang trực mà được nhờ dạy thay (thiếu GV, chưa kịp xếp lịch) thì ghi phần dạy ở đây: phần dạy tính giá môn, giờ tiếp tân tự trừ đúng khoảng đó.';
+    const hostClock = `${formatOverlapClock(session.checkIn || session.start)}–${session.checkOut ? formatOverlapClock(session.checkOut) : 'đang làm'}`;
     box.innerHTML = `
         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-            <strong style="font-size:0.92rem; color:#92400E;">Dạy thay đột xuất trong ca</strong>
+            <strong style="font-size:0.92rem; color:#92400E;">Dạy thay đột xuất trong ca tiếp tân ${escapeReportHtml(hostClock)} · ngày ${escapeReportHtml(formatInShiftDateLabel(dateKey))}</strong>
             <button type="button" id="btn-open-in-shift-teaching" class="btn" style="background:#F59E0B; color:#fff; border:none; padding:0.45rem 0.8rem; border-radius:8px; font-weight:700; cursor:pointer;">+ Ghi phần dạy thay</button>
         </div>
         <small style="display:block; margin-top:0.45rem; color:#B45309; font-size:0.78rem; line-height:1.5;">${coverText}</small>`;
@@ -6523,7 +6557,7 @@ function formatOverlapClock(iso) {
 
 // Popup khi ca thêm mới trùng giờ một ca có sẵn. Trả về 'merge' (nới ca có sẵn),
 // 'add' (vẫn thêm ca thứ hai) hoặc null (hủy).
-function chooseSessionOverlapAction(clashMessage, mergeRange) {
+function chooseSessionOverlapAction(clashMessage, mergeRange, inShiftHost = null) {
     return new Promise((resolve) => {
         const esc = (text) => String(text == null ? '' : text)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -6535,16 +6569,24 @@ function chooseSessionOverlapAction(clashMessage, mergeRange) {
             : 'Giáo viên dạy 2 lớp cùng khung giờ thì chỉ cần MỘT ca: mở ca đó và chọn cả 2 môn trong ô "Môn học".';
         const backdrop = document.createElement('div');
         backdrop.className = 'custom-modal-backdrop';
+        // Ca dạy nằm trong ca tiếp tân (dạy thay đột xuất): "Sửa ca có sẵn" sẽ biến cả ca
+        // tiếp tân thành ca dạy, "Vẫn thêm" sẽ trả lương hai lần → chỉ mời tách đúng cách.
+        const actions = inShiftHost
+            ? `<button type="button" data-choice="" class="btn" style="background: #E5E7EB; color: #374151;">Hủy bỏ</button>
+               <button type="button" data-choice="in-shift" class="btn btn-primary">Ghi là dạy thay trong ca tiếp tân</button>`
+            : `<button type="button" data-choice="" class="btn" style="background: #E5E7EB; color: #374151;">Hủy bỏ</button>
+               <button type="button" data-choice="add" class="btn" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">Vẫn thêm ca trùng</button>
+               ${mergeRange ? '<button type="button" data-choice="merge" class="btn btn-primary">Sửa ca có sẵn</button>' : ''}`;
+        const explain = inShiftHost
+            ? `Giờ dạy này nằm trong ca tiếp tân <b>${esc(inShiftHost.label)}</b>. Chọn <b>Ghi là dạy thay trong ca tiếp tân</b>: ` +
+              `phần dạy tính giá môn đã chọn, giờ tiếp tân tự trừ đúng khoảng này — không ai bị tính lương hai lần.`
+            : mergeText;
         backdrop.innerHTML = `
             <div class="custom-modal-box">
-                <h3 style="margin-bottom: 0.5rem; color: var(--primary-color);">Ca bị trùng giờ</h3>
+                <h3 style="margin-bottom: 0.5rem; color: var(--primary-color);">${inShiftHost ? 'Dạy thay trong ca tiếp tân?' : 'Ca bị trùng giờ'}</h3>
                 <p style="color: var(--text-muted); margin-bottom: 0.75rem;">${esc(clashMessage)}</p>
-                <p style="color: var(--text-muted); margin-bottom: 1rem;">${mergeText}</p>
-                <div class="custom-modal-actions" style="flex-wrap: wrap;">
-                    <button type="button" data-choice="" class="btn" style="background: #E5E7EB; color: #374151;">Hủy bỏ</button>
-                    <button type="button" data-choice="add" class="btn" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">Vẫn thêm ca trùng</button>
-                    ${mergeRange ? '<button type="button" data-choice="merge" class="btn btn-primary">Sửa ca có sẵn</button>' : ''}
-                </div>
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">${explain}</p>
+                <div class="custom-modal-actions" style="flex-wrap: wrap;">${actions}</div>
             </div>
         `;
         const close = (value) => { backdrop.remove(); resolve(value || null); };
@@ -6738,6 +6780,8 @@ async function saveEditedTimeOperation() {
     let savedMessage = '';
     // Khi Admin chọn nới ca có sẵn thay vì thêm ca trùng: nhãn giờ của ca sau khi nới.
     let mergedLabel = '';
+    // Khi Admin chọn ghi ca dạy thành phần dạy thay trong ca tiếp tân.
+    let inShiftLabel = '';
     try {
         let finalSessionId = null;
         let payrollOverrideResult = null;
@@ -6751,9 +6795,33 @@ async function saveEditedTimeOperation() {
                     // Ca trùng thường là ca nhân viên tự chấm (VD 16:15–18:00 khi Admin muốn
                     // ghi 16:00–18:00): cách đúng là nới ca đó, không thêm ca thứ hai.
                     const merge = errAdd.mergeRange || null;
-                    const choice = await chooseSessionOverlapAction(errAdd.message, merge);
+                    const clashHost = errAdd.clash || null;
+                    const fitsInHost = clashHost && checkOutDate && isInShiftHostSession(clashHost) &&
+                        selectedRoleId === 'giao-vien' && canRecordInShiftTeaching() &&
+                        checkInDate.getTime() >= new Date(clashHost.checkIn || clashHost.start).getTime() - 59000 &&
+                        (!clashHost.checkOut || checkOutDate.getTime() <= new Date(clashHost.checkOut).getTime() + 59000);
+                    const inShiftHost = fitsInHost ? {
+                        id: String(clashHost.id),
+                        label: `${formatOverlapClock(clashHost.checkIn || clashHost.start)}–${clashHost.checkOut ? formatOverlapClock(clashHost.checkOut) : 'đang làm'}`
+                    } : null;
+                    if (inShiftHost) {
+                        const scheduledClash = findScheduledTeachingClash(dateKey, checkInDate, checkOutDate);
+                        if (scheduledClash) {
+                            alert(`Khung giờ này đã có lớp trong lịch được tính dạy rồi: ${String(scheduledClash.text || '').replace(/<[^>]*>/g, '').trim()}. Hệ thống đã tự tách khỏi giờ tiếp tân, không cần thêm ca.`);
+                            return;
+                        }
+                    }
+                    const choice = await chooseSessionOverlapAction(errAdd.message, merge, inShiftHost);
                     if (!choice) return;
-                    if (choice === 'merge' && merge) {
+                    if (choice === 'in-shift' && inShiftHost) {
+                        finalSessionId = await DBService.addSession(staffId, dateKey, {
+                            ...newData,
+                            type: 'admin_add',
+                            editMeta: { ...newData.editMeta, source: 'report_in_shift_teaching' }
+                        }, { inShiftHostId: inShiftHost.id });
+                        mergedLabel = '';
+                        inShiftLabel = `${checkInStr} - ${checkOutStr}`;
+                    } else if (choice === 'merge' && merge) {
                         await DBService.updateSession(staffId, dateKey, merge.sessionId, {
                             ...newData,
                             checkIn: merge.checkIn,
@@ -6775,11 +6843,15 @@ async function saveEditedTimeOperation() {
                 staffId, staffName, mergedLabel ? 'edit_session' : 'add_session', dateKey,
                 mergedLabel
                     ? `Admin đã chỉnh sửa giờ làm: ${mergedLabel}`
-                    : `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`
+                    : (inShiftLabel
+                        ? `Admin đã ghi phần dạy thay trong ca tiếp tân: ${inShiftLabel} (${newData.roleName || ''})`
+                        : `Admin đã thêm ca làm việc mới: ${checkInStr} - ${checkOutStr}`)
             );
             savedMessage = mergedLabel
                 ? `Đã sửa ca có sẵn thành ${mergedLabel} (không thêm ca thứ hai).`
-                : 'Đã tạo ca làm việc mới!';
+                : (inShiftLabel
+                    ? `Đã ghi phần dạy thay ${inShiftLabel} (${newData.roleName || ''}). Giờ tiếp tân đã tự trừ khoảng này.`
+                    : 'Đã tạo ca làm việc mới!');
         } else {
             const parsedSessionId = isNaN(sessionIdRaw) ? sessionIdRaw : Number(sessionIdRaw);
             const overrideContext = window.currentAdminPayrollEditContext;

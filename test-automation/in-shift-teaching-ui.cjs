@@ -232,6 +232,43 @@ async function main() {
                 await page.evaluate(() => closeEditModal());
                 assert.equal(await page.$('#in-shift-teaching-dialog'), null, 'đóng ô sửa ca thì đóng luôn popup dạy thay');
                 console.log('PASS [fixtureadmin] overlap with a scheduled class is refused before writing');
+
+                // 7) Thêm ca cho đúng ngày có ca tiếp tân → khung dạy thay hiện lại, ghi rõ ngày đó.
+                await page.evaluate(async (dk) => { await openManualModal(dk); }, dateKey);
+                const manualBox = await page.$eval('#edit-in-shift-teaching', el => ({ display: el.style.display, text: el.innerText, date: el.dataset.dateKey }));
+                assert.equal(manualBox.display, 'block', 'Thêm ca ngày có ca tiếp tân phải có lối tắt dạy thay');
+                assert.equal(manualBox.date, dateKey);
+                const [yy, mm, dd] = dateKey.split('-');
+                assert.ok(manualBox.text.includes(`ngày ${dd}/${mm}/${yy}`), manualBox.text);
+
+                // 8) Thêm ca dạy (Giáo viên + môn) chồng lên ca tiếp tân → popup mời "Ghi là dạy thay
+                // trong ca tiếp tân" (không còn "Vẫn thêm ca trùng"/"Sửa ca có sẵn") → ghi đúng ngày.
+                const before8 = (await readDoc()).sessions.length;
+                await page.evaluate((dk) => {
+                    document.getElementById('edit-check-in').value = dk + 'T13:40';
+                    document.getElementById('edit-check-out').value = dk + 'T14:30';
+                    const roleSel = document.getElementById('edit-role');
+                    if (!Array.from(roleSel.options).some(o => o.value === 'giao-vien')) throw new Error('no giao-vien option');
+                    roleSel.value = 'giao-vien';
+                    editSelectedSubjectIds = ['subject-pre'];
+                    window.__alerts = []; window.alert = m => window.__alerts.push(String(m));
+                    saveEditedTime();
+                }, dateKey);
+                await page.waitForSelector('.custom-modal-box [data-choice="in-shift"]', { visible: true, timeout: 15000 });
+                assert.equal(await page.$('.custom-modal-box [data-choice="add"]'), null, 'không mời thêm ca trùng');
+                assert.equal(await page.$('.custom-modal-box [data-choice="merge"]'), null, 'không mời biến ca tiếp tân thành ca dạy');
+                await page.click('.custom-modal-box [data-choice="in-shift"]');
+                await page.waitForFunction(() => document.getElementById('edit-time-modal').style.display === 'none', { timeout: 30000 });
+                const after8 = (await readDoc()).sessions;
+                assert.equal(after8.length, before8 + 1);
+                const part8 = after8[after8.length - 1];
+                assert.equal(part8.inShiftTeaching, true);
+                assert.equal(part8.hostSessionId, 'huy-reception');
+                assert.equal(part8.role, 'subject-pre');
+                assert.equal(new Date(part8.checkIn).toISOString(), new Date(dateKey + 'T13:40:00+07:00').toISOString());
+                assert.deepEqual(after8.find(x => x.id === 'huy-reception'), hostSession, 'ca tiếp tân gốc giữ nguyên');
+                assert.ok((await page.evaluate(() => window.__alerts)).some(a => /Đã ghi phần dạy thay 13:40 - 14:30/.test(a)));
+                console.log('PASS [fixtureadmin] Thêm ca overlapping the reception shift becomes a dạy-thay part on the same day');
             }
             await context.close();
         }
