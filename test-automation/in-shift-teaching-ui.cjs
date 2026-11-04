@@ -47,13 +47,14 @@ async function main() {
         await env.withSecurityRulesDisabled(async c => {
             const db = c.firestore();
             for (const u of users) {
-                await db.collection('users').doc(u.id).set({ ...u, role: u.roles[0], salary_config: { attendance_rate: 100000, receptionist_normal_rate: 30000, roles: [{ id: 'subject-e3', name: 'E3', rate: 100000 }] } });
+                await db.collection('users').doc(u.id).set({ ...u, role: u.roles[0], salary_config: { attendance_rate: 100000, receptionist_normal_rate: 30000, roles: [{ id: 'subject-e3', name: 'E3', rate: 100000 }, { id: 'subject-pre', name: 'Pre I1', rate: 120000 }] } });
                 await db.collection('user_roles').doc(u.authUid).set({ userId: u.id, username: u.username, role: u.roles[0], roles: u.roles });
                 const { authUid, ...publicUser } = u;
                 await db.collection('staff_directory').doc(u.id).set({ ...publicUser, role: u.roles[0] });
             }
             await db.collection('settings').doc('system').set({ gpsCS1Lat: 10, gpsCS1Lng: 106, gpsCS1Radius: 200 });
             await db.collection('subjects').doc('subject-e3').set({ name: 'E3', rate: 100000 });
+            await db.collection('subjects').doc('subject-pre').set({ name: 'Pre I1', rate: 120000 });
         });
         const resetDay = () => env.withSecurityRulesDisabled(async c => {
             await c.firestore().collection('attendance_logs').doc(docId).set({
@@ -126,13 +127,17 @@ async function main() {
                 await page.click('#btn-open-in-shift-teaching');
                 await page.waitForSelector('#in-shift-teaching-dialog [data-action="save"]', { visible: true, timeout: 5000 });
             };
-            const fill = (from, to) => page.evaluate((a, b) => {
-                const box = document.getElementById('in-shift-teaching-dialog');
-                box.querySelector('[data-field="from"]').value = a;
-                box.querySelector('[data-field="to"]').value = b;
-                box.querySelector('[data-field="subject"]').value = 'subject-e3';
-                box.querySelector('[data-field="note"]').value = 'thiếu GV lớp E3';
-            }, from, to);
+            const fill = async (from, to, subjectIds) => {
+                await page.evaluate((a, b) => {
+                    const box = document.getElementById('in-shift-teaching-dialog');
+                    box.querySelector('[data-field="from"]').value = a;
+                    box.querySelector('[data-field="to"]').value = b;
+                    box.querySelector('[data-field="note"]').value = 'thiếu GV lớp E3';
+                    box.querySelectorAll('[data-field="subject"] input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+                }, from, to);
+                // Tick thật bằng chuột: lớp ghép chọn nhiều môn.
+                for (const id of subjectIds) await page.click(`#in-shift-teaching-dialog [data-field="subject"] input[value="${id}"]`);
+            };
 
             // 1) Lấn ra ngoài ca → báo lỗi trong popup, không ghi gì.
             await openHost();
@@ -141,7 +146,7 @@ async function main() {
                 return [box.querySelector('[data-field="from"]').value, box.querySelector('[data-field="to"]').value];
             });
             assert.deepEqual(defaults, ['13:29', '18:00'], 'mặc định là giờ của ca tiếp tân');
-            await fill('17:30', '19:00');
+            await fill('17:30', '19:00', ['subject-e3']);
             await page.click('#in-shift-teaching-dialog [data-action="save"]');
             await page.waitForFunction(() => {
                 const el = document.querySelector('#in-shift-teaching-dialog [data-field="error"]');
@@ -153,7 +158,8 @@ async function main() {
             console.log(`PASS [${viewer}] outside-host range rejected, nothing written`);
 
             // 2) Ghi đúng 15:00–16:30.
-            await fill('15:00', '16:30');
+            await fill('15:00', '16:30', ['subject-e3', 'subject-pre']);
+            assert.match(await page.$eval('#in-shift-teaching-dialog [data-field="subject-picked"]', el => el.textContent), /Đã chọn: E3 \+ Pre I1/);
             await page.click('#in-shift-teaching-dialog [data-action="save"]');
             await page.waitForFunction(() => !document.getElementById('in-shift-teaching-dialog') &&
                 document.getElementById('edit-time-modal').style.display === 'none', { timeout: 30000 });
@@ -164,26 +170,26 @@ async function main() {
             const cover = saved.sessions.find(s => s.id !== 'huy-reception');
             assert.equal(cover.inShiftTeaching, true);
             assert.equal(cover.hostSessionId, 'huy-reception');
-            assert.equal(cover.role, 'subject-e3');
-            assert.equal(cover.roleName, 'E3');
+            assert.equal(cover.role, 'subject-e3+subject-pre', 'lớp ghép lưu cả 2 môn');
+            assert.equal(cover.roleName, 'E3 + Pre I1');
             assert.equal(cover.note, 'thiếu GV lớp E3');
             assert.equal(new Date(cover.checkIn).toISOString(), new Date(dateKey + 'T15:00:00+07:00').toISOString());
             assert.equal(new Date(cover.checkOut).toISOString(), new Date(dateKey + 'T16:30:00+07:00').toISOString());
             const alerts = await page.evaluate(() => window.__alerts);
-            assert.ok(alerts.some(a => /Đã ghi phần dạy thay 15:00 - 16:30 \(E3\)/.test(a)), 'alerts: ' + alerts.join(' | '));
+            assert.ok(alerts.some(a => /Đã ghi phần dạy thay 15:00 - 16:30 \(E3 \+ Pre I1\)/.test(a)), 'alerts: ' + alerts.join(' | '));
 
             // 3) Bảng công sau khi tải lại: tiếp tân trừ 1h30, có chip dạy thay.
             await page.waitForFunction(() => /dạy thay trong ca/.test(document.body.innerText), { timeout: 30000 });
             const text = await page.evaluate(() => document.body.innerText);
             assert.match(text, /−1h30p dạy/, 'chip tiếp tân phải ghi đã trừ 1h30 dạy');
-            assert.match(text, /15:00–16:30 \(E3\) · dạy thay trong ca/);
-            // Lương: dạy 1h30 × 100.000 tính riêng; tiếp tân chỉ còn 181 phút × 30.000/h
+            assert.match(text, /15:00–16:30 \(E3 \+ Pre I1\) · dạy thay trong ca/);
+            // Lương: dạy 1h30 lớp ghép tính riêng; tiếp tân chỉ còn 181 phút × 30.000/h
             // (phiên thật 13:29:41–18:00:20 trừ 90 phút dạy), không còn 271 phút như trước.
             const pay = await page.evaluate(() => ({
                 teaching: getCurrentCalculationPayload('giao-vien').baseSalary,
                 reception: getCurrentCalculationPayload('tiep-tan').baseSalary
             }));
-            assert.equal(pay.teaching, 150000, 'phần dạy thay tính theo giá môn E3');
+            assert.equal(pay.teaching, 180000, 'lớp ghép E3 + Pre I1 tính theo môn cao nhất (120.000 × 1h30)');
             assert.equal(pay.reception, 90500, 'phần tiếp tân đã trừ giờ dạy');
 
             // 4) Mở lại ca tiếp tân: ô dạy thay liệt kê phần đã ghi.
@@ -192,7 +198,7 @@ async function main() {
                 await openEditModal(dk, 'huy-reception', { sessionData: raw, text: 'Tiếp Tân' }, '', '', '', '', true);
             }, dateKey);
             const boxText = await page.$eval('#edit-in-shift-teaching', el => el.innerText);
-            assert.match(boxText, /Đã ghi: 15:00–16:30 E3/);
+            assert.match(boxText, /Đã ghi: 15:00–16:30 E3 \+ Pre I1/);
             await page.evaluate(() => closeEditModal());
             assert.deepEqual(errors, [], 'page errors: ' + errors.join(' | '));
             console.log(`PASS [${viewer}] in-shift teaching saved; reception −1h30p, cover chip shown`);

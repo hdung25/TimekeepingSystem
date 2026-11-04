@@ -6345,8 +6345,14 @@ function openInShiftTeachingDialog(dateKey, hostId, host) {
     const hostIn = host.checkIn || host.start;
     const hostOut = host.checkOut || null;
     const subjects = (Array.isArray(allAvailableSubjects) ? allAvailableSubjects : []).filter(item => item && item.id);
+    // Lớp ghép (VD Pre I1 + FFS1) được chọn nhiều môn, lưu giống ô "Môn học" của
+    // popup sửa ca: mã nối bằng "+", tên nối " + "; đơn giá dự phòng theo môn cao nhất
+    // (quy tắc lớp ghép), bảng giá tháng nếu có vẫn được ưu tiên.
     const options = subjects.map(item =>
-        `<option value="${escapeReportHtml(item.id)}">${escapeReportHtml(item.name || item.id)}</option>`).join('');
+        `<label data-subject-row="${escapeReportHtml(item.id)}" style="display:flex; align-items:center; gap:0.5rem; padding:0.4rem 0.6rem; cursor:pointer; font-size:0.92rem; font-weight:500; color:#111827;">
+            <input type="checkbox" value="${escapeReportHtml(item.id)}" style="width:17px; height:17px; accent-color:#10B981; flex:none;">
+            <span>${escapeReportHtml(item.name || item.id)}</span>
+        </label>`).join('');
     const inputStyle = 'width:100%; height:42px; border:2px solid #E5E7EB; border-radius:8px; padding:0 0.6rem; font-size:0.95rem; box-sizing:border-box; background:#F9FAFB; margin-top:0.25rem;';
     const backdrop = document.createElement('div');
     backdrop.className = 'custom-modal-backdrop';
@@ -6359,9 +6365,11 @@ function openInShiftTeachingDialog(dateKey, hostId, host) {
                 <label style="font-size:0.85rem; font-weight:600; color:#374151;">Dạy từ<input type="time" data-field="from" style="${inputStyle}"></label>
                 <label style="font-size:0.85rem; font-weight:600; color:#374151;">Đến<input type="time" data-field="to" style="${inputStyle}"></label>
             </div>
-            <label style="display:block; font-size:0.85rem; font-weight:600; color:#374151; margin-bottom:0.7rem;">Môn / lớp dạy thay (tính theo đơn giá môn)
-                <select data-field="subject" style="${inputStyle}"><option value="">— Chọn môn —</option>${options}</select>
-            </label>
+            <div style="font-size:0.85rem; font-weight:600; color:#374151; margin-bottom:0.7rem;">Môn / lớp dạy thay — lớp ghép thì tick nhiều môn
+                <input type="text" data-field="subject-search" placeholder="Tìm môn..." autocomplete="off" style="${inputStyle}">
+                <div data-field="subject" style="margin-top:0.35rem; max-height:170px; overflow-y:auto; border:2px solid #E5E7EB; border-radius:8px; background:#fff;">${options || '<div style="padding:0.6rem; color:#9CA3AF;">Chưa có môn nào.</div>'}</div>
+                <div data-field="subject-picked" style="margin-top:0.35rem; font-size:0.82rem; color:#047857;"></div>
+            </div>
             <label style="display:block; font-size:0.85rem; font-weight:600; color:#374151; margin-bottom:0.4rem;">Ghi chú (không bắt buộc)
                 <input type="text" data-field="note" maxlength="120" placeholder="VD: dạy thay lớp E3 vì thiếu GV" style="${inputStyle}">
             </label>
@@ -6374,7 +6382,24 @@ function openInShiftTeachingDialog(dateKey, hostId, host) {
     const field = name => backdrop.querySelector(`[data-field="${name}"]`);
     field('from').value = hhmm(hostIn);
     field('to').value = hostOut ? hhmm(hostOut) : '';
-    if (subjects.length === 1) field('subject').value = subjects[0].id;
+    const subjectBoxes = () => Array.from(field('subject').querySelectorAll('input[type="checkbox"]'));
+    const pickedSubjects = () => subjectBoxes().filter(cb => cb.checked)
+        .map(cb => subjects.find(item => String(item.id) === cb.value)).filter(Boolean);
+    const refreshPicked = () => {
+        const picked = pickedSubjects();
+        field('subject-picked').textContent = picked.length
+            ? `Đã chọn: ${picked.map(item => item.name).join(' + ')}`
+            : '';
+    };
+    subjectBoxes().forEach(cb => { cb.onchange = refreshPicked; });
+    field('subject-search').oninput = () => {
+        const key = normalizeSubjectLookupName(field('subject-search').value);
+        field('subject').querySelectorAll('[data-subject-row]').forEach(row => {
+            row.style.display = !key || normalizeSubjectLookupName(row.innerText).includes(key) ? 'flex' : 'none';
+        });
+    };
+    if (subjects.length === 1) subjectBoxes()[0].checked = true;
+    refreshPicked();
     const close = () => backdrop.remove();
     const showError = text => {
         const el = field('error');
@@ -6387,9 +6412,14 @@ function openInShiftTeachingDialog(dateKey, hostId, host) {
     saveButton.onclick = async () => {
         const from = field('from').value;
         const to = field('to').value;
-        const subject = subjects.find(item => String(item.id) === field('subject').value);
+        const picked = pickedSubjects();
         if (!from || !to) return showError('Vui lòng nhập đủ giờ bắt đầu và kết thúc dạy.');
-        if (!subject) return showError('Vui lòng chọn môn/lớp dạy thay để tính đúng đơn giá.');
+        if (picked.length === 0) return showError('Vui lòng chọn môn/lớp dạy thay để tính đúng đơn giá.');
+        const subject = {
+            id: picked.map(item => item.id).join('+'),
+            name: picked.map(item => item.name).join(' + '),
+            rate: Math.max(...picked.map(item => Number(item.rate) || 0))
+        };
         const [y, m, d] = String(dateKey).split('-').map(Number);
         const at = text => {
             const [h, mi] = text.split(':').map(Number);
