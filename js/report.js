@@ -5745,6 +5745,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
     const staleSplitList = document.getElementById('edit-split-subshift-list');
     if (staleSplitContainer) staleSplitContainer.style.display = 'none';
     if (staleSplitList) staleSplitList.innerHTML = '';
+    hideInShiftTeachingEntry();
 
     // Reset class metadata fields just in case
     if (document.getElementById('edit-class-composite-key')) {
@@ -6301,6 +6302,34 @@ function canRecordInShiftTeaching() {
     return roles.includes('admin') || roles.includes('senior_assistant');
 }
 
+// Popup Sửa ca và Thêm ca dùng chung một khung: khung dạy thay của ca vừa xem
+// (VD ngày 28/10) không được sót lại khi mở Thêm ca cho ngày khác.
+function hideInShiftTeachingEntry() {
+    document.getElementById('in-shift-teaching-dialog')?.remove();
+    const box = document.getElementById('edit-in-shift-teaching');
+    if (!box) return;
+    box.style.display = 'none';
+    box.innerHTML = '';
+}
+
+// Lớp trong lịch của chính nhân viên ngày đó đã được tính dạy (và đã trừ khỏi giờ
+// tiếp tân) — ghi phần dạy thay trùng giờ chỉ tạo bản ghi thừa.
+function findScheduledTeachingClash(dateKey, start, end) {
+    const toMs = text => {
+        const [h, mi] = String(text).split(':').map(Number);
+        const [y, m, d] = String(dateKey).split('-').map(Number);
+        return new Date(y, m - 1, d, h, mi, 0, 0).getTime();
+    };
+    return (window.unfilteredAllMonthChips || []).find(chip => {
+        if (!chip || chip.dateStr !== dateKey || !chip.isTeaching || !(chip.paidMinutes > 0)) return false;
+        if (chip.sessionData?.inShiftTeaching === true || chip.sessionData?.type === 'admin_add') return false;
+        if (!chip.classStart) return false;
+        const match = String(chip.text || '').replace(/<[^>]*>/g, '').match(/(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})/);
+        if (!match) return false;
+        return Math.min(end.getTime(), toMs(match[2])) - Math.max(start.getTime(), toMs(match[1])) >= 10 * 60 * 1000;
+    }) || null;
+}
+
 function renderInShiftTeachingEntry(dateKey, sessionId, session, linkType) {
     const anchor = document.getElementById('edit-day-breakdown');
     if (!anchor || !anchor.parentNode) return;
@@ -6427,6 +6456,11 @@ function openInShiftTeachingDialog(dateKey, hostId, host) {
         };
         const start = at(from), end = at(to);
         if (!(end > start)) return showError('Giờ kết thúc phải sau giờ bắt đầu.');
+        const scheduledClash = findScheduledTeachingClash(dateKey, start, end);
+        if (scheduledClash) {
+            const clashText = String(scheduledClash.text || '').replace(/<[^>]*>/g, '').trim();
+            return showError(`Khung giờ này đã có lớp trong lịch được tính dạy rồi: ${clashText}. Hệ thống đã tự tách khỏi giờ tiếp tân, không cần ghi phần dạy thay.`);
+        }
         const note = field('note').value.trim();
         showError('');
         saveButton.disabled = true;
@@ -6477,6 +6511,7 @@ function openInShiftTeachingDialog(dateKey, hostId, host) {
 }
 
 function closeEditModal() {
+    hideInShiftTeachingEntry();
     window.currentAdminPayrollEditContext = null;
     if (window.AdminPayrollOverrideUI) window.AdminPayrollOverrideUI.close();
     document.getElementById('edit-time-modal').style.display = 'none';

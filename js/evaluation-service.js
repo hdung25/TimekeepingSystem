@@ -1052,10 +1052,11 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
     const _msOf = (value) => (value && value.getTime ? value.getTime() : value);
 
-    const _addPaidClockRange = (from, to, sessionId) => {
+    // kind 'class' = giờ của lớp trong lịch: luôn chặn trả trùng, kể cả với phần dạy thay.
+    const _addPaidClockRange = (from, to, sessionId, kind = 'session') => {
         const a = _msOf(from), b = _msOf(to);
         if (!a || !b || !(b > a)) return;
-        _paidClockRanges.push({ from: a, to: b, sessionId: sessionId != null ? String(sessionId) : null });
+        _paidClockRanges.push({ from: a, to: b, sessionId: sessionId != null ? String(sessionId) : null, kind });
     };
 
     // Số phút của [from,to] đã nằm trong khoảng đã trả công của phiên KHÁC. Bỏ qua khoảng
@@ -1066,7 +1067,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
         const key = sessionId != null ? String(sessionId) : null;
         const parts = _paidClockRanges
             .filter(r => key === null || r.sessionId !== key)
-            .filter(r => !ignoreSessionIds || !ignoreSessionIds.has(r.sessionId))
+            .filter(r => !ignoreSessionIds || r.kind === 'class' || !ignoreSessionIds.has(r.sessionId))
             .map(r => ({ from: Math.max(a, r.from), to: Math.min(b, r.to) }))
             .filter(r => r.to > r.from)
             .sort((x, y) => x.from - y.from);
@@ -1486,6 +1487,9 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
 
             const _isEligibleTeachingSession = (session, allowExistingClassLink = false) => {
                 if (!hasValidSessionChronology(session)) return false;
+                // Phần dạy thay ghi tay trong ca tiếp tân luôn tự tính chip riêng (bước
+                // "Unmatched"); không để lớp trong lịch nuốt mất nó.
+                if (session.inShiftTeaching === true) return false;
                 if (_sessionBlockedForClass(session.id, schedStart, schedEnd) ||
                     (isExplicitManualTeachingSession(session) && manuallyRepresentedTeachingSessions.has(session.id))) {
                     return false;
@@ -1552,6 +1556,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 // đánh dấu "đã dùng" nhưng phút làm chỉ lấy từ phiên đầu, làm mất công ca 2.
                 attendanceSessions.forEach(s => {
                     if (!hasValidSessionChronology(s)) return;
+                    if (s.inShiftTeaching === true) return;
                     if (_sessionBlockedForClass(s.id, schedStart, schedEnd)) return;
                     if (_matchedTeachingSessions.some(item => item.id === s.id)) return;
                     if (s.isAbsent) return;
@@ -2100,7 +2105,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     if (isExplicitManualTeachingSession(matchedSession)) {
                         manuallyRepresentedTeachingSessions.add(matchedSession.id);
                     }
-                    _addPaidClockRange(_paidFrom, _paidTo, matchedSession.id);
+                    _addPaidClockRange(_paidFrom, _paidTo, matchedSession.id, 'class');
                     // Ghi ĐỦ các ca con thực làm của chuỗi ca gộp (trước đây chỉ ghi ca đầu
                     // `cls.start–cls.end` nên ngày vừa dạy vừa trực bị trừ thiếu giờ dạy →
                     // giờ tiếp tân bị cộng dư). Kèm tên lớp để ô chi tiết hiển thị từng khúc.

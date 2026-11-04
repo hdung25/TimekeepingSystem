@@ -129,6 +129,35 @@ for (const order of [[reception, cover], [cover, reception]]) {
     assert.equal(chips.find(c => c.sessionId === 'huy-reception').paidMinutes, 270);
 }
 
+{
+    // HUY 28/10 (dữ liệu thật): trực 16:53–21:10, lịch đã có Huy dạy FFS1/EMN 18:00–19:30
+    // và E8 19:30–21:00. Sau đó Admin còn ghi thêm phần dạy thay E2 trùng giờ lớp. Lớp trong
+    // lịch thắng, phần ghi thêm không được cộng lần hai; ghi ngoài giờ lớp thì vẫn được trả.
+    const d = '2026-10-28';
+    const user = { roles: ['teaching_assistant', 'receptionist'], salary_config: { receptionist_normal_rate: 30000,
+        roles: ['FFS1', 'EMN', 'E8', 'E2'].map(name => ({ id: 's-' + name.toLowerCase(), name, rate: 100000 })) } };
+    const row = (start, end, lop, i) => ({ start, end, lop, lopId: 's-' + lop.toLowerCase(), gvId: staffId, registeredTeachers: [], _branch: 'cs2', _compositeKey: 'cs2__' + d, _originalIndex: i });
+    const schedule = { evening1: [row('18:00', '19:30', 'FFS1', 0), row('18:00', '19:30', 'EMN', 1)], evening2: [row('19:30', '21:00', 'E8', 0)] };
+    const host = { id: 'host', checkIn: '2026-10-28T09:53:26.869Z', checkOut: '2026-10-28T14:10:00.000Z', source: 'self' };
+    const part = (from, to) => ({ id: 'cover', checkIn: `${d}T${from}:00+07:00`, checkOut: `${d}T${to}:00+07:00`, role: 's-e2', roleName: 'E2',
+        type: 'admin_add', isAdminEdited: true, inShiftTeaching: true, hostSessionId: 'host', roleAssignmentSource: 'manual' });
+    const shifts = [{ shift: 'evening', label: 'TỐI', start: '17:00', end: '21:00', branch: 'cs2' }];
+    const day = sessions => context.window.calculateDailyChips(schedule, sessions.map(s => ({ ...s })), staffId, d, user, shifts);
+    const base = day([host]);
+    assert.equal(total(base), 240, 'chưa ghi gì: tiếp tân 1h + dạy 3h');
+
+    for (const [from, to] of [['18:00', '19:30'], ['17:30', '18:30'], ['20:00', '20:50']]) {
+        const chips = day([host, part(from, to)]);
+        assert.equal(total(chips), 240, `phần dạy thay ${from}–${to} trùng lớp trong lịch không được trả thêm`);
+        const cover = chips.find(c => c.sessionId === 'cover');
+        assert.ok(cover, 'phần ghi thừa vẫn hiện để Admin thấy và xóa');
+    }
+    const before = day([host, part('17:10', '17:50')]);
+    assert.equal(total(before), 240, 'dạy thay trước giờ lớp: tổng ngày không đổi');
+    assert.equal(before.find(c => c.sessionId === 'cover').paidMinutes, 40, 'phần dạy 17:10–17:50 được trả theo giá môn');
+    assert.equal(before.find(c => c.sessionId === 'host' && c.isReceptionist).paidMinutes, 20, 'tiếp tân chỉ còn 17:00–17:10 + 17:50–18:00');
+}
+
 // ===== Ghi dữ liệu: addSession(..., { inShiftHostId }) =====
 {
     const dbSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'db-service.js'), 'utf8').replace(/\r\n/g, '\n');

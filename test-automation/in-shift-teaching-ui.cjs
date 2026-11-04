@@ -202,6 +202,37 @@ async function main() {
             await page.evaluate(() => closeEditModal());
             assert.deepEqual(errors, [], 'page errors: ' + errors.join(' | '));
             console.log(`PASS [${viewer}] in-shift teaching saved; reception −1h30p, cover chip shown`);
+            if (viewer === 'fixtureadmin') {
+                // 5) Lỗi chị Thuý 04/11: mở ca ngày A rồi bấm Thêm ca ngày B → khung dạy thay
+                // của ngày A còn sót lại (bấm vào sẽ ghi nhầm ngày A). Phải ẩn.
+                const otherDay = dateKey.slice(0, 8) + (dateKey.endsWith('-01') ? '02' : '01');
+                await page.evaluate(async (dk) => {
+                    const raw = (window.currentAttendanceMap?.[dk] || []).find(s => s.id === 'huy-reception');
+                    await openEditModal(dk, 'huy-reception', { sessionData: raw, text: 'Tiếp Tân' }, '', '', '', '', true);
+                }, dateKey);
+                assert.equal(await page.$eval('#edit-in-shift-teaching', el => el.style.display), 'block');
+                await page.evaluate(async (dk) => { await openManualModal(dk); }, otherDay);
+                const stale = await page.$eval('#edit-in-shift-teaching', el => ({ display: el.style.display, html: el.innerHTML }));
+                assert.deepEqual(stale, { display: 'none', html: '' }, 'Thêm ca ngày khác không được giữ khung dạy thay cũ');
+                await page.evaluate(() => closeEditModal());
+                console.log('PASS [fixtureadmin] add-shift form never shows the previous day dạy-thay box');
+
+                // 6) Khung giờ trùng lớp đã có trong lịch (đã được tính dạy) → chặn, không ghi.
+                await page.evaluate((dk) => {
+                    window.unfilteredAllMonthChips.push({ dateStr: dk, isTeaching: true, paidMinutes: 90, classStart: '16:30',
+                        text: '16:30–18:00 CS1 (FFS1)', sessionData: { checkIn: dk + 'T16:30:00+07:00' } });
+                }, dateKey);
+                const sessionsBefore = (await readDoc()).sessions.length;
+                await openHost();
+                await fill('17:00', '17:45', ['subject-e3']);
+                await page.click('#in-shift-teaching-dialog [data-action="save"]');
+                await page.waitForFunction(() => document.querySelector('#in-shift-teaching-dialog [data-field="error"]')?.style.display === 'block', { timeout: 10000 });
+                assert.match(await page.$eval('#in-shift-teaching-dialog [data-field="error"]', el => el.textContent), /đã có lớp trong lịch được tính dạy rồi: 16:30–18:00 CS1 \(FFS1\)/);
+                assert.equal((await readDoc()).sessions.length, sessionsBefore, 'trùng lớp trong lịch thì không ghi');
+                await page.evaluate(() => closeEditModal());
+                assert.equal(await page.$('#in-shift-teaching-dialog'), null, 'đóng ô sửa ca thì đóng luôn popup dạy thay');
+                console.log('PASS [fixtureadmin] overlap with a scheduled class is refused before writing');
+            }
             await context.close();
         }
         console.log('in-shift-teaching-ui.cjs: all assertions passed');
