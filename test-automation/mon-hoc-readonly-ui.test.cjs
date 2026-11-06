@@ -45,6 +45,7 @@ async function open(browser, port, role) {
             const visible = sel => page.$$eval(sel, nodes => nodes.filter(n => n.offsetParent !== null).length);
             assert.equal(await page.$eval('.mh-partner-link a', a => a.getAttribute('href')), 'bang-cong-lien-ket.html?groupId=g', role + ' reaches the partner report');
             assert.equal(await visible('.mh-row-actions button, .mh-actions button, .mh-check'), 0, role + ' sees no edit controls');
+            assert.deepEqual(await page.$$eval('.mh-item-report', a => a.map(x => x.getAttribute('href'))), ['bang-cong-lien-ket.html?groupId=g&subjectId=a'], 'each linked school links to its own report; other subjects do not');
             await page.click('.mh-item');
             assert.equal(await page.evaluate(() => document.getElementById('mh-selbar').classList.contains('open')), false, 'no bulk selection');
             await page.evaluate(() => { MonHoc.openSheet('subject'); MonHoc.edit('a'); MonHoc.remove('a'); MonHoc.bulkRemove(); });

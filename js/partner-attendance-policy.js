@@ -85,6 +85,16 @@
         return Array.from(map.values()).map(entry => ({...entry, days:entry.dates.size, dates:Array.from(entry.dates).sort()}))
             .sort((a,b) => a.subjectName.localeCompare(b.subjectName,'vi') || a.staffName.localeCompare(b.staffName,'vi'));
     }
+    // One entry per school (subject) with its own total; teachers keep their own hours/days.
+    function bySubject(summary) {
+        const map = new Map();
+        summary.forEach(item => {
+            if (!map.has(item.subjectName)) map.set(item.subjectName, {subjectName: item.subjectName, minutes: 0, dates: new Set(), staff: []});
+            const school = map.get(item.subjectName);
+            school.minutes += item.minutes; item.dates.forEach(d => school.dates.add(d)); school.staff.push(item);
+        });
+        return Array.from(map.values()).map(s => ({...s, days: s.dates.size, dates: Array.from(s.dates).sort()}));
+    }
     // True when any string inside value (one '+'-joined part, compared exactly) is a
     // selected subject id or name. Used to decide which teachers' sessions need evaluating.
     function mentionsAny(value, needles, depth = 0) {
@@ -147,5 +157,5 @@
         if (/★\?/.test(text)) flags.push({kind: 'warn', text: 'Chờ duyệt sớm'});
         return flags;
     }
-    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, mentionsAny, STATUS, ABSENT, adjustmentId, applyAdjustment, monthGrid, formatMinutes, toneOf, flagsOf};
+    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, bySubject, mentionsAny, STATUS, ABSENT, adjustmentId, applyAdjustment, monthGrid, formatMinutes, toneOf, flagsOf};
 });

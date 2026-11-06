@@ -102,13 +102,24 @@
     }
     function render() {
         const rows = filtered(), summary = policy.summarize(rows);
+        if (state.loading && !state.ready) {
+            el('pa-stats').innerHTML = ['Giáo viên','Giờ công','Ngày công giáo viên'].map(label => '<div class="pa-stat-loading"><strong>…</strong><span>'+label+'</span></div>').join('');
+            el('pa-review').textContent = '';
+            el('pa-summary').innerHTML = '<p class="pa-empty pa-loading">Đang tải bảng công (thường mất vài giây)…</p>';
+            el('pa-body').innerHTML = ''; el('pa-detail').hidden = true; renderCalendar([]);
+            el('pa-export').disabled = true;
+            return;
+        }
         el('pa-stats').innerHTML = '<div><strong>'+new Set(rows.map(r => r.staffId)).size+'</strong><span>Giáo viên</span></div>'+
             '<div><strong>'+hours(rows.reduce((sum,r) => sum+r.minutes,0))+'</strong><span>Giờ công</span></div>'+
             '<div><strong>'+new Set(rows.filter(r => r.worked).map(r => r.staffId+'|'+r.date)).size+'</strong><span>Ngày công giáo viên</span></div>';
         const review = rows.filter(r => r.needsReview).length;
         el('pa-review').textContent = (review ? review+' ca cần kiểm tra (chưa cập nhật, đang chờ duyệt hoặc lớp ghép khác nhóm). '+(CAN_EDIT ? 'Bấm Chỉnh liên kết hoặc Sửa công lương để đối chiếu trước khi gửi. ' : 'Báo admin kiểm tra các ca này trước khi gửi đối tác. ') : '')+
             (state.orphans ? state.orphans+' chỉnh sửa liên kết không còn khớp ca nào trong lịch (lịch đã đổi), không được tính.' : '');
-        el('pa-summary').innerHTML = summary.length ? summary.map(item => '<article class="pa-summary-card"><h3>'+esc(item.subjectName)+'</h3><p>'+esc(item.staffName)+'</p><div><strong>'+hours(item.minutes)+' giờ</strong><span>'+item.days+' ngày làm · '+item.shifts+' ca lịch/công</span></div></article>').join('') : '<p class="pa-empty">Không có công phù hợp với bộ lọc trong tháng này.</p>';
+        el('pa-summary').innerHTML = summary.length ? policy.bySubject(summary).map(school => '<article class="pa-summary-card"><h3>'+esc(school.subjectName)+'</h3>'+
+            '<div class="pa-school-total"><strong>'+hours(school.minutes)+' giờ</strong><span>'+school.days+' ngày dạy · '+school.staff.length+' giáo viên</span></div>'+
+            '<ul>'+school.staff.map(item => '<li><span>'+esc(item.staffName)+'</span><span>'+hours(item.minutes)+' giờ · '+item.days+' ngày</span></li>').join('')+'</ul></article>').join('')
+            : '<p class="pa-empty">Không có công phù hợp với bộ lọc trong tháng này.</p>';
         el('pa-body').innerHTML = state.view !== 'list' ? '' : rows.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.subjectName.localeCompare(b.subjectName,'vi')||a.staffName.localeCompare(b.staffName,'vi')).map(row =>
             '<tr'+(row.needsReview?' class="pa-needs-review"':'')+'><td data-label="Ngày">'+dateLabel(row.date)+'</td><td data-label="Môn">'+esc(row.subjectName)+'</td><td data-label="Giáo viên">'+esc(row.staffName)+'</td>'+ 
             '<td data-label="Ca / Cơ sở">'+esc(row.start)+'–'+esc(row.end)+'<small>'+esc(row.branch.toUpperCase())+'</small></td>'+ 
@@ -120,7 +131,7 @@
     }
     async function load() {
         const epoch = ++state.epoch;
-        state.ready = false; state.rows = []; render(); setBusy(true);
+        state.ready = false; state.rows = []; state.loading = true; render(); setBusy(true);
         el('pa-message').textContent = 'Đang đối chiếu lịch và công mới nhất…';
         try {
             const month = el('pa-month').value, groupId = el('pa-group').value;
@@ -202,13 +213,16 @@
             allRows.forEach(row => { row.id = policy.adjustmentId(row); state.byId.set(row.id,row); policy.applyAdjustment(row, adjById.get(row.id)); });
             state.orphans = Array.from(adjById).filter(([id,adj]) => adj.active === true && !state.byId.has(id) && staffIds.has(String(adj.staffId))).length;
             state.rows=allRows; state.ready=true; state.loadedMonth=month; state.loadedGroup=groupId;
+            const keepSubject = el('pa-subject').value || state.wantedSubject || '';
             el('pa-subject').innerHTML='<option value="">Tất cả môn trong nhóm</option>'+selected.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');
+            if (selected.some(s => String(s.id) === keepSubject)) el('pa-subject').value = keepSubject;
+            state.wantedSubject = '';
             el('pa-message').textContent='Đã đối chiếu lúc '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+' · '+selected.length+' môn. Giờ công lấy theo công lương'+(CAN_EDIT ? '; ca nào bấm Chỉnh liên kết thì chỉ bảng này và file Excel đổi, lương giáo viên không đổi.' : ' (chế độ chỉ xem).');
             render();
         } catch(error) {
             state.ready=false;state.rows=[];render();
             el('pa-message').textContent='Không thể tải đầy đủ bảng công: '+error.message+'. Hãy thử Tải lại. File Excel chỉ xuất khi dữ liệu tải đầy đủ.';
-        } finally { if(epoch===state.epoch)setBusy(false); }
+        } finally { if(epoch===state.epoch){state.loading=false;setBusy(false);render();} }
     }
     let editorOpened = false;
     function openEditor(url) {
@@ -284,7 +298,8 @@
         if(!state.ready)return;
         const rows=filtered(); if(!rows.length || rows.some(r=>r.ambiguous))return;
         const group=state.subjects.find(s=>String(s.id)===state.loadedGroup);
-        const summary=policy.summarize(rows), title='BẢNG CÔNG '+group.name+' · '+state.loadedMonth;
+        const school=subject ? state.subjects.find(s=>String(s.id)===subject) : null;
+        const summary=policy.summarize(rows), title='BẢNG CÔNG '+(school ? school.name : group.name)+' · '+state.loadedMonth;
         const sheets=[
             {name:'Tổng hợp theo môn',widths:[7,30,30,15,18,60],headerRow:4,merges:['A1:F1','A2:F2'],rows:[
                 {cells:[{v:title,s:1}],ht:26},{cells:[{v:'Số giờ và ngày làm gửi đối tác. Không gồm thông tin lương.',s:2}]},{cells:[]},
@@ -297,7 +312,7 @@
                 ...rows.slice().sort((a,b)=>a.subjectName.localeCompare(b.subjectName,'vi')||a.date.localeCompare(b.date)||a.staffName.localeCompare(b.staffName,'vi')).map((row,i)=>({cells:[i+1,dateLabel(row.date),row.subjectName,row.staffName,row.branch.toUpperCase(),row.start,row.end,...inOut(row),row.minutes/60,row.status].map((v,index)=>({v,s:index===9?6:9})),ht:28}))]}
         ];
         const blob=PartnerAttendanceXlsx.build(sheets), url=URL.createObjectURL(blob), link=document.createElement('a');
-        link.href=url;link.download=('Bang cong '+group.name+' '+state.loadedMonth).replace(/[\\/:*?"<>|]/g,'_')+'.xlsx';
+        link.href=url;link.download=('Bang cong '+(school ? school.name : group.name)+' '+state.loadedMonth).replace(/[\\/:*?"<>|]/g,'_')+'.xlsx';
         document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);
     }
     document.addEventListener('DOMContentLoaded',async () => {
@@ -310,6 +325,7 @@
             const groups=state.subjects.filter(s=>s.isGroup===true);
             el('pa-group').innerHTML=groups.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');
             const requested=new URLSearchParams(location.search).get('groupId');
+            state.wantedSubject=new URLSearchParams(location.search).get('subjectId')||'';
             if(requested && !groups.some(s=>String(s.id)===requested))throw new Error('Nhóm môn được chọn không tồn tại. Vui lòng chọn lại trong Môn học.');
             const target=groups.find(s=>String(s.id)===requested) || groups.find(s=>String(s.name).normalize('NFC').trim().toLocaleUpperCase('vi')==='LIÊN KẾT');
             if(target)el('pa-group').value=target.id;

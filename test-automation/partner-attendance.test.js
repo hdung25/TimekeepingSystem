@@ -94,5 +94,11 @@ vm.createContext(writerContext);vm.runInContext(fs.readFileSync(path.join(__dirn
     assert.ok(xml.includes('<v>1.5</v>'));
     fs.mkdirSync(path.join(__dirname,'artifacts'),{recursive:true});
     fs.writeFileSync(path.join(__dirname,'artifacts/partner-attendance-sample.xlsx'),bytes);
+    // v262: per-school totals
+    const schools = policy.bySubject([
+        {subjectName:'VẼ VIDA',staffName:'A',minutes:60,dates:['2026-10-01','2026-10-02']},
+        {subjectName:'VẼ VIDA',staffName:'B',minutes:30,dates:['2026-10-02']},
+        {subjectName:'TTD VIDA',staffName:'A',minutes:45,dates:['2026-10-03']}]);
+    assert.deepEqual(schools.map(s=>[s.subjectName,s.minutes,s.days,s.staff.length]),[['VẼ VIDA',90,2,2],['TTD VIDA',45,1,1]]);
     console.log('partner attendance policy, evaluator integration and workbook tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

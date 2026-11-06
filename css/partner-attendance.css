@@ -73,3 +73,5 @@
 
 /* v261: view-only roles (senior assistant, reception) */
 .pa-readonly .pa-hint-split,.pa-readonly .pa-actions{display:none!important}
+/* v262: per-school summary + loading state */
+.pa-summary-card .pa-school-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:10px 0 12px}.pa-summary-card ul{list-style:none;margin:0;padding:10px 0 0;border-top:1px dashed var(--border-color,#e5e7eb);display:grid;gap:6px}.pa-summary-card li{display:flex;justify-content:space-between;gap:12px;font-size:.88rem}.pa-summary-card li span:last-child{color:var(--text-muted,#6b7280);white-space:nowrap}.pa-stat-loading strong{color:#9ca3af}.pa-loading{color:#047857}

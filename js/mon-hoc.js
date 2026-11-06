@@ -213,6 +213,25 @@
             '</span>';
     }
 
+    // v262: subjects inside a "LIÊN KẾT" folder are partner schools; link each to its own report.
+    function linkedGroupOf(subject) {
+        var seen = {}, cur = subject;
+        while (cur && cur.parentId && !seen[cur.parentId]) {
+            seen[cur.parentId] = true;
+            var parent = state.subjects.filter(function (s) { return String(s.id) === String(cur.parentId); })[0];
+            if (!parent) return null;
+            if (isGroup(parent) && stripTones(parent.name || '').toLowerCase().replace(/\s+/g, ' ').trim().indexOf('lien ket') !== -1) return parent;
+            cur = parent;
+        }
+        return null;
+    }
+    function reportLink(subject) {
+        var group = linkedGroupOf(subject);
+        if (!group) return '';
+        return '<a class="mh-item-report" href="bang-cong-lien-ket.html?groupId=' + encodeURIComponent(group.id) +
+            '&subjectId=' + encodeURIComponent(subject.id) + '" onclick="event.stopPropagation()">Bảng công</a>';
+    }
+
     function renderItem(subject) {
         var color = subject.color || '#059669';
         var checked = isSelected(subject.id);
@@ -223,7 +242,7 @@
                 '<span class="mh-dot" style="background:' + esc(color) + ';"></span>' +
                 '<div class="mh-item-main">' +
                     '<div class="mh-item-name">' +
-                        '<span class="mh-item-label">' + esc(subject.name) + '</span>' +
+                        '<span class="mh-item-label">' + esc(subject.name) + '</span>' + reportLink(subject) +
                         (allowsEarly10(subject) ? early10Badge() :
                             (isRestrictedEarly10Subject(subject) ? early10BlockedBadge() : '')) +
                     '</div>' +

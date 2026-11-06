@@ -133,11 +133,13 @@ set:(ref,data)=>{window.fixture.writes.push(ref.id);window.fixture.adjust[ref.id
  if(url.includes('/js/db-service.js')||url.includes('/js/main.js')||url.includes('/js/ui-service.js')||url.includes('/js/auth-guard.js')||url.endsWith('/service-worker.js'))return req.respond({contentType:'text/javascript',body:''});
  if(url.startsWith('http://127.0.0.1:'))return req.continue();return req.abort();});
  await viewer.setViewport({width:1366,height:900});
- await viewer.goto('http://127.0.0.1:'+server.address().port+'/bang-cong-lien-ket.html?groupId=g',{waitUntil:'domcontentloaded'});
+ await viewer.goto('http://127.0.0.1:'+server.address().port+'/bang-cong-lien-ket.html?groupId=g&subjectId=a',{waitUntil:'domcontentloaded'});
  await viewer.waitForFunction(()=>document.getElementById('pa-month').value.length>0);
  await viewer.evaluate(()=>{const input=document.getElementById('pa-month');input.value='2026-10';input.dispatchEvent(new Event('change'));});
  await viewer.waitForFunction(()=>document.getElementById('pa-export').disabled===false);
  assert.equal(await viewer.$eval('.pa-day[data-date="2026-10-01"] .pa-day-total',node=>node.textContent),'Tổng: 1h 0p','viewer sees the same hours');
+ assert.equal(await viewer.$eval('#pa-subject',s=>s.value),'a','?subjectId= preselects the school (link from Môn học)');
+ assert.match(await viewer.$eval('.pa-summary-card',c=>c.innerText),/VẼ VIDA[\s\S]*1 giờ[\s\S]*Cô Ánh/,'one card per school with its total and teachers');
  assert.equal(await viewer.$$eval('.pa-adjust,.pa-edit-payroll',b=>b.length),0,'viewer has no Chỉnh liên kết / Sửa công lương');
  assert.equal(await viewer.evaluate(()=>document.documentElement.classList.contains('pa-readonly')),true);
  assert.equal(await viewer.evaluate(()=>fixture.salaryReads||0),0,'reception never reads salary_settings_monthly');

@@ -25,7 +25,7 @@ assert.match(oversight, /ensureObservationAccess[\s\S]*?DBService\.activateRecep
     'Automatic presence must target the branch currently being observed');
 assert.match(page, /shift-oversight\.js\?v=20261102-closed-class-grace-v1/,
     'The operation page must bypass stale browser caches');
-assert.match(worker, /tdt-chamcong-v261-partner-view-20261106/,
+assert.match(worker, /tdt-chamcong-v262-partner-schools-20261106/,
     'The service worker cache must be bumped for the new access policy');
 
 console.log('✓ Cross-branch receptionist oversight access tests passed');

@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <link rel="apple-touch-icon" href="images/TUDUYTRE.jpg">
     <link rel="stylesheet" href="css/style.css?v=20260925-landscape-v1"> <link rel="stylesheet" href="css/app-ui.css?v=20261003-chain-v1">
-    <link rel="stylesheet" href="css/partner-attendance.css?v=20261106-partner-view-v1">
+    <link rel="stylesheet" href="css/partner-attendance.css?v=20261106-partner-schools-v1">
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
@@ -37,9 +37,9 @@
       <section class="pa-controls" aria-label="Chọn bảng công"><label>Nhóm môn<select id="pa-group"></select></label><label>Tháng<input type="month" id="pa-month"></label><button id="pa-reload" type="button">Tải lại</button></section>
       <p id="pa-message" class="pa-message" role="status" aria-live="polite">Đang tải nhóm môn…</p>
       <div id="pa-results" aria-busy="true"><div id="pa-stats" class="pa-stats"></div>
-      <section class="pa-filters" aria-label="Lọc kết quả"><label>Môn học<select id="pa-subject"><option value="">Tất cả môn trong nhóm</option></select></label><label>Tìm giáo viên<input id="pa-search" type="search" placeholder="Nhập tên giáo viên"></label></section>
+      <section class="pa-filters" aria-label="Lọc kết quả"><label>Chọn trường / môn liên kết<select id="pa-subject"><option value="">Tất cả môn trong nhóm</option></select></label><label>Tìm giáo viên<input id="pa-search" type="search" placeholder="Nhập tên giáo viên"></label></section>
       <p id="pa-review" class="pa-review" role="status"></p>
-      <h2>Tổng hợp theo môn / giáo viên</h2><div id="pa-summary" class="pa-summary"></div>
+      <h2>Tổng hợp theo trường / giáo viên</h2><div id="pa-summary" class="pa-summary"></div>
       <div class="pa-viewbar"><h2 id="pa-view-title">Bảng công theo ngày</h2><div class="pa-views" role="group" aria-label="Cách xem"><button type="button" id="pa-view-calendar" data-view="calendar" aria-pressed="true">Lịch tháng</button><button type="button" id="pa-view-list" data-view="list" aria-pressed="false">Danh sách</button></div></div>
       <section id="pa-calendar-sec"><p class="pa-hint pa-hint-split"><b>Chỉnh liên kết</b>: chỉ đổi bảng này và file Excel gửi đối tác, <b>lương giáo viên không đổi</b>. <b>Sửa công lương</b>: mở bảng công chính, sửa ở đó sẽ đổi lương (bảng này tự lấy theo nếu ca chưa chỉnh riêng liên kết).</p><div class="pa-month-nav"><button type="button" id="pa-prev" aria-label="Tháng trước">‹</button><strong id="pa-month-label"></strong><button type="button" id="pa-next" aria-label="Tháng sau">›</button></div><div id="pa-cal" class="pa-cal"></div></section>
       <section id="pa-detail" hidden><h2>Chi tiết ngày công</h2><p class="pa-hint pa-hint-split"><b>Chỉnh liên kết</b>: chỉ đổi bảng này và file Excel gửi đối tác, <b>lương giáo viên không đổi</b>. <b>Sửa công lương</b>: mở bảng công chính, sửa ở đó sẽ đổi lương (bảng này tự lấy theo nếu ca chưa chỉnh riêng liên kết).</p><div class="pa-table-wrap"><table><thead><tr><th>Ngày</th><th>Môn</th><th>Giáo viên</th><th>Ca / Cơ sở</th><th>Vào / Ra</th><th>Giờ công</th><th>Trạng thái</th><th>Điều chỉnh</th></tr></thead><tbody id="pa-body"></tbody></table></div></section>
@@ -73,8 +73,8 @@
 <script src="js/shift-absence-state.js?v=20261006-sub-dropout-v1"></script>
 <script src="js/admin-payroll-override.js?v=20261023-late-fix-v1"></script>
 <script src="js/evaluation-service.js?v=20261104-in-shift-fixes-v1"></script>
-<script src="js/partner-attendance-policy.js?v=20261013-partner-adjust-v1"></script>
+<script src="js/partner-attendance-policy.js?v=20261106-partner-schools-v1"></script>
 <script src="js/partner-attendance-xlsx.js?v=20261012-linked-v1"></script>
-<script src="js/partner-attendance.js?v=20261106-partner-view-v1"></script>
+<script src="js/partner-attendance.js?v=20261106-partner-schools-v1"></script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js',{updateViaCache:'none'});</script>
 </body></html>
