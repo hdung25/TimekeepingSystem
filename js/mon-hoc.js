@@ -10,6 +10,16 @@
 
     var NO_GROUP = '__none__';
 
+    // Only the primary admin edits subjects. Senior assistants and reception open
+    // this page read-only to reach "Bảng công nhóm · Xuất Excel" (v261).
+    var CAN_EDIT = (function () {
+        var raw = localStorage.getItem('currentRole') || '';
+        var roles;
+        try { roles = JSON.parse(raw); } catch (e) { roles = raw; }
+        return (Array.isArray(roles) ? roles : [roles]).indexOf('admin') !== -1;
+    })();
+    document.documentElement.classList.toggle('mh-readonly', !CAN_EDIT);
+
     var state = {
         subjects: [],
         search: '',
@@ -1075,8 +1085,16 @@
         setFilter: setFilter,
         toggleGroup: toggleGroup,
         reload: reload,
+        canEdit: CAN_EDIT,
         _state: state
     };
+    if (!CAN_EDIT) {
+        ['openSheet', 'save', 'edit', 'openChildGroup', 'remove', 'quickToggleEarly10', 'toggleGroupEarly10',
+            'applyGroupEarly10', 'openMove', 'openBulkMove', 'confirmMove', 'toggleSelect', 'toggleScope',
+            'bulkEarly10', 'bulkRemove', 'toggleEarly10'].forEach(function (name) {
+            window.MonHoc[name] = function () { return false; };
+        });
+    }
 
     // Compatibility bridge for the former inline subject page.  All writes
     // still go through the new grouped/early-10 logic above.

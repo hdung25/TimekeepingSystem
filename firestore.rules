@@ -1179,7 +1179,8 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
     match /partner_attendance_adjustments/{adjId} {
-      allow read: if isAuthenticated() && isPrimaryAdmin();
+      // v261: senior assistant + reception view the partner report; writes stay primary admin.
+      allow read: if isAuthenticated() && (isPrimaryAdmin() || isReceptionistOperator());
       allow create: if isAuthenticated() && isPrimaryAdmin()
         && isValidPartnerAdjustment(request.resource.data, adjId)
         && request.resource.data.createdAt == request.time;
@@ -1424,7 +1425,8 @@ service cloud.firestore {
       allow get: if isAuthenticated() && (isAdmin()
         || (isOwnOvertimeId(requestId) && !exists(/databases/$(database)/documents/overtime_requests/$(requestId)))
         || ownsStaffId(resource.data.get('staffId', '')));
-      allow list: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow list: if isAuthenticated() && (isAdmin() || isReceptionistOperator()
+        || ownsStaffId(resource.data.get('staffId', '')));
       allow create: if isAuthenticated() && (isAdmin() || isValidOwnOvertime(requestId));
       allow update: if isAuthenticated() && (isAdmin() || (
         resource.data.get('status', '') == 'rejected'
@@ -1449,7 +1451,8 @@ service cloud.firestore {
         || isOwnBonus10RequestId(requestId)
         || ownsStaffId(resource.data.get('staffId', ''))
       );
-      allow list: if isAuthenticated() && (isAdmin() || ownsStaffId(resource.data.get('staffId', '')));
+      allow list: if isAuthenticated() && (isAdmin() || isReceptionistOperator()
+        || ownsStaffId(resource.data.get('staffId', '')));
       // New documents are singleton/canonical. Existing random-ID legacy docs
       // remain readable and Admin-updatable, but stale clients cannot create a
       // second active request beside the canonical transaction document.

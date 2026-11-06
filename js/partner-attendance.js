@@ -3,6 +3,12 @@
     const policy = window.PartnerAttendancePolicy;
     const state = {subjects:[], users:[], rows:[], ready:false, epoch:0, loadedMonth:'', loadedGroup:'', view:'calendar', byId:new Map(), orphans:0};
     const el = id => document.getElementById(id);
+    // v261: senior assistant and reception view + export only; corrections stay primary-admin.
+    const myRoles = (() => { const raw = localStorage.getItem('currentRole') || '';
+        try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [parsed]; } catch (_) { return [raw]; } })();
+    const CAN_EDIT = myRoles.includes('admin');
+    const CAN_READ_SALARY = CAN_EDIT || myRoles.includes('senior_assistant');
+    document.documentElement.classList.toggle('pa-readonly', !CAN_EDIT);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const hours = minutes => (minutes / 60).toLocaleString('vi-VN',{maximumFractionDigits:2});
     const dateLabel = date => date.split('-').reverse().join('/');
@@ -39,6 +45,7 @@
         return [clock(row.checkIn), clock(row.checkOut)];
     }
     function actionsHtml(row) {
+        if (!CAN_EDIT) return '';
         const who = esc(row.staffName+' ngày '+dateLabel(row.date));
         return '<span class="pa-actions"><button type="button" class="pa-adjust" data-adjust="'+esc(row.id)+'" aria-label="Chỉnh cho liên kết: '+who+'">Chỉnh liên kết</button>'+
             '<button type="button" class="pa-edit pa-edit-payroll" data-url="'+esc(editUrl(row))+'" title="Mở bảng công chính. Sửa ở đó sẽ thay đổi lương giáo viên." aria-label="Sửa công lương: '+who+'">Sửa công lương</button></span>';
@@ -99,7 +106,7 @@
             '<div><strong>'+hours(rows.reduce((sum,r) => sum+r.minutes,0))+'</strong><span>Giờ công</span></div>'+
             '<div><strong>'+new Set(rows.filter(r => r.worked).map(r => r.staffId+'|'+r.date)).size+'</strong><span>Ngày công giáo viên</span></div>';
         const review = rows.filter(r => r.needsReview).length;
-        el('pa-review').textContent = (review ? review+' ca cần kiểm tra (chưa cập nhật, đang chờ duyệt hoặc lớp ghép khác nhóm). Bấm Chỉnh liên kết hoặc Sửa công lương để đối chiếu trước khi gửi. ' : '')+
+        el('pa-review').textContent = (review ? review+' ca cần kiểm tra (chưa cập nhật, đang chờ duyệt hoặc lớp ghép khác nhóm). '+(CAN_EDIT ? 'Bấm Chỉnh liên kết hoặc Sửa công lương để đối chiếu trước khi gửi. ' : 'Báo admin kiểm tra các ca này trước khi gửi đối tác. ') : '')+
             (state.orphans ? state.orphans+' chỉnh sửa liên kết không còn khớp ca nào trong lịch (lịch đã đổi), không được tính.' : '');
         el('pa-summary').innerHTML = summary.length ? summary.map(item => '<article class="pa-summary-card"><h3>'+esc(item.subjectName)+'</h3><p>'+esc(item.staffName)+'</p><div><strong>'+hours(item.minutes)+' giờ</strong><span>'+item.days+' ngày làm · '+item.shifts+' ca lịch/công</span></div></article>').join('') : '<p class="pa-empty">Không có công phù hợp với bộ lọc trong tháng này.</p>';
         el('pa-body').innerHTML = state.view !== 'list' ? '' : rows.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.subjectName.localeCompare(b.subjectName,'vi')||a.staffName.localeCompare(b.staffName,'vi')).map(row =>
@@ -172,7 +179,7 @@
                     DBService.getShiftObservationsForMonth(month,staffId,{strict:true}),
                     DBService.getOvertimeRequestsForStaff(staffId,month),
                     DBService.getBonus10RequestsForStaff(staffId,month),
-                    DBService.getMonthlySalarySettings(staffId,month,{strict:true})]);
+                    CAN_READ_SALARY ? DBService.getMonthlySalarySettings(staffId,month,{strict:true}) : Promise.resolve({})]);
                 const bonusMap={}, overtimeMap={}, observationMap={};
                 bonus.forEach(req => {(bonusMap[String(req.sessionId)] ||= []).push(req);});
                 overtime.forEach(req => { overtimeMap[req.dateKey] ||= {}; const old=overtimeMap[req.dateKey][req.sessionId];
@@ -196,7 +203,7 @@
             state.orphans = Array.from(adjById).filter(([id,adj]) => adj.active === true && !state.byId.has(id) && staffIds.has(String(adj.staffId))).length;
             state.rows=allRows; state.ready=true; state.loadedMonth=month; state.loadedGroup=groupId;
             el('pa-subject').innerHTML='<option value="">Tất cả môn trong nhóm</option>'+selected.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+'</option>').join('');
-            el('pa-message').textContent='Đã đối chiếu lúc '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+' · '+selected.length+' môn. Giờ công lấy theo công lương; ca nào bấm Chỉnh liên kết thì chỉ bảng này và file Excel đổi, lương giáo viên không đổi.';
+            el('pa-message').textContent='Đã đối chiếu lúc '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+' · '+selected.length+' môn. Giờ công lấy theo công lương'+(CAN_EDIT ? '; ca nào bấm Chỉnh liên kết thì chỉ bảng này và file Excel đổi, lương giáo viên không đổi.' : ' (chế độ chỉ xem).');
             render();
         } catch(error) {
             state.ready=false;state.rows=[];render();
@@ -220,6 +227,7 @@
         }
     }
     function openAdjust(id) {
+        if (!CAN_EDIT) return;
         const row = state.byId.get(id);
         if (!row || !state.ready) return;
         editing = row;
@@ -240,7 +248,7 @@
         el('pa-adjust').showModal();
     }
     async function saveAdjust(active) {
-        const row = editing; if (!row) return;
+        const row = editing; if (!row || !CAN_EDIT) return;
         const status = el('pa-adj-status').value, absent = policy.ABSENT.has(status);
         const minutes = absent ? 0 : Math.round(Number(el('pa-adj-h').value||0)*60 + Number(el('pa-adj-m').value||0));
         if (active && (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440)) { el('pa-adj-error').textContent = 'Giờ công phải từ 0 đến 24 giờ.'; return; }
@@ -294,8 +302,8 @@
     }
     document.addEventListener('DOMContentLoaded',async () => {
         if(window.waitAuth)await window.waitAuth();
-        let roles;try{roles=JSON.parse(localStorage.getItem('currentRole'));}catch(_){roles=[localStorage.getItem('currentRole')];}
-        if(!(Array.isArray(roles)?roles:[roles]).includes('admin')) {el('pa-message').textContent='Chỉ admin được xem bảng công đối tác.';setBusy(true);return;}
+        const VIEW_ROLES=['admin','senior_assistant','receptionist','receptionist_assistant','receptionist_lead','receptionist_staff'];
+        if(!myRoles.some(r=>VIEW_ROLES.includes(r))) {el('pa-message').textContent='Chỉ admin, trợ lý cấp cao và tiếp tân được xem bảng công đối tác.';setBusy(true);return;}
         el('pa-month').value=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit'}).format(new Date());
         try {
             state.subjects=await DBService.getSubjects(true,{strict:true});
@@ -311,7 +319,7 @@
             try{if(localStorage.getItem('paView')==='list')state.view='list';}catch(_){}
             ['calendar','list'].forEach(name=>{el('pa-view-'+name).setAttribute('aria-pressed',String(state.view===name));el('pa-view-'+name).addEventListener('click',()=>setView(name));});
             el('pa-prev').addEventListener('click',()=>shiftMonth(-1));el('pa-next').addEventListener('click',()=>shiftMonth(1));
-            const onAction=event=>{const adjust=event.target.closest('[data-adjust]');if(adjust)return openAdjust(adjust.dataset.adjust);const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url);};
+            const onAction=event=>{if(!CAN_EDIT)return;const adjust=event.target.closest('[data-adjust]');if(adjust)return openAdjust(adjust.dataset.adjust);const button=event.target.closest('[data-url]');if(button)openEditor(button.dataset.url);};
             el('pa-cal').addEventListener('click',onAction);
             el('pa-adj-status').addEventListener('change',()=>syncDialog(true));['pa-adj-in','pa-adj-out'].forEach(id=>el(id).addEventListener('change',()=>syncDialog(true)));
             el('pa-adj-save').addEventListener('click',()=>saveAdjust(true));el('pa-adj-clear').addEventListener('click',()=>saveAdjust(false));

@@ -75,7 +75,11 @@
     const hasAssistantAccess = currentRoles.some(r => r === 'assistant');
     let isAllowed = true;
     if (isTargetingAdminPage) {
-        if (path.includes('mon-hoc.html') || path.includes('bang-cong-lien-ket.html') || path.includes('xet-tang-luong.html')) {
+        if (path.includes('mon-hoc.html') || path.includes('bang-cong-lien-ket.html')) {
+            // Admin edits; senior assistant and reception only view + export (v261).
+            isAllowed = currentRoles.some(r => ['admin', 'senior_assistant', 'receptionist', 'receptionist_assistant',
+                'receptionist_lead', 'receptionist_staff'].includes(r));
+        } else if (path.includes('xet-tang-luong.html')) {
             isAllowed = currentRoles.includes('admin');
         } else if (path.includes('he-thong.html')) {
             isAllowed = hasAdminAccess || hasAssistantAccess;

@@ -4,7 +4,7 @@ const puppeteer=require('puppeteer-core');
 const root=path.resolve(__dirname,'..');
 const fixture=`
 window.waitAuth=async()=>{};
-localStorage.setItem('currentUser','admin');localStorage.setItem('currentRole','admin');
+localStorage.setItem('currentUser','admin');localStorage.setItem('currentRole',window.__role||'admin');
 window.fixture={fail:false,minutes:60,reads:0,opened:null};
 window.open=(url)=>{window.fixture.opened=url;return null;};
 const realClick=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(!this.download)return realClick.call(this);};
@@ -21,7 +21,7 @@ window.fixture.reads++;if(window.fixture.fail)throw new Error('mất kết nối
 if(key!=='cs1__2026-10-01')return {};
 return {morning1:[{start:'08:00',end:'09:00',lop:'VẼ VIDA',lopId:'a',gvList:[{id:'t'}]},
 {start:'09:00',end:'10:00',lop:'Tiếng Anh',lopId:'o',gvList:[{id:'t'}]}]};},
-getCancelledShifts:async(m,id)=>{(window.fixture.evaluated||=[]).push(id);return [];},getShiftObservationsForMonth:async()=>[],getOvertimeRequestsForStaff:async()=>[],getBonus10RequestsForStaff:async()=>[],getMonthlySalarySettings:async()=>({})};
+getCancelledShifts:async(m,id)=>{(window.fixture.evaluated||=[]).push(id);return [];},getShiftObservationsForMonth:async()=>[],getOvertimeRequestsForStaff:async()=>[],getBonus10RequestsForStaff:async()=>[],getMonthlySalarySettings:async()=>{window.fixture.salaryReads=(window.fixture.salaryReads||0)+1;return {};}};
 const query={where(){return this;},async get(){return {docs:[{data:()=>({date:'2026-10-01',userId:'x',sessions:[{id:'sx',start:new Date('2026-10-01T09:00:00'),checkIn:new Date('2026-10-01T09:00:00'),checkOut:new Date('2026-10-01T10:00:00'),role:'o'}]})},{data:()=>({date:'2026-10-01',userId:'t',sessions:[{id:'s',start:new Date('2026-10-01T08:00:00'),checkIn:new Date('2026-10-01T08:00:00'),checkOut:new Date('2026-10-01T'+(window.fixture.minutes===60?'10:00:00':'08:30:00'))}]})}]};}};
 window.fixture.adjust={};window.fixture.writes=[];
 window.firebase={firestore:{FieldValue:{serverTimestamp:()=>({__ts:true})}}};
@@ -125,6 +125,26 @@ set:(ref,data)=>{window.fixture.writes.push(ref.id);window.fixture.adjust[ref.id
  assert.equal(await page.$eval('#pa-export',button=>button.disabled),true,'partial failure cannot export');
  assert.equal(await page.$$eval('#pa-body tr',rows=>rows.length),0,'partial failure cannot show stale totals');
  await page.evaluate(()=>{fixture.fail=false;});await page.click('#pa-reload');await page.waitForFunction(()=>!document.getElementById('pa-export').disabled);
- assert.deepEqual(errors,[]);console.log('partner UI: desktop/mobile, subject isolation, refresh-before-export, edit navigation, search and fail-closed retry passed');
+ // v261: reception (view only) sees hours and exports, but has no edit actions and never reads salary documents.
+ const viewerContext=await browser.createBrowserContext();const viewer=await viewerContext.newPage();viewer.on('pageerror',error=>errors.push(error.message));
+ await viewer.evaluateOnNewDocument(()=>{window.__role='["receptionist"]';});
+ await viewer.setRequestInterception(true);
+ viewer.on('request',req=>{const url=req.url();if(url.includes('/js/firebase-config.js'))return req.respond({contentType:'text/javascript',body:fixture});
+ if(url.includes('/js/db-service.js')||url.includes('/js/main.js')||url.includes('/js/ui-service.js')||url.includes('/js/auth-guard.js')||url.endsWith('/service-worker.js'))return req.respond({contentType:'text/javascript',body:''});
+ if(url.startsWith('http://127.0.0.1:'))return req.continue();return req.abort();});
+ await viewer.setViewport({width:1366,height:900});
+ await viewer.goto('http://127.0.0.1:'+server.address().port+'/bang-cong-lien-ket.html?groupId=g',{waitUntil:'domcontentloaded'});
+ await viewer.waitForFunction(()=>document.getElementById('pa-month').value.length>0);
+ await viewer.evaluate(()=>{const input=document.getElementById('pa-month');input.value='2026-10';input.dispatchEvent(new Event('change'));});
+ await viewer.waitForFunction(()=>document.getElementById('pa-export').disabled===false);
+ assert.equal(await viewer.$eval('.pa-day[data-date="2026-10-01"] .pa-day-total',node=>node.textContent),'Tổng: 1h 0p','viewer sees the same hours');
+ assert.equal(await viewer.$$eval('.pa-adjust,.pa-edit-payroll',b=>b.length),0,'viewer has no Chỉnh liên kết / Sửa công lương');
+ assert.equal(await viewer.evaluate(()=>document.documentElement.classList.contains('pa-readonly')),true);
+ assert.equal(await viewer.evaluate(()=>fixture.salaryReads||0),0,'reception never reads salary_settings_monthly');
+ await viewer.click('.pa-ci');assert.equal(await viewer.evaluate(()=>document.getElementById('pa-adjust').open),false,'clicking an entry opens nothing');
+ await viewer.click('#pa-export');await viewer.waitForFunction(()=>!!window.exportedBlob);
+ await viewer.screenshot({path:path.join(__dirname,'artifacts/partner-viewer.png'),fullPage:true});
+ assert.equal(await viewer.evaluate(()=>(fixture.writes||[]).length),0,'viewer writes nothing');
+ assert.deepEqual(errors,[]);console.log('partner UI (incl. reception view-only): desktop/mobile, subject isolation, refresh-before-export, edit navigation, search and fail-closed retry passed');
  }finally{await browser.close();server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

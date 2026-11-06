@@ -26,18 +26,33 @@ const adjustment = (extra = {}) => ({
             const db = context.firestore();
             await db.collection('user_roles').doc('uid-admin').set({ userId: 'admin-1', role: 'admin', roles: ['admin'] });
             await db.collection('user_roles').doc('uid-senior').set({ userId: 'senior-1', role: 'senior_assistant', roles: ['senior_assistant'] });
+            await db.collection('user_roles').doc('uid-reception').set({ userId: 'rec-1', role: 'receptionist', roles: ['receptionist'] });
+            await db.collection('overtime_requests').doc('ot-1').set({ staffId: 'teacher-1', dateKey: '2026-10-05', status: 'approved' });
+            await db.collection('bonus10_requests').doc('b-1').set({ staffId: 'teacher-1', dateKey: '2026-10-05', status: 'approved' });
             await db.collection('user_roles').doc('uid-teacher').set({ userId: 'teacher-1', role: 'staff', roles: ['teaching_assistant'] });
         });
         const admin = env.authenticatedContext('uid-admin').firestore();
         const senior = env.authenticatedContext('uid-senior').firestore();
         const teacher = env.authenticatedContext('uid-teacher').firestore();
+        const reception = env.authenticatedContext('uid-reception').firestore();
         const anon = env.unauthenticatedContext().firestore();
         const col = db => db.collection('partner_attendance_adjustments');
 
-        // Only the primary admin creates, reads and updates; nobody deletes.
+        // Only the primary admin creates and updates; nobody deletes.
+        // v261: senior assistant and reception read (view + export), never write.
         await col(admin).doc(id).set(adjustment());
         assert.equal((await col(admin).where('month', '==', '2026-10').get()).size, 1);
-        await denied(col(senior).doc(id).get());
+        assert.equal((await col(senior).where('month', '==', '2026-10').get()).size, 1);
+        assert.equal((await col(reception).where('month', '==', '2026-10').get()).size, 1);
+        await denied(col(reception).doc('rec__x').set(adjustment({ rowKey: 'x' })));
+        await denied(col(reception).doc(id).set(adjustment()));
+        // The report reads each teacher's overtime / +10 status; reception may list but not change them.
+        assert.equal((await reception.collection('overtime_requests').where('staffId', '==', 'teacher-1').get()).size, 1);
+        assert.equal((await reception.collection('bonus10_requests').where('staffId', '==', 'teacher-1').get()).size, 1);
+        await denied(reception.collection('overtime_requests').doc('ot-1').update({ status: 'rejected' }));
+        await denied(reception.collection('bonus10_requests').doc('b-1').update({ status: 'rejected' }));
+        await denied(reception.collection('salary_settings_monthly').doc('2026-10_teacher-1').get());
+        await denied(teacher.collection('overtime_requests').where('staffId', '==', 'teacher-2').get());
         await denied(col(teacher).doc(id).get());
         await denied(col(anon).doc(id).get());
         await denied(col(teacher).doc('teacher-1__x').set(adjustment({ rowKey: 'x' })));

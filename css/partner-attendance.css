@@ -70,3 +70,6 @@
 .pa-adj-link{color:#92400e;font-size:.82rem;text-align:center;padding:8px;min-height:44px;display:flex;align-items:center;justify-content:center}
 .pa-dialog button:focus-visible,.pa-dialog input:focus-visible,.pa-dialog select:focus-visible,.pa-dialog textarea:focus-visible,.pa-adj-link:focus-visible{outline:3px solid #34d399;outline-offset:2px}
 @media(max-width:640px){.pa-adj-actions button{flex-basis:100%}.pa-dialog form{padding:16px}}
+
+/* v261: view-only roles (senior assistant, reception) */
+.pa-readonly .pa-hint-split,.pa-readonly .pa-actions{display:none!important}

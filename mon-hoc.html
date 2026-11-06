@@ -261,12 +261,16 @@
             .mh-sheet-box { max-width: none; border-radius: var(--radius-xl) var(--radius-xl) 0 0; max-height: 92vh; }
             .mh-sheet-foot { padding-bottom: calc(0.9rem + env(safe-area-inset-bottom)); }
         }
+        /* v261: senior assistant / reception view only */
+        .mh-readonly .mh-actions, .mh-readonly .mh-row-actions, .mh-readonly .mh-check,
+        .mh-readonly .mh-check-wrap, .mh-readonly #mh-selbar { display: none !important; }
+        .mh-readonly .mh-item { cursor: default; }
     </style>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js'></script>
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
-    <script src='js/auth-guard.js?v=20261012-linked-v1'></script>
+    <script src='js/auth-guard.js?v=20261106-partner-view-v1'></script>
     <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261104-in-shift-teaching-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
@@ -449,8 +453,8 @@
 
 <script src="js/ui-service.js?v=20260912-schedule-blank-guard-v1"></script><script src="js/search-keynav.js?v=20261013-partner-adjust-v1"></script>
 <script src="js/early10.js?v=20261023-late-fix-v1"></script>
-<script src="js/main.js?v=20261030-makeup-delete-v1"></script>
-<script src="js/mon-hoc.js?v=20261012-linked-v1"></script>
+<script src="js/main.js?v=20261106-partner-view-v1"></script>
+<script src="js/mon-hoc.js?v=20261106-partner-view-v1"></script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" }) }</script>
 <script>
     document.addEventListener("DOMContentLoaded", function () {
