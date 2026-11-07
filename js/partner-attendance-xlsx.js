@@ -115,12 +115,15 @@
     const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         + '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.00"/></numFmts>'
-        + '<fonts count="5">'
+        + '<fonts count="8">'
         + '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
         + '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
         + '<font><b/><sz val="15"/><color rgb="FF047857"/><name val="Calibri"/><family val="2"/></font>'
         + '<font><i/><sz val="10"/><color rgb="FF5B6660"/><name val="Calibri"/><family val="2"/></font>'
         + '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>'
+        + '<font><sz val="12"/><name val="Times New Roman"/><family val="1"/></font>'
+        + '<font><b/><sz val="12"/><name val="Times New Roman"/><family val="1"/></font>'
+        + '<font><b/><sz val="16"/><name val="Times New Roman"/><family val="1"/></font>'
         + '</fonts>'
         + '<fills count="4">'
         + '<fill><patternFill patternType="none"/></fill>'
@@ -128,13 +131,15 @@
         + '<fill><patternFill patternType="solid"><fgColor rgb="FF047857"/><bgColor indexed="64"/></patternFill></fill>'
         + '<fill><patternFill patternType="solid"><fgColor rgb="FFECFDF5"/><bgColor indexed="64"/></patternFill></fill>'
         + '</fills>'
-        + '<borders count="2">'
+        + '<borders count="3">'
         + '<border><left/><right/><top/><bottom/><diagonal/></border>'
         + '<border><left style="thin"><color rgb="FFC9D3CE"/></left><right style="thin"><color rgb="FFC9D3CE"/></right>'
         + '<top style="thin"><color rgb="FFC9D3CE"/></top><bottom style="thin"><color rgb="FFC9D3CE"/></bottom><diagonal/></border>'
+        + '<border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right>'
+        + '<top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border>'
         + '</borders>'
         + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-        + '<cellXfs count="12">'
+        + '<cellXfs count="17">'
         + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
         + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
         + '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
@@ -147,6 +152,12 @@
         + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
         + '<xf numFmtId="164" fontId="1" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
         + '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        // 12 form header (bold, centered, wrapped) · 13 form title · 14 form column head · 15 form cell · 16 form left text
+        + '<xf numFmtId="0" fontId="6" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        + '<xf numFmtId="0" fontId="7" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        + '<xf numFmtId="0" fontId="6" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        + '<xf numFmtId="0" fontId="5" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        + '<xf numFmtId="0" fontId="5" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
         + '</cellXfs>'
         + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
         + '</styleSheet>';
@@ -155,6 +166,9 @@
     function cellXml(ref, cell) {
         if (cell == null) return '';
         const s = cell.s != null ? ` s="${cell.s}"` : '';
+        // rich: [{ t, b?, color?, sz? }] → one inline string with formatted runs (Times New Roman 12).
+        if (Array.isArray(cell.rich)) return `<c r="${ref}"${s} t="inlineStr"><is>${cell.rich.map(run =>
+            `<r><rPr>${run.b ? '<b/>' : ''}<sz val="${Number(run.sz) || 12}"/>${run.color ? `<color rgb="${xmlEsc(run.color)}"/>` : ''}<rFont val="Times New Roman"/><family val="1"/></rPr><t xml:space="preserve">${xmlEsc(run.t)}</t></r>`).join('')}</is></c>`;
         if (cell.f) return `<c r="${ref}"${s}><f>${xmlEsc(cell.f)}</f><v>${Number(cell.v) || 0}</v></c>`;
         if (typeof cell.v === 'number' && Number.isFinite(cell.v)) return `<c r="${ref}"${s}><v>${cell.v}</v></c>`;
         if (cell.v == null || cell.v === '') return `<c r="${ref}"${s}/>`;
@@ -228,5 +242,7 @@
         ].concat(sheets.map((sh, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, text: sheetXml(sh) })));
         return buildZip(entries, XLSX_MIME);
     }
-    window.PartnerAttendanceXlsx = {build:buildXlsx};
+    const api = {build: buildXlsx};
+    if (typeof module === 'object' && module.exports) module.exports = api;
+    if (typeof window !== 'undefined') window.PartnerAttendanceXlsx = api;
 })();

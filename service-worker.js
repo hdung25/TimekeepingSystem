@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v262-partner-schools-20261106';
+const APP_RELEASE = 'tdt-chamcong-v263-school-form-20261107';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -31,9 +31,9 @@ const STATIC_ASSETS = Array.from(new Set([
     '/mon-hoc.html',
     '/bang-cong-lien-ket.html',
     '/css/partner-attendance.css?v=20261106-partner-schools-v1',
-    '/js/partner-attendance-policy.js?v=20261106-partner-schools-v1',
-    '/js/partner-attendance-xlsx.js?v=20261012-linked-v1',
-    '/js/partner-attendance.js?v=20261106-partner-schools-v1',
+    '/js/partner-attendance-policy.js?v=20261107-school-form-v1',
+    '/js/partner-attendance-xlsx.js?v=20261107-school-form-v1',
+    '/js/partner-attendance.js?v=20261107-school-form-v1',
     '/js/evaluation-service.js?v=20261104-in-shift-fixes-v1',
     '/hop-dinh-ky.html',
     '/hop-cua-toi.html',

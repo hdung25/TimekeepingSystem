@@ -102,3 +102,53 @@ vm.createContext(writerContext);vm.runInContext(fs.readFileSync(path.join(__dirn
     assert.deepEqual(schools.map(s=>[s.subjectName,s.minutes,s.days,s.staff.length]),[['VẼ VIDA',90,2,2],['TTD VIDA',45,1,1]]);
     console.log('partner attendance policy, evaluator integration and workbook tests passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+// v263: owner's paper form — one "BẢNG CHẤM CÔNG THÁNG" calendar per school (samples from 09/2026).
+{
+    assert.deepEqual(policy.splitSchoolName('VẼ TUỔI TIÊN'), {unit: 'TUỔI TIÊN', subject: 'VẼ'});
+    assert.deepEqual(policy.splitSchoolName('VẼ Hoa nắng'), {unit: 'HOA NẮNG', subject: 'VẼ'});
+    assert.deepEqual(policy.splitSchoolName('TTD VIDA'), {unit: 'VIDA', subject: 'TTD'});
+    assert.deepEqual(policy.splitSchoolName('LK HOA TRẠNG NGUYÊN'), {unit: 'HOA TRẠNG NGUYÊN', subject: ''});
+    assert.deepEqual(policy.splitSchoolName('Ánh Cầu Vồng'), {unit: 'ÁNH CẦU VỒNG', subject: ''});
+    assert.equal(policy.formatDuration(30), '30 phút');
+    assert.equal(policy.formatDuration(120), '2 giờ');
+    assert.equal(policy.formatDuration(80), '1 giờ 20 phút');
+    const closures = {'2026-09-01': ['all'], '2026-09-02': ['all']};
+    const row = (date, minutes, start = '08:00', end = '09:00', staffId = 't1') => ({date, minutes, start, end, staffId, subjectName: 'X'});
+    const cellOf = (cal, day) => cal.weeks.flat().find(c => c && c.day === day);
+    // Tuổi Tiên: Wednesdays 30 phút; 02/09 (Wed) is the holiday, 01/09 (Tue, no class that weekday) stays blank.
+    const tt = policy.schoolCalendar(['09', '16', '23', '30'].map(d => row('2026-09-' + d, 30)), '2026-09', closures);
+    assert.equal(cellOf(tt, 2).holiday, true); assert.equal(cellOf(tt, 1).holiday, false);
+    assert.equal(cellOf(tt, 9).minutes, 30); assert.equal(tt.totalMinutes, 120); assert.equal(tt.sessions, 4);
+    assert.equal(tt.weeks.length, 5); assert.equal(tt.weeks[0][0], null, '01/09/2026 is a Tuesday');
+    // Hoa Nắng: Tue + Fri 1 giờ; 01/09 holiday, 02/09 (Wed) blank.
+    const hn = policy.schoolCalendar(['04', '08', '11', '15', '18', '22', '25', '29'].map(d => row('2026-09-' + d, 60)), '2026-09', closures);
+    assert.equal(cellOf(hn, 1).holiday, true); assert.equal(cellOf(hn, 2).holiday, false); assert.equal(hn.sessions, 8);
+    // Substitute + original on the same class slot count once; a second slot that day adds up.
+    const sub = policy.schoolCalendar([row('2026-10-26', 60, '08:00', '09:00', 'a'), row('2026-10-26', 60, '08:00', '09:00', 'b'), row('2026-10-26', 0, '08:00', '09:00', 'c'),
+        row('2026-10-26', 30, '10:00', '10:30')], '2026-10', {});
+    assert.equal(cellOf(sub, 26).minutes, 90); assert.equal(sub.sessions, 2);
+    // An absent teacher on a non-holiday day is blank, not "nghỉ lễ".
+    const absent = policy.schoolCalendar([row('2026-10-05', 0)], '2026-10', {});
+    assert.equal(cellOf(absent, 5).holiday, false); assert.equal(cellOf(absent, 5).minutes, 0);
+    const sheet = policy.schoolSheet('VẼ TUỔI TIÊN', ['09', '16', '23', '30'].map(d => row('2026-09-' + d, 30)), '2026-09', closures, 'TUỔI TIÊN');
+    const text = JSON.stringify(sheet.rows);
+    assert.ok(text.includes('BẢNG CHẤM CÔNG THÁNG 09/2026') && text.includes('TUỔI TIÊN') && text.includes('"VẼ"'));
+    assert.ok(text.includes('30 phút') && text.includes('nghỉ lễ') && text.includes('Tổng: 2 giờ (4 buổi)'));
+    assert.ok(text.includes('NGƯỜI LẬP BIỂU') && text.includes('Nguyễn Thị Diễm Nguyệt') && text.includes('Trương Thị Thủy Tiên'));
+    assert.ok(sheet.merges.includes('A4:A8') && sheet.merges.includes('B4:B8'), 'STT/Đơn vị/Môn span the 5 week rows');
+    assert.ok(sheet.rows.every(r => r.cells.length === 10), 'every row fills A–J so merged borders print');
+    assert.deepEqual(policy.sheetNames(['VIDA', 'VIDA', 'A/B', 'x'.repeat(40)]), ['VIDA', 'VIDA 2', 'A B', 'x'.repeat(28)]);
+    // Workbook opens as a valid zip with the rich red notes.
+    const xlsx = require('../js/partner-attendance-xlsx.js');
+    const blob = xlsx.build([sheet]);
+    blob.arrayBuffer().then(buf => {
+        const bytes = Buffer.from(buf);
+        assert.equal(bytes.readUInt32LE(0), 0x04034b50);
+        const s = bytes.toString('utf8');
+        assert.ok(s.includes('<color rgb="FFFF0000"/><rFont val="Times New Roman"/>') && s.includes('nghỉ lễ'));
+        fs.mkdirSync(path.join(__dirname, 'artifacts'), {recursive: true});
+        fs.writeFileSync(path.join(__dirname, 'artifacts/partner-school-form.xlsx'), bytes);
+        console.log('partner school form: calendar, holiday, dedupe, workbook passed');
+    }).catch(error => { console.error(error); process.exitCode = 1; });
+}

@@ -111,6 +111,7 @@ set:(ref,data)=>{window.fixture.writes.push(ref.id);window.fixture.adjust[ref.id
  assert.equal(await page.$eval('#pa-body tr td:nth-child(6)',cell=>cell.textContent),'0,5','export re-reads edits before downloading');
  const bytes=Buffer.from(await page.evaluate(async()=>Array.from(new Uint8Array(await exportedBlob.arrayBuffer()))));
  assert.equal(bytes.readUInt32LE(0),0x04034b50);assert.ok(bytes.toString('utf8').includes('<v>0.5</v>'));
+ assert.ok(bytes.toString('utf8').includes('BẢNG CHẤM CÔNG THÁNG')&&bytes.toString('utf8').includes('NGƯỜI LẬP BIỂU'),'v263: each school gets the owner monthly form sheet');
  assert.ok(!bytes.toString('utf8').includes('100000'),'workbook has no rates or salaries');
  assert.ok(!bytes.toString('utf8').includes('Tiếng Anh'),'workbook has no outside subject');
  fs.mkdirSync(path.join(__dirname,'artifacts'),{recursive:true});fs.writeFileSync(path.join(__dirname,'artifacts/partner-attendance-ui.xlsx'),bytes);

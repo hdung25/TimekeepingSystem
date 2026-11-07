@@ -33,7 +33,7 @@
 
     <main class="main-content"><div class="pa-page">
       <a class="pa-back" href="mon-hoc.html">← Môn học &amp; nhóm môn</a>
-      <header class="pa-heading"><div><h1>Bảng công liên kết</h1><p>Đối chiếu theo môn và giáo viên, xuất ngày làm và số giờ gửi đối tác.</p></div><button id="pa-export" class="pa-primary" disabled>Xuất Excel gửi đối tác</button></header>
+      <header class="pa-heading"><div><h1>Bảng công liên kết</h1><p>Đối chiếu theo môn và giáo viên, xuất ngày làm và số giờ gửi đối tác.</p></div><button id="pa-export" class="pa-primary" disabled title="Mỗi trường một trang Bảng chấm công tháng, kèm Tổng hợp và Chi tiết">Xuất Excel gửi đối tác</button></header>
       <section class="pa-controls" aria-label="Chọn bảng công"><label>Nhóm môn<select id="pa-group"></select></label><label>Tháng<input type="month" id="pa-month"></label><button id="pa-reload" type="button">Tải lại</button></section>
       <p id="pa-message" class="pa-message" role="status" aria-live="polite">Đang tải nhóm môn…</p>
       <div id="pa-results" aria-busy="true"><div id="pa-stats" class="pa-stats"></div>
@@ -73,8 +73,8 @@
 <script src="js/shift-absence-state.js?v=20261006-sub-dropout-v1"></script>
 <script src="js/admin-payroll-override.js?v=20261023-late-fix-v1"></script>
 <script src="js/evaluation-service.js?v=20261104-in-shift-fixes-v1"></script>
-<script src="js/partner-attendance-policy.js?v=20261106-partner-schools-v1"></script>
-<script src="js/partner-attendance-xlsx.js?v=20261012-linked-v1"></script>
-<script src="js/partner-attendance.js?v=20261106-partner-schools-v1"></script>
+<script src="js/partner-attendance-policy.js?v=20261107-school-form-v1"></script>
+<script src="js/partner-attendance-xlsx.js?v=20261107-school-form-v1"></script>
+<script src="js/partner-attendance.js?v=20261107-school-form-v1"></script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js',{updateViaCache:'none'});</script>
 </body></html>

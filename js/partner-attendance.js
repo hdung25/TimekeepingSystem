@@ -300,7 +300,11 @@
         const group=state.subjects.find(s=>String(s.id)===state.loadedGroup);
         const school=subject ? state.subjects.find(s=>String(s.id)===subject) : null;
         const summary=policy.summarize(rows), title='BẢNG CÔNG '+(school ? school.name : group.name)+' · '+state.loadedMonth;
-        const sheets=[
+        // v263: one "BẢNG CHẤM CÔNG THÁNG" form per school (owner's paper layout), each on its own sheet.
+        const schoolNames=Array.from(new Set(rows.map(r=>r.subjectName))).sort((a,b)=>a.localeCompare(b,'vi'));
+        const tabNames=policy.sheetNames(schoolNames);
+        const forms=schoolNames.map((name,i)=>policy.schoolSheet(name,rows.filter(r=>r.subjectName===name),state.loadedMonth,window.centerClosures||{},tabNames[i]));
+        const sheets=[...forms,
             {name:'Tổng hợp theo môn',widths:[7,30,30,15,18,60],headerRow:4,merges:['A1:F1','A2:F2'],rows:[
                 {cells:[{v:title,s:1}],ht:26},{cells:[{v:'Số giờ và ngày làm gửi đối tác. Không gồm thông tin lương.',s:2}]},{cells:[]},
                 {cells:['STT','Môn học','Giáo viên','Ngày làm','Giờ công','Các ngày làm'].map(v=>({v,s:3}))},

@@ -95,6 +95,90 @@
         });
         return Array.from(map.values()).map(s => ({...s, days: s.dates.size, dates: Array.from(s.dates).sort()}));
     }
+    // v263: owner's paper form "BẢNG CHẤM CÔNG THÁNG" — one calendar per school.
+    const plain = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toUpperCase().trim();
+    // Compared with tones kept so school names like "Ánh Cầu Vồng" / "Mùa Xuân" are not read as a subject.
+    const SUBJECT_WORDS = new Set(['VẼ', 'VE', 'TTD', 'NHẢY', 'MÚA', 'TOÁN', 'ROBOT', 'PIANO', 'GUITAR', 'STEM', 'ĐÀN', 'CỜ']);
+    // "VẼ TUỔI TIÊN" → Đơn vị "TUỔI TIÊN", Môn "VẼ"; "LK HOA TRẠNG NGUYÊN" → Đơn vị "HOA TRẠNG NGUYÊN".
+    function splitSchoolName(name) {
+        const words = String(name || '').normalize('NFC').trim().split(/\s+/).filter(Boolean);
+        const upper = list => list.join(' ').toLocaleUpperCase('vi');
+        if (words.length > 1 && SUBJECT_WORDS.has(words[0].toLocaleUpperCase('vi'))) return {unit: upper(words.slice(1)), subject: upper(words.slice(0, 1))};
+        if (words.length > 1 && plain(words[0]) === 'LK') return {unit: upper(words.slice(1)), subject: ''};
+        return {unit: upper(words), subject: ''};
+    }
+    function formatDuration(minutes) {
+        const total = Math.max(0, Math.round(Number(minutes) || 0)), h = Math.floor(total / 60), m = total % 60;
+        return h && m ? h + ' giờ ' + m + ' phút' : h ? h + ' giờ' : m + ' phút';
+    }
+    const closedAllDay = value => (Array.isArray(value) ? value : [value]).some(v => String(v) === 'all');
+    // rows: one school's rows. A class slot (date + start + end) counts once even when two teachers
+    // share it (substitute + original, co-teaching): the partner is billed per class, not per teacher.
+    function schoolCalendar(rows, month, closures) {
+        const slots = new Map(), weekdays = new Set(), rowDates = new Set();
+        const weekday = date => (new Date(date + 'T00:00:00Z').getUTCDay() + 6) % 7;
+        rows.forEach(row => {
+            rowDates.add(row.date); weekday(row.date) >= 0 && weekdays.add(weekday(row.date));
+            const key = row.date + '|' + (row.start || '') + '|' + (row.end || '');
+            slots.set(key, Math.max(slots.get(key) || 0, Math.max(0, Number(row.minutes) || 0)));
+        });
+        const perDate = new Map();
+        let totalMinutes = 0, sessions = 0;
+        slots.forEach((minutes, key) => {
+            const date = key.split('|')[0];
+            perDate.set(date, (perDate.get(date) || 0) + minutes);
+            totalMinutes += minutes; if (minutes > 0) sessions++;
+        });
+        const weeks = monthGrid(month).map(week => week.map(cell => {
+            if (!cell) return null;
+            const minutes = perDate.get(cell.date) || 0, closure = closures && closures[cell.date];
+            const holiday = !minutes && !!closure && (rowDates.has(cell.date) || (closedAllDay(closure) && weekdays.has(weekday(cell.date))));
+            return {day: cell.day, date: cell.date, minutes, holiday};
+        }));
+        return {weeks, totalMinutes, sessions, days: Array.from(perDate.values()).filter(m => m > 0).length};
+    }
+    const FORM = {company: 'CÔNG TY TNHH DỊCH VỤ\nGIÁO DỤC VÀ ĐÀO TẠO\nTƯ DUY TRẺ', preparer: 'Nguyễn Thị Diễm Nguyệt', approver: 'Trương Thị Thủy Tiên',
+        approverTitle: 'KT. GIÁM ĐỐC\nPHÓ GIÁM ĐỐC'};
+    // Sheet spec for PartnerAttendanceXlsx (styles 12–16 = form styles, rich runs for red day notes).
+    function schoolSheet(schoolName, rows, month, closures, sheetName, form) {
+        const f = Object.assign({}, FORM, form || {}), cal = schoolCalendar(rows, month, closures), names = splitSchoolName(schoolName);
+        const [year, mon] = String(month).split('-');
+        const COLS = 10, pad = (cells, style) => { while (cells.length < COLS) cells.push({v: '', s: style}); return cells; };
+        const blank = style => ({v: '', s: style});
+        const out = [], merges = ['A1:C1', 'D1:J1', 'A2:J2'];
+        out.push({ht: 62, cells: pad([{v: f.company, s: 12}, blank(12), blank(12),
+            {rich: [{t: 'CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM\n', b: true}, {t: 'Độc lập - Tự Do - Hạnh phúc', b: true, sz: 12}], s: 12}], 12)});
+        out.push({ht: 28, cells: pad([{v: 'BẢNG CHẤM CÔNG THÁNG ' + mon + '/' + year, s: 13}], 13)});
+        out.push({ht: 22, cells: ['STT', 'Đơn Vị', 'Môn', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'].map(v => ({v, s: 14}))});
+        const first = out.length + 1, last = first + cal.weeks.length - 1;
+        cal.weeks.forEach((week, i) => {
+            const lead = i === 0 ? [{v: 1, s: 15}, {v: names.unit, s: 15}, {v: names.subject, s: 15}] : [blank(15), blank(15), blank(15)];
+            out.push({ht: 44, cells: lead.concat(week.map(cell => {
+                if (!cell) return blank(15);
+                const note = cell.minutes > 0 ? formatDuration(cell.minutes) : cell.holiday ? 'nghỉ lễ' : '';
+                return note ? {rich: [{t: String(cell.day) + '\n'}, {t: note, color: 'FFFF0000'}], s: 15} : {v: String(cell.day), s: 15};
+            }))});
+        });
+        if (cal.weeks.length > 1) ['A', 'B', 'C'].forEach(c => merges.push(c + first + ':' + c + last));
+        const total = out.length + 1;
+        out.push({ht: 24, cells: pad([{v: 'Tổng: ' + formatDuration(cal.totalMinutes) + ' (' + cal.sessions + ' buổi)', s: 16}], 16)});
+        merges.push('A' + total + ':J' + total);
+        out.push({ht: 36, cells: pad([{v: 'NGƯỜI LẬP BIỂU', s: 14}, blank(14), blank(14), blank(14), blank(14), {v: f.approverTitle, s: 14}], 14)});
+        out.push({ht: 24, cells: pad([{v: f.preparer, s: 15}, blank(15), blank(15), blank(15), blank(15), {v: f.approver, s: 15}], 15)});
+        merges.push('A' + (total + 1) + ':E' + (total + 1), 'F' + (total + 1) + ':J' + (total + 1), 'A' + (total + 2) + ':E' + (total + 2), 'F' + (total + 2) + ':J' + (total + 2));
+        return {name: sheetName, widths: [6, 18, 9, 15, 15, 15, 15, 15, 15, 15], merges, rows: out, calendar: cal};
+    }
+    // Excel sheet names: ≤31 chars, no []:*?/\ , unique.
+    function sheetNames(list) {
+        const used = new Set();
+        return list.map(name => {
+            const base = String(name || 'Trường').replace(/[\[\]:*?\/\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28) || 'Trường';
+            let candidate = base, n = 2;
+            while (used.has(candidate.toLocaleLowerCase('vi'))) candidate = base.slice(0, 26) + ' ' + n++;
+            used.add(candidate.toLocaleLowerCase('vi'));
+            return candidate;
+        });
+    }
     // True when any string inside value (one '+'-joined part, compared exactly) is a
     // selected subject id or name. Used to decide which teachers' sessions need evaluating.
     function mentionsAny(value, needles, depth = 0) {
@@ -157,5 +241,5 @@
         if (/★\?/.test(text)) flags.push({kind: 'warn', text: 'Chờ duyệt sớm'});
         return flags;
     }
-    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, bySubject, mentionsAny, STATUS, ABSENT, adjustmentId, applyAdjustment, monthGrid, formatMinutes, toneOf, flagsOf};
+    return {sections, ids, normalize, leaves, resolveIds, rowsForChips, summarize, bySubject, splitSchoolName, formatDuration, schoolCalendar, schoolSheet, sheetNames, mentionsAny, STATUS, ABSENT, adjustmentId, applyAdjustment, monthGrid, formatMinutes, toneOf, flagsOf};
 });
