@@ -273,6 +273,7 @@
     <script src='js/auth-guard.js?v=20261106-partner-view-v1'></script>
     <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script>
     <script src='js/db-service.js?v=20261104-in-shift-teaching-v1'></script>
+    <script src='js/staff-code-order.js?v=20261108-staff-order-v1'></script>
     <script src='js/meeting-attendance-policy.js?v=20261030-makeup-delete-v1'></script>
     <script src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
 </head>
@@ -805,22 +806,14 @@
                     return uname !== 'admin' && uname !== 'admin1';
                 });
                 
-                // Extract employee numerical codes from usernames
+                // MSNV từ cuối tên đăng nhập (39, N1, V3); hết số rồi đến chữ A→Z, không mã xuống cuối.
                 employeesList.forEach(u => {
-                    const match = u.username.match(/\d+$/);
-                    u.msnvStr = match ? match[0] : '';
-                    u.msnv = match ? parseInt(match[0], 10) : null;
+                    const code = StaffCodeOrder.parse(u.username);
+                    u.msnvStr = code ? code.text : '';
+                    u.msnv = code ? code.number : null;
                 });
-                
-                // Sort employees numerically by their extracted code. Place those without numbers at the end.
-                employeesList.sort((a, b) => {
-                    if (a.msnv !== null && b.msnv !== null) {
-                        return a.msnv - b.msnv;
-                    }
-                    if (a.msnv !== null) return -1;
-                    if (b.msnv !== null) return 1;
-                    return (a.username || '').localeCompare(b.username || '');
-                });
+                employeesList.sort((a, b) => StaffCodeOrder.compareUsernames(a.username, b.username) ||
+                    (a.username || '').localeCompare(b.username || ''));
 
                 // Render the table grid with values
                 await renderMeetingsGrid();

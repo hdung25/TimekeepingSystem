@@ -106,15 +106,14 @@
         return rows.sort(compareRows);
     }
 
-    // MSNV = số cuối của tên đăng nhập (QUYNH64 → 64), giống trang Nhân sự.
+    const staffOrder = () => root.StaffCodeOrder || require('./staff-code-order.js');
+    // MSNV = mã cuối của tên đăng nhập (QUYNH64 → 64, anhv3 → V3), giống trang Nhân sự.
     function staffNumber(username) {
-        const match = text(username).match(/\d+$/);
-        return match ? match[0] : '';
+        return staffOrder().codeText(username);
     }
-    // Owner 06/10: bảng xếp theo MSNV tăng dần; mã không có số xuống cuối.
+    // Owner 06/10 + 08/11: xếp theo MSNV — hết số rồi đến chữ A→Z (N1… V1…); không mã xuống cuối.
     function compareRows(a, b) {
-        const na = a.msnv ? parseInt(a.msnv, 10) : Infinity, nb = b.msnv ? parseInt(b.msnv, 10) : Infinity;
-        return (na === nb ? 0 : na < nb ? -1 : 1) ||
+        return staffOrder().compareCodes(a.msnv, b.msnv) ||
             text(a.code).localeCompare(text(b.code), 'vi', { numeric: true }) ||
             a.name.localeCompare(b.name, 'vi') || text(a.group?.name).localeCompare(text(b.group?.name), 'vi');
     }

@@ -42,7 +42,7 @@ const m1 = rowsA.find(r => r.subjects.some(s => s.id === 'm1'));
 const e5 = rowsA.find(r => r.subjects.some(s => s.id === 'e5'));
 assert.equal(m1.currentRate, 32000);
 assert.equal(m1.code, 'GV12');
-assert.equal(m1.msnv, '12', 'MSNV = trailing number of the username');
+assert.equal(m1.msnv, 'V12', 'MSNV = code at the end of the username (gv12 reads as V12, like Nhân sự)');
 // Owner 06/10: rows follow MSNV ascending (gv2 before gv12, codes without a number last).
 const sortUsers = [{ id: 'x', username: 'nv', name: 'Không số', role: 'teacher' },
     { id: 'c', username: 'gv12', name: 'C', role: 'teacher' }, { id: 'd', username: 'gv2', name: 'D', role: 'teacher' }];

@@ -84,15 +84,16 @@
             const staffId = text(user.id);
             const plan = planOf(staffId);
             const rates = currentRates((monthlyByStaff || {})[staffId], user, (legacyByStaff || {})[staffId]);
-            const msnv = (text(user.username).match(/\d+$/) || [''])[0];
+            const msnv = (root.StaffCodeOrder || require('./staff-code-order.js')).codeText(user.username);
             return {
                 staffId, key: 'tt|' + staffId, name: text(user.name || user.username || staffId), code: text(user.username).toUpperCase(), msnv,
                 plan, revision: Number(plan?.revision || 0), currentRate: rates.normal, fixedRate: rates.fixed, rateMonth: rates.month,
                 category: category(plan, today)
             };
         }).sort((a, b) => {
-            const na = a.msnv ? parseInt(a.msnv, 10) : Infinity, nb = b.msnv ? parseInt(b.msnv, 10) : Infinity;
-            return (na === nb ? 0 : na < nb ? -1 : 1) || a.name.localeCompare(b.name, 'vi');
+            // Hết số rồi đến chữ A→Z (N1… V1…), như trang Nhân sự.
+            return (root.StaffCodeOrder || require('./staff-code-order.js')).compareCodes(a.msnv, b.msnv) ||
+                a.name.localeCompare(b.name, 'vi');
         });
     }
 

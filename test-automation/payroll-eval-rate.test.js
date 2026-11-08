@@ -42,13 +42,14 @@ assert.match(html, /id="modal-eval-rate-head"/);
 // Nút Trước/Tiếp không phụ thuộc icon CDN và có hiển thị mã nhân viên.
 assert.doesNotMatch(html, /id="btn-prev-staff"[^>]*>\s*<i data-lucide/);
 assert.match(html, /id="staff-nav-code"/);
-const sortStart = report.indexOf('users.sort((a, b) => {');
-const sorter = new Function('return ' + report.slice(sortStart + 'users.sort('.length, report.indexOf('\n    });', sortStart) + 6))();
-const users = ['gv12', 'tt3', 'abc', 'gv3', 'tt12', 'xyz'].map(username => {
-    const match = username.match(/\d+$/);
-    return { username, msnv: match ? parseInt(match[0], 10) : null };
-});
-assert.deepEqual(users.sort(sorter).map(u => u.username), ['gv3', 'tt3', 'gv12', 'tt12', 'abc', 'xyz'],
-    'thứ tự theo số mã, cùng số thì theo mã, mã không số đứng cuối');
+const StaffCodeOrder = require('../js/staff-code-order.js');
+const sortStart = report.indexOf('users.sort((a, b) => StaffCodeOrder');
+const sortEnd = report.indexOf('}));', sortStart);
+const sorter = new Function('StaffCodeOrder', 'return ' + report.slice(sortStart + 'users.sort('.length, sortEnd + 2))(StaffCodeOrder);
+const users = ['linh12', 'thao3', 'abc', 'anhv3', 'huyenn1', 'mai3', 'thao12', 'xyz', 'thaiv1', 'giabao1'].map(username => ({ username }));
+assert.deepEqual(users.sort(sorter).map(u => u.username),
+    ['giabao1', 'mai3', 'thao3', 'linh12', 'thao12', 'huyenn1', 'thaiv1', 'anhv3', 'abc', 'xyz'],
+    'hết số rồi mới đến chữ A→Z (N rồi V), cùng mã thì theo tên đăng nhập, mã không số đứng cuối');
+assert.match(html, /staff-code-order\.js\?v=[^"]+"><\/script> <script src="js\/report\.js/, 'staff-code-order.js nạp trước report.js');
 
 console.log('payroll-eval-rate.test.js: all assertions passed');

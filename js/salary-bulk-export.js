@@ -237,19 +237,15 @@
         'tiep-tan': { key: 'tiep-tan', folder: 'Tiep Tan', roleLabel: 'Tiep Tan', roleShow: 'Tiếp tân', sheet: 'Tiếp tân' }
     };
 
+    // MSNV = mã cuối tên đăng nhập: 39, N1, V3 (js/staff-code-order.js).
     function msnvOf(u) {
-        const match = String((u && u.username) || '').match(/\d+$/);
-        return match ? match[0] : '';
+        return window.StaffCodeOrder.codeText(u && u.username);
     }
 
-    // Cùng thứ tự với bảng ở trang Tính Lương (report.js populateStaffSelect)
+    // Cùng thứ tự với bảng ở trang Tính Lương (report.js populateStaffSelect): số → N → V.
     function compareStaff(a, b) {
-        const na = a.msnv ? parseInt(a.msnv, 10) : null;
-        const nb = b.msnv ? parseInt(b.msnv, 10) : null;
-        if (na !== null && nb !== null && na !== nb) return na - nb;
-        if (na !== null && nb === null) return -1;
-        if (na === null && nb !== null) return 1;
-        return String(a.account || a.staffName).localeCompare(String(b.account || b.staffName), 'vi');
+        return window.StaffCodeOrder.compareUsernames(a.u && a.u.username, b.u && b.u.username) ||
+            String(a.account || a.staffName).localeCompare(String(b.account || b.staffName), 'vi');
     }
 
     function statusText(st) {

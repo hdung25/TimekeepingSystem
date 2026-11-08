@@ -366,22 +366,17 @@ async function populateStaffSelect() {
         });
     }
 
-    // Extract employee numerical codes from usernames and sort them
+    // MSNV đọc từ cuối tên đăng nhập (39, N1, V3). Thứ tự chủ trung tâm 08/11: hết số
+    // (1 → 70) rồi mới đến chữ theo A→Z (N1… rồi V1…), cùng chữ thì xét số; không mã xuống cuối.
     users.forEach(u => {
-        const match = (u.username || '').match(/\d+$/);
-        u.msnvStr = match ? match[0] : '';
-        u.msnv = match ? parseInt(match[0], 10) : null;
+        const code = StaffCodeOrder.parse(u.username);
+        u.msnvStr = code ? code.text : '';
+        u.msnv = code ? code.number : null;
     });
 
-    users.sort((a, b) => {
-        if (a.msnv !== null && b.msnv !== null && a.msnv !== b.msnv) {
-            return a.msnv - b.msnv;
-        }
-        if (a.msnv !== null && b.msnv === null) return -1;
-        if (b.msnv !== null && a.msnv === null) return 1;
-        // Cùng số hoặc mã không có số: xếp theo mã để thứ tự Trước/Tiếp luôn cố định.
-        return (a.username || '').localeCompare(b.username || '', 'vi', { numeric: true, sensitivity: 'base' });
-    });
+    users.sort((a, b) => StaffCodeOrder.compareUsernames(a.username, b.username) ||
+        // Cùng mã hoặc không có mã: xếp theo tên đăng nhập để thứ tự Trước/Tiếp luôn cố định.
+        (a.username || '').localeCompare(b.username || '', 'vi', { numeric: true, sensitivity: 'base' }));
 
     // Lưu global để filter
     window._allStaffList = users;

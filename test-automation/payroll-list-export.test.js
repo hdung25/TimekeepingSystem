@@ -11,7 +11,7 @@ const lifecycle = pub => ({
     has_gv: !!pub.details_gv, has_tt: !!pub.details_tt,
     status_gv: pub.status_gv || pub.status || 'draft', status_tt: pub.status_tt || pub.status || 'draft'
 });
-const context = { window: {}, console, Blob, TextEncoder, Uint8Array, Uint32Array, DataView, ArrayBuffer, Date, Math, Number, String, Object, Set };
+const context = { window: { StaffCodeOrder: require('../js/staff-code-order.js') }, console, Blob, TextEncoder, Uint8Array, Uint32Array, DataView, ArrayBuffer, Date, Math, Number, String, Object, Set };
 context.DBService = { getPayslipLifecycleState: lifecycle };
 vm.createContext(context);
 vm.runInContext(source, context);
@@ -20,6 +20,7 @@ assert.ok(api, 'SalaryBulkExport API must be exposed');
 
 assert.equal(api.msnvOf({ username: 'dung39' }), '39');
 assert.equal(api.msnvOf({ username: 'admin' }), '');
+assert.equal(api.msnvOf({ username: 'anhv3' }), 'V3', 'mã chữ giữ nguyên chữ');
 
 const gv = (base, bonus, advance) => ({ baseSalary: base, advance, netPay: base + bonus - advance });
 const users = {
