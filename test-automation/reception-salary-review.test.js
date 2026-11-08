@@ -64,4 +64,14 @@ const keepLater = R.buildApproval({ newRate: 25000, targetMonth: '2026-10', curr
     laterDocs: { '2026-11': { tiep_tan: { class_rates: { [N]: 26000 } }, published: { role: 'tiep-tan', status_tt: 'received', details_tt: { netPay: 1 } } } },
     user: users[0], lifecycle });
 assert.equal(keepLater.patches.length, 1);
+// Owner 08/11: list = Tiếp tân side of Tính lương — Trợ lý cấp cao, Văn phòng and old JSON role strings count too.
+const wider = R.buildRows({ users: [
+    { id: 'huy', name: 'Quang Huy', username: 'huy1', roles: ['receptionist'] },
+    { id: 'tlcc', name: 'Trợ lý', username: 'thuy2', roles: ['senior_assistant'] },
+    { id: 'vp', name: 'Văn phòng', username: 'linh3', role: 'office_staff' },
+    { id: 'json', name: 'JSON', username: 'mai4', role: '["staff","receptionist"]' },
+    { id: 'gv', name: 'GV', username: 'lan5', roles: ['giao-vien'] },
+    { id: 'ad', name: 'Admin', username: 'admin', roles: ['admin'] }
+], plans: [], monthlyByStaff: {}, legacyByStaff: {}, today });
+assert.deepEqual(wider.map(r => r.staffId), ['huy', 'tlcc', 'vp', 'json']);
 console.log('reception-salary-review.test.js: all assertions passed');

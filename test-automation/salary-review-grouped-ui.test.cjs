@@ -86,17 +86,22 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
             };
             window.SalaryReviewService.applyApplication = async () => { window.__applied++; };
         });
-        await page.$eval('[data-bulk-skip="a|23000"]', el => el.click());
-        assert.equal(await page.$('[data-bulk-rate="a|g1"]'), null, 'unticked bucket hides its rate input');
+        await page.$eval('[data-action="bulk-skip"][data-bucket="a|23000"]', el => el.click());
+        assert.equal(await page.$('[data-bulk-rate="a|g1"]'), null, 'Giữ nguyên hides the rate input');
+        assert.equal(await page.$eval('[data-action="bulk-skip"][data-bucket="a|23000"]', el => el.textContent), 'Tăng lại');
         assert.match(await page.$eval('[data-action="bulk-apply"]', el => el.textContent), /Duyệt 2 mức/);
-        await page.$eval('[data-action="bulk-split"][data-bucket="a|22000"]', el => el.click());
-        await page.$eval('[data-bulk-keep="a|g2|s2"]', el => el.click());
+        // Owner: 'Nhảy không tăng' — the subject name next to the price is a Giữ nguyên toggle, no split needed.
+        await page.$eval('[data-action="bulk-keep"][data-keep="a|g2|s2"]', el => el.click());
         assert.match(await page.$eval('[data-action="bulk-apply"]', el => el.textContent), /Duyệt 1 mức/);
         fs.mkdirSync(path.join(root, 'scratch'), { recursive: true });
         await (await page.$('#srb-bulk')).screenshot({ path: path.join(root, 'scratch/salary-review-partial-bulk.png') });
-        await page.$eval('[data-bulk-keep="a|g0|s0"]', el => el.click());
+        await page.setViewport({ width: 390, height: 844 });
+        await (await page.$('#srb-bulk')).screenshot({ path: path.join(root, 'scratch/salary-review-partial-bulk-phone.png') });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'bulk panel fits a phone');
+        await page.setViewport({ width: 1366, height: 900 });
+        await page.$eval('[data-action="bulk-keep"][data-keep="a|g0|s0"]', el => el.click());
         assert.equal(await page.$eval('[data-action="bulk-apply"]', el => el.disabled), true, 'nothing ticked → cannot approve');
-        await page.$eval('[data-bulk-keep="a|g0|s0"]', el => el.click());
+        await page.$eval('[data-action="bulk-keep"][data-keep="a|g0|s0"]', el => el.click());
         // A kept bucket with an unchanged price must not block the others (the 100.000đ → 100000 error).
         await page.$eval('[data-action="bulk-apply"]', el => el.click());
         await page.waitForFunction(() => !window.SalaryReviewBoard.state.busy && !window.SalaryReviewBoard.state.bulk);
@@ -116,7 +121,7 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         });
         await page.$eval('[data-action="teacher-increase"][data-staff="c"]', el => el.click());
         await page.$eval('[data-action="bulk-split"][data-bucket="c|30000"]', el => el.click());
-        await page.$eval('[data-bulk-keep="c|g5|s6"]', el => el.click());
+        await page.$eval('[data-action="bulk-keep"][data-keep="c|g5|s6"]', el => el.click());
         await page.$eval('[data-action="bulk-apply"]', el => el.click());
         await page.waitForFunction(() => !window.SalaryReviewBoard.state.busy && !window.SalaryReviewBoard.state.bulk);
         const split = await page.evaluate(() => ({ prepared: window.__prepared,

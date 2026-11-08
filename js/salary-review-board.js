@@ -311,10 +311,10 @@
         return own != null && own !== '' ? own : (item?.rate ?? '');
     }
     // Chosen new rate of every subject of one bulk row (split buckets: per subject).
-    // null = không tăng môn đó (bỏ tick cả dòng, hoặc bỏ tick môn khi đã tách).
+    // null = không tăng môn đó ("Giữ nguyên" cả dòng, hoặc "Giữ nguyên" từng môn).
     function ratesBySubject(row, item) {
         const id = bucketId(row), split = state.bulk.split.has(id), skipAll = state.bulk.skip.has(id);
-        return new Map(row.subjects.map(s => [s.id, skipAll || (split && state.bulk.keep.has(row.key + '|' + s.id)) ? null
+        return new Map(row.subjects.map(s => [s.id, skipAll || state.bulk.keep.has(row.key + '|' + s.id) ? null
             : Number(split ? subjectRate(row, s.id) : item.rate)]));
     }
     // Bulk items that still raise at least one subject.
@@ -330,19 +330,25 @@
             const items = state.bulk.items.map(item => ({ item, row: rowByKey(item.key) })).filter(x => x.row);
             const buckets = B.rateBuckets(items.map(x => x.row));
             const active = activeBulkItems().length;
-            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Mỗi nhóm môn vẫn giữ lịch xét riêng. Bỏ tick <b>Tăng</b> ở lớp/môn không tăng lương: giá giữ nguyên, lịch xét của phần đó vẫn còn để xét sau.</p>
+            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Lớp/môn nào không tăng thì bấm <b>Giữ nguyên</b> ngay cạnh: giá không đổi, lịch xét của phần đó vẫn còn để xét sau.</p>
                 <div class="srb-bulktable">${buckets.map(bucket => { const row = bucket[0], item = items.find(x => x.row.key === row.key).item;
                     const id = bucketId(row), split = state.bulk.split.has(id), skipped = state.bulk.skip.has(id), subjects = bucket.flatMap(r => r.subjects.map(s => ({ row: r, s })));
                     const toggle = subjects.length > 1 && !skipped ? `<button type="button" class="srb-btn srb-ghost srb-split" data-action="bulk-split" data-bucket="${esc(id)}">${split ? 'Gộp lại 1 mức' : 'Tách từng môn'}</button>` : '';
-                    const pick = `<label class="srb-bulkpick"><input type="checkbox" data-bulk-skip="${esc(id)}" ${skipped ? '' : 'checked'}> Tăng</label>`;
-                    if (!split || skipped) return `<div class="srb-bulkrow${skipped ? ' srb-skipped' : ''}"><span>${pick}<strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(subjects.map(x => x.s.name))].join(', '))}</small>${toggle}</span><span>${money(row.currentRate)} →</span>${skipped
+                    const keepBtn = (attr, kept, label) => `<button type="button" class="srb-btn srb-keepbtn${kept ? ' on' : ''}" ${attr} aria-pressed="${kept}" aria-label="${esc(label)}">${kept ? 'Tăng lại' : 'Giữ nguyên'}</button>`;
+                    const rowKeep = keepBtn(`data-action="bulk-skip" data-bucket="${esc(id)}"`, skipped, (skipped ? 'Tăng lại ' : 'Giữ nguyên ') + row.name + ' giá ' + money(row.currentRate));
+                    // Nhiều môn cùng giá: mỗi tên môn là 1 nút — bấm để giữ nguyên riêng môn đó (vd. Nhảy không tăng).
+                    const chips = subjects.length > 1 && !skipped
+                        ? `<span class="srb-subjchips">${subjects.map(({ row: r, s }) => { const k = r.key + '|' + s.id, kept = state.bulk.keep.has(k);
+                            return `<button type="button" class="srb-subjchip${kept ? ' kept' : ''}" data-action="bulk-keep" data-keep="${esc(k)}" aria-pressed="${kept}" title="${kept ? 'Bấm để tăng lại môn này' : 'Bấm để giữ nguyên môn này'}">${esc(s.name)}${kept ? ' · giữ nguyên' : ''}</button>`; }).join('')}</span><small>Bấm tên môn nào để giữ nguyên riêng môn đó.</small>`
+                        : `<small>${esc([...new Set(subjects.map(x => x.s.name))].join(', '))}</small>`;
+                    if (!split || skipped) return `<div class="srb-bulkrow${skipped ? ' srb-skipped' : ''}"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span>${chips}${toggle}</span><span>${money(row.currentRate)} →</span>${skipped
                         ? '<span class="srb-keep">Giữ nguyên</span>'
-                        : `<input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}">`}</div>`;
-                    return `<div class="srb-bulkrow srb-bulkrow-split"><span>${pick}<strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>Mỗi môn một mức (đang ${money(row.currentRate)}). Bỏ tick môn không tăng.</small>${toggle}</span>
+                        : `<input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}">`}${rowKeep}</div>`;
+                    return `<div class="srb-bulkrow srb-bulkrow-split"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>Mỗi môn một mức (đang ${money(row.currentRate)}). Môn nào không tăng bấm Giữ nguyên.</small>${toggle}</span>
                         <div class="srb-subrates">${subjects.map(({ row: r, s }) => { const k = r.key + '|' + s.id, kept = state.bulk.keep.has(k);
-                            return `<div class="srb-subrate${kept ? ' srb-skipped' : ''}"><span><label class="srb-bulkpick"><input type="checkbox" data-bulk-keep="${esc(k)}" ${kept ? '' : 'checked'} aria-label="Tăng môn ${esc(s.name)}"> ${esc(s.name)}</label></span><span>${money(s.rate ?? r.currentRate)} →</span>${kept
+                            return `<div class="srb-subrate${kept ? ' srb-skipped' : ''}"><span>${esc(s.name)}</span><span>${money(s.rate ?? r.currentRate)} →</span>${kept
                                 ? '<span class="srb-keep">Giữ nguyên</span>'
-                                : `<input type="number" data-bulk-subject="${esc(k)}" value="${esc(subjectRate(r, s.id))}" min="1" step="500" aria-label="Mức mới môn ${esc(s.name)}">`}</div>`; }).join('')}</div></div>`;
+                                : `<input type="number" data-bulk-subject="${esc(k)}" value="${esc(subjectRate(r, s.id))}" min="1" step="500" aria-label="Mức mới môn ${esc(s.name)}">`}${keepBtn(`data-action="bulk-keep" data-keep="${esc(k)}"`, kept, (kept ? 'Tăng lại môn ' : 'Giữ nguyên môn ') + s.name)}</div>`; }).join('')}</div></div>`;
                 }).join('')}</div>
                 <div class="srb-fields"><label>Áp dụng từ<select id="srb-bulk-month">${monthOptions(state.bulk.month)}</select></label>
                 <label class="srb-grow">Ghi chú chung (không bắt buộc)<input id="srb-bulk-note" value="${esc(state.bulk.note)}" maxlength="2000"></label></div>
@@ -923,12 +929,12 @@
         }
         if (action === 'bulk-apply') {
             const active = activeBulkItems();
-            if (!active.length) { message('Chưa chọn lớp/môn nào để tăng. Tick "Tăng" ở dòng cần duyệt.', true); return; }
+            if (!active.length) { message('Chưa có lớp/môn nào để tăng. Bấm "Tăng lại" ở dòng cần duyệt.', true); return; }
             for (const item of active) {
                 const row = rowByKey(item.key);
                 try { ratesBySubject(row, item).forEach(rate => { if (rate !== null) checkRate(rate, row); }); }
                 catch (error) {
-                    message(`${row.name} (${row.subjects.map(s => s.name).join(', ')}): ${error.message} Nếu lớp này không tăng, bỏ tick "Tăng" ở dòng đó.`, true);
+                    message(`${row.name} (${row.subjects.map(s => s.name).join(', ')}): ${error.message} Nếu lớp này không tăng, bấm "Giữ nguyên" ở dòng đó.`, true);
                     return;
                 }
             }
@@ -990,6 +996,12 @@
         if (action === 'pick') { const row = rowByKey(key); if (row) { draftFor(row).rate = Number(button.dataset.rate); render(); } return; }
         if (action === 'setup') { openSetup([key]); return; }
         if (action === 'bulk-setup') { openSetup([...state.selected], true); return; }
+        if (action === 'bulk-skip' || action === 'bulk-keep') {
+            if (!state.bulk) return;
+            const set = action === 'bulk-skip' ? state.bulk.skip : state.bulk.keep, id = action === 'bulk-skip' ? button.dataset.bucket : button.dataset.keep;
+            if (set.has(id)) set.delete(id); else set.add(id);
+            render(); return;
+        }
         if (action === 'bulk-split') {
             if (!state.bulk) return;
             const id = button.dataset.bucket;
@@ -1035,8 +1047,6 @@
         }
         if (el.dataset.select) { el.checked ? state.selected.add(el.dataset.select) : state.selected.delete(el.dataset.select); render(); return; }
         if (el.id === 'srb-bulk-month' && state.bulk) { state.bulk.month = el.value; render(); return; }
-        if (el.dataset.bulkSkip && state.bulk) { el.checked ? state.bulk.skip.delete(el.dataset.bulkSkip) : state.bulk.skip.add(el.dataset.bulkSkip); render(); return; }
-        if (el.dataset.bulkKeep && state.bulk) { el.checked ? state.bulk.keep.delete(el.dataset.bulkKeep) : state.bulk.keep.add(el.dataset.bulkKeep); render(); return; }
         if (el.dataset.f === 'month' && el.dataset.key) { const row = rowByKey(el.dataset.key); if (row) { draftFor(row).month = el.value; render(); } }
     });
     $('srb-back').addEventListener('click', showBoard);

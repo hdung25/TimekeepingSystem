@@ -11,7 +11,17 @@
     const NORMAL = 'Tiếp Tân (Ca Bình Thường)';
     const FIXED = 'Tiếp Tân (Ca Cố Định)';
     const PAST_MONTHS = 1, FUTURE_MONTHS = 3, HISTORY_LIMIT = 40, SOON_MONTHS = 2;
-    const RECEPTION_ROLES = new Set(['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan']);
+    // Cùng danh sách "Tiếp tân" của Tính lương (main.js RolePolicy): Trợ lý cấp cao mặc định làm như
+    // Tiếp tân, Văn phòng dùng chung đơn giá ca thường/cố định (owner 08/11: trước đây chỉ hiện 1 người).
+    const RECEPTION_ROLES = new Set(['receptionist', 'receptionist_assistant', 'receptionist_lead', 'receptionist_staff', 'tiep-tan', 'tiep_tan',
+        'senior_assistant', 'office_staff', 'van-phong', 'van_phong']);
+    // roles có thể là mảng, hoặc role là chuỗi JSON '["staff","receptionist"]' (localStorage cũ).
+    function rolesOf(user) {
+        if (Array.isArray(user.roles) && user.roles.length) return user.roles;
+        const raw = text(user.role);
+        if (raw.startsWith('[')) { try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) return parsed; } catch (e) { /* chuỗi thường */ } }
+        return [raw];
+    }
     const text = (value, max = 2000) => String(value == null ? '' : value).trim().slice(0, max);
     const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
     const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
@@ -42,8 +52,7 @@
     function isReceptionist(user) {
         if (!user || user.active === false || user.isActive === false ||
             ['inactive', 'deleted', 'resigned', 'terminated'].includes(text(user.status).toLowerCase())) return false;
-        const roles = Array.isArray(user.roles) && user.roles.length ? user.roles : [user.role];
-        return roles.some(role => RECEPTION_ROLES.has(text(role).toLowerCase()));
+        return rolesOf(user).some(role => RECEPTION_ROLES.has(text(role).toLowerCase()));
     }
 
     const roleKeyOf = doc => own(doc, 'tiep_tan') ? 'tiep_tan' : own(doc, 'tiep-tan') ? 'tiep-tan' : 'tiep_tan';
