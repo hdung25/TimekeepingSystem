@@ -178,6 +178,7 @@
         await S.saveProfile(row.staffId, draft, profile.revision || 0, state.index.subjects);
         await freshProfile(row.staffId);
         const results = [];
+        results.kept = ordered.map(([rate, ids], i) => rate === null ? { groupId: groups[i].id, names: ids.map(nameOf).join(', ') } : null).filter(Boolean);
         for (const [i, [rate, ids]] of ordered.entries()) {
             if (rate === null) continue;
             const part = { ...row, key: row.staffId + '|' + groups[i].id, group: groups[i], confirmed: true,
@@ -190,6 +191,19 @@
     async function defer(row, reason, nextDate) {
         const profile = await ensureConfirmed(row, row.confirmed ? '' : draftFor(row).baseline);
         await S.decide(row.staffId, row.group.id, { kind: 'deferred', reason, nextReviewDate: nextDate }, profile.revision);
+        await freshProfile(row.staffId);
+    }
+    // Owner 08/11: "có động thái tăng lương là được, không nhất thiết phải tất cả" — a class kept
+    // at its price while the teacher got a raise counts as reviewed: it is recorded as "giữ nguyên"
+    // (kind not_increased) with the next review one cycle later, so it stops showing Quá hạn.
+    function keptReviewDate(row, month) {
+        const months = Number(row.evaluation?.months) || 3;
+        const fromMonth = month ? P.addMonths(month + '-01', months) : '';
+        return fromMonth && fromMonth > today() ? fromMonth : P.addMonths(today(), months);
+    }
+    async function keepPrice(row, groupId, reason, nextDate) {
+        const profile = await freshProfile(row.staffId);
+        await S.decide(row.staffId, groupId, { kind: 'not_increased', reason, nextReviewDate: nextDate }, profile.revision);
         await freshProfile(row.staffId);
     }
     async function notIncreased(row, reason, nextDate) {
@@ -296,6 +310,7 @@
             <p class="srb-changes">${changes}${next ? `<span class="srb-muted">Lần xét tiếp khoảng ${vnDate(next)}</span>` : ''}</p>
             <div class="srb-actions">
                 <button type="button" class="srb-btn srb-primary" data-action="approve" data-key="${key}">Duyệt tăng lên ${valid ? money(rate) : '…'}</button>
+                <button type="button" class="srb-btn" data-action="keep" data-key="${key}" title="Không tăng lớp này, tính là đã xét, hẹn kỳ sau">Giữ nguyên mức này</button>
                 <button type="button" class="srb-btn" data-action="defer" data-key="${key}">Hẹn lại 1 tháng</button>
                 <button type="button" class="srb-btn" data-action="not" data-key="${key}">Chưa tăng…</button>
                 ${row.confirmed ? '' : `<button type="button" class="srb-btn" data-action="track" data-key="${key}">Chỉ lưu mốc, chưa xét</button>`}
@@ -330,7 +345,7 @@
             const items = state.bulk.items.map(item => ({ item, row: rowByKey(item.key) })).filter(x => x.row);
             const buckets = B.rateBuckets(items.map(x => x.row));
             const active = activeBulkItems().length;
-            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Lớp/môn nào không tăng thì bấm <b>Giữ nguyên</b> ngay cạnh: giá không đổi, lịch xét của phần đó vẫn còn để xét sau.</p>
+            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Lớp/môn nào không tăng thì bấm <b>Giữ nguyên</b> ngay cạnh: giá không đổi. Giáo viên có tăng ít nhất 1 lớp thì lớp giữ nguyên cũng tính là đã xét, hẹn xét lại kỳ sau.</p>
                 <div class="srb-bulktable">${buckets.map(bucket => { const row = bucket[0], item = items.find(x => x.row.key === row.key).item;
                     const id = bucketId(row), split = state.bulk.split.has(id), skipped = state.bulk.skip.has(id), subjects = bucket.flatMap(r => r.subjects.map(s => ({ row: r, s })));
                     const toggle = subjects.length > 1 && !skipped ? `<button type="button" class="srb-btn srb-ghost srb-split" data-action="bulk-split" data-bucket="${esc(id)}">${split ? 'Gộp lại 1 mức' : 'Tách từng môn'}</button>` : '';
@@ -875,6 +890,13 @@
                 message(isBackdated(done.month)
                     ? `Đã duyệt tăng lương cho ${row.name} từ ${vnMonth(done.month).toLowerCase()}.${redo}`
                     : `Đã duyệt tăng lương cho ${row.name}. Giá các tháng đã tính lương giữ nguyên.`);
+            } else if (action === 'keep') {
+                const next = keptReviewDate(row, '');
+                await ensureConfirmed(row, row.confirmed ? '' : draft.baseline);
+                await keepPrice(row, row.group.id, 'Giữ nguyên giá' + (draft.note.trim() ? ': ' + draft.note.trim() : ''), next);
+                state.results[key] = { text: `Giữ nguyên ${money(row.currentRate)}, xét lại ${vnDate(next)}.` };
+                state.open = ''; delete state.drafts[key];
+                message(`Đã ghi giữ nguyên mức của ${row.name}.`);
             } else if (action === 'defer') {
                 const next = P.addMonths(today(), 1);
                 await defer(row, draft.note.trim() || 'Hẹn xét lại sau 1 tháng', next);
@@ -895,28 +917,50 @@
         });
     }
     async function bulkApply() {
-        const items = activeBulkItems(), month = state.bulk.month, note = state.bulk.note.trim();
-        let done = 0; const failed = [], redo = new Set();
-        for (const item of items) {
-            const row = rowByKey(item.key);
-            if (!row) continue;
+        const month = state.bulk.month, note = state.bulk.note.trim();
+        // Rows are rebuilt after each write, so read everything needed up front.
+        const all = state.bulk.items.map(item => ({ item, row: rowByKey(item.key) })).filter(x => x.row)
+            .map(x => ({ ...x, byRate: ratesBySubject(x.row, x.item) }));
+        const raising = all.filter(x => [...x.byRate.values()].some(rate => rate !== null));
+        const kept = all.filter(x => ![...x.byRate.values()].some(rate => rate !== null))
+            .map(x => ({ row: x.row, groupId: x.row.group.id, names: x.row.subjects.map(s => s.name).join(', '), whole: true }));
+        let done = 0; const failed = [], redo = new Set(), raisedStaff = new Set();
+        for (const { item, row, byRate } of raising) {
             try {
-                const byRate = ratesBySubject(row, item), distinct = [...new Set(byRate.values())];
+                const distinct = [...new Set(byRate.values())];
                 const results = distinct.length > 1 || distinct[0] === null
                     ? await approveSplit(row, byRate, { month, note })
                     : [await approve(row, { rate: distinct[0] ?? item.rate, month, note, baseline: row.baselineDate })];
                 if (results.some(result => result.redo.length)) redo.add(row.name);
                 state.results[item.key] = { text: `Đã duyệt ${results.map(result => money(result.rate) + (result.names ? ' (' + result.names + ')' : '')).join(', ')}/giờ từ ${vnMonth(month).toLowerCase()}.` };
-                state.selected.delete(item.key); done++;
+                (results.kept || []).forEach(part => kept.push({ row, groupId: part.groupId, names: part.names, whole: false }));
+                state.selected.delete(item.key); done++; raisedStaff.add(row.staffId);
             } catch (error) {
                 state.results[item.key] = { text: 'Chưa duyệt: ' + error.message, error: true };
                 failed.push(row.name);
             }
             rebuild();
         }
+        // Lớp giữ nguyên của giáo viên vừa được tăng: coi như đã xét, hẹn kỳ sau.
+        let keptDone = 0; const keptFailed = [];
+        for (const part of kept.filter(part => raisedStaff.has(part.row.staffId))) {
+            const next = keptReviewDate(part.row, month);
+            try {
+                await keepPrice(part.row, part.groupId, 'Giữ nguyên giá — đợt này đã tăng lớp khác' + (note ? ': ' + note : ''), next);
+                const line = `Giữ nguyên ${part.names}, xét lại ${vnDate(next)}.`;
+                const own = state.results[part.row.key];
+                state.results[part.row.key] = part.whole || !own ? { text: line } : { text: own.text + ' ' + line };
+                state.selected.delete(part.row.key); keptDone++;
+            } catch (error) {
+                keptFailed.push(`${part.row.name} (${part.names}): ${error.message}`);
+            }
+            rebuild();
+        }
         state.bulk = null;
-        message(`Đã duyệt ${done}/${items.length} mức.` + (redo.size ? ` Cần tính lại lương giáo viên ${vnMonth(month).toLowerCase()} cho: ${[...redo].join(', ')}.` : '') +
-            (failed.length ? ' Chưa duyệt: ' + failed.join(', ') + ' (xem lý do dưới từng dòng).' : ''), failed.length > 0);
+        message(`Đã duyệt ${done}/${raising.length} mức.` + (keptDone ? ` ${keptDone} lớp giữ nguyên được tính là đã xét (hẹn kỳ sau).` : '') +
+            (redo.size ? ` Cần tính lại lương giáo viên ${vnMonth(month).toLowerCase()} cho: ${[...redo].join(', ')}.` : '') +
+            (failed.length ? ' Chưa duyệt: ' + failed.join(', ') + ' (xem lý do dưới từng dòng).' : '') +
+            (keptFailed.length ? ' Chưa ghi giữ nguyên: ' + keptFailed.join('; ') + ' — mở dòng đó bấm "Giữ nguyên mức này".' : ''), failed.length + keptFailed.length > 0);
     }
     function bulkAction(action) {
         const rows = [...state.selected].map(rowByKey).filter(row => row && row.group && !row.pending && !row.disabled);

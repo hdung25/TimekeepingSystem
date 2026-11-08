@@ -79,7 +79,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
             [['a|g0', '28000'], ['a|g1', 26000], ['a|g2', '28000']]);
         // Owner 08/11: "tăng lương 1 số lớp thôi" — untick a price bucket, or one subject after "Tách từng môn".
         await page.evaluate(() => {
-            window.__prepared = []; window.__applied = 0; window.confirm = () => true;
+            window.__prepared = []; window.__applied = 0; window.__decided = []; window.confirm = () => true;
+            window.SalaryReviewService.decide = async (staffId, groupId, command) => { window.__decided.push({ staffId, groupId, kind: command.kind, next: command.nextReviewDate, reason: command.reason }); };
             window.SalaryReviewService.prepareApplication = async (staffId, groupId, options) => {
                 window.__prepared.push({ staffId, groupId, rate: options.newRate, subjects: options.selectedSubjectIds });
                 return { preview: { changes: [], clearedDrafts: [], followers: [] } };
@@ -108,9 +109,13 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         assert.deepEqual(await page.evaluate(() => window.__prepared), [{ staffId: 'a', groupId: 'g0', rate: 28000, subjects: ['s0'] }],
             'only the ticked class is approved; unticked ones keep their price');
         assert.equal(await page.evaluate(() => window.__applied), 1);
+        const keptA = await page.evaluate(() => window.__decided);
+        assert.deepEqual(keptA.map(d => [d.staffId, d.groupId, d.kind]), [['a', 'g1', 'not_increased'], ['a', 'g2', 'not_increased']],
+            'owner: a raise for some classes counts as reviewed — kept classes get the next review, not Quá hạn');
+        assert.ok(keptA.every(d => d.next > new Date().toISOString().slice(0, 10) && /Giữ nguyên giá/.test(d.reason)));
         // One price group with two subjects: raise only one of them → group split, kept part not approved.
         await page.evaluate(() => {
-            window.__prepared = []; window.__savedProfiles = [];
+            window.__prepared = []; window.__savedProfiles = []; window.__decided = [];
             const base = { staffId: 'c', name: 'Lê Văn C', code: 'C05', msnv: '05', confirmed: true, baselineDate: '2026-07-01', nextRate: 34000,
                 currentRate: 30000, evaluation: { dueDate: '2026-10-01', visibleThisMonth: true, overdue: true }, category: 'due', stats: { observed: 3, averageHours: 20 }, attendance: 90 };
             window.__profile = { staffId: 'c', revision: 1, personOverrides: {}, groups: [{ id: 'g5', name: 'Tiếng Anh', subjectIds: ['s5', 's6'], currentRate: 30000,
@@ -129,9 +134,12 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         assert.deepEqual(split.prepared, [{ staffId: 'c', groupId: 'g5', rate: 34000, subjects: ['s5'] }], 'only Flyer 1 is approved');
         assert.deepEqual(split.groups, [{ id: 'g5', subjects: ['s5'], rate: 30000, cycle: 6 }, { id: 'new', subjects: ['s6'], rate: 30000, cycle: 6 }],
             'Flyer 2 keeps its price in its own review group with the same cycle');
+        assert.deepEqual(await page.evaluate(() => window.__decided.map(d => [d.staffId, d.groupId.startsWith('g5:tach-'), d.kind])), [['c', true, 'not_increased']],
+            'the kept Flyer 2 part is recorded as reviewed');
         await page.evaluate(() => { window.SalaryReviewBoard.state.rows = window.__fixtureRows; window.SalaryReviewBoard.render(); });
         await page.click('[data-key="a|g0"][data-action="toggle"]');
         assert.equal(await page.$eval('.srb-panel', el => el.textContent.includes('Mover 1')), true);
+        assert.ok(await page.$('.srb-panel [data-action="keep"]'), 'single row offers Giữ nguyên mức này');
         assert.equal(await page.$eval('.srb-panel', el => el.textContent.includes('Nhảy:')), false, 'approval preview stays scoped to the chosen group');
         await page.click('[data-tab="due"]');
         assert.equal(await page.$$eval('.srb-teacher', els => els.length), 2);

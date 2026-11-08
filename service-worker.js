@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v266-keep-button-20261108';
+const APP_RELEASE = 'tdt-chamcong-v267-kept-reviewed-20261108';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -49,7 +49,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/salary-review.js?v=20261030-makeup-delete-v1',
     '/js/salary-review-overview-policy.js?v=20260921-overview-v1',
     '/js/salary-review-board-policy.js?v=20261108-staff-order-v1',
-    '/js/salary-review-board.js?v=20261108-keep-button-v1',
+    '/js/salary-review-board.js?v=20261108-kept-reviewed-v1',
     '/js/reception-salary-review.js?v=20261108-keep-button-v1',
     '/js/payslip-schedule-core.js?v=20261008-owner-round-v1',
     '/js/payslip-schedule.js?v=20261008-owner-round-v1',
