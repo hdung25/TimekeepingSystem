@@ -154,12 +154,16 @@
     // different new rates. The group is first split (one saved review group per
     // new rate, same mốc/chu kỳ; the largest part keeps the original id and
     // history), then each part is approved through the normal path.
+    // Owner 08/11: "tăng lương 1 số lớp thôi" — rate null = môn giữ nguyên giá: it is
+    // split off into its own review group (same mốc, still due) and not approved.
     async function approveSplit(row, byRate, { month, note }) {
-        byRate.forEach(rate => checkRate(rate, row));
+        byRate.forEach(rate => { if (rate !== null) checkRate(rate, row); });
+        if (![...byRate.values()].some(rate => rate !== null)) throw Error('Chưa chọn môn nào để tăng.');
         const profile = await ensureConfirmed(row, row.confirmed ? '' : row.baselineDate);
         const saved = profile.groups.find(g => g.id === row.group.id);
         if (!saved) throw Error('Không tìm thấy nhóm xét đã lưu. Bấm Tải lại.');
-        const fallback = [...byRate.values()][0], parts = new Map();
+        // Môn của nhóm đã lưu mà bảng không hiện (hiếm) đi theo phần giữ nguyên nếu có.
+        const fallback = [...byRate.values()].includes(null) ? null : [...byRate.values()][0], parts = new Map();
         saved.subjectIds.forEach(id => { const rate = byRate.has(id) ? byRate.get(id) : fallback; parts.set(rate, (parts.get(rate) || []).concat(id)); });
         const ordered = [...parts.entries()].sort((a, b) => b[1].length - a[1].length);
         const nameOf = id => row.subjects.find(s => s.id === id)?.name || state.index.subjects.find(s => s.id === id)?.name || id;
@@ -175,6 +179,7 @@
         await freshProfile(row.staffId);
         const results = [];
         for (const [i, [rate, ids]] of ordered.entries()) {
+            if (rate === null) continue;
             const part = { ...row, key: row.staffId + '|' + groups[i].id, group: groups[i], confirmed: true,
                 subjects: row.subjects.filter(s => ids.includes(s.id)) };
             const done = await approve(part, { rate, month, note, baseline: '' });
@@ -306,27 +311,43 @@
         return own != null && own !== '' ? own : (item?.rate ?? '');
     }
     // Chosen new rate of every subject of one bulk row (split buckets: per subject).
+    // null = không tăng môn đó (bỏ tick cả dòng, hoặc bỏ tick môn khi đã tách).
     function ratesBySubject(row, item) {
-        const split = state.bulk.split.has(bucketId(row));
-        return new Map(row.subjects.map(s => [s.id, Number(split ? subjectRate(row, s.id) : item.rate)]));
+        const id = bucketId(row), split = state.bulk.split.has(id), skipAll = state.bulk.skip.has(id);
+        return new Map(row.subjects.map(s => [s.id, skipAll || (split && state.bulk.keep.has(row.key + '|' + s.id)) ? null
+            : Number(split ? subjectRate(row, s.id) : item.rate)]));
+    }
+    // Bulk items that still raise at least one subject.
+    function activeBulkItems() {
+        return state.bulk.items.filter(item => { const row = rowByKey(item.key); return row && [...ratesBySubject(row, item).values()].some(rate => rate !== null); });
+    }
+    function newBulk(rows) {
+        return { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '', split: new Set(), subjectRates: {}, skip: new Set(), keep: new Set() };
     }
     function bulkHtml() {
         const rows = [...state.selected].map(rowByKey).filter(Boolean);
         if (state.bulk) {
             const items = state.bulk.items.map(item => ({ item, row: rowByKey(item.key) })).filter(x => x.row);
             const buckets = B.rateBuckets(items.map(x => x.row));
-            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Mỗi nhóm môn vẫn giữ lịch xét riêng.</p>
+            const active = activeBulkItems().length;
+            return `<div class="srb-bulkpanel"><h2>Tăng lương ${new Set(items.map(x => x.row.staffId)).size} giáo viên</h2><p class="sr-help">Các môn cùng giá được nhập mức mới một lần. Mỗi nhóm môn vẫn giữ lịch xét riêng. Bỏ tick <b>Tăng</b> ở lớp/môn không tăng lương: giá giữ nguyên, lịch xét của phần đó vẫn còn để xét sau.</p>
                 <div class="srb-bulktable">${buckets.map(bucket => { const row = bucket[0], item = items.find(x => x.row.key === row.key).item;
-                    const id = bucketId(row), split = state.bulk.split.has(id), subjects = bucket.flatMap(r => r.subjects.map(s => ({ row: r, s })));
-                    const toggle = subjects.length > 1 ? `<button type="button" class="srb-btn srb-ghost srb-split" data-action="bulk-split" data-bucket="${esc(id)}">${split ? 'Gộp lại 1 mức' : 'Tách từng môn'}</button>` : '';
-                    if (!split) return `<div class="srb-bulkrow"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(subjects.map(x => x.s.name))].join(', '))}</small>${toggle}</span><span>${money(row.currentRate)} →</span><input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}"></div>`;
-                    return `<div class="srb-bulkrow srb-bulkrow-split"><span><strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>Mỗi môn một mức (đang ${money(row.currentRate)})</small>${toggle}</span>
-                        <div class="srb-subrates">${subjects.map(({ row: r, s }) => `<label><span>${esc(s.name)}</span><span>${money(s.rate ?? r.currentRate)} →</span><input type="number" data-bulk-subject="${esc(r.key + '|' + s.id)}" value="${esc(subjectRate(r, s.id))}" min="1" step="500" aria-label="Mức mới môn ${esc(s.name)}"></label>`).join('')}</div></div>`;
+                    const id = bucketId(row), split = state.bulk.split.has(id), skipped = state.bulk.skip.has(id), subjects = bucket.flatMap(r => r.subjects.map(s => ({ row: r, s })));
+                    const toggle = subjects.length > 1 && !skipped ? `<button type="button" class="srb-btn srb-ghost srb-split" data-action="bulk-split" data-bucket="${esc(id)}">${split ? 'Gộp lại 1 mức' : 'Tách từng môn'}</button>` : '';
+                    const pick = `<label class="srb-bulkpick"><input type="checkbox" data-bulk-skip="${esc(id)}" ${skipped ? '' : 'checked'}> Tăng</label>`;
+                    if (!split || skipped) return `<div class="srb-bulkrow${skipped ? ' srb-skipped' : ''}"><span>${pick}<strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>${esc([...new Set(subjects.map(x => x.s.name))].join(', '))}</small>${toggle}</span><span>${money(row.currentRate)} →</span>${skipped
+                        ? '<span class="srb-keep">Giữ nguyên</span>'
+                        : `<input type="number" data-bulk-rate="${esc(row.key)}" value="${esc(item.rate)}" min="1" step="500" aria-label="Mức mới của ${esc(row.name)} cho các môn giá ${esc(money(row.currentRate))}">`}</div>`;
+                    return `<div class="srb-bulkrow srb-bulkrow-split"><span>${pick}<strong>${esc(row.name)}</strong> <span class="srb-code">${esc(row.code)}</span><small>Mỗi môn một mức (đang ${money(row.currentRate)}). Bỏ tick môn không tăng.</small>${toggle}</span>
+                        <div class="srb-subrates">${subjects.map(({ row: r, s }) => { const k = r.key + '|' + s.id, kept = state.bulk.keep.has(k);
+                            return `<div class="srb-subrate${kept ? ' srb-skipped' : ''}"><span><label class="srb-bulkpick"><input type="checkbox" data-bulk-keep="${esc(k)}" ${kept ? '' : 'checked'} aria-label="Tăng môn ${esc(s.name)}"> ${esc(s.name)}</label></span><span>${money(s.rate ?? r.currentRate)} →</span>${kept
+                                ? '<span class="srb-keep">Giữ nguyên</span>'
+                                : `<input type="number" data-bulk-subject="${esc(k)}" value="${esc(subjectRate(r, s.id))}" min="1" step="500" aria-label="Mức mới môn ${esc(s.name)}">`}</div>`; }).join('')}</div></div>`;
                 }).join('')}</div>
                 <div class="srb-fields"><label>Áp dụng từ<select id="srb-bulk-month">${monthOptions(state.bulk.month)}</select></label>
                 <label class="srb-grow">Ghi chú chung (không bắt buộc)<input id="srb-bulk-note" value="${esc(state.bulk.note)}" maxlength="2000"></label></div>
                 ${backdatedHint(state.bulk.month)}
-                <div class="srb-actions"><button type="button" class="srb-btn srb-primary" data-action="bulk-apply">Duyệt ${items.length} mức</button><button type="button" class="srb-btn" data-action="bulk-cancel">Thôi</button></div></div>`;
+                <div class="srb-actions"><button type="button" class="srb-btn srb-primary" data-action="bulk-apply" ${active ? '' : 'disabled'}>${active ? 'Duyệt ' + active + ' mức' : 'Chưa chọn lớp nào để tăng'}</button><button type="button" class="srb-btn" data-action="bulk-cancel">Thôi</button></div></div>`;
         }
         if (!rows.length) return '';
         const unconfirmed = rows.filter(row => !row.confirmed).length;
@@ -868,14 +889,14 @@
         });
     }
     async function bulkApply() {
-        const items = state.bulk.items.slice(), month = state.bulk.month, note = state.bulk.note.trim();
+        const items = activeBulkItems(), month = state.bulk.month, note = state.bulk.note.trim();
         let done = 0; const failed = [], redo = new Set();
         for (const item of items) {
             const row = rowByKey(item.key);
             if (!row) continue;
             try {
                 const byRate = ratesBySubject(row, item), distinct = [...new Set(byRate.values())];
-                const results = distinct.length > 1
+                const results = distinct.length > 1 || distinct[0] === null
                     ? await approveSplit(row, byRate, { month, note })
                     : [await approve(row, { rate: distinct[0] ?? item.rate, month, note, baseline: row.baselineDate })];
                 if (results.some(result => result.redo.length)) redo.add(row.name);
@@ -897,14 +918,21 @@
         if (action === 'bulk-cancel') { state.bulk = null; render(); return; }
         if (action === 'bulk-increase') {
             if (!rows.length) return;
-            state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '', split: new Set(), subjectRates: {} };
+            state.bulk = newBulk(rows);
             render(); return;
         }
         if (action === 'bulk-apply') {
-            try {
-                state.bulk.items.forEach(item => { const row = rowByKey(item.key); if (row) ratesBySubject(row, item).forEach(rate => checkRate(rate, row)); });
-            } catch (error) { message(error.message, true); return; }
-            if (!backdatedConfirm(state.bulk.month, state.bulk.items.length + ' mức đã chọn')) return;
+            const active = activeBulkItems();
+            if (!active.length) { message('Chưa chọn lớp/môn nào để tăng. Tick "Tăng" ở dòng cần duyệt.', true); return; }
+            for (const item of active) {
+                const row = rowByKey(item.key);
+                try { ratesBySubject(row, item).forEach(rate => { if (rate !== null) checkRate(rate, row); }); }
+                catch (error) {
+                    message(`${row.name} (${row.subjects.map(s => s.name).join(', ')}): ${error.message} Nếu lớp này không tăng, bỏ tick "Tăng" ở dòng đó.`, true);
+                    return;
+                }
+            }
+            if (!backdatedConfirm(state.bulk.month, active.length + ' mức đã chọn')) return;
             withWrite(bulkApply); return;
         }
         if (action === 'bulk-defer') {
@@ -954,7 +982,7 @@
             if (!rows.length) return;
             if (action === 'teacher-setup') openSetup(rows.map(row => row.key), true);
             else {
-                state.bulk = { items: rows.map(row => ({ key: row.key, rate: row.nextRate ?? '' })), month: defaultMonth(), note: '', split: new Set(), subjectRates: {} };
+                state.bulk = newBulk(rows);
                 render(); $('srb-bulk').scrollIntoView({ block: 'start', behavior: 'smooth' });
             }
             return;
@@ -1007,6 +1035,8 @@
         }
         if (el.dataset.select) { el.checked ? state.selected.add(el.dataset.select) : state.selected.delete(el.dataset.select); render(); return; }
         if (el.id === 'srb-bulk-month' && state.bulk) { state.bulk.month = el.value; render(); return; }
+        if (el.dataset.bulkSkip && state.bulk) { el.checked ? state.bulk.skip.delete(el.dataset.bulkSkip) : state.bulk.skip.add(el.dataset.bulkSkip); render(); return; }
+        if (el.dataset.bulkKeep && state.bulk) { el.checked ? state.bulk.keep.delete(el.dataset.bulkKeep) : state.bulk.keep.add(el.dataset.bulkKeep); render(); return; }
         if (el.dataset.f === 'month' && el.dataset.key) { const row = rowByKey(el.dataset.key); if (row) { draftFor(row).month = el.value; render(); } }
     });
     $('srb-back').addEventListener('click', showBoard);

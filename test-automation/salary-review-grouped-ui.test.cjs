@@ -77,7 +77,54 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         await page.$eval('[data-bulk-rate="a|g0"]', el => { el.value = '28000'; el.dispatchEvent(new Event('input', { bubbles: true })); });
         assert.deepEqual(await page.evaluate(() => window.SalaryReviewBoard.state.bulk.items.map(i => [i.key, i.rate])),
             [['a|g0', '28000'], ['a|g1', 26000], ['a|g2', '28000']]);
-        await page.click('[data-action="bulk-cancel"]');
+        // Owner 08/11: "tăng lương 1 số lớp thôi" — untick a price bucket, or one subject after "Tách từng môn".
+        await page.evaluate(() => {
+            window.__prepared = []; window.__applied = 0; window.confirm = () => true;
+            window.SalaryReviewService.prepareApplication = async (staffId, groupId, options) => {
+                window.__prepared.push({ staffId, groupId, rate: options.newRate, subjects: options.selectedSubjectIds });
+                return { preview: { changes: [], clearedDrafts: [], followers: [] } };
+            };
+            window.SalaryReviewService.applyApplication = async () => { window.__applied++; };
+        });
+        await page.$eval('[data-bulk-skip="a|23000"]', el => el.click());
+        assert.equal(await page.$('[data-bulk-rate="a|g1"]'), null, 'unticked bucket hides its rate input');
+        assert.match(await page.$eval('[data-action="bulk-apply"]', el => el.textContent), /Duyệt 2 mức/);
+        await page.$eval('[data-action="bulk-split"][data-bucket="a|22000"]', el => el.click());
+        await page.$eval('[data-bulk-keep="a|g2|s2"]', el => el.click());
+        assert.match(await page.$eval('[data-action="bulk-apply"]', el => el.textContent), /Duyệt 1 mức/);
+        fs.mkdirSync(path.join(root, 'scratch'), { recursive: true });
+        await (await page.$('#srb-bulk')).screenshot({ path: path.join(root, 'scratch/salary-review-partial-bulk.png') });
+        await page.$eval('[data-bulk-keep="a|g0|s0"]', el => el.click());
+        assert.equal(await page.$eval('[data-action="bulk-apply"]', el => el.disabled), true, 'nothing ticked → cannot approve');
+        await page.$eval('[data-bulk-keep="a|g0|s0"]', el => el.click());
+        // A kept bucket with an unchanged price must not block the others (the 100.000đ → 100000 error).
+        await page.$eval('[data-action="bulk-apply"]', el => el.click());
+        await page.waitForFunction(() => !window.SalaryReviewBoard.state.busy && !window.SalaryReviewBoard.state.bulk);
+        assert.deepEqual(await page.evaluate(() => window.__prepared), [{ staffId: 'a', groupId: 'g0', rate: 28000, subjects: ['s0'] }],
+            'only the ticked class is approved; unticked ones keep their price');
+        assert.equal(await page.evaluate(() => window.__applied), 1);
+        // One price group with two subjects: raise only one of them → group split, kept part not approved.
+        await page.evaluate(() => {
+            window.__prepared = []; window.__savedProfiles = [];
+            const base = { staffId: 'c', name: 'Lê Văn C', code: 'C05', msnv: '05', confirmed: true, baselineDate: '2026-07-01', nextRate: 34000,
+                currentRate: 30000, evaluation: { dueDate: '2026-10-01', visibleThisMonth: true, overdue: true }, category: 'due', stats: { observed: 3, averageHours: 20 }, attendance: 90 };
+            window.__profile = { staffId: 'c', revision: 1, personOverrides: {}, groups: [{ id: 'g5', name: 'Tiếng Anh', subjectIds: ['s5', 's6'], currentRate: 30000,
+                baselineDate: '2026-07-01', confirmed: true, enabled: true, cycleMonths: 6 }] };
+            window.SalaryReviewBoard.state.rows = [{ ...base, key: 'c|g5', group: structuredClone(window.__profile.groups[0]),
+                subjects: [{ id: 's5', name: 'Flyer 1', rate: 30000 }, { id: 's6', name: 'Flyer 2', rate: 30000 }] }];
+            window.SalaryReviewBoard.render();
+        });
+        await page.$eval('[data-action="teacher-increase"][data-staff="c"]', el => el.click());
+        await page.$eval('[data-action="bulk-split"][data-bucket="c|30000"]', el => el.click());
+        await page.$eval('[data-bulk-keep="c|g5|s6"]', el => el.click());
+        await page.$eval('[data-action="bulk-apply"]', el => el.click());
+        await page.waitForFunction(() => !window.SalaryReviewBoard.state.busy && !window.SalaryReviewBoard.state.bulk);
+        const split = await page.evaluate(() => ({ prepared: window.__prepared,
+            groups: window.__profile.groups.map(g => ({ id: g.id.startsWith('g5:tach-') ? 'new' : g.id, subjects: g.subjectIds, rate: g.currentRate, cycle: g.cycleMonths })) }));
+        assert.deepEqual(split.prepared, [{ staffId: 'c', groupId: 'g5', rate: 34000, subjects: ['s5'] }], 'only Flyer 1 is approved');
+        assert.deepEqual(split.groups, [{ id: 'g5', subjects: ['s5'], rate: 30000, cycle: 6 }, { id: 'new', subjects: ['s6'], rate: 30000, cycle: 6 }],
+            'Flyer 2 keeps its price in its own review group with the same cycle');
+        await page.evaluate(() => { window.SalaryReviewBoard.state.rows = window.__fixtureRows; window.SalaryReviewBoard.render(); });
         await page.click('[data-key="a|g0"][data-action="toggle"]');
         assert.equal(await page.$eval('.srb-panel', el => el.textContent.includes('Mover 1')), true);
         assert.equal(await page.$eval('.srb-panel', el => el.textContent.includes('Nhảy:')), false, 'approval preview stays scoped to the chosen group');
