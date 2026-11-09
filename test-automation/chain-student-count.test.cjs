@@ -31,3 +31,17 @@ const raw = report.match(/getTeachingPayAllocations\(chip, segName, segMins/g) |
 assert.equal(raw.length, 0, 'no chained loop may pass the whole-session student count to every class');
 assert.equal((report.match(/chipForStudentCountSegment\(chip, chip\.mergedSegments, sIdx\)/g) || []).length, 4);
 console.log('chain-student-count.test.cjs: all assertions passed');
+
+// Phiếu GV đã tính trước luật mới = đã chốt: tính lại vẫn áp sĩ số cho cả chuỗi như cũ.
+assert.equal(r.useChainStudentCountRule(null), true, 'not calculated yet → new rule');
+assert.equal(r.useChainStudentCountRule({ details_gv: { netPay: 1 } }), false, 'saved before v276 → old rule kept');
+assert.equal(r.useChainStudentCountRule({ details_gv: { netPay: 1, chainStudentCountRule: 1 } }), true);
+assert.equal(r.useChainStudentCountRule({ role: 'giao-vien', details: { netPay: 1 } }), false, 'legacy single-role payslip');
+assert.equal(r.useChainStudentCountRule({ role: 'tiep-tan', details: { netPay: 1 } }), true, 'reception-only payslip does not lock GV rule');
+const chip = { studentCount: 14, studentCountStatus: 'approved' };
+r.window.currentMonthlySalarySettingsAll = { published: { details_gv: { netPay: 1 } } };
+assert.equal(r.chipForStudentCountSegment(chip, segs, 1).studentCount, 14, 'locked month: NV6 keeps old (+14 HS) so totals match the saved payslip');
+r.window.currentMonthlySalarySettingsAll = { published: {} };
+assert.equal(r.chipForStudentCountSegment(chip, segs, 1).studentCount, null, 'open month: NV6 gets normal rate');
+assert.ok(report.includes("chainStudentCountRule: (typeof useChainStudentCountRule !== 'function' || useChainStudentCountRule()) ? 1 : 0"), 'saved payslip records which rule it used');
+console.log('chain-student-count.test.cjs: lock gate passed');

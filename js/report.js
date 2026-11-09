@@ -1565,6 +1565,9 @@ async function _renderMonthReport(date, forceServer = false) {
     const early10RejectedCount = bonus10RequestsList.filter(req => req.status === 'rejected').length;
     const monthFlags = {
         early10PenaltyActive,
+        // Ẩn chip "Vắng" ca con đã có phiên khác phủ — chỉ khi tháng này CHƯA có phiếu lương
+        // nào được tính, để số ca vắng trên phiếu đã chốt không đổi khi mở lại.
+        hideCoveredSplitAbsent: !hasAnySavedPayslipDetails(currentMonthlySalarySettingsAll?.published),
         // Read-only migration bridge for already-approved legacy requests.
         // The evaluator still requires a unique schedule row and a real >=10m
         // early check-in; an orphan attendance flag is never sufficient.
@@ -3489,9 +3492,30 @@ function studentCountSegmentIndexes(segments) {
     return new Set(keys.map((key, i) => (key === chosenKey ? i : -1)).filter(i => i >= 0));
 }
 
+// Phiếu GV đã tính (lưu) TRƯỚC luật này là đã chốt: tính lại tháng đó vẫn ra đúng số cũ.
+// Chỉ phiếu chưa tính, hoặc phiếu lưu bằng luật mới (cờ chainStudentCountRule), mới tách sĩ số.
+function useChainStudentCountRule(published) {
+    const pub = published !== undefined ? published
+        : (typeof window !== 'undefined' ? window.currentMonthlySalarySettingsAll?.published : null);
+    if (!pub || typeof pub !== 'object') return true;
+    const gv = pub.details_gv || (pub.role !== 'tiep-tan' && pub.role !== 'dual' ? pub.details : null);
+    if (!gv) return true;
+    return Number(gv.chainStudentCountRule) >= 1;
+}
+
+function hasAnySavedPayslipDetails(published) {
+    if (!published || typeof published !== 'object') return false;
+    return !!(published.details_gv || published.details_tt || published.details);
+}
+
+function isStudentCountSegment(chip, segments, segIndex) {
+    if (!useChainStudentCountRule()) return true;
+    return studentCountSegmentIndexes(segments).has(segIndex);
+}
+
 function chipForStudentCountSegment(chip, segments, segIndex) {
     if (!chip || !(Number(chip.studentCount) > 0)) return chip;
-    return studentCountSegmentIndexes(segments).has(segIndex) ? chip : { ...chip, studentCount: null };
+    return isStudentCountSegment(chip, segments, segIndex) ? chip : { ...chip, studentCount: null };
 }
 // PAYROLL HOUR ALLOCATION HELPERS END
 
@@ -8365,7 +8389,7 @@ async function populateModalCurrentTab() {
                         trackPayrollRateGroupChip(groups, segName, chip);
 
                         // Vẫn hiện dòng "(+N HS)" để cấu hình đơn giá, nhưng giờ chỉ nằm ở 1 dòng.
-                        if (chip.studentCount && chip.studentCount > 0 && studentCountSegmentIndexes(chip.mergedSegments).has(sIdx)) {
+                        if (chip.studentCount && chip.studentCount > 0 && isStudentCountSegment(chip, chip.mergedSegments, sIdx)) {
                             trackPayrollRateGroupChip(groups, `${segName} (+${chip.studentCount} HS)`, chip);
                         }
                         getTeachingPayAllocations(chipForStudentCountSegment(chip, chip.mergedSegments, sIdx), segName, segMins, 0, classRates, classRatePenaltyActive)
@@ -11500,6 +11524,8 @@ function getCurrentCalculationPayload(role) {
     
     const details = {
         role: role,
+        // 1 = sĩ số của lần chấm nối nhiều lớp chỉ tính cho 1 lớp (v275+). Không có cờ = phiếu cũ đã chốt.
+        ...(role === 'giao-vien' ? { chainStudentCountRule: (typeof useChainStudentCountRule !== 'function' || useChainStudentCountRule()) ? 1 : 0 } : {}),
         staffName: staffName,
         employeeId: (window.currentUserContext?.username || '').toUpperCase(),
         baseSalary: roundedBaseSalary,

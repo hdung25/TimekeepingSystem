@@ -2904,8 +2904,31 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 // Chỉ tách khi vừa có ca con làm, vừa có ca con vắng (tránh làm hỏng dữ liệu).
                 if (_absentStarts.size > 0 && _workedSegs.length > 0 && _absentSegs.length > 0) {
                     _splitAbsentStartsForChip = _absentSegs.map(s => s.start);
+                    // Ca con "vắng" theo phiên chính nhưng đã có PHIÊN KHÁC phủ (VD admin tạo công tay
+                    // 18:00–21:30 cho thu ngân) thì không hiện thêm chip Vắng. Chỉ bật khi trang báo cáo
+                    // xác nhận tháng này CHƯA tính lương (phiếu đã tính là đã chốt, số vắng giữ nguyên);
+                    // admin đã tick ca con vắng bằng tay thì luôn giữ.
+                    const _coveredByOtherSession = (seg) => {
+                        if (!monthFlags || monthFlags.hideCoveredSplitAbsent !== true) return false;
+                        if (Array.isArray(matchedSession.absentSubShifts)) return false;
+                        const [_sh, _sm] = String(seg.start).split(':').map(Number);
+                        const [_eh, _em] = String(seg.end).split(':').map(Number);
+                        const segStart = new Date(_ry, _rm - 1, _rd, _sh, _sm, 0, 0);
+                        const segEnd = new Date(_ry, _rm - 1, _rd, _eh, _em, 0, 0);
+                        const segMs = segEnd - segStart;
+                        if (!(segMs > 0)) return false;
+                        return (attendanceSessions || []).some(s => {
+                            if (!s || s.id === matchedSession.id || s.isAbsent) return false;
+                            const ci = safeDate(s.checkIn || s.start);
+                            const co = safeDate(s.checkOut);
+                            if (!ci || !co) return false;
+                            const overlap = Math.min(co.getTime(), segEnd.getTime()) - Math.max(ci.getTime(), segStart.getTime());
+                            return overlap * 2 >= segMs;
+                        });
+                    };
                     // 1) Mỗi ca con bị vắng → 1 chip Vắng riêng
                     _absentSegs.forEach(seg => {
+                        if (_coveredByOtherSession(seg)) return;
                         chips.push({
                             text: `${labelShort} ${seg.start}–${seg.end}${branchShortR} (${operationalLabel}) (Vắng)`,
                             class: 'chip-gray',
