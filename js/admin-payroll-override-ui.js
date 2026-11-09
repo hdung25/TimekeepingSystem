@@ -612,12 +612,16 @@
         }
         if (mode === 'actual' && (state.classChain || []).length >= 2) {
             // Xem trước đúng cách chia với giờ Vào/Ra đang gõ trong popup.
-            const clockOf = id => String(document.getElementById(id)?.value || '').trim().match(/^(\d{1,2}):(\d{2})/);
-            const inMatch = clockOf('edit-check-in'), outMatch = clockOf('edit-check-out');
-            const pad = m => `${String(m[1]).padStart(2, '0')}:${m[2]}`;
+            // Ô giờ của popup có thể là "HH:mm" hoặc "YYYY-MM-DDTHH:mm" (ca qua đêm mang ngày khác).
+            const clockOf = id => {
+                const value = String(document.getElementById(id)?.value || '').trim();
+                const match = value.match(/^(?:(\d{4}-\d{2}-\d{2})[T\s])?(\d{1,2}):(\d{2})/);
+                return match ? `${match[1] || state.dateKey}T${match[2].padStart(2, '0')}:${match[3]}` : '';
+            };
+            const inAt = clockOf('edit-check-in'), outAt = clockOf('edit-check-out');
             const union = Array.from(new Set(state.classChain.flatMap(chainIdsOf)));
-            const split = inMatch && outMatch ? splitByClassChain({ kind: 'teaching', id: 'xem-truoc', subjectIds: union,
-                fromISO: `${state.dateKey}T${pad(inMatch)}`, toISO: `${state.dateKey}T${pad(outMatch)}`, scheduleRef: null }) : null;
+            const split = inAt && outAt ? splitByClassChain({ kind: 'teaching', id: 'xem-truoc', subjectIds: union,
+                fromISO: inAt, toISO: outAt, scheduleRef: null }) : null;
             const hm = (from, to) => { const minutes = Math.round((new Date(to) - new Date(from)) / 60000); return `${Math.floor(minutes / 60)}h${minutes % 60 ? String(minutes % 60).padStart(2, '0') : ''}`; };
             const lines = split
                 ? split.map(part => `<li><b>${escapeHtml(part.roleName)}</b> ${escapeHtml(toLocalInput(part.fromISO, state.dateKey).slice(11))}–${escapeHtml(toLocalInput(part.toISO, state.dateKey).slice(11))} (${hm(part.fromISO, part.toISO)})</li>`).join('')

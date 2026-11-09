@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v270-flex-split-20261109';
+const APP_RELEASE = 'tdt-chamcong-v271-preview-time-20261109';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -65,7 +65,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/payroll-review.js?v=20260912-payroll-recall-v1',
     '/js/shift-absence-state.js?v=20261006-sub-dropout-v1',
     '/js/admin-payroll-override.js?v=20261023-late-fix-v1',
-    '/js/admin-payroll-override-ui.js?v=20261109-flex-split-v1',
+    '/js/admin-payroll-override-ui.js?v=20261109-preview-time-v1',
     '/js/shift-oversight.js?v=20261102-closed-class-grace-v1',
     '/js/ui-service.js?v=20260912-schedule-blank-guard-v1',
     '/js/early10.js?v=20261023-late-fix-v1',

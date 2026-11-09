@@ -117,7 +117,7 @@ assert.equal(evalContext.legacyClassChain(dateKey, session, 'someone-else').leng
             document.getElementById('apo-mode').value = 'actual';
             window.AdminPayrollOverrideUI.refreshPreview();
             const preview = document.getElementById('apo-preview').textContent;
-            const input = document.getElementById('edit-check-out'); input.value = '20:00'; input.dispatchEvent(new Event('input'));
+            const input = document.getElementById('edit-check-out'); input.value = dateKey + 'T20:00'; input.dispatchEvent(new Event('input'));
             const previewAfter = document.getElementById('apo-preview').textContent;
             document.getElementById('apo-reason').value = 'Chia lại theo lớp';
             const draft = window.AdminPayrollOverrideUI.buildDraft({ selectedRoleId: 'giao-vien', isTeaching: true,
