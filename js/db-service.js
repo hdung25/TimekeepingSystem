@@ -4082,6 +4082,87 @@ const DBService = {
         }, options);
     },
 
+    // Report deletion commits attendance, cancellation and roster together.
+    // All reads precede writes; a rejected write leaves every document intact.
+    deleteReportShift: async (userId, dateKey, sessionId, targets = []) => {
+        if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) throw new Error('Thiếu nhân viên hoặc ngày cần xóa.');
+        const realSession = sessionId != null && !['', 'NEW', 'null', 'undefined'].includes(String(sessionId));
+        if (!realSession && !targets.length) throw new Error('Không xác định được ca cần xóa.');
+        targets.forEach(target => {
+            if (!target.compositeKey || !target.sectionKey || String(target.index) === '') throw new Error('Thiếu liên kết lịch của ca cần xóa.');
+            if (target.kind !== 'teaching' && (!['receptionist', 'office'].includes(target.kind) ||
+                !['morning', 'afternoon', 'evening'].includes(target.sectionKey) ||
+                !['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(String(target.index)))) {
+                throw new Error('Liên kết ca không hợp lệ. Vui lòng tải lại bảng công.');
+            }
+        });
+        const month = dateKey.slice(0, 7);
+        const attendanceRef = db.collection('attendance_logs').doc(dateKey + '_' + userId);
+        const cancelRef = db.collection('cancelled_shifts').doc(month + '_' + userId);
+        const rosterRefs = new Map();
+        targets.filter(t => t.kind !== 'teaching').forEach(target => {
+            const collection = target.kind === 'office' ? 'office_schedules' : 'receptionist_schedules';
+            const key = collection + '/' + target.compositeKey;
+            if (!rosterRefs.has(key)) rosterRefs.set(key, db.collection(collection).doc(target.compositeKey));
+        });
+        await db.runTransaction(async transaction => {
+            const attendance = realSession ? await transaction.get(attendanceRef) : null;
+            const cancelled = targets.length ? await transaction.get(cancelRef) : null;
+            const rosters = new Map();
+            for (const [key, ref] of rosterRefs) {
+                const doc = await transaction.get(ref);
+                rosters.set(key, { ref, data: doc.exists ? doc.data() : null, changed: false });
+            }
+            if (attendance?.exists) {
+                const data = attendance.data();
+                const sessions = Array.isArray(data.sessions) ? data.sessions : (data.checkIn ?
+                    [{ id: 'legacy', start: data.checkIn, checkIn: data.checkIn, checkOut: data.checkOut || null }] : []);
+                const remaining = sessions.filter(session => String(session.id) !== String(sessionId));
+                if (remaining.length !== sessions.length) {
+                    const last = remaining[remaining.length - 1];
+                    transaction.update(attendanceRef, { sessions: remaining,
+                        checkIn: last?.checkIn || last?.start || null,
+                        checkOut: last?.checkOut || null,
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp() });
+                }
+            }
+            if (targets.length) {
+                const shifts = new Set(cancelled?.exists ? (cancelled.data().shifts || []) : []);
+                targets.forEach(target => {
+                    // Operational evaluation uses one underscore between branch and Monday.
+                    const composite = target.kind === 'teaching' ? target.compositeKey :
+                        (target.kind === 'office' ? 'office_' : '') + target.compositeKey.replace('__', '_');
+                    shifts.add(composite + '_' + target.sectionKey + '_' + target.index);
+                    if (target.kind === 'teaching') return; // Teaching assignments remain in the historical schedule.
+                    const collection = target.kind === 'office' ? 'office_schedules' : 'receptionist_schedules';
+                    const roster = rosters.get(collection + '/' + target.compositeKey);
+                    const list = roster.data?.[target.sectionKey]?.[target.index];
+                    if (!Array.isArray(list)) return;
+                    const remaining = list.filter(staff => String(staff.id) !== String(userId));
+                    if (remaining.length !== list.length) {
+                        roster.data[target.sectionKey][target.index] = remaining;
+                        roster.changed = true;
+                    }
+                });
+                transaction.set(cancelRef, { userId, month, shifts: [...shifts],
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                for (const roster of rosters.values()) {
+                    if (!roster.changed) continue;
+                    transaction.set(roster.ref, { ...roster.data,
+                        _revision: (Number.isInteger(roster.data._revision) ? roster.data._revision : 0) + 1,
+                        _updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        _updatedBy: localStorage.getItem('currentUserId') || null });
+                }
+            }
+        });
+        DBService._invalidateAttendance(dateKey, userId);
+        DBService._invalidate('cancelled_shifts_' + month + '_' + userId);
+        DBService._invalidate('monthly_operational_shifts_' + month + '_' + userId);
+        targets.forEach(target => {
+            if (target.kind !== 'teaching') DBService._invalidate(target.kind + '_schedule_' + target.compositeKey);
+        });
+    },
+
     deleteSession: async (userId, dateKey, sessionId) => {
         const docId = `${dateKey}_${userId}`;
         const ref = db.collection('attendance_logs').doc(docId);
@@ -4121,8 +4202,8 @@ const DBService = {
                 // Just keep last session's status or reset
                 const lastSession = data.sessions[data.sessions.length - 1];
                 if (lastSession) {
-                    data.checkIn = lastSession.checkIn;
-                    data.checkOut = lastSession.checkOut;
+                    data.checkIn = lastSession.checkIn || lastSession.start || null;
+                    data.checkOut = lastSession.checkOut || null;
                 } else {
                     data.checkIn = null;
                     data.checkOut = null;

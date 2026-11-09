@@ -2825,7 +2825,8 @@ async function _renderMonthReport(date, forceServer = false) {
                                 chip.classCompositeKey,
                                 chip.classSectionKey,
                                 chip.classIndex,
-                                chip.isOffice ? 'office' : (chip.isReceptionist ? true : false)
+                                chip.isOffice ? 'office' : (chip.isReceptionist ? true : false),
+                                chip
                             );
                         }
                     }
@@ -5789,8 +5790,19 @@ async function populateRoleDropdown(staffId, selectElementId, currentRoleId = nu
     }
 }
 
-async function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false) {
+function reportDeleteTargets(chip, compositeKey, sectionKey, index, kind) {
+    const sourceSegments = chip?.reportDeleteSegments || chip?.mergedSegments;
+    const segments = kind !== 'teaching' && Array.isArray(sourceSegments) ? sourceSegments : [];
+    const targets = segments.length ? segments.map(seg => ({
+        compositeKey: seg.documentKey || compositeKey, sectionKey: seg.shiftKey || sectionKey,
+        index: seg.dayKey || index, kind
+    })) : (compositeKey && sectionKey && String(index) !== '' ? [{ compositeKey, sectionKey, index, kind }] : []);
+    return targets.filter((target, i) => targets.findIndex(other => JSON.stringify(other) === JSON.stringify(target)) === i);
+}
+
+async function openManualModal(dateKey, preFill = null, classCompositeKey = '', classSectionKey = '', classIndex = '', isLinkable = false, deleteChip = null) {
     const linkType = isLinkable === 'office' ? 'office' : (isLinkable ? 'receptionist' : 'teaching');
+    window.currentReportDeleteTargets = reportDeleteTargets(deleteChip, classCompositeKey, classSectionKey, classIndex, linkType);
     window.currentAdminPayrollEditContext = null;
     if (window.AdminPayrollOverrideUI) window.AdminPayrollOverrideUI.close();
     document.getElementById('edit-time-modal').style.display = 'flex';
@@ -6020,6 +6032,7 @@ async function openManualModal(dateKey, preFill = null, classCompositeKey = '', 
 
 async function openEditModal(dateKey, sessionId, chip, classStart, classCompositeKey, classSectionKey, classIndex, isReceptionist) {
     const linkType = isReceptionist === 'office' ? 'office' : (isReceptionist ? 'receptionist' : 'teaching');
+    window.currentReportDeleteTargets = reportDeleteTargets(chip, classCompositeKey, classSectionKey, classIndex, linkType);
     const sessionData = chip.sessionData || chip;
     document.getElementById('edit-time-modal').style.display = 'flex';
     document.getElementById('edit-date-key').value = dateKey;
@@ -7228,6 +7241,7 @@ window.modalStudentCountAction = async function(action, dateKey, sessionId) {
 };
 
 async function deleteSessionFromModal() {
+    if (deleteSessionFromModal.pending) return;
     // Remove confirmation popup as requested by user
     // if (!confirm("Bạn có chắc chắn muốn xóa phiên làm việc này không? Ca làm việc sẽ bị xóa hoàn toàn khỏi bảng.")) return;
 
@@ -7235,8 +7249,6 @@ async function deleteSessionFromModal() {
     const staffName = getTargetStaffName();
     const dateKey = document.getElementById('edit-date-key').value;
     const sessionId = document.getElementById('edit-session-id').value;
-    const parsedSessionId = isNaN(sessionId) ? sessionId : Number(sessionId);
-
     // Class unregistration metadata
     const classCompositeKey = document.getElementById('edit-class-composite-key').value;
     const classSectionKey = document.getElementById('edit-class-section-key').value;
@@ -7244,50 +7256,33 @@ async function deleteSessionFromModal() {
     const isReceptionistStr = document.getElementById('edit-class-is-receptionist').value;
 
     try {
+        deleteSessionFromModal.pending = true;
         console.log("[DeleteSession] Starting deletion process...");
         console.log("[DeleteSession] Values:", { staffId, dateKey, sessionId, classCompositeKey, classSectionKey, classIndexRaw, isReceptionistStr });
 
-        // Only attempt to delete an attendance session if one actually exists
-        if (sessionId && sessionId !== 'NEW' && String(sessionId) !== 'null') {
-            console.log("[DeleteSession] Deleting attendance session:", parsedSessionId);
-            await DBService.deleteSession(staffId, dateKey, parsedSessionId);
-        }
-
-        // Unregister from class if linked
-        if (classCompositeKey && classSectionKey && classIndexRaw !== '') {
-            console.log("[DeleteSession] Unregistering from class...");
-            const monthStr = dateKey.substring(0, 7);
-            const cancelCompositeKey = `${isReceptionistStr === 'office' ? 'office_' : ''}${String(classCompositeKey)}`;
-            const cancelKey = `${cancelCompositeKey}_${classSectionKey}_${classIndexRaw}`;
-
-            // 1. Ghi log huỷ ca vào DBService (BƯỚC QUAN TRỌNG NHẤT)
-            await DBService.cancelShift(monthStr, staffId, cancelKey);
-
-            if (isReceptionistStr === 'true') {
-                // Delete from receptionist schedule
-                await DBService.unassignReceptionist(classCompositeKey, classSectionKey, classIndexRaw, staffId);
-            } else if (isReceptionistStr === 'office') {
-                await DBService.unassignOfficeStaff(classCompositeKey, classSectionKey, classIndexRaw, staffId);
-            } else {
-                // Teaching assignments remain in the historical schedule. The
-                // cancelled-shift tombstone above hides only this employee's
-                // report chip and can be restored without mutating/toggling the
-                // separate self-registration record.
-            }
-        }
+        const kind = isReceptionistStr === 'office' ? 'office' : (isReceptionistStr === 'true' ? 'receptionist' : 'teaching');
+        const targets = window.currentReportDeleteTargets || reportDeleteTargets(null, classCompositeKey, classSectionKey, classIndexRaw, kind);
+        // Teaching assignments remain in the historical schedule.
+        await DBService.deleteReportShift(staffId, dateKey, sessionId, targets);
 
         // Send notification to staff
-        await DBService.createAdminNotification(
-            staffId, staffName, 'delete_session', dateKey,
-            `Admin đã xóa một ca làm việc ngày ${dateKey}`
-        );
+        try {
+            await DBService.createAdminNotification(
+                staffId, staffName, 'delete_session', dateKey,
+                `Admin đã xóa một ca làm việc ngày ${dateKey}`
+            );
+        } catch (notificationError) {
+            console.warn('[DeleteSession] Notification failed after deletion', notificationError);
+        }
         alert("Đã xóa hoàn toàn!");
         closeEditModal();
         _cachedStaffId = null; // Force re-fetch from Firestore
         renderMonthReport(currentDate, true); // true = bypass Firestore cache
-        localStorage.setItem('schedule_registration_updated', Date.now().toString());
+        try { localStorage.setItem('schedule_registration_updated', Date.now().toString()); } catch (_) { /* refresh hint only */ }
     } catch (e) {
         alert("Lỗi xóa: " + e.message);
+    } finally {
+        deleteSessionFromModal.pending = false;
     }
 }
 

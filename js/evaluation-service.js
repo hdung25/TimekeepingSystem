@@ -324,7 +324,8 @@ function mergeAdjacentShifts(shifts) {
                 start: prev.start,
                 end: prev.end,
                 schedMinutes: timeStrToMin(prev.end) - timeStrToMin(prev.start),
-                isFixedShift: prev.isFixedShift
+                isFixedShift: prev.isFixedShift,
+                documentKey: prev.documentKey, shiftKey: prev.shift, dayKey: prev.dayKey
             }];
             merged[merged.length - 1] = {
                 ...prev,
@@ -337,7 +338,8 @@ function mergeAdjacentShifts(shifts) {
                         start: curr.start,
                         end: curr.end,
                         schedMinutes: timeStrToMin(curr.end) - timeStrToMin(curr.start),
-                        isFixedShift: curr.isFixedShift
+                        isFixedShift: curr.isFixedShift,
+                        documentKey: curr.documentKey, shiftKey: curr.shift, dayKey: curr.dayKey
                     }
                 ]
             };
@@ -2805,6 +2807,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
+                    reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
                     classIndex: dayKeyLocal,
                     isFixedShift: rs.isFixedShift,
                     bonus10Status: null
@@ -2847,6 +2850,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
+                    reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
                     classIndex: dayKeyLocal,
                     isFixedShift: rs.isFixedShift,
                     mergedSegments: rs.mergedSegments || null,
@@ -2905,14 +2909,15 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                             tooltip: 'Tách ca gộp: ca con này VẮNG (theo giờ chấm công / đánh dấu tay)',
                             sessionId: null,
                             schedData: { start: seg.start, end: seg.end },
-                            isClickable: false,
+                            isClickable: true,
                             isWarning: true,
                             isReceptionist: true,
                             isOffice: isOfficeShift,
                             isSplitAbsent: true,
                             chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                             classCompositeKey: compositeKeyLocal,
-                            classSectionKey: rs.shift,
+                            classSectionKey: seg.shiftKey || rs.shift,
+                            reportDeleteSegments: [seg],
                             classIndex: dayKeyLocal,
                             isFixedShift: seg.isFixedShift
                         });
@@ -2924,6 +2929,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     rs.start = _workedStart;
                     rs.end = _workedEnd;
                     rs.mergedSegments = _workedSegs.length > 1 ? _workedSegs : null;
+                    rs.reportDeleteSegments = _workedSegs;
                     const [_wsH, _wsM] = _workedStart.split(':').map(Number);
                     const [_weH, _weM] = _workedEnd.split(':').map(Number);
                     schedStart = new Date(_ry, _rm - 1, _rd, _wsH, _wsM, 0, 0);
@@ -3175,6 +3181,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                 classCompositeKey: compositeKeyLocal,
                 classSectionKey: rs.shift,
+                reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
                 classIndex: dayKeyLocal,
                 overtimeId: otIdR,
                 overtimePending: otPendingR,
@@ -3210,6 +3217,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                     classCompositeKey: compositeKeyLocal,
                     classSectionKey: rs.shift,
+                    reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
+                    mergedSegments: rs.mergedSegments || null,
                     classIndex: dayKeyLocal,
                     isFixedShift: rs.isFixedShift
                 });
@@ -3239,6 +3248,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                         classCompositeKey: compositeKeyLocal,
                         classSectionKey: rs.shift,
+                        reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
+                        mergedSegments: rs.mergedSegments || null,
                         classIndex: dayKeyLocal,
                         isFixedShift: rs.isFixedShift,
                         isCancelled: true,
@@ -3266,6 +3277,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                             chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                             classCompositeKey: compositeKeyLocal,
                             classSectionKey: rs.shift,
+                            reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
+                            mergedSegments: rs.mergedSegments || null,
                             classIndex: dayKeyLocal,
                             isFixedShift: rs.isFixedShift
                         });
@@ -3284,6 +3297,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                             chipFilterName: normalizeChipFilterName(rs.label ? operationalLabel + ' (' + rs.label + ')' : operationalLabel),
                             classCompositeKey: compositeKeyLocal,
                             classSectionKey: rs.shift,
+                            reportDeleteSegments: rs.reportDeleteSegments || rs.mergedSegments || null,
+                            mergedSegments: rs.mergedSegments || null,
                             classIndex: dayKeyLocal,
                             isFixedShift: rs.isFixedShift
                         });
