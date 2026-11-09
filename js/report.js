@@ -3486,7 +3486,9 @@ function studentCountSegmentIndexes(segments) {
     let bestCount = -1;
     list.forEach((seg, i) => {
         const planned = Number(seg?.soHS);
-        const count = Number.isFinite(planned) && planned > 0 ? planned : 0;
+        // Lịch để trống Số HS (0) = chưa biết, coi như lớp trung bình (5) — để lớp ghi rõ 1–2 bé
+        // không thắng lớp chưa ghi số (VD E6 trống → Pre I1 2 bé: sĩ số thuộc E6).
+        const count = Number.isFinite(planned) && planned > 0 ? planned : 5;
         if (count > bestCount) { bestCount = count; chosenKey = keys[i]; }
     });
     return new Set(keys.map((key, i) => (key === chosenKey ? i : -1)).filter(i => i >= 0));
@@ -3508,8 +3510,9 @@ function hasAnySavedPayslipDetails(published) {
     return !!(published.details_gv || published.details_tt || published.details);
 }
 
+// 10/11/2026 owner: sĩ số GV nhập chỉ tính đúng giờ của 1 ca/môn cho MỌI phiếu (kể cả phiếu đã
+// tính trước đó — admin đã tính lại các phiếu nháp bị ảnh hưởng). Không còn giữ luật cũ.
 function isStudentCountSegment(chip, segments, segIndex) {
-    if (!useChainStudentCountRule()) return true;
     return studentCountSegmentIndexes(segments).has(segIndex);
 }
 

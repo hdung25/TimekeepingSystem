@@ -40,7 +40,7 @@ assert.equal(r.useChainStudentCountRule({ role: 'giao-vien', details: { netPay: 
 assert.equal(r.useChainStudentCountRule({ role: 'tiep-tan', details: { netPay: 1 } }), true, 'reception-only payslip does not lock GV rule');
 const chip = { studentCount: 14, studentCountStatus: 'approved' };
 r.window.currentMonthlySalarySettingsAll = { published: { details_gv: { netPay: 1 } } };
-assert.equal(r.chipForStudentCountSegment(chip, segs, 1).studentCount, 14, 'locked month: NV6 keeps old (+14 HS) so totals match the saved payslip');
+assert.equal(r.chipForStudentCountSegment(chip, segs, 1).studentCount, null, 'owner 10/11: already-calculated months also count only one class');
 r.window.currentMonthlySalarySettingsAll = { published: {} };
 assert.equal(r.chipForStudentCountSegment(chip, segs, 1).studentCount, null, 'open month: NV6 gets normal rate');
 assert.ok(report.includes("chainStudentCountRule: (typeof useChainStudentCountRule !== 'function' || useChainStudentCountRule()) ? 1 : 0"), 'saved payslip records which rule it used');

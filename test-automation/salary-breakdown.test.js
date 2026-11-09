@@ -215,6 +215,10 @@ function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 1000
     // Không có số kế hoạch (lịch ghi 0) hoặc hòa: lớp đầu chuỗi.
     assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'A' }, { lop: 'B', soHS: 0 }])], [0]);
     assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'A', soHS: 5 }, { lop: 'B', soHS: 5 }])], [0]);
+    // Lịch trống Số HS (chưa biết) thắng lớp ghi rõ 1–2 bé; nhưng thua lớp ghi rõ 9 bé.
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'E6', soHS: 0 }, { lop: 'Pre I1', soHS: 2 }])], [0]);
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'E4', soHS: 9 }, { lop: 'TV5', soHS: 0 }])], [0]);
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'Toán 5', soHS: 8 }, { lop: 'Toán 3', soHS: 14 }])], [1]);
     // A → B → A: sĩ số theo lớp A cho cả 2 khung của A.
     assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'A', soHS: 12 }, { lop: 'B', soHS: 2 }, { lop: 'A', soHS: 12 }])], [0, 2]);
     // Ca đơn / không có sĩ số: giữ nguyên chip.
