@@ -11,7 +11,8 @@
         chip: null,
         user: null,
         subjects: [],
-        allocations: []
+        allocations: [],
+        classChain: []
     };
 
     const operationalRoles = new Set([
@@ -189,11 +190,75 @@
         };
     }
 
+    const chainIdsOf = seg => String(seg?.lopId || '').split('+').map(id => id.trim()).filter(Boolean);
+    // Owner 09/11: one check-in that covers back-to-back classes (E2 then E8) must keep
+    // paying each class its own hours after an Admin edit. Given the Admin's one
+    // teaching allocation over the whole span, return one allocation per class:
+    // the first class starts at the Admin's Vào, the last ends at the Admin's Ra, the
+    // boundaries in between stay at the schedule. null = nothing to split (one class,
+    // not teaching, or the Admin picked a different class than the schedule).
+    function splitByClassChain(primary) {
+        const chain = state.classChain || [];
+        if (!primary || primary.kind !== 'teaching' || chain.length < 2) return null;
+        const union = new Set(chain.flatMap(chainIdsOf));
+        const chosen = (primary.subjectIds || []).map(String);
+        if (!chosen.length || chosen.some(id => !union.has(id)) || new Set(chosen).size < 2) return null;
+        const fromMs = new Date(primary.fromISO).getTime(), toMs = new Date(primary.toISO).getTime();
+        if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return null;
+        const at = clock => new Date(`${state.dateKey}T${clock}`).getTime();
+        const parts = chain.map((seg, i) => {
+            const ids = chainIdsOf(seg).filter(id => chosen.includes(id));
+            const startMs = i === 0 ? fromMs : Math.max(fromMs, at(seg.start));
+            const endMs = i === chain.length - 1 ? toMs : Math.min(toMs, at(seg.end));
+            return { seg, ids, startMs, endMs, i };
+        }).filter(part => part.ids.length && Number.isFinite(part.startMs) && Number.isFinite(part.endMs) && part.endMs > part.startMs);
+        if (parts.length < 2) return null;
+        return parts.map(({ seg, ids, startMs, endMs, i }) => {
+            const names = ids.map(id => allSubjectOptions().find(subject => subject.id === id)?.name || id);
+            return {
+                id: `${primary.id || 'actual'}-lop${i + 1}`,
+                kind: 'teaching',
+                fromISO: startMs === fromMs ? primary.fromISO : toLocalInput(new Date(startMs).toISOString(), state.dateKey),
+                toISO: endMs === toMs ? primary.toISO : toLocalInput(new Date(endMs).toISOString(), state.dateKey),
+                subjectIds: ids,
+                role: ids.join('+'),
+                roleName: names.join(' + ') || String(seg.lop || 'Dạy học'),
+                rateMode: 'policy',
+                manualRate: null,
+                roleRate: Math.max(...ids.map(rateForSubject)),
+                fixed: primary.fixed === true,
+                mergeGroupId: '',
+                scheduleRef: {
+                    type: 'teaching',
+                    branch: String(seg.branch || primary.scheduleRef?.branch || '').toLowerCase(),
+                    documentKey: String(seg.compositeKey || ''),
+                    shiftId: '',
+                    section: String(seg.secKey || ''),
+                    rowIndex: Number.isInteger(Number(seg.idx)) && seg.idx !== '' && seg.idx !== null ? Number(seg.idx) : null,
+                    dayKey: '',
+                    shiftKey: '',
+                    start: String(seg.start || ''),
+                    end: String(seg.end || '')
+                },
+                note: ''
+            };
+        });
+    }
+
     function deriveAllocations(context) {
         const session = context.session || {};
         const saved = session.adminPayrollOverride;
         if (saved && Array.isArray(saved.allocations) && saved.allocations.length) {
+            // Bản lưu cũ gộp cả chuỗi lớp thành 1 dòng "E2 + E8": hiện lại mỗi lớp một dòng.
+            const single = saved.allocations.length === 1 ? splitByClassChain(newAllocation(saved.allocations[0].kind, saved.allocations[0])) : null;
+            if (single) return single.map(item => newAllocation(item.kind, item));
             return saved.allocations.map(item => newAllocation(item.kind, item));
+        }
+        // Ca liền nhiều lớp: mở chế độ chia ca với sẵn mỗi lớp một dòng.
+        if ((context.classChain || []).length >= 2) {
+            const whole = newAllocation('teaching', { subjectIds: Array.from(new Set(context.classChain.flatMap(chainIdsOf))) });
+            const split = splitByClassChain(whole);
+            if (split) return split.map(item => newAllocation(item.kind, item));
         }
         const segments = Array.isArray(context.chip?.daySegments) ? context.chip.daySegments : [];
         const usable = segments.filter(segment => ['day', 'teaching', 'tiep-tan', 'receptionist', 'office', 'van-phong'].includes(segment.kind));
@@ -517,12 +582,16 @@
         const panel = document.getElementById('admin-payroll-override-editor');
         if (!state.visible || !panel) return null;
         const mode = panel.querySelector('#apo-mode').value;
+        const primary = mode === 'actual' ? primaryAllocation(options) : null;
+        // Ca liền nhiều lớp: giờ Admin nhập vẫn chia theo từng lớp như khi tính theo lịch.
+        const chainSplit = primary ? splitByClassChain(primary) : null;
         const allocations = mode === 'manual'
             ? readManualAllocations()
-            : (mode === 'actual' ? [primaryAllocation(options)] : []);
-        const adminEarly10 = buildAdminEarly10Draft(allocations, mode);
+            : (chainSplit || (mode === 'actual' ? [primary] : []));
+        const savedMode = chainSplit ? 'manual' : mode;
+        const adminEarly10 = buildAdminEarly10Draft(allocations, savedMode);
         return {
-            override: { version: 1, mode, allocations, adminEarly10 },
+            override: { version: 1, mode: savedMode, allocations, adminEarly10 },
             reason: panel.querySelector('#apo-reason').value.trim(),
             clearLegacyScheduleLinks: panel.querySelector('#apo-clear-links').checked,
             allowSessionOverlap: panel.querySelector('#apo-allow-overlap').checked
@@ -539,6 +608,11 @@
         const adminEarly10Enabled = panel.querySelector('#apo-admin-early10')?.checked === true;
         if (mode === 'schedule') {
             preview.innerHTML = '<strong>Theo lịch:</strong> bỏ ghi đè, chip trở lại quy tắc lịch hiện hành.';
+            return;
+        }
+        if (mode === 'actual' && (state.classChain || []).length >= 2) {
+            const list = state.classChain.map(seg => `${escapeHtml(seg.lop)} ${escapeHtml(seg.start)}–${escapeHtml(seg.end)}`).join(', ');
+            preview.innerHTML = `<strong>Ca liền nhiều lớp (${list}):</strong> khi lưu, giờ Vào/Ra Admin nhập được chia theo từng lớp, mỗi lớp tính đúng giá của lớp đó. Nếu chọn môn khác lịch thì tính theo môn đã chọn.`;
             return;
         }
         if (mode === 'actual') {
@@ -579,6 +653,7 @@
         state.chip = context.chip || {};
         state.user = context.user || root.currentUserContext || {};
         state.subjects = Array.isArray(context.subjects) ? context.subjects : (root.currentSubjectCatalog || []);
+        state.classChain = Array.isArray(context.classChain) ? context.classChain.filter(seg => seg && seg.start && seg.end) : [];
         state.allocations = deriveAllocations(context);
         const saved = context.session.adminPayrollOverride || {};
         // A session without an existing absolute override should open in the
@@ -615,6 +690,7 @@
         close,
         buildDraft,
         refreshPreview,
+        splitByClassChain: primary => splitByClassChain(primary),
         compatibleScheduleRef,
         employeeSupportsKind,
         isVisible: () => state.visible,

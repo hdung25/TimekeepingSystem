@@ -2025,6 +2025,7 @@ async function _renderMonthReport(date, forceServer = false) {
     window.currentMonthChips = []; // Store for filtering (paidMinutes > 0 only)
     window.allMonthChips = [];    // Store ALL chips including absent (chip-gray) for stats
     window.unfilteredAllMonthChips = []; // Track ALL chips without filter applied
+    window.currentLegacyChipInputs = { staffId, scheduleMap, receptionistShiftsMap, cancelledShifts, monthFlags };
     grid.innerHTML = '';
     
     // Populate Day Select Dropdown
@@ -5449,6 +5450,38 @@ function normalizeSubjectLookupName(value) {
     return withoutTones.replace(/[^a-z0-9]+/g, '');
 }
 
+// Owner 09/11 (bé Vy dạy E2 rồi E8 liền nhau, một lần chấm công): khi tính theo lịch,
+// giờ ca 1 vào E2, giờ ca 2 vào E8. Admin chỉnh tay phải giữ đúng cách chia đó.
+// Trả về các lớp liền nhau của phiên theo LỊCH (bỏ qua ghi đè Admin đã lưu), mỗi
+// phần tử { start, end, lop, lopId, compositeKey, secKey, idx, branch }; [] nếu
+// phiên chỉ có 1 lớp hoặc không đọc được lịch.
+function legacyClassChain(dateKey, rawSession, staffId) {
+    const inputs = window.currentLegacyChipInputs;
+    if (!inputs || !rawSession || String(inputs.staffId) !== String(staffId) || typeof calculateDailyChips !== 'function') return [];
+    try {
+        const plain = { ...rawSession };
+        delete plain.adminPayrollOverride;
+        const chips = calculateDailyChips(
+            (inputs.scheduleMap || {})[dateKey] || {}, [plain], staffId, dateKey, currentUserContext,
+            (inputs.receptionistShiftsMap || {})[dateKey] || [], {}, inputs.cancelledShifts || [], {}, [], inputs.monthFlags
+        );
+        const segments = chips
+            .filter(chip => String(chip.sessionId) === String(rawSession.id) && chip.isTeaching === true && chip.isReceptionist !== true)
+            .flatMap(chip => Array.isArray(chip.mergedSegments) && chip.mergedSegments.length
+                ? chip.mergedSegments.map(seg => ({ ...seg }))
+                : [{ start: chip.classStart, end: chip.classEnd, lop: chip.lop || chip.chipFilterName, lopId: chip.lopId || (chip.subjectIds || []).join('+'),
+                    compositeKey: chip.classCompositeKey, secKey: chip.classSectionKey, idx: chip.classIndex, branch: chip.branch }])
+            .filter(seg => seg && seg.start && seg.end && seg.lop)
+            .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+        const unique = segments.filter((seg, i) => segments.findIndex(other => other.start === seg.start && other.end === seg.end) === i);
+        return new Set(unique.map(seg => String(seg.lop))).size >= 2 ? unique : [];
+    } catch (error) {
+        console.warn('[report] Không đọc được chuỗi lớp của phiên', error);
+        return [];
+    }
+}
+window.legacyClassChain = legacyClassChain;
+
 function getAuthoritativeAdminPayrollRate(chip) {
     const value = Number(chip?.payrollRate);
     return chip?.isAdminPayrollOverride === true && chip?.payrollRateMode === 'manual' &&
@@ -6029,6 +6062,7 @@ async function openEditModal(dateKey, sessionId, chip, classStart, classComposit
             dateKey,
             sessionId: String(sessionId),
             session: rawSession,
+            classChain: legacyClassChain(dateKey, rawSession, staffId),
             chip,
             user: window.currentUserContext || {},
             subjects: Array.isArray(window.currentSubjectCatalog) ? window.currentSubjectCatalog : []
