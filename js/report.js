@@ -5474,13 +5474,53 @@ function legacyClassChain(dateKey, rawSession, staffId) {
             .filter(seg => seg && seg.start && seg.end && seg.lop)
             .sort((a, b) => String(a.start).localeCompare(String(b.start)));
         const unique = segments.filter((seg, i) => segments.findIndex(other => other.start === seg.start && other.end === seg.end) === i);
-        return new Set(unique.map(seg => String(seg.lop))).size >= 2 ? unique : [];
+        const fromSchedule = scheduleClassChain(dateKey, rawSession, staffId);
+        if (new Set(unique.map(seg => String(seg.lop))).size >= 2) {
+            // Lớp ghép cùng giờ: chip chỉ giữ mã 1 môn; lấy đủ mã các môn từ lịch.
+            unique.forEach(seg => {
+                const same = fromSchedule.find(item => item.start === seg.start && item.end === seg.end);
+                if (same) seg.lopId = Array.from(new Set(String(seg.lopId || '').split('+').concat(String(same.lopId || '').split('+'))
+                    .map(id => id.trim()).filter(Boolean))).join('+');
+            });
+            return unique;
+        }
+        return fromSchedule;
     } catch (error) {
         console.warn('[report] Không đọc được chuỗi lớp của phiên', error);
         return [];
     }
 }
 window.legacyClassChain = legacyClassChain;
+
+// Dự phòng khi phiên đã sửa tay lệch khỏi lịch (vd. Uyên Vy 23/10 ghi 16:00–21:00 nhưng lịch
+// 18:00–19:30 FFS1+E3 rồi 19:30–21:00 E8): đọc thẳng các lớp của GV trong lịch ngày đó có giao
+// với giờ vào/ra. Lớp cùng giờ (lớp ghép) gộp thành một phần "E3+FFS1".
+function scheduleClassChain(dateKey, rawSession, staffId) {
+    const inputs = window.currentLegacyChipInputs;
+    const schedule = (inputs?.scheduleMap || {})[dateKey] || {};
+    const fromMs = new Date(rawSession?.checkIn || rawSession?.start || '').getTime();
+    const toMs = new Date(rawSession?.checkOut || '').getTime();
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return [];
+    const clock = text => new Date(`${dateKey}T${text}`).getTime();
+    const assigned = row => (typeof isScheduledMainTeacher === 'function' && isScheduledMainTeacher(row, staffId)) ||
+        (typeof isScheduledSubstitute === 'function' && isScheduledSubstitute(row, staffId)) ||
+        (row.registeredTeachers || []).some(teacher => String(teacher?.id || '') === String(staffId));
+    const groups = new Map();
+    Object.entries(schedule).forEach(([secKey, rows]) => (Array.isArray(rows) ? rows : []).forEach((row, idx) => {
+        if (!row || row.isClosed || !row.start || !row.end || !row.lop || !assigned(row)) return;
+        const startMs = clock(row.start), endMs = clock(row.end);
+        if (!(endMs > fromMs && startMs < toMs)) return;
+        const key = `${row._branch || ''}|${row.start}|${row.end}`;
+        const group = groups.get(key) || { start: row.start, end: row.end, lops: [], ids: [], compositeKey: row._compositeKey || '', secKey, idx: row._originalIndex ?? idx, branch: row._branch || '' };
+        group.lops.push(String(row.lop)); group.ids.push(...String(row.lopId || '').split('+').map(id => id.trim()).filter(Boolean));
+        groups.set(key, group);
+    }));
+    const chain = [...groups.values()].sort((a, b) => a.start.localeCompare(b.start))
+        .map(group => ({ start: group.start, end: group.end, lop: [...new Set(group.lops)].join('+'), lopId: [...new Set(group.ids)].join('+'),
+            compositeKey: group.compositeKey, secKey: group.secKey, idx: group.idx, branch: group.branch }));
+    return chain.length >= 2 && new Set(chain.map(seg => seg.lop)).size >= 2 ? chain : [];
+}
+window.scheduleClassChain = scheduleClassChain;
 
 function getAuthoritativeAdminPayrollRate(chip) {
     const value = Number(chip?.payrollRate);

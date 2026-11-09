@@ -212,7 +212,7 @@
             const endMs = i === chain.length - 1 ? toMs : Math.min(toMs, at(seg.end));
             return { seg, ids, startMs, endMs, i };
         }).filter(part => part.ids.length && Number.isFinite(part.startMs) && Number.isFinite(part.endMs) && part.endMs > part.startMs);
-        if (parts.length < 2) return null;
+        if (!parts.length) return null;
         return parts.map(({ seg, ids, startMs, endMs, i }) => {
             const names = ids.map(id => allSubjectOptions().find(subject => subject.id === id)?.name || id);
             return {
@@ -611,8 +611,19 @@
             return;
         }
         if (mode === 'actual' && (state.classChain || []).length >= 2) {
-            const list = state.classChain.map(seg => `${escapeHtml(seg.lop)} ${escapeHtml(seg.start)}–${escapeHtml(seg.end)}`).join(', ');
-            preview.innerHTML = `<strong>Ca liền nhiều lớp (${list}):</strong> khi lưu, giờ Vào/Ra Admin nhập được chia theo từng lớp, mỗi lớp tính đúng giá của lớp đó. Nếu chọn môn khác lịch thì tính theo môn đã chọn.`;
+            // Xem trước đúng cách chia với giờ Vào/Ra đang gõ trong popup.
+            const clockOf = id => String(document.getElementById(id)?.value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+            const inMatch = clockOf('edit-check-in'), outMatch = clockOf('edit-check-out');
+            const pad = m => `${String(m[1]).padStart(2, '0')}:${m[2]}`;
+            const union = Array.from(new Set(state.classChain.flatMap(chainIdsOf)));
+            const split = inMatch && outMatch ? splitByClassChain({ kind: 'teaching', id: 'xem-truoc', subjectIds: union,
+                fromISO: `${state.dateKey}T${pad(inMatch)}`, toISO: `${state.dateKey}T${pad(outMatch)}`, scheduleRef: null }) : null;
+            const hm = (from, to) => { const minutes = Math.round((new Date(to) - new Date(from)) / 60000); return `${Math.floor(minutes / 60)}h${minutes % 60 ? String(minutes % 60).padStart(2, '0') : ''}`; };
+            const lines = split
+                ? split.map(part => `<li><b>${escapeHtml(part.roleName)}</b> ${escapeHtml(toLocalInput(part.fromISO, state.dateKey).slice(11))}–${escapeHtml(toLocalInput(part.toISO, state.dateKey).slice(11))} (${hm(part.fromISO, part.toISO)})</li>`).join('')
+                : state.classChain.map(seg => `<li>${escapeHtml(seg.lop)} ${escapeHtml(seg.start)}–${escapeHtml(seg.end)}</li>`).join('');
+            preview.innerHTML = `<strong>Ca liền nhiều lớp — khi lưu, giờ tự chia theo từng lớp:</strong><ul style="margin:.35rem 0 .35rem 1.1rem;padding:0">${lines}</ul>` +
+                '<span style="color:#475569">Giờ vào sớm/ra muộn hơn lịch được tính vào lớp đầu/lớp cuối. Muốn chia khác, chọn “Chia một lần vào ca thành nhiều công việc” và sửa từng dòng. Chọn môn khác lịch thì tính đúng môn đã chọn.</span>';
             return;
         }
         if (mode === 'actual') {
@@ -673,6 +684,13 @@
         panel.querySelector('#apo-revision-badge').textContent = `Bản ${Number(saved.revision || 0)}`;
         renderRows();
         refreshPreview();
+        ['edit-check-in', 'edit-check-out'].forEach(id => {
+            const input = document.getElementById(id);
+            if (input && !input.dataset.apoPreview) {
+                input.dataset.apoPreview = '1';
+                ['input', 'change'].forEach(type => input.addEventListener(type, () => { if (state.visible) refreshPreview(); }));
+            }
+        });
         const focusId = context.chip?.payrollAllocationId;
         if (focusId) {
             setTimeout(() => panel.querySelector(`[data-allocation-id="${CSS.escape(String(focusId))}"]`)?.scrollIntoView({ block: 'nearest' }), 0);
