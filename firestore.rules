@@ -1396,6 +1396,17 @@ service cloud.firestore {
       }
     }
 
+    // Ghi chú riêng của Admin chính với từng GV/tiếp tân (trang Xét tăng lương). Không ảnh hưởng lương.
+    match /salary_review_notes/{staffId} {
+      allow read: if isAuthenticated() && isPrimaryAdmin();
+      allow create, update: if isAuthenticated() && isPrimaryAdmin()
+        && request.resource.data.keys().hasOnly(['staffId', 'text', 'updatedAt', 'updatedBy'])
+        && request.resource.data.staffId == staffId
+        && request.resource.data.text is string && request.resource.data.text.size() <= 5000
+        && request.resource.data.updatedAt is string && request.resource.data.updatedAt.size() <= 40
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
     // Xét tăng lương tiếp tân: hẹn ngày lên lương + lịch sử Duyệt / Chờ 1 tháng (Admin chính).
     match /reception_salary_reviews/{staffId} {
       allow read: if isAuthenticated() && isPrimaryAdmin();

@@ -14,8 +14,9 @@
     const TABS = [['due', 'Đến hạn'], ['soon', 'Sắp đến hạn'], ['setup', 'Chưa có mốc'], ['pending', 'Chờ hiệu lực'], ['all', 'Tất cả']];
     const state = { index: null, monthlyByStaff: {}, legacyByStaff: {}, rows: [], tab: 'due', query: '', selected: new Set(),
         open: '', drafts: {}, bulk: null, busy: false, loading: false, epoch: 0, results: {},
-        recep: { plans: [], rows: [], drafts: {}, results: {}, error: '' } };
-    const R = window.ReceptionSalaryReview;
+        recep: { plans: [], rows: [], drafts: {}, results: {}, error: '' }, notes: {}, notesError: '', noteDialog: null };
+    const R = window.ReceptionSalaryReview, H = window.SalaryReviewHistory;
+    const NOTES = 'salary_review_notes', HISTORY_MONTHS = 24;
 
     function message(text, isError = false) {
         const el = $('srb-message');
@@ -58,12 +59,15 @@
         message('Đang tải giá và giờ dạy của tất cả giáo viên…');
         try {
             const now = today(), months = [now.slice(0, 7), ...P.previousMonths(now, 6)];
-            const [maps, legacy, plans] = await Promise.all([
+            const [maps, legacy, plans, notes] = await Promise.all([
                 Promise.all(months.map(month => DBService.getAllMonthlySalarySettings(month, { strict: true }))),
                 S.all('salary_settings'),
                 R ? R.loadPlans().then(list => { state.recep.error = ''; return list; })
-                    .catch(error => { state.recep.error = error.message; return []; }) : []
+                    .catch(error => { state.recep.error = error.message; return []; }) : [],
+                S.all(NOTES).then(list => { state.notesError = ''; return list; })
+                    .catch(error => { state.notesError = error.message; return []; })
             ]);
+            state.notes = Object.fromEntries(notes.map(doc => [doc.id, doc]));
             state.recep.plans = plans;
             if (epoch !== state.epoch) return;
             const byStaff = {};
@@ -276,6 +280,7 @@
                 <div class="srb-due">${row.group ? setupCell(row, statusBadge(row)) : statusBadge(row)}</div>
                 <div class="srb-hours">${grouped ? '' : hoursCell(row)}</div>
                 <div class="srb-att">${grouped ? '' : row.attendance == null ? '—' : Math.round(row.attendance) + '%'}</div>
+                <div class="srb-note">${grouped ? '' : noteCell(row.staffId)}</div>
                 <div class="srb-act">${action}</div>
             </div>
             ${result ? `<p class="srb-result ${result.error ? 'error' : ''}">${esc(result.text)}</p>` : ''}
@@ -405,6 +410,99 @@
         return state.rows.filter(row => B.matchesTab(row, state.tab) &&
             (!q || P.key(row.name + ' ' + row.code + ' ' + (row.group?.name || '') + ' ' + row.subjects.map(s => s.name).join(' ')).includes(q)));
     }
+    // ---------- Ghi chú riêng + lịch sử tăng lương (1 popup / giáo viên) ----------
+    function noteCell(staffId, reception = false) {
+        const note = text(state.notes[staffId]?.text);
+        return `<button type="button" class="srb-notebtn${note ? ' has-note' : ''}" data-action="notes" data-staff="${esc(staffId)}"${reception ? ' data-role="tiep_tan"' : ''} title="${esc(note || 'Thêm ghi chú, xem lịch sử tăng lương')}">
+            <span class="srb-notetext">${note ? esc(note) : 'Thêm ghi chú'}</span><small>Lịch sử lương</small></button>`;
+    }
+    function text(value) { return String(value ?? '').trim(); }
+    function vnStamp(iso) {
+        const d = new Date(iso); if (!Number.isFinite(d.getTime())) return '';
+        return d.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    function rateChange(item) {
+        return `<li><span>${esc(item.name)}</span><b>${item.before == null ? 'bắt đầu ' + money(item.after) : money(item.before) + ' → ' + money(item.after)}</b></li>`;
+    }
+    function historyHtml(data) {
+        if (data.error) return `<p class="srb-setup-error">Chưa tải được lịch sử: ${esc(data.error)}</p>`;
+        if (!data.result) return '<p class="srb-muted">Đang tải lịch sử tăng lương…</p>';
+        const h = data.result;
+        if (!h.firstMonth) return '<p class="srb-muted">Chưa có đơn giá Lương/Giờ nào được lưu trong 2 năm gần đây.</p>';
+        const changes = h.changes.map(change => `<li class="srb-hist-item"><div class="srb-hist-when">Từ ${esc(vnMonth(change.month).toLowerCase())}${change.upcoming ? ' <span class="srb-badge ok">sắp áp dụng</span>' : ''}</div>
+            <ul class="srb-hist-rates">${change.items.map(rateChange).join('')}</ul>
+            ${[...new Set((change.approvals || []).map(a => `<small>Duyệt trên trang này ngày ${vnDate(a.date)}${a.reason ? ' · ' + esc(a.reason) : ''}</small>`))].join('')}</li>`).join('');
+        const others = h.others.map(d => `<li><b>${esc(d.label)}</b> · ${vnDate(d.date)}${d.groupName ? ' · ' + esc(d.groupName) : ''}${
+            d.kind === 'approved' && d.newRate ? ' · lên ' + money(d.newRate) + (d.targetMonth ? ' từ ' + esc(vnMonth(d.targetMonth).toLowerCase()) : '') : ''}${
+            d.nextReviewDate ? ' · xét lại ' + vnDate(d.nextReviewDate) : ''}${d.reason ? '<br><small>' + esc(d.reason) + '</small>' : ''}</li>`).join('');
+        return `<p class="srb-hist-current"><b>Đang áp dụng:</b> ${h.current.map(r => esc(r.name) + ' ' + money(r.rate)).join(' · ')}</p>
+            ${h.changes.length ? `<ol class="srb-hist">${changes}</ol>` : '<p class="srb-muted">Chưa đổi đơn giá lần nào trong khoảng có dữ liệu.</p>'}
+            <p class="srb-hist-start">Đơn giá cũ nhất có dữ liệu (${esc(vnMonth(h.firstMonth).toLowerCase())}): ${h.start.map(r => esc(r.name) + ' ' + money(r.rate)).join(' · ')}</p>
+            ${others ? `<h3 class="srb-hist-h">Quyết định khác trên trang này</h3><ul class="srb-hist-others">${others}</ul>` : ''}`;
+    }
+    function noteDialogHtml() {
+        const d = state.noteDialog, saved = state.notes[d.staffId];
+        return `<form id="srb-note-form" class="srb-setup" novalidate>
+            <header class="srb-setup-head"><div><p class="srb-eyebrow">GHI CHÚ RIÊNG · LỊCH SỬ TĂNG LƯƠNG</p><h2>${esc(d.name)} <span class="srb-code">${esc(d.code)}</span></h2><p>Chỉ quản trị viên chính xem được. Không ảnh hưởng lương.</p></div><button type="button" class="srb-x" data-note="close" aria-label="Đóng">×</button></header>
+            <div class="srb-note-body">
+                <label for="srb-note-text" class="srb-note-label">Ghi chú trao đổi với giáo viên <button type="button" class="srb-btn srb-ghost" data-note="stamp">+ Dòng mới hôm nay</button></label>
+                <textarea id="srb-note-text" rows="5" maxlength="5000" placeholder="Ví dụ: 05/11 hứa nếu dạy đủ 60 giờ/tháng thì tháng 1 lên 52k">${esc(d.draft)}</textarea>
+                <small class="srb-muted">${saved?.updatedAt ? 'Lưu lần cuối ' + esc(vnStamp(saved.updatedAt)) : 'Chưa có ghi chú.'}${state.notesError ? ' · ' + esc(state.notesError) : ''}</small>
+                <p id="srb-note-error" class="srb-setup-error" role="alert"></p>
+                <div class="srb-note-actions"><button type="submit" class="srb-btn srb-primary">Lưu ghi chú</button></div>
+                <h3 class="srb-hist-h">Lịch sử tăng lương (đơn giá Lương/Giờ theo từng tháng)</h3>
+                <div id="srb-hist-body">${historyHtml(d)}</div>
+            </div>
+            <footer class="srb-setup-foot"><button type="button" class="srb-btn" data-note="close">Đóng</button></footer>
+        </form>`;
+    }
+    async function openNotes(staffId, role = 'giao_vien') {
+        const row = state.rows.find(r => r.staffId === staffId);
+        const user = state.index?.users.find(u => u.id === staffId);
+        const token = {};
+        state.noteDialog = { staffId, name: row?.name || user?.name || staffId, code: row?.code || '', draft: state.notes[staffId]?.text || '', token, result: null, error: '', role };
+        $('srb-note-content').innerHTML = noteDialogHtml();
+        if (!$('srb-note-dialog').open) $('srb-note-dialog').showModal();
+        try {
+            const now = today(), months = [...P.previousMonths(now, HISTORY_MONTHS), now.slice(0, 7), ...[1, 2, 3].map(n => window.SalaryReviewApplication.shiftMonth(now.slice(0, 7), n))];
+            const [docs, hist] = await Promise.all([
+                Promise.all(months.map(month => S.read(S.document('salary_settings_monthly', month + '_' + staffId)).then(data => data ? { ...data, id: month + '_' + staffId } : null))),
+                S.document('salary_review_profiles', staffId).collection('history').orderBy('createdAt', 'desc').limit(60).get({ source: 'server' })
+                    .then(snap => snap.docs.map(doc => ({ ...doc.data(), id: doc.id })))
+            ]);
+            if (state.noteDialog?.token !== token) return;
+            state.noteDialog.result = H.build(docs.filter(Boolean), role === 'tiep_tan' ? [] : hist, role, now.slice(0, 7));
+        } catch (error) {
+            if (state.noteDialog?.token !== token) return;
+            state.noteDialog.error = error.message || String(error);
+        }
+        $('srb-hist-body').innerHTML = historyHtml(state.noteDialog);
+    }
+    async function saveNote() {
+        const d = state.noteDialog; if (!d || d.saving) return;
+        const value = $('srb-note-text').value.replace(/\s+$/, '').slice(0, 5000);
+        d.saving = true; $('srb-note-error').textContent = '';
+        const button = $('srb-note-form').querySelector('[type=submit]'); button.disabled = true; button.textContent = 'Đang lưu…';
+        try {
+            const auth = await S.admin();
+            const doc = { staffId: d.staffId, text: value, updatedAt: new Date().toISOString(), updatedBy: auth.uid };
+            await S.document(NOTES, d.staffId).set(doc);
+            state.notes[d.staffId] = { ...doc, id: d.staffId }; state.notesError = '';
+            d.draft = value; closeNotes(true); render();
+            message('Đã lưu ghi chú cho ' + d.name + '.');
+        } catch (error) {
+            $('srb-note-error').textContent = 'Chưa lưu được ghi chú: ' + (error.message || error);
+            button.disabled = false; button.textContent = 'Lưu ghi chú';
+        } finally { d.saving = false; }
+    }
+    function closeNotes(force) {
+        const d = state.noteDialog;
+        if (!force && d && $('srb-note-text') && $('srb-note-text').value.replace(/\s+$/, '') !== (state.notes[d.staffId]?.text || '').replace(/\s+$/, '')
+            && !window.confirm('Ghi chú chưa lưu. Đóng và bỏ thay đổi?')) return false;
+        state.noteDialog = null;
+        if ($('srb-note-dialog').open) $('srb-note-dialog').close();
+        return true;
+    }
     function teacherHtml(rows) {
         const first = rows[0];
         const selectable = rows.filter(row => row.group && !row.pending && !row.disabled);
@@ -424,6 +522,7 @@
                 <div class="srb-due">${statusBadge(earliest)}</div>
                 <div class="srb-hours">${hoursCell(first)}</div>
                 <div class="srb-att">${first.attendance == null ? '—' : Math.round(first.attendance) + '%'}</div>
+                <div class="srb-note">${noteCell(first.staffId)}</div>
                 <div class="srb-act srb-teacher-actions">${selectable.length ? `<button type="button" class="srb-btn srb-primary" data-action="teacher-increase" data-staff="${esc(first.staffId)}">Xét tăng</button><button type="button" class="srb-btn" data-action="teacher-setup" data-staff="${esc(first.staffId)}">Thiết lập chung</button>` : '<span class="srb-btn">Xem các môn</span>'}</div>
             </summary>
             <div class="srb-teacher-groups">${rows.map(row => rowHtml(row, true)).join('')}</div>
@@ -443,7 +542,7 @@
         if (state.loading) $('srb-list').innerHTML = '<p class="srb-empty">Đang tải giá và giờ dạy của tất cả giáo viên…</p>';
         else if (!state.index) $('srb-list').innerHTML = '<p class="srb-empty">Đang xác thực…</p>';
         else $('srb-list').innerHTML = (rows.length
-            ? `<div class="srb-head"><span></span><span>MSNV</span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span></span></div>${B.groupByTeacher(rows).map(teacherHtml).join('')}`
+            ? `<div class="srb-head"><span></span><span>MSNV</span><span>Giáo viên · nhóm môn</span><span>Lương hiện tại</span><span>Hạn xét</span><span>Giờ dạy TB 3 tháng</span><span>Chuyên cần</span><span>Ghi chú · lịch sử</span><span></span></div>${B.groupByTeacher(rows).map(teacherHtml).join('')}`
             : (ttRows.length ? '' : `<p class="srb-empty">${state.tab === 'due' ? 'Không có ai đến hạn xét trong tháng này.' : 'Không có dòng nào trong mục này.'}</p>`))
             + receptionSectionHtml(ttRows);
         $('srb-bulk').innerHTML = bulkHtml();
@@ -533,6 +632,7 @@
                 <div class="srb-due">${ttBadge(row)}</div>
                 <div class="srb-hours"><span class="srb-muted">—</span></div>
                 <div class="srb-att"><span class="srb-muted">—</span></div>
+                <div class="srb-note">${noteCell(row.staffId, true)}</div>
                 <div class="srb-act srb-teacher-actions">${actions}</div>
             </div>
             ${result ? `<p class="srb-result ${result.error ? 'error' : ''}">${esc(result.text)}</p>` : ''}
@@ -544,7 +644,7 @@
         if (state.recep.error) return `<p class="srb-empty">Chưa tải được hẹn xét lương tiếp tân: ${esc(state.recep.error)}</p>`;
         if (!rows.length) return '';
         return `<h3 class="srb-section-title">Tiếp tân <small>Hẹn sẵn ngày lên lương — đến ngày hệ thống hỏi lại: Duyệt hoặc Chờ thêm 1 tháng.</small></h3>
-            <div class="srb-head"><span></span><span>MSNV</span><span>Tiếp tân</span><span>Lương hiện tại</span><span>Hẹn xét</span><span></span><span></span><span></span></div>
+            <div class="srb-head"><span></span><span>MSNV</span><span>Tiếp tân</span><span>Lương hiện tại</span><span>Hẹn xét</span><span></span><span></span><span>Ghi chú · lịch sử</span><span></span></div>
             ${rows.map(ttRowHtml).join('')}`;
     }
     async function ttRun(key, action) {
@@ -890,6 +990,19 @@
     });
     $('srb-dialog').addEventListener('cancel', event => { if (state.busy) event.preventDefault(); else { state.setup = null; state.edit = null; } });
 
+    $('srb-note-dialog').addEventListener('submit', event => { event.preventDefault(); saveNote(); });
+    $('srb-note-dialog').addEventListener('click', event => {
+        if (event.target === $('srb-note-dialog')) { closeNotes(false); return; }
+        const button = event.target.closest('[data-note]'); if (!button) return;
+        if (button.dataset.note === 'close') closeNotes(false);
+        if (button.dataset.note === 'stamp') {
+            const area = $('srb-note-text'), stamp = today().split('-').reverse().slice(0, 2).join('/') + ': ';
+            area.value = area.value.trim() ? stamp + '\n' + area.value.replace(/^\s+/, '') : stamp;
+            area.focus(); area.setSelectionRange(stamp.length, stamp.length);
+        }
+    });
+    $('srb-note-dialog').addEventListener('cancel', event => { event.preventDefault(); closeNotes(false); });
+
     // ---------- events ----------
     function runRow(key, action) {
         const row = rowByKey(key); if (!row) return;
@@ -1074,6 +1187,7 @@
         const button = event.target.closest('[data-action]');
         if (!button || state.busy) return;
         const action = button.dataset.action, key = button.dataset.key;
+        if (action === 'notes') { event.preventDefault(); event.stopPropagation(); openNotes(button.dataset.staff, button.dataset.role || 'giao_vien'); return; }
         if (action === 'teacher-setup' || action === 'teacher-increase') {
             event.preventDefault();
             const rows = state.rows.filter(row => row.staffId === button.dataset.staff && row.group && !row.pending && !row.disabled);

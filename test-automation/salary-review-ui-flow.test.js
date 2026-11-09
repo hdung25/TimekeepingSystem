@@ -425,7 +425,7 @@ async function main() {
     const splitBucket = await page.$$eval('#srb-bulk [data-action="bulk-split"]', list => list.map(b => b.dataset.bucket).find(id => id.endsWith('|34000')));
     assert.ok(splitBucket, 'the 34k bucket of teacher 3 offers "Tách từng môn"');
     await click(`#srb-bulk [data-action="bulk-split"][data-bucket="${splitBucket}"]`);
-    const subjectInputs = await page.$$eval('.srb-subrates label', list => list.map(l => [l.firstElementChild.textContent, l.querySelector('input').dataset.bulkSubject]));
+    const subjectInputs = await page.$$eval('.srb-subrates .srb-subrate', list => list.filter(l => l.querySelector('input[data-bulk-subject]')).map(l => [l.firstElementChild.textContent, l.querySelector('input[data-bulk-subject]').dataset.bulkSubject]));
     assert.ok(subjectInputs.length >= 2, 'one input per subject: ' + JSON.stringify(subjectInputs));
     const wanted = { 'Toán 1': 36000, 'Toán 5': 38000 };
     for (const [name, key] of subjectInputs) await fill(`[data-bulk-subject="${key}"]`, wanted[name] || 36000);
@@ -545,6 +545,25 @@ async function main() {
     assert.equal(ttPlan.dueDate, ''); assert.equal(ttPlan.currentRate, 50000);
     await shot('reception-approved');
     evidence.results.push('Reception: plan date, due row with Duyệt / Chờ 1 tháng nữa, snooze +1 month, approve writes Tiếp Tân rate');
+
+    // v272: cột Ghi chú riêng + popup Lịch sử tăng lương (đơn giá theo tháng + lần duyệt).
+    await page.setViewport({ width: 1440, height: 1000 });
+    await boardReady();
+    await page.$eval(`[data-action="notes"][data-staff="${third}"]`, el => el.click());
+    await page.waitForFunction(() => document.getElementById('srb-note-dialog').open && /Đang áp dụng|Chưa có đơn giá|Chưa tải/.test(document.getElementById('srb-hist-body').textContent), { timeout: 20000 });
+    const histText = await page.$eval('#srb-hist-body', e => e.innerText);
+    assert.match(histText, /Đang áp dụng/, histText);
+    assert.match(histText, /Từ tháng/, histText);
+    await shot('notes-dialog');
+    await page.$eval('[data-note="stamp"]', el => el.click());
+    await page.type('#srb-note-text', 'hứa tháng sau lên 52k');
+    await page.$eval('#srb-note-form [type=submit]', el => el.click());
+    await page.waitForFunction(() => !document.getElementById('srb-note-dialog').open, { timeout: 20000 });
+    const note = await readRecord('salary_review_notes/' + third);
+    assert.match(note.text, /^\d{2}\/\d{2}: hứa tháng sau lên 52k$/);
+    assert.match(await page.$eval(`[data-action="notes"][data-staff="${third}"] .srb-notetext`, e => e.textContent), /hứa tháng sau/);
+    await shot('notes-history');
+    evidence.results.push('Notes column saves salary_review_notes; history popup lists monthly rate changes');
 
     evidence.results.push('Board: estimated baselines, one-click approval, bulk ladder step, deferral, detail round-trip, mobile layout and source preservation');
     console.log('PASS salary-review UI save/defer/preview/apply/report-reload/cancel/board/setup/mobile + source preservation');
