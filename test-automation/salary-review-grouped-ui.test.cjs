@@ -101,7 +101,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'bulk panel fits a phone');
         await page.setViewport({ width: 1366, height: 900 });
         await page.$eval('[data-action="bulk-keep"][data-keep="a|g0|s0"]', el => el.click());
-        assert.equal(await page.$eval('[data-action="bulk-apply"]', el => el.disabled), true, 'nothing ticked → cannot approve');
+        assert.equal(await page.$eval('[data-action="bulk-apply"]', el => el.disabled), false, 'owner 09/11: Giữ nguyên alone can be saved');
+        assert.match(await page.$eval('[data-action="bulk-apply"]', el => el.textContent), /Lưu giữ nguyên 3 lớp/);
         await page.$eval('[data-action="bulk-keep"][data-keep="a|g0|s0"]', el => el.click());
         // A kept bucket with an unchanged price must not block the others (the 100.000đ → 100000 error).
         await page.$eval('[data-action="bulk-apply"]', el => el.click());
@@ -136,10 +137,47 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
             'Flyer 2 keeps its price in its own review group with the same cycle');
         assert.deepEqual(await page.evaluate(() => window.__decided.map(d => [d.staffId, d.groupId.startsWith('g5:tach-'), d.kind])), [['c', true, 'not_increased']],
             'the kept Flyer 2 part is recorded as reviewed');
+        // Owner 09/11 (Trang Anh): raised some classes yesterday, today keeps the rest → must save, not block.
+        // Group d3 is not due (raised yesterday) → starts as Giữ nguyên and is not touched.
+        await page.evaluate(() => {
+            window.__prepared = []; window.__decided = [];
+            const ev = due => due ? { dueDate: '2026-10-01', visibleThisMonth: true, overdue: true, months: 3 } : { dueDate: '2027-01-01', visibleThisMonth: false, overdue: false, months: 3 };
+            const mk = (i, rate, name, due) => ({ staffId: 'd', key: 'd|d' + i, name: 'Trần Thị Trang Anh', code: 'ANH03', msnv: '03', confirmed: true, baselineDate: '2026-07-01',
+                group: { id: 'd' + i, name: name, subjectIds: ['t' + i] }, subjects: [{ id: 't' + i, name: name, rate }], currentRate: rate, nextRate: rate + 2000,
+                evaluation: ev(due), category: due ? 'due' : 'later', stats: { observed: 3, averageHours: 17 }, attendance: 84 });
+            window.__profile = { staffId: 'd', revision: 1, personOverrides: {}, groups: [] };
+            window.SalaryReviewBoard.state.rows = [mk(1, 100000, 'Nhảy', true), mk(2, 56000, 'I2', true), mk(3, 62000, 'B7 H', false)];
+            window.SalaryReviewBoard.render();
+        });
+        await page.$eval('[data-action="teacher-increase"][data-staff="d"]', el => el.click());
+        assert.equal(await page.$eval('[data-action="bulk-skip"][data-bucket="d|62000"]', el => el.textContent), 'Tăng lại', 'not-due group starts as Giữ nguyên');
+        assert.match(await page.$eval('#srb-bulk', el => el.textContent), /Chưa đến hạn xét/);
+        // Popup fixes a wrong rate on the spot: 100000 is not higher than 100.000đ → Cancel focuses that input.
+        await page.$eval('[data-bulk-rate="d|d1"]', el => { el.value = '100000'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+        await page.evaluate(() => { window.__asked = []; window.confirm = text => { window.__asked.push(text); return false; }; });
+        await page.$eval('[data-action="bulk-apply"]', el => el.click());
+        assert.match(await page.evaluate(() => window.__asked[0]), /Nhảy[\s\S]*OK = Giữ nguyên lớp này/);
+        assert.equal(await page.evaluate(() => document.activeElement?.dataset.bulkRate), 'd|d1', 'Cancel puts the cursor in the wrong box');
+        assert.equal(await page.evaluate(() => window.__prepared.length + window.__decided.length), 0, 'nothing saved while the Admin fixes it');
+        // OK = Giữ nguyên that class, and the other due class too → "Lưu giữ nguyên".
+        await page.evaluate(() => { window.confirm = () => true; });
+        await page.$eval('[data-action="bulk-skip"][data-bucket="d|56000"]', el => el.click());
+        await page.$eval('[data-action="bulk-apply"]', el => el.click());
+        await page.waitForFunction(() => !window.SalaryReviewBoard.state.busy && !window.SalaryReviewBoard.state.bulk);
+        assert.deepEqual(await page.evaluate(() => window.__prepared), [], 'nothing raised');
+        assert.deepEqual(await page.evaluate(() => window.__decided.map(d => [d.groupId, d.kind])), [['d1', 'not_increased'], ['d2', 'not_increased']],
+            'both due classes saved as reviewed; the not-due d3 untouched');
         await page.evaluate(() => { window.SalaryReviewBoard.state.rows = window.__fixtureRows; window.SalaryReviewBoard.render(); });
         await page.click('[data-key="a|g0"][data-action="toggle"]');
         assert.equal(await page.$eval('.srb-panel', el => el.textContent.includes('Mover 1')), true);
         assert.ok(await page.$('.srb-panel [data-action="keep"]'), 'single row offers Giữ nguyên mức này');
+        await page.evaluate(() => { window.__decided = []; window.__asked = []; window.confirm = text => { window.__asked.push(text); return false; };
+            window.__profile = { staffId: 'a', revision: 1, personOverrides: {}, groups: window.__fixtureRows.filter(r => r.staffId === 'a').map(r => ({ ...r.group, currentRate: r.currentRate, baselineDate: r.baselineDate, confirmed: true, enabled: true })) }; });
+        await page.$eval('.srb-panel [data-f="rate"]', el => { el.value = '22000'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+        await page.$eval('.srb-panel [data-action="approve"]', el => el.click());
+        assert.match(await page.evaluate(() => window.__asked[0] || ''), /không cao hơn mức hiện tại[\s\S]*OK = Giữ nguyên mức này/);
+        assert.equal(await page.evaluate(() => document.activeElement?.dataset.f), 'rate', 'Cancel keeps the panel open with the cursor on the rate');
+        assert.equal(await page.evaluate(() => window.__decided.length), 0);
         assert.equal(await page.$eval('.srb-panel', el => el.textContent.includes('Nhảy:')), false, 'approval preview stays scoped to the chosen group');
         await page.click('[data-tab="due"]');
         assert.equal(await page.$$eval('.srb-teacher', els => els.length), 2);
