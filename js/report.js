@@ -3467,6 +3467,32 @@ function getTeachingPayAllocations(chip, subjectName, minutes, normalRate, class
         isStudentCount: true
     }];
 }
+// Sĩ số "N hs" lưu theo LẦN CHẤM (session). Khi 1 lần chấm nối nhiều lớp khác nhau
+// (VD E2 18:00–19:30 rồi NV6 19:30–21:00), sĩ số chỉ thuộc về MỘT lớp: lớp có sĩ số
+// kế hoạch (cột Số HS trên lịch) lớn nhất; hòa/không có số liệu → lớp đầu chuỗi.
+// Các ca con cùng một lớp (cùng lớp học 2 khung liền) đều nhận sĩ số đó.
+function studentCountSegmentIndexes(segments) {
+    const list = Array.isArray(segments) ? segments : [];
+    const all = new Set(list.map((_, i) => i));
+    if (list.length <= 1) return all;
+    const normalizeFn = (typeof window !== 'undefined' && window.normalizeChipFilterName) || (x => String(x || '').trim());
+    const classKey = seg => String(seg?.lopId || normalizeFn(seg?.lop) || '').trim();
+    const keys = list.map(classKey);
+    if (new Set(keys).size <= 1) return all;
+    let chosenKey = keys[0];
+    let bestCount = -1;
+    list.forEach((seg, i) => {
+        const planned = Number(seg?.soHS);
+        const count = Number.isFinite(planned) && planned > 0 ? planned : 0;
+        if (count > bestCount) { bestCount = count; chosenKey = keys[i]; }
+    });
+    return new Set(keys.map((key, i) => (key === chosenKey ? i : -1)).filter(i => i >= 0));
+}
+
+function chipForStudentCountSegment(chip, segments, segIndex) {
+    if (!chip || !(Number(chip.studentCount) > 0)) return chip;
+    return studentCountSegmentIndexes(segments).has(segIndex) ? chip : { ...chip, studentCount: null };
+}
 // PAYROLL HOUR ALLOCATION HELPERS END
 
 function calculateSalary() {
@@ -3667,7 +3693,7 @@ function calculateSalary() {
                             segRate = getResolvedTeachingRate(chip, segName, snapshotRate);
                         }
                         const penaltyActive = isStudentCountPenaltyActive(monthlyAll, window.unfilteredAllMonthChips || allChips);
-                        getTeachingPayAllocations(chip, segName, segMins, segRate, classRates, penaltyActive).forEach(alloc => {
+                        getTeachingPayAllocations(chipForStudentCountSegment(chip, chip.mergedSegments, sIdx), segName, segMins, segRate, classRates, penaltyActive).forEach(alloc => {
                             const amount = (alloc.minutes / 60) * alloc.rate;
                             filteredSalary += amount;
 
@@ -3854,7 +3880,7 @@ function calculateSalary() {
                             segRate = getResolvedTeachingRate(chip, segName, snapshotRate);
                         }
                         const penaltyActive = isStudentCountPenaltyActive(monthlyAll, window.unfilteredAllMonthChips || allChips);
-                        getTeachingPayAllocations(chip, segName, segMins, segRate, classRates, penaltyActive).forEach(alloc => {
+                        getTeachingPayAllocations(chipForStudentCountSegment(chip, chip.mergedSegments, sIdx), segName, segMins, segRate, classRates, penaltyActive).forEach(alloc => {
                             filteredSalary += (alloc.minutes / 60) * alloc.rate;
                         });
                     });
@@ -8339,10 +8365,10 @@ async function populateModalCurrentTab() {
                         trackPayrollRateGroupChip(groups, segName, chip);
 
                         // Vẫn hiện dòng "(+N HS)" để cấu hình đơn giá, nhưng giờ chỉ nằm ở 1 dòng.
-                        if (chip.studentCount && chip.studentCount > 0) {
+                        if (chip.studentCount && chip.studentCount > 0 && studentCountSegmentIndexes(chip.mergedSegments).has(sIdx)) {
                             trackPayrollRateGroupChip(groups, `${segName} (+${chip.studentCount} HS)`, chip);
                         }
-                        getTeachingPayAllocations(chip, segName, segMins, 0, classRates, classRatePenaltyActive)
+                        getTeachingPayAllocations(chipForStudentCountSegment(chip, chip.mergedSegments, sIdx), segName, segMins, 0, classRates, classRatePenaltyActive)
                             .forEach(alloc => {
                                 addPayrollRateGroupMinutes(groups, alloc.name, chip, alloc.minutes);
                             });
@@ -11208,7 +11234,7 @@ function getCurrentCalculationPayload(role) {
                             const snapshotRate = (chip.sessionData && chip.sessionData.roleRate) ? Number(chip.sessionData.roleRate) : 0;
                             segRate = getResolvedTeachingRate(chip, segName, snapshotRate);
                         }
-                        getTeachingPayAllocations(chip, segName, segMins, segRate, classRates, payloadPenaltyActive)
+                        getTeachingPayAllocations(chipForStudentCountSegment(chip, chip.mergedSegments, sIdx), segName, segMins, segRate, classRates, payloadPenaltyActive)
                             .forEach(addTeachingAllocation);
                     });
                 } else {

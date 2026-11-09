@@ -23,7 +23,9 @@ const {
     getTeachingPayAllocations,
     isStudentCountPenaltyActive,
     normalizeStudentCountApprovalStatus,
-    getStudentCountBadgePresentation
+    getStudentCountBadgePresentation,
+    studentCountSegmentIndexes,
+    chipForStudentCountSegment
 } = context;
 
 function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 100000) {
@@ -187,6 +189,37 @@ function aggregate(chips, monthlySettings = {}, classRates = {}, baseRate = 1000
     const [allocation] = getTeachingPayAllocations({}, '', -10, 100000, {}, false);
     assert.equal(allocation.name, 'Chưa phân lớp');
     assert.equal(allocation.minutes, 0);
+}
+
+{
+    // 09/11/2026 (Mai Linh 26/10): 1 lần chấm nối E2 18:00–19:30 → NV6 19:30–21:00, báo 14hs.
+    // Sĩ số chỉ thuộc lớp có Số HS kế hoạch lớn nhất (E2 13hs), NV6 (1hs) giữ đơn giá thường.
+    const chip = { paidMinutes: 180, studentCount: 14, studentCountStatus: 'approved' };
+    const segs = [
+        { lop: 'E2', lopId: 'e2', soHS: 13, schedMinutes: 90 },
+        { lop: 'Nv6', lopId: 'nv6', soHS: 1, schedMinutes: 90 }
+    ];
+    const rates = { 'E2 (+14 HS)': 47000, 'Nv6 (+14 HS)': 60000 };
+    const names = segs.map((seg, i) => getTeachingPayAllocations(
+        chipForStudentCountSegment(chip, segs, i), seg.lop, 90, seg.lop === 'E2' ? 42000 : 44000, rates, false)[0]);
+    assert.equal(names[0].name, 'E2 (+14 HS)');
+    assert.equal(names[0].rate, 47000);
+    assert.equal(names[1].name, 'Nv6');
+    assert.equal(names[1].rate, 44000);
+    assert.equal(chip.studentCount, 14, 'original chip must not be mutated');
+
+    // Lớp lớn nằm sau trong chuỗi vẫn được chọn đúng.
+    assert.deepEqual([...studentCountSegmentIndexes([segs[1], segs[0]])], [1]);
+    // Cùng một lớp học 2 khung liền: cả 2 khung đều là lớp đông.
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'E2', soHS: 13 }, { lop: 'E2', soHS: 13 }])], [0, 1]);
+    // Không có số kế hoạch (lịch ghi 0) hoặc hòa: lớp đầu chuỗi.
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'A' }, { lop: 'B', soHS: 0 }])], [0]);
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'A', soHS: 5 }, { lop: 'B', soHS: 5 }])], [0]);
+    // A → B → A: sĩ số theo lớp A cho cả 2 khung của A.
+    assert.deepEqual([...studentCountSegmentIndexes([{ lop: 'A', soHS: 12 }, { lop: 'B', soHS: 2 }, { lop: 'A', soHS: 12 }])], [0, 2]);
+    // Ca đơn / không có sĩ số: giữ nguyên chip.
+    assert.equal(chipForStudentCountSegment({ studentCount: 0 }, segs, 1).studentCount, 0);
+    assert.deepEqual([...studentCountSegmentIndexes(null)], []);
 }
 
 console.log('salary-breakdown.test.js: all assertions passed');

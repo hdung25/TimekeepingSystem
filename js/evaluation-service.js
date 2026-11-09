@@ -1284,6 +1284,8 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                     originalIdx,
                     lop: c.lop || '',
                     lopId: c.lopId || '',
+                    // Sĩ số kế hoạch: chọn lớp nhận "(+N HS)" khi 1 lần chấm nối nhiều lớp.
+                    soHS: Number(c.soHS) > 0 ? Number(c.soHS) : 0,
                     schedMinutes: Math.max(0, schedMinutes)
                 });
             });
@@ -1307,6 +1309,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                 originalIdx: _a.originalIdx,
                 lop: _a.lop,
                 lopId: _a.lopId,
+                soHS: _a.soHS,
                 schedMinutes: _a.schedMinutes
             }];
 
@@ -1328,6 +1331,7 @@ function calculateDailyChipsLegacy(schedule, attendanceSessions, staffId, dateSt
                         originalIdx: _b.originalIdx,
                         lop: _b.lop,
                         lopId: _b.lopId,
+                        soHS: _b.soHS,
                         schedMinutes: _b.schedMinutes
                     });
 
