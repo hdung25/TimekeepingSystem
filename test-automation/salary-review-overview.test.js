@@ -12,6 +12,17 @@ const groups = O.buildGroups(profile,inferred,'2026-09-21');
 assert.equal(groups.length,3);
 assert.deepEqual(groups.slice(1).map(g=>g.currentRate),[32000,34000]);
 assert.equal(groups[1].confirmed,false);
+// Tiểu Nhi 10/11: E4, E5 raised 50k → 52k keep id "eng:overview:50000"; E2 left at 50k must not reuse it.
+{
+    const raised = { groups: [{ id:'eng:overview:50000', subjectIds:['e4','e5'], currentRate:52000, baselineDate:'2026-11-01', confirmed:true, nextReviewDate:'2027-04-05' }] };
+    const rows = O.buildGroups(raised,[{id:'eng',name:'Anh',evidence:[{subjectId:'e4',rate:52000},{subjectId:'e5',rate:52000},{subjectId:'e2',rate:50000}]}],'2026-11-10');
+    assert.deepEqual(rows.map(g=>g.id),['eng:overview:50000','eng:overview:50000:m2']);
+    assert.deepEqual(rows[1].subjectIds,['e2']);
+    assert.equal(new Set(rows.map(g=>g.id)).size,rows.length);
+    const again = O.buildGroups({ groups: [...raised.groups, { ...rows[1], confirmed:true }] },[{id:'eng',name:'Anh',evidence:[{subjectId:'e2',rate:50000},{subjectId:'e9',rate:50000}]}],'2026-11-10');
+    assert.deepEqual(again.map(g=>g.id),['eng:overview:50000','eng:overview:50000:m2','eng:overview:50000:m3'],'saved :m2 keeps E2; a new 50k subject gets its own id');
+    assert.deepEqual(again[2].subjectIds,['e9']);
+}
 const edits = Object.fromEntries(groups.map(g=>[g.id,{cycle:3,nextDate:'2026-12-21'}]));
 const draft = O.reminderDraft(profile,groups,edits,'2026-09-21',P);
 assert.equal(draft.groups[0].baselineDate,'2026-06-01');

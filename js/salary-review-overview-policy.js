@@ -5,6 +5,16 @@
     function buildGroups(profile, inferred, today) {
         const groups = clone(profile.groups || []);
         const occupied = new Set(groups.flatMap(g => g.subjectIds || []));
+        // A saved group keeps its id after a raise (E4, E5: 50k → 52k), so a
+        // subject left at the old price (E2 · 50k) would get the very same id;
+        // Thiết lập / Xét tăng on that row then wrote to the saved group (11/2026).
+        const ids = new Set(groups.map(g => g.id));
+        const freeId = base => {
+            let id = base.slice(0, 150);
+            for (let n = 2; ids.has(id); n++) id = base.slice(0, 145) + ':m' + n;
+            ids.add(id);
+            return id;
+        };
         inferred.forEach(folder => {
             const buckets = new Map();
             folder.evidence.forEach(row => {
@@ -14,7 +24,7 @@
                 occupied.add(row.subjectId);
             });
             for (const [rate, subjectIds] of buckets) groups.push({
-                id: (folder.id + ':overview:' + rate).slice(0, 150), name: folder.name + ' · ' + rate.toLocaleString('vi-VN') + ' đ',
+                id: freeId(folder.id + ':overview:' + rate), name: folder.name + ' · ' + rate.toLocaleString('vi-VN') + ' đ',
                 subjectIds, currentRate: rate, baselineDate: today, baselineKind: 'initial', confirmed: false,
                 enabled: true, cycleMonths: null, minimumHours: null, extraMonths: null, nextReviewDate: '',
                 hoursOverride: null, hoursMonth: '', hoursNote: '', performance: 'unknown', attendance: 'unknown', note: ''
