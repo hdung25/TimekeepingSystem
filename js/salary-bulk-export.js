@@ -561,8 +561,8 @@
                     { v: m.other, s: ST.money },
                     { v: m.advance, s: ST.money },
                     { v: m.net, s: ST.net },
-                    { v: ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? m.tax : 0, s: ST.money },
-                    { v: m.taxDeduction, s: ST.money },
+                    { v: ctx.year * 12 + ctx.month >= 2026 * 12 + 9 && m.taxDeduction > 0 ? m.tax : '', s: ST.money },
+                    { v: m.taxDeduction > 0 ? m.taxDeduction : '', s: ST.money },
                     { v: statusText(side.status), s: ST.center },
                     { v: note, s: ST.note },
                     { v: '', s: ST.text }
@@ -581,7 +581,7 @@
                 { v: `TỔNG CỘNG (${list.length} người)`, s: ST.totalLabel },
                 { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel }, { v: '', s: ST.totalLabel },
                 sum('E', 'base'), sum('F', 'other'), sum('G', 'advance'), sum('H', 'net'),
-                { f: list.length ? `SUM(I${firstData}:I${lastData})` : '', v: ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? list.reduce((t, it) => t + it.side.money.tax, 0) : 0, s: ST.totalMoney },
+                { f: list.length ? `SUM(I${firstData}:I${lastData})` : '', v: ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? list.reduce((t, it) => t + (it.side.money.taxDeduction > 0 ? it.side.money.tax : 0), 0) : 0, s: ST.totalMoney },
                 sum('J', 'taxDeduction'),
                 { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }, { v: '', s: ST.totalCenter }
             ],
@@ -614,7 +614,8 @@
             const gvNet = gv ? gv.money.net : 0;
             const ttNet = tt ? tt.money.net : 0;
             tGv += gvNet; tTt += ttNet;
-            const tax = ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? person.sides.reduce((sum, side) => sum + side.money.tax, 0) : 0;
+            // TNCN chỉ hiện số khi đã chọn khấu trừ; người không khấu trừ để trống.
+            const tax = ctx.year * 12 + ctx.month >= 2026 * 12 + 9 ? person.sides.reduce((sum, side) => sum + (side.money.taxDeduction > 0 ? side.money.tax : 0), 0) : 0;
             const taxDeduction = person.sides.reduce((sum, side) => sum + side.money.taxDeduction, 0);
             tTax += tax; tTaxDeduction += taxDeduction;
             const roleText = gv && tt ? 'Giáo viên / Trợ giảng + Tiếp tân' : (gv ? ROLE_SIDES['giao-vien'].roleShow : ROLE_SIDES['tiep-tan'].roleShow);
@@ -631,7 +632,7 @@
                     gv ? { v: gvNet, s: ST.money } : { v: '', s: ST.center },
                     tt ? { v: ttNet, s: ST.money } : { v: '', s: ST.center },
                     { v: gvNet + ttNet, s: ST.net },
-                    { v: tax, s: ST.money }, { v: taxDeduction, s: ST.money },
+                    { v: taxDeduction > 0 ? tax : '', s: ST.money }, { v: taxDeduction > 0 ? taxDeduction : '', s: ST.money },
                     { v: st, s: ST.note },
                     { v: '', s: ST.text }
                 ]

@@ -3748,7 +3748,7 @@ function renderDetailedSalaryTable(details, status) {
                 </td>
             </tr>
             
-            ${details.personalIncomeTaxAvailable ? `<tr><td colspan="2" class="ps-k" style="${styleLabelCell}">TNCN 10% ${details.personalIncomeTaxEnabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="ps-v" style="${styleValueCell}">${fmt(details.personalIncomeTax || 0)}</td></tr>` : ''}
+            ${details.personalIncomeTaxAvailable ? `<tr><td colspan="2" class="ps-k" style="${styleLabelCell}">TNCN 10% ${details.personalIncomeTaxEnabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="ps-v" style="${styleValueCell}">${details.personalIncomeTaxEnabled ? fmt(details.personalIncomeTax || 0) : ''}</td></tr>` : ''}
             <tr class="ps-row-advance" style="background: #FDF2F8;">
                 <td colspan="2" class="ps-k" style="${styleLabelCell} color: #DB2777; font-weight: 700;">TẠM ỨNG (2)</td>
                 <td class="ps-v" style="${styleValueCell} color: #DB2777; font-weight: 700;">${details.advance > 0 ? fmt(details.advance) : '—'}</td>
@@ -3886,7 +3886,7 @@ function renderDetailedSalaryTable(details, status) {
                 <td class="ps-v" style="${styleValueCell} font-size: 0.8rem; font-weight: normal; color: #4B5563;">${criteria9?.amount ? fmt(criteria9.amount) : '—'}</td>
             </tr>
             
-            ${details.personalIncomeTaxAvailable ? `<tr><td colspan="3" class="ps-k" style="${styleLabelCell}">TNCN 10% ${details.personalIncomeTaxEnabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="ps-v" style="${styleValueCell}">${fmt(details.personalIncomeTax || 0)}</td></tr>` : ''}
+            ${details.personalIncomeTaxAvailable ? `<tr><td colspan="3" class="ps-k" style="${styleLabelCell}">TNCN 10% ${details.personalIncomeTaxEnabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="ps-v" style="${styleValueCell}">${details.personalIncomeTaxEnabled ? fmt(details.personalIncomeTax || 0) : ''}</td></tr>` : ''}
             <tr class="ps-row-advance" style="background: #FDF2F8;">
                 <td colspan="3" class="ps-k" style="${styleLabelCell} color: #DB2777; font-weight: 700;">TẠM ỨNG (2)</td>
                 <td class="ps-v" style="${styleValueCell} color: #DB2777; font-weight: 700;">${details.advance > 0 ? fmt(details.advance) : '—'}</td>

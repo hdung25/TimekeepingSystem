@@ -67,7 +67,8 @@ for (const role of ['giao-vien', 'tiep-tan']) {
     const base = { role, baseSalary: 5300000, totalBaseSalary: 5300000, advance: 1000000,
         personalIncomeTaxAvailable: true, personalIncomeTax: 530000 };
     const noTax = strip(context.renderDetailedSalaryTable({ ...base, personalIncomeTaxDeduction: 0 }, 'draft'));
-    assert.match(noTax, /TNCN 10% · Không khấu trừ 530,000/);
+    assert.match(noTax, /TNCN 10% · Không khấu trừ TẠM ỨNG/);
+    assert.doesNotMatch(noTax, /530,000/);
     assert.match(noTax, /THỰC LÃNH \(1\)-\(2\) 4,300,000/);
     const withTax = strip(context.renderDetailedSalaryTable({ ...base, personalIncomeTaxDeduction: 530000,
         personalIncomeTaxEnabled: true }, 'draft'));

@@ -584,7 +584,7 @@ function exportSalaryPDF(overrides) {
                 </td>
                 <td class="right">${criteriaV?.amount ? fmt(criteriaV.amount) : ''}</td>
             </tr>
-            ${taxTT.available ? `<tr><td colspan="2">TNCN 10% ${taxTT.enabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="right">${fmt(taxTT.amount)}</td></tr>` : ''}
+            ${taxTT.available ? `<tr><td colspan="2">TNCN 10% ${taxTT.enabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="right">${taxTT.enabled ? fmt(taxTT.amount) : ''}</td></tr>` : ''}
             <tr>
                 <td colspan="2" class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance > 0 ? fmt(advance) : ''}</td>
@@ -728,7 +728,7 @@ function exportSalaryPDF(overrides) {
                 <td class="right">${criteria9?.amount ? fmt(criteria9.amount) : ''}</td>
             </tr>
             
-            ${tax.available ? `<tr><td colspan="3">TNCN 10% ${tax.enabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="right">${fmt(tax.amount)}</td></tr>` : ''}
+            ${tax.available ? `<tr><td colspan="3">TNCN 10% ${tax.enabled ? '(3) · Đã khấu trừ' : '· Không khấu trừ'}</td><td class="right">${tax.enabled ? fmt(tax.amount) : ''}</td></tr>` : ''}
             <tr>
                 <td colspan="3" class="bold red-text">TẠM ỨNG (2)</td>
                 <td class="right">${advance > 0 ? fmt(advance) : ''}</td>

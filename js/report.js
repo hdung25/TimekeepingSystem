@@ -4253,8 +4253,9 @@ function calculateSalary() {
     const taxDisplay = document.getElementById('salary-tax-amount');
     if (taxDisplay) {
         const activePart = payrollParts.find(p => p.role === (window.currentLoadedRoleKey === 'tiep_tan' ? 'tiep-tan' : 'giao-vien'));
-        taxDisplay.textContent = formatNumberWithCommas(activePart?.details.personalIncomeTax || 0) + 'đ'
-            + (activePart?.details.personalIncomeTaxEnabled ? ' · Đã khấu trừ' : ' · Không khấu trừ');
+        taxDisplay.textContent = activePart?.details.personalIncomeTaxEnabled
+            ? formatNumberWithCommas(activePart.details.personalIncomeTax || 0) + 'đ · Đã khấu trừ'
+            : 'Không khấu trừ';
     }
 
     const finalDisplay = document.getElementById('final-salary-display');
@@ -9089,7 +9090,7 @@ function recalculateSalaryModal() {
     const tax = calculatePersonalIncomeTax(income, document.getElementById('modal-salary-tax-enabled')?.checked === true);
     const netPay = income - advance - tax.deduction;
     const taxDisplay = document.getElementById('modal-salary-tax-amount');
-    if (taxDisplay) taxDisplay.textContent = formatNumberWithCommas(tax.amount) + 'đ' + (tax.enabled ? ' · Đã khấu trừ' : ' · Không khấu trừ');
+    if (taxDisplay) taxDisplay.textContent = tax.enabled ? formatNumberWithCommas(tax.amount) + 'đ · Đã khấu trừ' : 'Không khấu trừ';
 
     const displayCell = document.getElementById('modal-final-salary-display');
     if (displayCell) {
@@ -10827,7 +10828,7 @@ function renderSalaryDashboardTable() {
                 <td style="padding:0.75rem 0.75rem;color:#4B5563;font-weight:500;">${safePrimaryRole}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.baseSalary > 0 ? formatNumberWithCommas(row.baseSalary) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#374151;">${row.totalBonus > 0 ? formatNumberWithCommas(row.totalBonus) + 'đ' : '—'}</td>
-                <td style="padding:0.75rem;text-align:right;color:#374151">${row.status !== 'uncalculated' ? formatNumberWithCommas(row.personalIncomeTax) + 'đ' : '—'}<small style="display:block;color:#6B7280">${row.personalIncomeTaxDeduction > 0 ? 'Trừ ' + formatNumberWithCommas(row.personalIncomeTaxDeduction) + 'đ' : 'Không khấu trừ'}</small></td>
+                <td style="padding:0.75rem;text-align:right;color:#374151">${row.status !== 'uncalculated' && row.personalIncomeTaxDeduction > 0 ? formatNumberWithCommas(row.personalIncomeTax) + 'đ' : ''}<small style="display:block;color:#6B7280">${row.personalIncomeTaxDeduction > 0 ? 'Trừ ' + formatNumberWithCommas(row.personalIncomeTaxDeduction) + 'đ' : 'Không khấu trừ'}</small></td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;color:#EF4444;">${row.advance > 0 ? '-' + formatNumberWithCommas(row.advance) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:right;font-weight:700;color:${row.netPay < 0 ? '#DC2626' : 'var(--primary-color)'};">${row.netPay !== 0 && row.status !== 'uncalculated' ? (row.netPay < 0 ? '-' : '') + formatNumberWithCommas(Math.abs(row.netPay)) + 'đ' : '—'}</td>
                 <td style="padding:0.75rem 0.75rem;text-align:center;">${row.statusBadge}</td>
