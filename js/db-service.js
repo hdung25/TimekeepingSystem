@@ -6380,10 +6380,82 @@ const DBService = {
     // một nguồn duy nhất nên hai bên không bao giờ hiểu khác nhau về "thế nào là đủ".
     // Quy tắc GĐ: thiếu cơ sở / môn-lớp / người phân công thì quản lý không có căn cứ duyệt
     // và Bảng Công cũng không áp được đơn giá → không cho gửi, không cho duyệt.
+    // Đơn "Dạy thay trong ca tiếp tân" (v280): nhân viên đang trực tiếp tân/văn phòng được nhờ
+    // dạy thay đột xuất tự gửi, quản lý duyệt ở Tường Trình → ghi phần dạy inShiftTeaching
+    // y như công cụ "+ Ghi phần dạy thay" của Bảng Công. Ca tiếp tân gốc không bị đụng tới.
+    IN_SHIFT_REQUEST_TYPE: 'in_shift_teaching',
+    isInShiftTeachingRequest: (r) => String(r?.type || '') === 'in_shift_teaching',
+
+    // Ca tiếp tân/văn phòng nhận được phần dạy thay (cùng tiêu chí với report.js isInShiftHostSession).
+    // staffHasOperationalRole: phiên chưa có vai trò chỉ tính là ca tiếp tân khi người đó có vai trò tiếp tân/VP.
+    isInShiftHostCandidate: (session, staffHasOperationalRole = false) => {
+        if (!session || session.isAbsent || session.inShiftTeaching === true || !(session.checkIn || session.start)) return false;
+        const role = String(session.role || '');
+        if (role) return ['tiep-tan', 'tiep_tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'].includes(role);
+        return !!staffHasOperationalRole;
+    },
+
+    // Phiên nào được tính là "đã ghi công cho khung giờ của đơn"? Đơn dạy thay nằm TRONG ca tiếp
+    // tân nên ca tiếp tân (phiên chủ) không bao giờ là "đã có công" của nó — chỉ phần dạy thay
+    // inShiftTeaching đã ghi (quản lý tự ghi ở Bảng Công) mới phủ được đơn.
+    makeupCoverCandidates: (request, sessions) => {
+        const list = Array.isArray(sessions) ? sessions : [];
+        if (!DBService.isInShiftTeachingRequest(request)) return list;
+        return list.filter(session => session && session.inShiftTeaching === true);
+    },
+
+    // Phiên trong Bảng Công trùng khung giờ (≥10 phút) của đơn, KHÔNG tính phiên chủ của đơn dạy thay.
+    makeupAttendanceClash: (request, sessions) => {
+        const span = DBService._makeupRequestSpan(request);
+        if (!span) return null;
+        const hostId = DBService.isInShiftTeachingRequest(request) ? String(request.hostSessionId || '') : '';
+        return (Array.isArray(sessions) ? sessions : []).find(session => {
+            if (!session || session.isAbsent || !(session.checkIn || session.start)) return false;
+            if (hostId && String(session.id || '') === hostId) return false;
+            if (request?.id && String(session.makeupRequestId || '') === String(request.id)) return false;
+            const start = new Date(session.checkIn || session.start).getTime();
+            const end = session.checkOut ? new Date(session.checkOut).getTime() : start;
+            return Math.min(span.end, end) - Math.max(span.start, start) >= 10 * 60 * 1000;
+        }) || null;
+    },
+
+    // Kiểm tra phần dạy thay so với ca tiếp tân chủ trong Bảng Công. Trả về chuỗi lỗi, hoặc '' nếu hợp lệ.
+    inShiftHostProblem: (request, sessions) => {
+        const hostId = String(request?.hostSessionId || '');
+        const host = (Array.isArray(sessions) ? sessions : []).find(session => session && String(session.id || '') === hostId) || null;
+        if (!host || host.isAbsent || host.inShiftTeaching === true || !(host.checkIn || host.start)) {
+            return 'Không còn thấy ca tiếp tân đã chọn trong Bảng Công (ca có thể đã bị sửa/xóa).';
+        }
+        const hostRole = String(host.role || '');
+        if (hostRole && !['tiep-tan', 'tiep_tan', 'receptionist', 'van-phong', 'van_phong', 'office_staff'].includes(hostRole)) {
+            return 'Ca được chọn không còn là ca tiếp tân/văn phòng.';
+        }
+        const mode = host.adminPayrollOverride?.mode;
+        if (mode && mode !== 'schedule') return 'Ca tiếp tân này đang có phân bổ lương Admin, cần bỏ phân bổ đó trước khi tách phần dạy thay.';
+        const span = DBService._makeupRequestSpan(request);
+        if (!span) return 'Đơn thiếu giờ dạy thay.';
+        const h1 = new Date(host.checkIn || host.start).getTime();
+        const h2 = host.checkOut ? new Date(host.checkOut).getTime() : Date.now();
+        if (span.start < h1 - 59000 || span.end > h2 + 59000) return 'Giờ dạy thay phải nằm trong giờ vào/ra của ca tiếp tân.';
+        return '';
+    },
+
     missingMakeupFields: (r) => {
         const req = r || {};
         const s = req.session || {};
         const missing = [];
+        if (DBService.isInShiftTeachingRequest(req)) {
+            // Dạy thay trong ca tiếp tân: môn lấy từ danh mục (mã môn trong session.role),
+            // phải chỉ đúng ca tiếp tân đang có trong Bảng Công và có người nhờ dạy thay.
+            if (!req.dateKey) missing.push('ngày');
+            if (!req.branch) missing.push('cơ sở');
+            if (!String(req.hostSessionId || '').trim()) missing.push('ca tiếp tân');
+            if (!String(s.role || '').trim() || !req.className) missing.push('môn/lớp');
+            if (!String(req.approvedBy || '').trim()) missing.push('người nhờ dạy thay');
+            if (s.isAbsent || !s.checkIn || !s.checkOut) missing.push('giờ vào/ra');
+            if (!String(req.reason || '').trim()) missing.push('lý do');
+            return missing;
+        }
         const isTT = ['tiep-tan', 'van-phong', 'office_staff'].includes(s.role) || ['tt', 'vp'].includes(req.shiftKind);
         if (!req.dateKey) missing.push('ngày');
         if (!req.branch) missing.push('cơ sở');
@@ -6492,18 +6564,26 @@ const DBService = {
             throw error;
         };
         const rejectionsByIndex = list.map(() => []);
+        // Đơn dạy thay trong ca chỉ so với đơn dạy thay khác: nó luôn nằm trong giờ của ca tiếp
+        // tân (có thể chính ca đó từng được chấm bù) nên so với đơn chấm bù thường là chặn nhầm.
+        const sameKind = (a, b) => DBService.isInShiftTeachingRequest(a) === DBService.isInShiftTeachingRequest(b);
         list.forEach((request, index) => {
             const span = DBService._makeupRequestSpan(request);
             const label = request.shiftLabel || `${request.dateKey}`;
             if (!span) return;
-            const worked = (sessionsByDate.get(request.dateKey) || []).some(session => {
-                if (!session || session.isAbsent || !(session.checkIn || session.start)) return false;
-                const start = new Date(session.checkIn || session.start).getTime();
-                const end = session.checkOut ? new Date(session.checkOut).getTime() : start;
-                return overlaps(span, { start, end });
-            });
-            if (worked) fail(`Ca ${label} đã có công trong Bảng Công nên không cần chấm bù.`);
-            const sameHours = existing.filter(item => item.dateKey === request.dateKey &&
+            const daySessions = sessionsByDate.get(request.dateKey) || [];
+            const inShift = DBService.isInShiftTeachingRequest(request);
+            if (inShift) {
+                const hostProblem = DBService.inShiftHostProblem(request, daySessions);
+                if (hostProblem) fail(`${hostProblem} Vui lòng tải lại trang rồi chọn lại ca.`);
+            }
+            const clash = DBService.makeupAttendanceClash(request, daySessions);
+            if (clash) {
+                fail(inShift
+                    ? `Khung giờ ${label} đã có phần dạy/ca khác trong Bảng Công (ngoài ca tiếp tân) nên không gửi thêm được. Nếu cần sửa, báo quản lý.`
+                    : `Ca ${label} đã có công trong Bảng Công nên không cần chấm bù.`);
+            }
+            const sameHours = existing.filter(item => item.dateKey === request.dateKey && sameKind(item, request) &&
                 overlaps(span, DBService._makeupRequestSpan(item)));
             const previous = sameHours.find(item => ['pending', 'approved'].includes(item.status));
             if (previous) {
@@ -6512,7 +6592,7 @@ const DBService = {
             }
             rejectionsByIndex[index] = sameHours.filter(item => item.status === 'rejected');
             const twin = list.find((other, otherIndex) => otherIndex !== index && other.dateKey === request.dateKey &&
-                overlaps(span, DBService._makeupRequestSpan(other)));
+                sameKind(other, request) && overlaps(span, DBService._makeupRequestSpan(other)));
             if (twin) fail(`Hai ca đang chọn (${label} và ${twin.shiftLabel || ''}) trùng khung giờ; chỉ gửi một yêu cầu.`);
         });
         return rejectionsByIndex;
@@ -6538,7 +6618,8 @@ const DBService = {
                 const [liveRequest, attendance] = await Promise.all([transaction.get(requestRef), transaction.get(attendanceRef)]);
                 if (!liveRequest.exists || liveRequest.data()?.status !== 'pending' || !attendance.exists) return null;
                 const span = DBService._makeupRequestSpan(liveRequest.data());
-                const covering = DBService._sessionsCoveringSpan(attendance.data()?.sessions || [], span, request.id);
+                const covering = DBService._sessionsCoveringSpan(
+                    DBService.makeupCoverCandidates(liveRequest.data(), attendance.data()?.sessions || []), span, request.id);
                 if (!covering) return null;
                 transaction.update(requestRef, {
                     status: 'rejected',
@@ -7011,7 +7092,122 @@ const DBService = {
     // nhân viên quên chấm công thì trả vào tháng sau. Ca vẫn nằm nguyên ở THÁNG DẠY —
     // giờ công, đơn giá, Bảng Công đều không đổi — chỉ có tiền là dồn sang tháng được
     // chọn. Bỏ trống = trả trong tháng dạy (mặc định như trước nay).
+    // Lớp trong lịch CỦA CHÍNH nhân viên trùng khung giờ dạy thay → lớp đó đã được tính dạy
+    // (Bảng Công tự trừ khỏi giờ tiếp tân), ghi thêm phần dạy thay là tính hai lần.
+    // Trả về nhãn lớp trùng đầu tiên, hoặc ''.
+    _inShiftScheduledClassClash: async (request, options = {}) => {
+        const span = DBService._makeupRequestSpan(request);
+        const staffId = String(request?.staffId || '');
+        const dateKey = String(request?.dateKey || '');
+        if (!span || !staffId || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '';
+        const [y, m, d] = dateKey.split('-').map(Number);
+        const at = text => {
+            const [h, mi] = String(text || '').split(':').map(Number);
+            return new Date(y, m - 1, d, h || 0, mi || 0, 0, 0).getTime();
+        };
+        const sections = ['morning1', 'morning2', 'afternoon1', 'afternoon2', 'evening1', 'evening2'];
+        const readOptions = options.source === 'server' ? { source: 'server' } : {};
+        const days = await Promise.all(['cs1', 'cs2', 'cs3'].map(branch =>
+            DBService.getSchedule(`${branch}__${dateKey}`, readOptions).then(value => ({ branch, value: value || {} }), () => ({ branch, value: {} }))));
+        for (const { branch, value } of days) {
+            for (const section of sections) {
+                for (const row of (Array.isArray(value[section]) ? value[section] : [])) {
+                    if (!row || !row.start || !row.end || row.isClosed === true) continue;
+                    if (typeof isAssignedToClass === 'function' && !isAssignedToClass(row, staffId)) continue;
+                    if (Math.min(span.end, at(row.end)) - Math.max(span.start, at(row.start)) >= 10 * 60 * 1000) {
+                        return `${row.start}–${row.end} ${branch.toUpperCase()} (${row.lop || 'lớp chưa đặt tên'})`;
+                    }
+                }
+            }
+        }
+        return '';
+    },
+
+    // Đơn giá dự phòng của phần dạy thay — cùng cách popup "+ Ghi phần dạy thay" ở Bảng Công
+    // tính (bảng giá theo khối nếu có, rồi vai trò đã cấu hình, rồi đơn giá chung); lớp ghép
+    // lấy môn cao nhất. Bảng giá tháng (nếu có) vẫn được Bảng Công ưu tiên khi tính lương.
+    _inShiftRoleRate: async (staffId, roleIds, dateKey) => {
+        let config = {};
+        try {
+            const userDoc = await db.collection('users').doc(staffId).get();
+            config = userDoc.exists ? (userDoc.data()?.salary_config || {}) : {};
+        } catch (error) { console.warn('[InShiftRequest] Không đọc được cấu hình lương:', error); }
+        const configured = Array.isArray(config.roles) ? config.roles : [];
+        const fallbackRate = configured.length ? (Number(configured[0].rate) || 0) : (Number(config.attendance_rate) || 0);
+        let subjects = [];
+        try { subjects = await DBService.getSubjects(true); } catch (_) { subjects = []; }
+        const policy = typeof window !== 'undefined' ? window.SubjectRatePolicy : null;
+        const policyOptions = policy && typeof policy.leafOptions === 'function'
+            ? policy.leafOptions(config, subjects, dateKey, fallbackRate) : [];
+        const rateOf = id => {
+            const fromPolicy = policyOptions.find(item => String(item.id) === String(id));
+            if (fromPolicy) return Number(fromPolicy.rate) || 0;
+            const role = configured.find(item => String(item?.id) === String(id));
+            return role ? (Number(role.rate) || 0) : fallbackRate;
+        };
+        const names = roleIds.map(id => (subjects.find(item => String(item.id) === String(id)) || {}).name || '');
+        return { rate: Math.max(0, ...roleIds.map(rateOf)), names };
+    },
+
+    approveInShiftTeachingRequest: async (req, adminName) => {
+        const requestId = String(req?.id || '').trim();
+        const fail = (message, code = 'IN_SHIFT_REQUEST_INVALID') => {
+            const error = new Error(message);
+            error.code = code;
+            throw error;
+        };
+        if (!requestId) fail('Thiếu mã yêu cầu dạy thay.');
+        const snapshot = await db.collection('makeup_requests').doc(requestId).get({ source: 'server' });
+        if (!snapshot.exists) fail('Yêu cầu dạy thay không còn tồn tại.', 'MAKEUP_REQUEST_NOT_FOUND');
+        const live = { id: requestId, ...(snapshot.data() || {}) };
+        if (!DBService.isInShiftTeachingRequest(live)) fail('Yêu cầu đã đổi loại. Hãy tải lại danh sách.', 'MAKEUP_REQUEST_STALE');
+        if ((req?.staffId && String(req.staffId) !== String(live.staffId)) ||
+            (req?.dateKey && String(req.dateKey) !== String(live.dateKey))) {
+            fail('Yêu cầu đã thay đổi nhân sự hoặc ngày. Hãy tải lại danh sách trước khi duyệt.', 'MAKEUP_REQUEST_STALE');
+        }
+        if (live.status === 'approved' && live.materializedSessionId) return String(live.materializedSessionId);
+        if (live.status !== 'pending') fail('Yêu cầu không còn ở trạng thái chờ duyệt. Hãy tải lại danh sách.', 'MAKEUP_REQUEST_STALE');
+        const missing = DBService.missingMakeupFields(live);
+        if (missing.length) fail('Yêu cầu còn thiếu: ' + missing.join(', ') + '.', 'MAKEUP_MISSING_FIELDS');
+
+        const scheduledClash = await DBService._inShiftScheduledClassClash(live, { source: 'server' });
+        if (scheduledClash) {
+            fail(`Khung giờ này trùng lớp trong lịch của chính nhân viên: ${scheduledClash}. Lớp trong lịch đã được tính dạy (đã tự trừ khỏi giờ tiếp tân), duyệt thêm là tính hai lần — hãy từ chối đơn này.`, 'IN_SHIFT_SCHEDULED_CLASH');
+        }
+        const s = live.session || {};
+        const roleIds = String(s.role || '').split('+').map(item => item.trim()).filter(Boolean);
+        const { rate, names } = await DBService._inShiftRoleRate(live.staffId, roleIds, live.dateKey);
+        const roleName = names.every(Boolean) ? names.join(' + ') : (s.roleName || live.className || '');
+        const by = adminName || 'Admin';
+        const sid = await DBService.addSession(live.staffId, live.dateKey, {
+            checkIn: s.checkIn,
+            start: s.checkIn,
+            checkOut: s.checkOut,
+            type: 'admin_add',
+            isAdminEdited: true,
+            isAbsent: false,
+            isFixedShift: false,
+            role: roleIds.join('+'),
+            roleName,
+            roleRate: rate,
+            roleAssignmentSource: 'manual',
+            subjectOverride: false,
+            note: `Dạy thay (đơn NV) – nhờ: ${String(live.approvedBy || '').trim()}`.slice(0, 120),
+            makeupRequestId: requestId,
+            editMeta: { source: 'makeup_in_shift_teaching', editor: by }
+        }, {
+            inShiftHostId: String(live.hostSessionId),
+            makeupApproval: { requestId, reviewedBy: by, staffName: live.staffName || 'N/A', overtimeMinutes: 0 }
+        });
+        DBService.createAdminNotification(live.staffId, live.staffName, 'makeup_approved', live.dateKey,
+            `Yêu cầu dạy thay trong ca ${live.shiftLabel || live.dateKey} đã được duyệt. Phần dạy tính theo đơn giá môn, giờ tiếp tân tự trừ đúng khoảng đó.`,
+            { title: 'Dạy thay đã được duyệt', link: 'cham-bu.html' }).catch(() => {});
+        return sid;
+    },
+
     approveMakeupRequest: async (req, adminName, options = {}) => {
+        // Đơn dạy thay trong ca tiếp tân có luồng duyệt riêng (ghi phần dạy inShiftTeaching).
+        if (DBService.isInShiftTeachingRequest(req)) return DBService.approveInShiftTeachingRequest(req, adminName);
         // Never trust the list-row object held by the admin page. It can be stale
         // after a coordinator records an absence. Re-read the request, exact
         // source shift, cancellations and attendance from the server immediately

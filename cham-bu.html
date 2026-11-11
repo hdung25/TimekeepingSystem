@@ -12,9 +12,10 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261106-partner-view-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261109-delete-shift-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261111-in-shift-request-v1'></script>
     <script src='js/shift-absence-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/evaluation-service.js?v=20261110-chain-hs-all-v1'></script>
+    <script src='js/search-keynav.js?v=20261111-in-shift-request-v1'></script>
     <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
     <style>
         /* Giao diện đợt 2 (26/09/2026): cùng hệ thiết kế với app (css/app-ui.css). Chỉ trình bày —
@@ -45,6 +46,18 @@
         .mode .s{font-size:.72rem;color:var(--mut);margin-top:2px;line-height:1.3}
         .mode.on{background:#fff;box-shadow:0 1px 3px rgba(16,24,40,.12)}
         .mode.on .t{color:var(--p-d)}
+        .modes.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+        .mode[hidden]{display:none}
+        /* Dạy thay trong ca (v280) */
+        .hostopt{display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:10px 12px;border:1.5px solid var(--ln2);border-radius:12px;margin-bottom:8px;cursor:pointer;font-size:.9rem;background:#fff}
+        .hostopt input{width:20px;height:20px;accent-color:var(--p);flex:0 0 auto}
+        .hostopt.on{border-color:var(--p);box-shadow:0 0 0 3px rgba(5,150,105,.14)}
+        .hostopt small{display:block;color:var(--mut);font-size:.76rem;margin-top:2px}
+        .subjbox{max-height:200px;overflow-y:auto;border:1px solid var(--ln2);border-radius:12px;margin-top:6px;background:#fff}
+        .subjbox label{display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 12px;cursor:pointer;font-size:.92rem;border-bottom:1px solid #F1F4F3}
+        .subjbox label:last-child{border-bottom:0}
+        .subjbox input{width:18px;height:18px;accent-color:var(--p);flex:0 0 auto}
+        .picked{font-size:.82rem;color:var(--p-d);font-weight:700;margin-top:6px;min-height:1em}
 
         .card{background:#fff;border:1px solid var(--ln);border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
 
@@ -151,6 +164,9 @@
             <button class="mode" id="m-extra" onclick="switchMode('extra')">
                 <div class="t">Ca Ngoài Lịch</div><div class="s">Chưa được xếp lịch</div>
             </button>
+            <button class="mode" id="m-inshift" onclick="switchMode('inshift')" hidden>
+                <div class="t">Dạy Thay Trong Ca</div><div class="s">Đang trực tiếp tân được nhờ dạy</div>
+            </button>
         </div>
 
         <div id="p-sched">
@@ -216,6 +232,35 @@
             <textarea id="ex-reason" rows="2" placeholder="VD: Được nhờ dạy thay lớp Toán 6 lúc 09:15, chưa kịp xếp lên lịch..."></textarea>
             <button class="btn b-main" style="margin-top:.9rem" onclick="submitExtra()">Gửi yêu cầu</button>
             <div class="note"><b>Lưu ý</b>Ca ngoài lịch phải ghi ĐỦ: cơ sở, môn/lớp (hoặc ca trực), giờ vào–ra và người phân công. Thiếu thông tin thì quản lý không có căn cứ để duyệt và ca sẽ bị từ chối.</div>
+        </div>
+
+        <div class="card" id="p-inshift" style="display:none">
+            <h2 class="ch"><i data-lucide="repeat" style="width:17px;height:17px"></i> Dạy thay trong ca tiếp tân</h2>
+            <div class="note" style="margin-top:0"><b>Khi nào dùng?</b>Bạn đã vào ca tiếp tân / văn phòng và đang trực thì được nhờ dạy thay đột xuất (thiếu GV, chưa kịp xếp lịch). Gửi đơn ở đây — quản lý duyệt xong, hệ thống tự tách: phần dạy tính theo đơn giá môn, giờ tiếp tân tự trừ đúng khoảng đó. Không giờ nào bị tính hai lần.</div>
+            <label class="f">NGÀY DẠY THAY <span class="rq">*</span></label>
+            <input type="date" id="is-date" onchange="onInShiftDateChange()">
+            <label class="f">CA TIẾP TÂN / VĂN PHÒNG ĐANG TRỰC <span class="rq">*</span></label>
+            <div id="is-hosts"><div class="empty">Chọn ngày để xem ca của bạn.</div></div>
+            <div class="g2">
+                <div><label class="f">DẠY TỪ <span class="rq">*</span></label><input type="time" id="is-from"></div>
+                <div><label class="f">ĐẾN <span class="rq">*</span></label><input type="time" id="is-to"></div>
+            </div>
+            <label class="f">MÔN / LỚP DẠY THAY <span class="rq">*</span> — lớp ghép thì chọn nhiều môn</label>
+            <input type="text" id="is-subj-search" placeholder="Tìm môn..." autocomplete="off" oninput="filterInShiftSubjects()">
+            <div id="is-subjects" class="subjbox"><div class="empty">Đang tải danh sách môn...</div></div>
+            <div id="is-picked" class="picked"></div>
+            <div class="g2">
+                <div><label class="f">CƠ SỞ <span class="rq">*</span></label>
+                    <select id="is-branch">
+                        <option value="">— Chọn cơ sở —</option>
+                        <option value="cs1">CS1</option><option value="cs2">CS2</option><option value="cs3">CS3</option>
+                    </select></div>
+                <div><label class="f">AI NHỜ DẠY THAY <span class="rq">*</span></label><input type="text" id="is-approver" placeholder="VD: Chị Thuý"></div>
+            </div>
+            <label class="f">LÝ DO / GHI CHÚ <span class="rq">*</span></label>
+            <textarea id="is-reason" rows="2" placeholder="VD: Cô Lan nghỉ đột xuất, được nhờ dạy thay lớp E3..."></textarea>
+            <button class="btn b-main" style="margin-top:.9rem" id="is-submit" onclick="submitInShift()">Gửi yêu cầu dạy thay</button>
+            <div class="note"><b>Lưu ý</b>Phải báo người quản lý trước khi nhận dạy thay. Giờ dạy phải nằm trong giờ vào–ra của ca tiếp tân đã chấm công. Đơn chỉ được tính sau khi quản lý duyệt; sai thông tin sẽ bị từ chối.</div>
         </div>
 
         <div class="card">
@@ -337,7 +382,8 @@ function attendanceOverlaps(sessions,aStart,aEnd){
 // (includeRejected) chỉ để hiện lý do — nhân viên được sửa lại và gửi lại.
 function requestFor(reqs,aStart,aEnd,includeRejected){
     const hits=(reqs||[]).filter(r=>{
-        if(!r)return false;
+        // Đơn dạy thay trong ca nằm trong ca tiếp tân đã có công — không phải đơn chấm bù của ca nào.
+        if(!r||r.type==='in_shift_teaching')return false;
         if(!['pending','approved'].concat(includeRejected?['rejected']:[]).includes(r.status))return false;
         const s=r.session||{};
         if(!s.checkIn)return false;
@@ -377,8 +423,151 @@ function mergeConsecutiveOpen(list){
 window.switchMode=function(m){
     document.getElementById('m-sched').classList.toggle('on',m==='sched');
     document.getElementById('m-extra').classList.toggle('on',m==='extra');
+    document.getElementById('m-inshift').classList.toggle('on',m==='inshift');
     document.getElementById('p-sched').style.display=m==='sched'?'block':'none';
     document.getElementById('p-extra').style.display=m==='extra'?'block':'none';
+    document.getElementById('p-inshift').style.display=m==='inshift'?'block':'none';
+    if(m==='inshift'&&!inShiftLoadedFor)loadInShiftHosts();
+};
+
+/* ===== DẠY THAY TRONG CA TIẾP TÂN (v280) =====
+   Đang trực tiếp tân/văn phòng mà được nhờ dạy thay đột xuất: nhân viên tự gửi đơn, quản lý
+   duyệt ở Tường Trình → hệ thống ghi phần dạy nằm trong ca (giống "+ Ghi phần dạy thay" ở
+   Bảng Công). Ca tiếp tân gốc không bị sửa. */
+const OPERATIONAL_ROLES=['tiep-tan','receptionist','receptionist_assistant','receptionist_lead','receptionist_staff',
+    'senior_assistant','office_staff','van-phong','van_phong'];
+const hasOperationalRole=()=>myRoles().some(x=>OPERATIONAL_ROLES.includes(x));
+let inShiftHosts=[],inShiftSessions=[],inShiftHostId='',inShiftLoadedFor='',inShiftLoadSeq=0;
+const hmOf=iso=>{const d=new Date(iso);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+const hostLabel=h=>((h.role==='van-phong'||h.role==='van_phong'||h.role==='office_staff')?'Văn Phòng':'Tiếp Tân');
+
+window.onInShiftDateChange=function(){
+    ['is-from','is-to'].forEach(id=>{document.getElementById(id).value=''});
+    return loadInShiftHosts();
+};
+
+window.loadInShiftHosts=async function(){
+    const box=document.getElementById('is-hosts');
+    const d=document.getElementById('is-date').value;
+    inShiftHosts=[];inShiftSessions=[];inShiftHostId='';
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d||'')){box.innerHTML='<div class="empty">Chọn ngày để xem ca của bạn.</div>';return}
+    if(d>dk(new Date())){inShiftLoadedFor=d;box.innerHTML='<div class="empty">Ngày này chưa tới.</div>';return}
+    const seq=++inShiftLoadSeq;
+    box.innerHTML='<div class="empty">Đang tải ca của ngày '+esc(d)+'...</div>';
+    try{
+        const logs=await DBService.getMonthlyAttendance(d.slice(0,7),uid(),true,{strict:true});
+        if(seq!==inShiftLoadSeq)return;
+        const log=(logs||[]).find(l=>l.date===d);
+        inShiftSessions=(log&&log.sessions)||[];
+        const op=hasOperationalRole();
+        inShiftHosts=inShiftSessions.filter(s=>DBService.isInShiftHostCandidate(s,op));
+        inShiftLoadedFor=d;
+        renderInShiftHosts();
+    }catch(e){
+        if(seq!==inShiftLoadSeq)return;
+        console.warn('[DayThay] Không tải được Bảng Công:',e);
+        box.innerHTML='<div class="empty">Không tải được ca của ngày này (mạng yếu?).<br><button class="sy-retry" style="margin-top:10px" onclick="loadInShiftHosts()">Thử lại</button></div>';
+    }
+};
+
+function renderInShiftHosts(){
+    const box=document.getElementById('is-hosts');
+    if(!inShiftHosts.length){
+        box.innerHTML='<div class="warnbox" style="margin:0">Ngày này bạn <b>chưa có ca tiếp tân / văn phòng</b> nào trong Bảng Công. Phải vào ca tiếp tân trước (hoặc xin chấm bù ca đó) thì mới ghi được phần dạy thay trong ca.</div>';
+        return;
+    }
+    if(inShiftHosts.length===1&&!inShiftHostId)pickInShiftHost(String(inShiftHosts[0].id),true);
+    box.innerHTML=inShiftHosts.map(h=>{
+        const id=String(h.id),on=id===inShiftHostId;
+        const parts=inShiftSessions.filter(x=>x&&x.inShiftTeaching===true&&!x.isAbsent&&String(x.hostSessionId||'')===id);
+        return '<label class="hostopt'+(on?' on':'')+'"><input type="radio" name="is-host" value="'+esc(id)+'"'+(on?' checked':'')+
+            ' onchange="pickInShiftHost(this.value)"><span><b>'+hostLabel(h)+' '+hmOf(h.checkIn||h.start)+'–'+(h.checkOut?hmOf(h.checkOut):'đang làm')+'</b>'+
+            (h.branch?' · '+esc(String(h.branch).toUpperCase()):'')+
+            (parts.length?'<small>Đã có phần dạy thay: '+parts.map(x=>hmOf(x.checkIn||x.start)+'–'+hmOf(x.checkOut)+' '+esc(x.roleName||'')).join(', ')+'</small>':'')+
+            '</span></label>';
+    }).join('');
+}
+
+window.pickInShiftHost=function(id,silent){
+    inShiftHostId=String(id||'');
+    const h=inShiftHosts.find(x=>String(x.id)===inShiftHostId);
+    if(h){
+        const from=document.getElementById('is-from'),to=document.getElementById('is-to');
+        if(!from.value)from.value=hmOf(h.checkIn||h.start);
+        if(!to.value&&h.checkOut)to.value=hmOf(h.checkOut);
+        const br=document.getElementById('is-branch');
+        if(!br.value&&/^cs[123]$/.test(String(h.branch||'')))br.value=h.branch;
+    }
+    if(!silent)renderInShiftHosts();
+};
+
+function renderInShiftSubjects(){
+    const box=document.getElementById('is-subjects');
+    const list=window._subjectsCB||[];
+    if(!list.length){box.innerHTML='<div class="empty">Chưa tải được danh sách môn. Tải lại trang.</div>';return}
+    box.innerHTML=list.map(s=>'<label data-name="'+esc(String(s.name||'').toLowerCase())+'"><input type="checkbox" value="'+esc(s.id)+'" onchange="refreshInShiftPicked()"> <span>'+esc(s.name||s.id)+'</span></label>').join('');
+}
+window.filterInShiftSubjects=function(){
+    const key=String(document.getElementById('is-subj-search').value||'').trim().toLowerCase();
+    document.querySelectorAll('#is-subjects label').forEach(l=>{l.style.display=!key||l.dataset.name.includes(key)?'flex':'none'});
+};
+function pickedInShiftSubjects(){
+    const list=window._subjectsCB||[];
+    return [...document.querySelectorAll('#is-subjects input:checked')].map(cb=>list.find(s=>String(s.id)===cb.value)).filter(Boolean);
+}
+window.refreshInShiftPicked=function(){
+    const p=pickedInShiftSubjects();
+    document.getElementById('is-picked').textContent=p.length?'Đã chọn: '+p.map(s=>s.name).join(' + '):'';
+};
+
+window.submitInShift=async function(){
+    if(sending)return;
+    const d=document.getElementById('is-date').value;
+    const from=document.getElementById('is-from').value,to=document.getElementById('is-to').value;
+    const br=document.getElementById('is-branch').value;
+    const appr=(document.getElementById('is-approver').value||'').trim();
+    const rs=(document.getElementById('is-reason').value||'').trim();
+    const picked=pickedInShiftSubjects();
+    if(!d){alert('Vui lòng chọn ngày dạy thay.');return}
+    if(inShiftLoadedFor!==d){await loadInShiftHosts()}
+    const host=inShiftHosts.find(x=>String(x.id)===inShiftHostId);
+    if(!host){alert(inShiftHosts.length?'Vui lòng chọn ca tiếp tân bạn đang trực khi dạy thay.':'Ngày này bạn chưa có ca tiếp tân / văn phòng trong Bảng Công nên chưa ghi được phần dạy thay.');return}
+    if(!from||!to){alert('Vui lòng nhập giờ bắt đầu và kết thúc dạy.');return}
+    if(to<=from){alert('Giờ kết thúc phải sau giờ bắt đầu.');return}
+    if(!picked.length){alert('Vui lòng chọn môn / lớp đã dạy thay để tính đúng đơn giá.');return}
+    if(!br){alert('Vui lòng chọn cơ sở.');return}
+    if(!appr){alert('Vui lòng ghi ai đã nhờ bạn dạy thay.');return}
+    if(!rs){alert('Vui lòng ghi lý do / ghi chú.');return}
+    const a1=ms(d,from),a2=ms(d,to);
+    if(a2>Date.now()){alert('Chưa dạy xong khoảng giờ này. Dạy xong rồi hãy gửi đơn.');return}
+    const ids=picked.map(s=>String(s.id)),names=picked.map(s=>String(s.name||s.id));
+    const req={
+        staffId:uid(),staffName:uname(),type:'in_shift_teaching',dateKey:d,branch:br,
+        className:names.join(' + '),classNames:names,classIds:ids,classId:ids.length===1?ids[0]:'',
+        hostSessionId:String(host.id),
+        hostClock:{checkIn:host.checkIn||host.start||null,checkOut:host.checkOut||null,label:hostLabel(host)},
+        approvedBy:appr,shiftStart:from,shiftEnd:to,
+        shiftLabel:from+'–'+to+' '+br.toUpperCase()+' ('+names.join(' + ')+') · dạy thay trong ca '+hostLabel(host).toLowerCase(),
+        session:{checkIn:new Date(a1).toISOString(),checkOut:new Date(a2).toISOString(),role:ids.join('+'),roleName:names.join(' + ')},
+        reason:rs
+    };
+    const hostProblem=DBService.inShiftHostProblem(req,inShiftSessions);
+    if(hostProblem){alert(hostProblem+(/nằm trong giờ/.test(hostProblem)?'\nCa đang chọn: '+hmOf(host.checkIn||host.start)+'–'+(host.checkOut?hmOf(host.checkOut):'đang làm')+'.':''));return}
+    const clash=DBService.makeupAttendanceClash(req,inShiftSessions);
+    if(clash){alert('Khung giờ này đã có '+(clash.inShiftTeaching===true?'phần dạy thay':'ca')+' '+hmOf(clash.checkIn||clash.start)+'–'+(clash.checkOut?hmOf(clash.checkOut):'?')+' '+(clash.roleName||'')+' trong Bảng Công rồi, không gửi thêm được.');return}
+    sending=true;setSendingUI(true);
+    try{
+        const scheduled=await DBService._inShiftScheduledClassClash(req,{source:'server'});
+        if(scheduled){alert('Khung giờ này trùng lớp trong lịch của chính bạn: '+scheduled+'.\nLớp trong lịch đã được tính dạy và tự trừ khỏi giờ tiếp tân, không cần gửi đơn dạy thay.');return}
+        if(!confirm('Gửi yêu cầu dạy thay ngày '+d+'?\n'+req.shiftLabel+'\nNgười nhờ: '+appr))return;
+        await DBService.createMakeupRequests([req]);
+        alert('Đã gửi yêu cầu dạy thay. Chờ quản lý duyệt.');
+        ['is-from','is-to','is-approver','is-reason','is-subj-search'].forEach(id=>{document.getElementById(id).value=''});
+        document.querySelectorAll('#is-subjects input:checked').forEach(cb=>{cb.checked=false});
+        filterInShiftSubjects();refreshInShiftPicked();
+        loadMy({fresh:true});
+    }catch(e){alert((e&&e.code==='MAKEUP_DUPLICATE'?'':'Lỗi gửi: ')+(e.message||e))}
+    finally{sending=false;setSendingUI(false)}
 };
 
 function fillRoles(){
@@ -392,6 +581,10 @@ function fillRoles(){
     if(vp)o+='<option value="van-phong">Văn phòng</option>';
     document.getElementById('ex-role').innerHTML=o||'<option value="gv">Nhân viên</option>';
     onExtraRoleChange();
+    // Tab "Dạy Thay Trong Ca" chỉ dành cho người có ca tiếp tân / văn phòng.
+    const showInShift=hasOperationalRole();
+    document.getElementById('m-inshift').hidden=!showInShift;
+    document.querySelector('.modes').classList.toggle('three',showInShift);
 }
 
 // Ca ngoài lịch: GV phải khai Môn/Lớp, tiếp tân phải khai Ca trực → admin mới có căn cứ duyệt
@@ -411,6 +604,7 @@ async function fillSubjectList(){
             subjects.map(s=>'<option value="'+esc(s.name)+'"></option>').join('');
         window._subjectsCB=subjects;
     }catch(e){console.warn('[ChamBu] Không tải được danh sách môn:',e)}
+    renderInShiftSubjects();
 }
 
 async function loadMonth(options={}){
@@ -860,7 +1054,11 @@ window.submitExtra=async function(){
         document.getElementById('ex-reason').value='';document.getElementById('ex-ot').value='';
         document.getElementById('ex-approver').value='';document.getElementById('ex-room').value='';
         document.getElementById('ex-b10').checked=false; loadMy({fresh:true});
-    }catch(e){alert((e&&e.code==='MAKEUP_DUPLICATE'?'':'Lỗi gửi: ')+(e.message||e))}
+    }catch(e){
+        const hint=e&&e.code==='MAKEUP_DUPLICATE'&&/đã có công/.test(e.message||'')&&!operational&&hasOperationalRole()
+            ?'\n\nNếu bạn đang trực tiếp tân và được nhờ dạy thay trong giờ đó, hãy dùng tab "Dạy Thay Trong Ca".':'';
+        alert((e&&e.code==='MAKEUP_DUPLICATE'?'':'Lỗi gửi: ')+(e.message||e)+hint);
+    }
     finally{sending=false;setSendingUI(false)}
 };
 
@@ -888,7 +1086,7 @@ async function loadMy(options={}){
         el.innerHTML=list.slice(0,30).map(function(r){const s=(r.resolution==='covered_by_attendance'?M.covered:M[r.status])||M.pending;
             return '<div class="req"><div>'+
                 '<div style="font-weight:600;font-size:.86rem">'+esc(r.dateKey)+' — '+esc(r.shiftLabel||'')+'</div>'+
-                '<div style="font-size:.72rem;color:var(--mut)">'+(r.type==='scheduled'?'Ca có lịch':'Ca ngoài lịch')+' · '+esc(r.reason||'')+'</div>'+
+                '<div style="font-size:.72rem;color:var(--mut)">'+(r.type==='scheduled'?'Ca có lịch':(r.type==='in_shift_teaching'?'Dạy thay trong ca':'Ca ngoài lịch'))+' · '+esc(r.reason||'')+'</div>'+
                 (r.status==='rejected'&&r.rejectReason?'<div style="font-size:.72rem;color:'+(r.resolution==='covered_by_attendance'?'#047857':'#991B1B')+'">'+(r.resolution==='covered_by_attendance'?'':'Lý do từ chối: ')+esc(r.rejectReason)+'</div>':'')+
             '</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0"><span class="bdg '+s[1]+'">'+s[0]+'</span>'+
             (canDeleteOwn(r)?'<button class="sy-retry" style="margin:0;color:#991B1B;border-color:#FCA5A5" onclick="deleteMyRequest(\''+esc(r.id)+'\')">Xóa đơn</button>':'')+
@@ -917,6 +1115,7 @@ document.addEventListener('DOMContentLoaded',async function(){
     if(window.waitAuth){try{await window.waitAuth()}catch(e){}}
     const t=new Date(); curY=t.getFullYear(); curM=t.getMonth();
     document.getElementById('ex-date').value=dk(t);
+    document.getElementById('is-date').value=dk(t);
     fillRoles(); fillSubjectList(); loadMy({fresh:true}); await loadMonth({fresh:true});
     lastResumeRefreshAt=Date.now();
     if(window.lucide)lucide.createIcons();

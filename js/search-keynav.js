@@ -34,6 +34,8 @@
         { input: '#pa-search', list: '#pa-results', item: '#pa-body tr, .pa-ci', pick: '.pa-adjust' },
         { input: '#ns-search-input', list: '#ns-list', item: '.ns-card', pick: '.ns-pick' },
         { input: '#f-q', list: '#rows', item: '.row' },
+        // Chấm Công Bù → Dạy thay trong ca (v280): Enter tick/bỏ tick môn đang sáng.
+        { input: '#is-subj-search', list: '#is-subjects', item: 'label', pick: 'input' },
         { input: '#srb-search', list: '#srb-list', item: '.srb-row', pick: '.srb-act button' },
         { input: '#sr-search', list: '#sr-list', item: '.sr-person' },
         { input: '#log-search', list: '#admin-log-list', item: '.log-row', noPick: true },

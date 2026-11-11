@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v279-tax-blank-20261111';
+const APP_RELEASE = 'tdt-chamcong-v280-in-shift-request-20261111';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -57,7 +57,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/main.js?v=20261111-tax-blank-v1',
     '/js/startup-recovery.js?v=20260929-owner-round-v1',
     '/js/firebase-config.js?v=20260926-mobile-ui-v1',
-    '/js/db-service.js?v=20261109-delete-shift-v1',
+    '/js/db-service.js?v=20261111-in-shift-request-v1',
     '/js/meeting-attendance-policy.js?v=20261030-makeup-delete-v1',
     '/js/class-rate-groups.js?v=20261030-makeup-delete-v1',
     '/js/report.js?v=20261111-tax-blank-v1',
@@ -89,7 +89,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/schedule-sheet.js?v=20261030-sheet-v6',
     '/js/staff-notes.js?v=20261003-owner-v3',
     '/css/staff-notes.css?v=20261003-owner-v3',
-    '/js/search-keynav.js?v=20261013-partner-adjust-v1',
+    '/js/search-keynav.js?v=20261111-in-shift-request-v1',
     '/js/teacher-shift-state.js?v=20261023-late-fix-v1',
     '/js/pdf-export.js?v=20261111-tax-blank-v1',
     '/js/receptionist-schedule.js?v=20260926-mobile-ui-v1',

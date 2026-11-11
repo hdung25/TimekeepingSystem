@@ -12,10 +12,11 @@
     <script src='https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js'></script>
     <script src='js/firebase-config.js?v=20260926-mobile-ui-v1'></script>
     <script src='js/auth-guard.js?v=20261106-partner-view-v1'></script>
-    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261109-delete-shift-v1'></script>
+    <script src='js/teacher-shift-state.js?v=20261023-late-fix-v1'></script> <script src='js/db-service.js?v=20261111-in-shift-request-v1'></script>
     <script src='js/shift-absence-state.js?v=20261006-sub-dropout-v1'></script>
     <script src='js/evaluation-service.js?v=20261110-chain-hs-all-v1'></script>
-    <script src='js/ui-service.js?v=20260912-schedule-blank-guard-v1'></script><script src='js/search-keynav.js?v=20261013-partner-adjust-v1'></script>
+    <script src='js/subject-rate-policy.js?v=20260809-subject-rate-v1'></script>
+    <script src='js/ui-service.js?v=20260912-schedule-blank-guard-v1'></script><script src='js/search-keynav.js?v=20261111-in-shift-request-v1'></script>
     <script defer src="https://unpkg.com/lucide@1.45.0/dist/umd/lucide.min.js"></script>
     <style>
         :root{--p:#059669;--p-d:#047857;--p-s:#ECFDF5;--ink:#111827;--mut:#6B7280;--ln:#E5E7EB;--bg:#F1F5F9;
@@ -60,6 +61,7 @@
         .chip.c-ok.on{background:var(--p);border-color:var(--p)}
         .chip.c-auto.on{background:#4338CA;border-color:#4338CA}
         .chip.c-old.on{background:#B91C1C;border-color:#B91C1C}
+        .chip.c-inshift.on{background:#1D4ED8;border-color:#1D4ED8}
         .chip .dotn{background:#F3F4F6;color:#4B5563;border-radius:99px;padding:0 6px;font-size:.7rem;font-weight:800}
         .chip.on .dotn{background:rgba(255,255,255,.25);color:white}
         .fgrid{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
@@ -267,6 +269,7 @@
                 <select id="f-kind" onchange="setFilter('kind',this.value)">
                     <option value="">Mọi loại ca</option><option value="gv">Ca dạy (GV/TG)</option>
                     <option value="tt">Ca tiếp tân</option><option value="absent">Ghi nhận vắng</option>
+                    <option value="inshift">Dạy thay trong ca</option>
                 </select>
                 <select id="f-trust" onchange="setFilter('trust',this.value)">
                     <option value="">Mọi diện</option><option value="trusted">Diện tin tưởng</option>
@@ -392,6 +395,50 @@ async function loadTrustedIds(){
     }catch(e){ console.warn('[Verdict] không đọc được diện tin tưởng:',e); return new Set() }
 }
 
+// Đơn DẠY THAY TRONG CA TIẾP TÂN (v280): luôn nằm trong ca tiếp tân đã có công, nên KHÔNG đối
+// chiếu như chấm bù thường (ca tiếp tân không phải "đã có công trùng giờ"). Kiểm: ca tiếp tân
+// còn đó và phủ trọn giờ dạy, không trùng phần dạy/ca khác, không trùng lớp trong lịch của chính
+// nhân viên (lớp đó đã được tính dạy), không trùng đơn dạy thay khác. Không bao giờ duyệt nhanh.
+function inShiftVerdict(r,sess,group,rows,missing,trusted){
+    const s=r.session||{};
+    const startHM=s.checkIn?hmOfIso(s.checkIn):'',endHM=s.checkOut?hmOfIso(s.checkOut):'';
+    const reasons=[];let level,title;
+    const hostProblem=missing.length?'':DBService.inShiftHostProblem(r,sess);
+    const clash=missing.length?null:DBService.makeupAttendanceClash(r,sess);
+    const myClass=startHM&&endHM?rows.find(x=>x.mine&&!x.closed&&toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end)&&
+        Math.min(toMin(endHM),toMin(x.end))-Math.max(toMin(startHM),toMin(x.start))>=10):null;
+    const span=DBService._makeupRequestSpan(r);
+    const twin=span?group.find(o=>o.id!==r.id&&o.dateKey===r.dateKey&&DBService.isInShiftTeachingRequest(o)&&(()=>{
+        const os=DBService._makeupRequestSpan(o);return !!os&&Math.min(span.end,os.end)-Math.max(span.start,os.start)>=10*60*1000})()):null;
+    const host=(sess||[]).find(x=>x&&String(x.id||'')===String(r.hostSessionId||''));
+    const hostTxt=host?((r.hostClock&&r.hostClock.label)||'Tiếp Tân')+' '+ft(host.checkIn||host.start)+'–'+(host.checkOut?ft(host.checkOut):'đang làm'):'';
+    if(missing.length){
+        level='miss';title='Thiếu thông tin — chưa duyệt được';
+        reasons.push('Chưa khai: '+missing.join(', ')+'. Hãy bổ sung hoặc từ chối để nhân viên gửi lại.');
+    }else if(hostProblem){
+        level='bad';title='Ca tiếp tân không khớp';
+        reasons.push(hostProblem+' Hãy kiểm tra Bảng Công của nhân viên ngày này; nếu ca tiếp tân đã sửa giờ thì từ chối để nhân viên gửi lại đúng giờ.');
+    }else if(clash){
+        level='bad';title='Đã có phần dạy / ca khác trùng giờ';
+        reasons.push('Bảng Công đã có '+(clash.inShiftTeaching===true?'phần dạy thay':'ca')+' '+ft(clash.checkIn||clash.start)+'–'+(clash.checkOut?ft(clash.checkOut):'?')+' '+(clash.roleName||'')+' chồng khung giờ này — duyệt sẽ tính hai lần.');
+    }else if(myClass){
+        level='bad';title='Trùng lớp trong lịch của nhân viên';
+        reasons.push('Khung giờ này trùng lớp '+(myClass.lop||'')+' '+myClass.start+'–'+myClass.end+' '+String(myClass.branch||'').toUpperCase()+' đã xếp cho chính nhân viên. Lớp trong lịch đã được tính dạy và tự trừ khỏi giờ tiếp tân, không cần duyệt đơn này.');
+    }else if(twin){
+        level='bad';title='Trùng giờ với đơn dạy thay khác';
+        reasons.push('Đơn này chồng khung giờ với đơn dạy thay "'+(twin.shiftLabel||'')+'" cũng đang chờ duyệt — chỉ duyệt một đơn.');
+    }else{
+        level='warn';title='Dạy thay trong ca — cần quản lý xác nhận';
+        reasons.push('Nằm trọn trong ca '+hostTxt+' đã có trong Bảng Công. Duyệt xong: phần dạy '+startHM+'–'+endHM+' tính theo đơn giá môn, giờ tiếp tân tự trừ đúng khoảng này.');
+        reasons.push('Người nhờ dạy thay: '+(r.approvedBy||'—')+'. Hãy xác nhận với người này trước khi duyệt.');
+        const atTime=rows.filter(x=>!x.closed&&toMin(x.start)<toMin(endHM)&&toMin(startHM)<toMin(x.end));
+        if(atTime.length)reasons.push('Lúc này trung tâm có lớp: '+atTime.slice(0,4).map(x=>(x.lop||'?')+' '+x.start+'–'+x.end+' '+String(x.branch||'').toUpperCase()).join(', ')+'.');
+        else reasons.push('Khung giờ này không có lớp nào trên lịch — nên hỏi lại.');
+    }
+    const covered=!missing.length&&!!DBService._sessionsCoveringSpan(DBService.makeupCoverCandidates(r,sess),span,r.id);
+    return {level:level,title:title,text:reasons.join(' '),quick:false,trusted:trusted,missing:missing,covered:covered,splitLabel:'',inShift:true};
+}
+
 async function buildVerdicts(reqs){
     const out={};
     const trustedIds=await loadTrustedIds();
@@ -476,6 +523,10 @@ async function buildVerdicts(reqs){
             const sess=attMap[r.dateKey]||[];
             // Cùng một định nghĩa "đủ trường" với lúc nhân viên gửi (db-service.missingMakeupFields)
             const missing=DBService.missingMakeupFields(r);
+            if(DBService.isInShiftTeachingRequest(r)){
+                out[r.id]=inShiftVerdict(r,sess,group,schedByDate[r.dateKey]||[],missing,trustedIds.has(String(r.staffId)));
+                return;
+            }
 
             // 1) Đã có công chồng giờ chưa? (chống chấm bù trùng)
             let overlapped=false;
@@ -499,7 +550,7 @@ async function buildVerdicts(reqs){
             if(s.checkIn&&s.checkOut&&!overlapped){
                 const a1=new Date(s.checkIn).getTime(),a2=new Date(s.checkOut).getTime();
                 twinReq=group.find(o=>{
-                    if(o.id===r.id||o.dateKey!==r.dateKey)return false;
+                    if(o.id===r.id||o.dateKey!==r.dateKey||DBService.isInShiftTeachingRequest(o))return false;
                     const os=o.session||{};
                     if(!os.checkIn||os.isAbsent)return false;
                     const b1=new Date(os.checkIn).getTime();
@@ -874,6 +925,7 @@ async function closeCoveredRequests(){
 /* ================= BỘ LỌC ================= */
 function kindOf(r){
     const s=r.session||{};
+    if(DBService.isInShiftTeachingRequest(r))return 'inshift';
     if(s.isAbsent)return 'absent';
     if(['tiep-tan','van-phong','office_staff'].includes(s.role)||['tt','vp'].includes(r.shiftKind)||(!r.className&&r.shiftKey))return 'tt';
     return 'gv';
@@ -888,7 +940,8 @@ function matchQuick(r,q){
     const v=curVerdicts[r.id]||{};
     if(q==='bad')return v.level==='bad';
     if(q==='miss')return (v.missing&&v.missing.length>0)||v.level==='miss';
-    if(q==='extra')return r.type!=='scheduled';
+    if(q==='extra')return r.type!=='scheduled'&&!DBService.isInShiftTeachingRequest(r);
+    if(q==='inshift')return DBService.isInShiftTeachingRequest(r);
     if(q==='ok')return v.level==='ok';
     if(q==='auto')return !!v.quick;
     if(q==='old')return String(r.dateKey||'').slice(0,7)<thisMonthStr();
@@ -1004,6 +1057,7 @@ function renderChips(){
         {k:'bad', cls:'c-bad',  ic:'shield-alert', t:'Có vấn đề',      pending:true},
         {k:'miss',cls:'c-miss', ic:'edit-3',       t:'Thiếu thông tin',pending:true},
         {k:'extra',cls:'c-extra',ic:'help-circle', t:'Ngoài lịch',     pending:false},
+        {k:'inshift',cls:'c-inshift',ic:'repeat',   t:'Dạy thay trong ca',pending:false},
         {k:'ok',  cls:'c-ok',   ic:'check-circle', t:'Khớp lịch',      pending:true},
         {k:'auto',cls:'c-auto', ic:'shield-check', t:'Máy kiểm chứng', pending:true},
         {k:'old', cls:'c-old',  ic:'alarm-clock',  t:'Tháng trước',    pending:false}
@@ -1096,7 +1150,8 @@ function renderRows(){
                 ' onchange="toggleSelect(\''+r.id+'\',this.checked)"></label>':'')+
             '<span class="st '+st.c+'"><i data-lucide="'+st.i+'" style="width:14px;height:14px"></i></span>'+
             '<div class="mid"><div class="r1"><span class="who">'+esc(r.staffName||r.staffId)+'</span>'+
-                '<span class="bdg '+(isAbs?'b-a':(isEx?'b-e':'b-s'))+'">'+(isAbs?'Vắng':(isEx?'Ngoài lịch':'Có lịch'))+'</span></div>'+
+                (kind==='inshift'?'<span class="bdg b-i">Dạy thay trong ca</span>':
+                '<span class="bdg '+(isAbs?'b-a':(isEx?'b-e':'b-s'))+'">'+(isAbs?'Vắng':(isEx?'Ngoài lịch':'Có lịch'))+'</span>')+'</div>'+
                 '<div class="r2">'+esc(sub)+'</div></div>'+
             '<span class="tm">'+tm+'</span></div>';
     });
@@ -1162,7 +1217,10 @@ function renderDetail(){
         '<div><b>Đối chiếu tự động: '+esc(v.title)+'</b><br>'+esc(v.text)+'</div></div>':'';
 
     const guess=guessCenterFault(r);
-    const payoutHtml=curTab==='pending'?'<div class="sec-t">Tháng trả lương</div>'+
+    const payoutHtml=curTab==='pending'&&kind==='inshift'?'<div class="sec-t">Tháng trả lương</div>'+
+        '<div class="why" style="margin-bottom:.5rem">Dạy thay trong ca không phải quên chấm công: tiền dạy tính vào <b>lương '+
+        esc(monthLabel(String(r.dateKey||'').slice(0,7)))+'</b> (tháng dạy), cùng tháng với ca tiếp tân.</div>':
+        curTab==='pending'?'<div class="sec-t">Tháng trả lương</div>'+
         '<div class="why" style="margin-bottom:.5rem">Máy đoán theo lý do đã khai: <b>'+
         (guess?'Lỗi bên trung tâm → trả TRONG THÁNG DẠY ('+monthLabel(String(r.dateKey||'').slice(0,7))+')'
               :'Nhân viên quên chấm công → trả THÁNG SAU ('+monthLabel(nextMonthOf(r.dateKey))+')')+
@@ -1207,7 +1265,8 @@ function renderDetail(){
         '<div class="nm">'+esc(r.staffName||r.staffId)+'</div>'+
         '<div class="sb">'+esc(fmtDate(r.dateKey))+' · gửi lúc '+esc(sent)+'</div></div>'+
         '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'+
-          '<span class="bdg '+(isAbs?'b-a':(isEx?'b-e':'b-s'))+'">'+(isAbs?'Ghi nhận vắng':(isEx?'Ngoài lịch':'Có lịch'))+'</span>'+
+          (kind==='inshift'?'<span class="bdg b-i">Dạy thay trong ca</span>':
+          '<span class="bdg '+(isAbs?'b-a':(isEx?'b-e':'b-s'))+'">'+(isAbs?'Ghi nhận vắng':(isEx?'Ngoài lịch':'Có lịch'))+'</span>')+
           '<button class="icon-btn sheet-close" onclick="closeDetail()" title="Đóng"><i data-lucide="x" style="width:15px;height:15px"></i></button>'+
         '</div></div>'+
       '<div class="dbody">'+vHtml+
@@ -1217,12 +1276,16 @@ function renderDetail(){
                 (missing.includes('giờ vào/ra')?'<span class="miss">Thiếu giờ vào/ra</span>':
                  (ft(s.checkIn)+' – '+ft(s.checkOut)+(mins>0?' <span style="color:#6B7280;font-weight:600">('+fmtMins(mins)+')</span>':''))))+'</td></tr>'+
           '<tr><td class="k">Cơ sở</td><td class="v">'+need('cơ sở',r.branch?String(r.branch).toUpperCase():'','cơ sở')+'</td></tr>'+
+          (kind==='inshift'?'<tr><td class="k">Ca tiếp tân</td><td class="v">'+
+            (r.hostClock&&r.hostClock.checkIn?esc((r.hostClock.label||'Tiếp Tân')+' '+ft(r.hostClock.checkIn)+'–'+(r.hostClock.checkOut?ft(r.hostClock.checkOut):'đang làm')):'<span class="miss">Thiếu ca tiếp tân</span>')+
+            ' <span style="color:#6B7280;font-weight:600">(lúc gửi đơn)</span></td></tr>':'')+
           '<tr><td class="k">'+(kind==='tt'?'Ca trực':'Môn / Lớp')+'</td><td class="v">'+
             (kind==='tt'?need('ca trực',r.shiftKey?('Ca '+(SHIFT_VN[r.shiftKey]||r.shiftKey)):'','ca trực')
                         :need('môn/lớp',r.className||'','môn/lớp'))+'</td></tr>'+
           (r.room?'<tr><td class="k">Phòng</td><td class="v">'+esc(r.room)+'</td></tr>':'')+
-          '<tr><td class="k">Vai trò</td><td class="v">'+esc(s.roleName||(kind==='tt'?((s.role==='van-phong'||s.role==='office_staff'||r.shiftKind==='vp')?'Văn Phòng':'Tiếp Tân'):'Giáo viên / Trợ giảng'))+'</td></tr>'+
-          '<tr><td class="k">Người phân công</td><td class="v">'+(isEx?need('người phân công',r.approvedBy||'','người phân công'):esc(r.approvedBy||'(ca có lịch — không cần)'))+'</td></tr>'+
+          '<tr><td class="k">Vai trò</td><td class="v">'+(kind==='inshift'?'Dạy thay trong ca tiếp tân':esc(s.roleName||(kind==='tt'?((s.role==='van-phong'||s.role==='office_staff'||r.shiftKind==='vp')?'Văn Phòng':'Tiếp Tân'):'Giáo viên / Trợ giảng')))+'</td></tr>'+
+          (kind==='inshift'?'<tr><td class="k">Người nhờ dạy thay</td><td class="v">'+need('người nhờ dạy thay',r.approvedBy||'','người nhờ dạy thay')+'</td></tr>':
+          '<tr><td class="k">Người phân công</td><td class="v">'+(isEx?need('người phân công',r.approvedBy||'','người phân công'):esc(r.approvedBy||'(ca có lịch — không cần)'))+'</td></tr>')+
           ((s.bonus10||s.overtimeMinutes>0)?'<tr><td class="k">Phát sinh</td><td class="v">'+
              (s.bonus10?'<span class="bdg b-a">Xin Sớm 10p</span> ':'')+
              (s.overtimeMinutes>0?'<span class="bdg b-i">Tăng ca '+esc(s.overtimeMinutes)+'p</span>':'')+'</td></tr>':'')+
@@ -1253,7 +1316,7 @@ window.openCompleteForm=async function(id){
         '<div><label>Cơ sở</label><select id="fx-branch">'+
           '<option value="">— Chọn —</option>'+['cs1','cs2','cs3'].map(b=>'<option value="'+b+'"'+(r.branch===b?' selected':'')+'>'+b.toUpperCase()+'</option>').join('')+
         '</select></div>'+
-        (kind==='tt'
+        (kind==='inshift'?'':kind==='tt'
           ?'<div><label>Ca trực</label><select id="fx-shift"><option value="">— Chọn —</option>'+
              Object.keys(SHIFT_VN).map(k=>'<option value="'+k+'"'+(r.shiftKey===k?' selected':'')+'>Ca '+SHIFT_VN[k]+'</option>').join('')+'</select></div>'
           :'<div><label>Môn / Lớp</label><input type="text" id="fx-class" list="fx-subj" value="'+esc(r.className||'')+'" placeholder="VD: Toán 6" autocomplete="off">'+
@@ -1275,6 +1338,7 @@ window.saveCompleteForm=async function(id){
     const g=(k)=>{const el=document.getElementById(k);return el?String(el.value||'').trim():''};
     const patch={ branch:g('fx-branch'), approvedBy:g('fx-appr'), room:g('fx-room'), reason:g('fx-reason') };
     if(kind==='tt'){ patch.shiftKey=g('fx-shift') }
+    else if(kind==='inshift'){ /* môn/lớp và giờ do nhân viên chọn theo danh mục — sai thì từ chối để gửi lại */ }
     else{
         const name=g('fx-class');
         if(name){
@@ -1296,7 +1360,8 @@ window.saveCompleteForm=async function(id){
     const operationalName=(s.role==='van-phong'||s.role==='office_staff'||r.shiftKind==='vp')?'Văn Phòng':'Tiếp Tân';
     const what=kind==='tt'?(operationalName+' ca '+(SHIFT_VN[patch.shiftKey||r.shiftKey]||'')):(patch.className||r.className||'');
     const tmLbl=s.isAbsent?'Vắng':(ft(s.checkIn)+'–'+ft(s.checkOut));
-    patch.shiftLabel=tmLbl+' '+String(patch.branch||r.branch||'').toUpperCase()+' ('+what+')'+((patch.room||r.room)?' – '+(patch.room||r.room):'');
+    patch.shiftLabel=tmLbl+' '+String(patch.branch||r.branch||'').toUpperCase()+' ('+what+')'+((patch.room||r.room)?' – '+(patch.room||r.room):'')+
+        (kind==='inshift'?' · dạy thay trong ca '+String((r.hostClock&&r.hostClock.label)||'Tiếp Tân').toLowerCase():'');
 
     // Kiểm tra bằng ĐÚNG bộ luật lúc gửi, để bổ sung xong là chắc chắn duyệt được
     const merged=Object.assign({},r,patch);
@@ -1353,8 +1418,18 @@ function bulkReportText(res,total){
 
 async function doApprove(list,titleWhenEmpty){
     if(!list.length){ toast(titleWhenEmpty||'Không có mục nào để duyệt.','warning'); return }
-    const pick=await askPayout(list);
-    if(!pick)return;
+    // Đơn dạy thay trong ca luôn tính vào tháng dạy → không hỏi tháng trả cho các đơn này.
+    const regular=list.filter(r=>!DBService.isInShiftTeachingRequest(r));
+    let pick;
+    if(regular.length){
+        const pickRegular=await askPayout(regular);
+        if(!pickRegular)return;
+        pick=r=>DBService.isInShiftTeachingRequest(r)?{}:pickRegular(r);
+    }else{
+        const ok=await UIService.confirm('Duyệt <b>'+list.length+' đơn dạy thay trong ca</b>? Phần dạy tính theo đơn giá môn, giờ tiếp tân tự trừ đúng khoảng đó.');
+        if(!ok)return;
+        pick=()=>({});
+    }
     UIService.showLoading('Đang duyệt '+list.length+' yêu cầu...');
     const res=await runBulkApprove(list,pick);
     UIService.hideLoading();
@@ -1372,6 +1447,21 @@ window.approveOne=async function(id){
     const r=curReqs.find(x=>x.id===id); if(!r)return;
     if(DBService.missingMakeupFields(r).length){
         await UIService.notice('Yêu cầu này còn thiếu thông tin nên chưa duyệt được. Hãy bấm "Bổ sung thông tin".','Chưa đủ thông tin','warning');
+        return;
+    }
+    if(DBService.isInShiftTeachingRequest(r)){
+        const s=r.session||{};
+        const ok=await UIService.confirm('<b>Duyệt dạy thay trong ca?</b><br><br>'+esc(r.staffName||'')+' · '+esc(fmtDate(r.dateKey))+'<br>'+
+            'Dạy '+esc(ft(s.checkIn))+'–'+esc(ft(s.checkOut))+' · '+esc(r.className||'')+'<br>Người nhờ: '+esc(r.approvedBy||'—')+'<br><br>'+
+            'Bảng Công sẽ có mục "dạy thay trong ca" tính theo đơn giá môn; ca tiếp tân tự trừ đúng khoảng giờ này.');
+        if(!ok)return;
+        try{
+            UIService.showLoading('Đang duyệt...');
+            await DBService.approveMakeupRequest(r,adminName());
+            UIService.hideLoading();
+            toast('Đã duyệt. Phần dạy thay đã ghi vào Bảng Công.','success');
+            await loadTab(curTab); refreshPendingCount();
+        }catch(e){ UIService.hideLoading(); toast('Không duyệt được: '+(e.message||e),'error') }
         return;
     }
     const pick=await askPayout([r]);
