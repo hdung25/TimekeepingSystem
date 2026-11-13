@@ -2,7 +2,7 @@
 // Install the new cache without interrupting
 // old clients that may currently be recording attendance or saving payroll.
 // Mã bản phát hành (đổi mỗi lần deploy) — dùng để nhận ra bản mới và báo cho các tab đang mở.
-const APP_RELEASE = 'tdt-chamcong-v280-in-shift-request-20261111';
+const APP_RELEASE = 'tdt-chamcong-v281-sheet-order-20261113';
 // TÊN KHO ĐỆM CỐ ĐỊNH: trước đây mỗi bản phát hành tạo kho mới và xoá kho cũ, nên mọi người
 // phải tải lại TOÀN BỘ ~1,5MB sau mỗi lần cập nhật dù chỉ đổi một file. Nay giữ một kho duy
 // nhất: file nào có ?v= không đổi thì dùng lại, chỉ tải file thật sự mới.
@@ -86,7 +86,7 @@ const STATIC_ASSETS = Array.from(new Set([
     '/js/schedule-inheritance.js?v=20260929-inherit-v1',
     '/js/schedule-carryover.js?v=20261021-carryover-v2',
     '/js/schedule-teacher-finder.js?v=20261001-finder-v1',
-    '/js/schedule-sheet.js?v=20261030-sheet-v6',
+    '/js/schedule-sheet.js?v=20261113-sheet-order-v1',
     '/js/staff-notes.js?v=20261003-owner-v3',
     '/css/staff-notes.css?v=20261003-owner-v3',
     '/js/search-keynav.js?v=20261111-in-shift-request-v1',

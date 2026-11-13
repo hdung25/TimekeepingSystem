@@ -202,9 +202,50 @@ assert.equal(S.toggledBuoi('all', 'evening'), 'morning,afternoon');
 assert.equal(S.toggledBuoi('morning', 'morning'), 'morning', 'luôn còn ít nhất một buổi');
 assert.equal(S.toggledBuoi('morning', 'all'), 'all');
 
+// Thứ tự in (13/11/2026): ▲▼ + xếp theo số phòng — chỉ đổi tờ in, không đổi dữ liệu lịch.
+const orderDay = {
+    evening1: [
+        { shiftId: 'a', lop: 'E1', phong: 'P01', gvList: [] },
+        { shiftId: 'b', lop: 'E2', phong: 'P12', gvList: [] },
+        { shiftId: 'c', lop: 'E3', phong: 'P02', gvList: [] },
+        { lop: 'TV2', phong: 'P03', gvList: [] },               // dòng cũ chưa có shiftId
+        { shiftId: 'e', lop: 'E5', phong: '', gvList: [] },
+        { shiftId: 'f', lop: 'E6', phong: 'P04', isClosed: true, gvList: [] }
+    ]
+};
+const orderDayCopy = JSON.stringify(orderDay);
+const lops = (m, k = 0) => Array.from(m.sections[k].rows.map(r => r.lop));
+const om = opts => S.buildSheetModel(orderDay, { dateKey: '2026-11-13', branch: 'cs1', buoi: 'evening', closures: {}, ...opts });
+assert.deepEqual(lops(om({})), ['E1', 'E2', 'E3', 'TV2', 'E5', 'E6'], 'mặc định giữ thứ tự lịch');
+assert.deepEqual(lops(om({ sortByRoom: true })), ['E1', 'E3', 'TV2', 'E6', 'E2', 'E5'], 'P1→P12, không phòng cuối');
+const tvId = om({}).sections[0].rows[3].id;
+assert.equal(tvId, 'i:3:TV2');
+// "kéo TV2 lên hàng 3"
+const base = om({}).sections[0];
+let ids = S.moveSheetRow(Array.from(base.orderIds), Array.from(base.rows.map(r => r.id)), tvId, -1);
+assert.deepEqual(lops(om({ order: { evening1: ids } })), ['E1', 'E2', 'TV2', 'E3', 'E5', 'E6']);
+assert.deepEqual(Array.from(S.moveSheetRow(ids, ids, 's:a', -1)), Array.from(ids), 'hàng đầu không lên được nữa');
+// Ẩn lớp tắt: đổi chỗ với lớp đang hiện kế bên, lớp tắt đứng yên
+const hiddenSec = om({ showClosed: false }).sections[0];
+assert.deepEqual(lops(om({ showClosed: false })), ['E1', 'E2', 'E3', 'TV2', 'E5']);
+const ids2 = S.moveSheetRow(Array.from(hiddenSec.orderIds), Array.from(hiddenSec.rows.map(r => r.id)), 's:e', 1);
+assert.deepEqual(Array.from(ids2), Array.from(hiddenSec.orderIds), 'E5 là hàng cuối đang hiện');
+// Lớp mới thêm sau khi đã đổi thứ tự: vẫn có trên tờ (không mất lớp); lớp đã xoá thì bỏ qua
+const withNew = S.orderSheetRows([{ id: 'x' }, { id: 'y' }, { id: 'z' }, { id: 'new' }], ['z', 'gone', 'x', 'y'], false);
+assert.deepEqual(Array.from(withNew.map(r => r.id)), ['z', 'x', 'y', 'new']);
+const dupSaved = S.orderSheetRows([{ id: 'x' }, { id: 'y' }], ['y', 'y', 'x'], false);
+assert.deepEqual(Array.from(dupSaved.map(r => r.id)), ['y', 'x'], 'mã trùng không nhân đôi lớp');
+// Tờ in / Excel / chữ theo đúng thứ tự mới; dữ liệu lịch không bị đụng
+const moved = om({ order: { evening1: ids } });
+assert.ok(S.renderSheetHtml(moved, {}).indexOf('TV2') < S.renderSheetHtml(moved, {}).indexOf('E3'));
+assert.ok(S.sheetText(moved, {}).indexOf('TV2') < S.sheetText(moved, {}).indexOf('E3'));
+assert.ok(xmlPartsOf(S.buildSheetXlsx(moved, {})).indexOf('TV2') < xmlPartsOf(S.buildSheetXlsx(moved, {})).indexOf('>E3<'));
+assert.equal(JSON.stringify(orderDay), orderDayCopy, 'không sửa dữ liệu lịch');
+assert.ok(S.compareRooms('P3', 'P12') < 0 && S.compareRooms('P12', 'PA') < 0 && S.compareRooms('PA', '') < 0);
+
 // Gắn vào trang + cache offline
 const page = read('lich-lam.html');
-assert.match(page, /js\/schedule-sheet\.js\?v=20261030-sheet-v6/);
+assert.match(page, /js\/schedule-sheet\.js\?v=20261113-sheet-order-v1/);
 assert.ok(page.indexOf('schedule-sheet.js') > page.indexOf('js/schedule.js'), 'nạp sau schedule.js');
-assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261030-sheet-v6'/);
+assert.match(read('service-worker.js'), /'\/js\/schedule-sheet\.js\?v=20261113-sheet-order-v1'/);
 console.log('schedule-sheet.test.js: all assertions passed');

@@ -125,19 +125,81 @@
         };
     }
 
+    // ---------- Thứ tự hàng trên tờ in (yêu cầu 13/11/2026) ----------
+    // Chỉ đổi thứ tự IN (ảnh / Excel / chữ); không ghi gì vào lịch nên chấm công, lương không bị ảnh hưởng.
+    // Mã dòng: shiftId; dòng cũ chưa có shiftId thì dùng vị trí + tên lớp.
+    function sheetRowId(row, index) {
+        const explicit = String(row?.shiftId || '').trim();
+        return explicit ? `s:${explicit}` : `i:${index}:${String(row?.lop || '').trim()}`;
+    }
+
+    // "P3" < "P12" < "PA" < (không ghi phòng).
+    function roomSortKey(phong) {
+        const text = String(phong || '').trim();
+        if (!text) return [2, 0, ''];
+        const m = /^P?\s*0*(\d+)/i.exec(text);
+        return m ? [0, Number(m[1]), text.toLowerCase()] : [1, 0, text.toLowerCase()];
+    }
+
+    function compareRooms(a, b) {
+        const ka = roomSortKey(a);
+        const kb = roomSortKey(b);
+        return ka[0] - kb[0] || ka[1] - kb[1] || (ka[2] < kb[2] ? -1 : ka[2] > kb[2] ? 1 : 0);
+    }
+
+    // Thứ tự đã lưu đi trước; dòng mới thêm vào lịch (chưa có trong thứ tự đã lưu) chèn đúng vị trí
+    // của nó trong lịch. Không có thứ tự lưu: theo số phòng (nếu bật) hoặc theo lịch.
+    function orderSheetRows(rows, savedIds, sortByRoom) {
+        let base = rows.slice();
+        if (sortByRoom) {
+            base = base.map((r, i) => ({ r, i }))
+                .sort((x, y) => compareRooms(x.r.phong, y.r.phong) || x.i - y.i)
+                .map(x => x.r);
+        }
+        const saved = Array.isArray(savedIds) ? savedIds.map(String) : [];
+        if (!saved.length) return base;
+        const byId = new Map(base.map(r => [r.id, r]));
+        const result = [];
+        const used = new Set();
+        saved.forEach(id => {
+            if (byId.has(id) && !used.has(id)) { result.push(byId.get(id)); used.add(id); }
+        });
+        base.forEach((r, pos) => {
+            if (used.has(r.id)) return;
+            result.splice(Math.min(pos, result.length), 0, r);
+            used.add(r.id);
+        });
+        return result;
+    }
+
+    // Đổi chỗ một lớp với lớp đang hiện ngay trên/dưới nó (lớp tắt đang ẩn đứng yên).
+    function moveSheetRow(orderIds, visibleIds, id, dir) {
+        const ids = orderIds.slice();
+        const visible = visibleIds.filter(v => ids.includes(v));
+        const at = visible.indexOf(id);
+        const other = visible[at + (dir < 0 ? -1 : 1)];
+        if (at < 0 || !other) return ids;
+        const i = ids.indexOf(id);
+        const j = ids.indexOf(other);
+        ids[i] = other;
+        ids[j] = id;
+        return ids;
+    }
+
     // Dữ liệu thuần của tờ lịch: dùng cho cả ảnh, chữ và kiểm thử.
     function buildSheetModel(dayData, options) {
-        const { dateKey, branch, closures = {}, showClosed = true, reportedCount = null } = options;
+        const { dateKey, branch, closures = {}, showClosed = true, reportedCount = null, order = {}, sortByRoom = false } = options;
         const buoi = normalizeBuoi(options.buoi === undefined ? 'all' : options.buoi);
         const keys = buoiKeys(buoi);
         const sections = SECTIONS
             .filter(section => keys.some(key => section.key.startsWith(key)))
             .map(section => {
                 const centerClosed = isCenterClosed(dateKey, section.key, closures);
-                const rows = (Array.isArray(dayData?.[section.key]) ? dayData[section.key] : [])
+                const allRows = (Array.isArray(dayData?.[section.key]) ? dayData[section.key] : [])
                     .map((row, index) => ({ row, index }))
                     .filter(({ row }) => row && !rowIsEmpty(row))
                     .map(({ row, index }) => ({
+                        id: sheetRowId(row, index),
                         // Sĩ số: số HS kế hoạch trên lịch; lịch chưa ghi thì lấy sĩ số GV đã báo khi chấm công
                         // (giống chip "· 9 HS" trên bảng lịch) — trước đây ô SS bị trống dù bảng lịch có số.
                         ss: plannedCount(row) || (typeof reportedCount === 'function' ? Number(reportedCount(row, section.key, index)) || 0 : 0) || '',
@@ -150,8 +212,9 @@
                         time: '',
                         closed: row.isClosed === true,
                         teachers: rowTeachers(row)
-                    }))
-                    .filter(row => showClosed || !row.closed);
+                    }));
+                const ordered = orderSheetRows(allRows, order?.[section.key], sortByRoom);
+                const rows = ordered.filter(row => showClosed || !row.closed);
                 const open = rows.filter(r => !r.closed);
                 // Giờ của ca trên tờ = giờ mà nhiều lớp đang học nhất (thường là giờ chuẩn của ca).
                 // Lớp nằm trong ca nhưng học giờ khác (VD Sáng Ca 1 mà 08:00–09:30) được đánh dấu riêng.
@@ -166,6 +229,7 @@
                     buoiLabel: (BUOI.find(b => section.key.startsWith(b.key)) || {}).label || '',
                     start,
                     end,
+                    orderIds: ordered.map(r => r.id),
                     offTimeCount: centerClosed ? 0 : open.filter(r => r.offTime).length,
                     centerClosed,
                     rows: centerClosed ? [] : rows,
@@ -641,6 +705,20 @@
     .ssm-seg button.on{background:#fff;color:#065F46;box-shadow:0 1px 3px rgba(0,0,0,.12)}
     .ssm-check{flex-direction:row!important;align-items:center;gap:8px!important;font-weight:600!important}
     .ssm-check input{width:18px;height:18px}
+    .ssm-order{background:#fff;border:1.5px solid #D1D5DB;border-radius:12px;padding:8px 10px}
+    .ssm-order summary{cursor:pointer;font-size:.85rem;font-weight:800;color:#065F46;min-height:32px;display:flex;align-items:center;gap:6px}
+    .ssm-order-hint{font-size:.75rem;color:#6B7280;margin:2px 0 6px}
+    .ssm-order-sec{font-size:.75rem;font-weight:800;color:#374151;margin:8px 0 2px;text-transform:uppercase;letter-spacing:.03em}
+    .ssm-oi{display:grid;grid-template-columns:22px minmax(0,1fr) auto 38px 38px;align-items:center;gap:4px;padding:3px 0;border-top:1px solid #F3F4F6;font-size:.86rem}
+    .ssm-oi.closed{color:#9CA3AF;text-decoration:line-through}
+    .ssm-oi-n{color:#6B7280;font-weight:700;text-align:right}
+    .ssm-oi-lop{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ssm-oi-room{font-weight:700;color:#065F46;background:#ECFDF5;border-radius:6px;padding:1px 6px;font-size:.78rem}
+    .ssm-oi button{min-height:36px;border:1.5px solid #D1D5DB;border-radius:8px;background:#fff;font-size:.8rem;cursor:pointer;color:#065F46;padding:0}
+    .ssm-oi button:disabled{opacity:.3;cursor:default}
+    .ssm-oi.moved{background:#FEF9C3}
+    .ssm-order-reset{margin-top:8px;width:100%;min-height:36px;border:1.5px dashed #9CA3AF;border-radius:8px;background:#fff;font:inherit;font-size:.8rem;font-weight:700;color:#374151;cursor:pointer}
+    .ssm-order-reset[hidden]{display:none}
     .ssm-preview{flex:1;min-width:0;display:flex;justify-content:center;align-items:flex-start}
     .ssm-status{font-size:.8rem;color:#6B7280;min-height:1.2em}
     .ssm-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#fff;border-top:1px solid #E5E7EB}
@@ -661,7 +739,7 @@
 
     const state = {
         dateKey: '', branch: 'cs1', buoi: 'evening', title: '', titleEdited: false, footer: '',
-        shortNames: true, showClosed: true, blankRows: 3, model: null, loadSeq: 0, canvasPromise: null
+        shortNames: true, showClosed: true, blankRows: 3, sortByRoom: false, model: null, loadSeq: 0, canvasPromise: null
     };
 
     function loadPrefs() {
@@ -669,12 +747,125 @@
             const prefs = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
             if (typeof prefs.shortNames === 'boolean') state.shortNames = prefs.shortNames;
             if (typeof prefs.showClosed === 'boolean') state.showClosed = prefs.showClosed;
+            if (typeof prefs.sortByRoom === 'boolean') state.sortByRoom = prefs.sortByRoom;
             if (Number.isInteger(prefs.blankRows)) state.blankRows = Math.min(MAX_BLANK_ROWS, Math.max(0, prefs.blankRows));
         } catch (_) { /* tuỳ chọn hiển thị không bắt buộc */ }
     }
 
     function savePrefs() {
-        try { localStorage.setItem(PREF_KEY, JSON.stringify({ shortNames: state.shortNames, showClosed: state.showClosed, blankRows: state.blankRows })); } catch (_) { /* bỏ qua */ }
+        try { localStorage.setItem(PREF_KEY, JSON.stringify({ shortNames: state.shortNames, showClosed: state.showClosed, blankRows: state.blankRows, sortByRoom: state.sortByRoom })); } catch (_) { /* bỏ qua */ }
+    }
+
+    // Thứ tự in đã chỉnh: lưu trên máy này theo cơ sở + ngày + ca (không ghi vào lịch dùng chung).
+    const ORDER_KEY = 'tdt_schedule_sheet_order';
+    const ORDER_KEEP_DAYS = 120;
+
+    function readOrderStore() {
+        try {
+            const store = JSON.parse(localStorage.getItem(ORDER_KEY) || '{}');
+            return store && typeof store === 'object' && !Array.isArray(store) ? store : {};
+        } catch (_) { return {}; }
+    }
+
+    // Bản trong bộ nhớ là chuẩn khi tờ đang mở (vẫn đổi được nếu trình duyệt chặn lưu).
+    const memOrder = new Map();
+
+    function dayOrder(branch, dateKey) {
+        const key = `${branch}__${dateKey}`;
+        if (!memOrder.has(key)) memOrder.set(key, storedDayOrder(key));
+        return { ...memOrder.get(key) };
+    }
+
+    function storedDayOrder(key) {
+        const entry = readOrderStore()[key];
+        const out = {};
+        if (entry && typeof entry === 'object') {
+            Object.keys(entry).forEach(sec => {
+                if (SECTIONS.some(s => s.key === sec) && Array.isArray(entry[sec])) out[sec] = entry[sec].map(String).slice(0, 200);
+            });
+        }
+        return out;
+    }
+
+    function writeDayOrder(branch, dateKey, sectionKey, ids) {
+        const key = `${branch}__${dateKey}`;
+        const mem = dayOrder(branch, dateKey);
+        if (ids) mem[sectionKey] = ids.slice(); else delete mem[sectionKey];
+        memOrder.set(key, mem);
+        try {
+            const store = readOrderStore();
+            const entry = { ...(store[key] || {}) };
+            if (ids) entry[sectionKey] = ids; else delete entry[sectionKey];
+            delete entry._t;
+            if (Object.keys(entry).length) store[key] = { ...entry, _t: Date.now() }; else delete store[key];
+            const cutoff = Date.now() - ORDER_KEEP_DAYS * 864e5;
+            Object.keys(store).forEach(k => { if (!(Number(store[k]?._t) > cutoff)) delete store[k]; });
+            localStorage.setItem(ORDER_KEY, JSON.stringify(store));
+            return true;
+        } catch (error) {
+            console.warn('[ScheduleSheet] order', error);
+            return false;
+        }
+    }
+
+    function rebuildModel() {
+        const key = `${state.branch}__${state.dateKey}`;
+        if (dayCache.key !== key) return;
+        state.model = buildSheetModel(dayCache.data, {
+            dateKey: state.dateKey, branch: state.branch, buoi: state.buoi,
+            closures: dayCache.closures, showClosed: state.showClosed,
+            reportedCount: reportedCountLookup(dayCache.evidence, key, state.dateKey),
+            order: dayOrder(state.branch, state.dateKey), sortByRoom: state.sortByRoom
+        });
+    }
+
+    function renderOrderList(movedId) {
+        const list = $('ssm-order-list');
+        if (!list) return;
+        const model = state.model;
+        const sections = (model?.sections || []).filter(s => !s.centerClosed && s.rows.length);
+        if (!sections.length) {
+            list.innerHTML = '<div class="ssm-order-hint">Chưa có lớp để sắp xếp.</div>';
+            $('ssm-order-reset').hidden = true;
+            return;
+        }
+        const multi = buoiKeys(model.buoi).length > 1;
+        list.innerHTML = sections.map(section => {
+            const head = `<div class="ssm-order-sec">${multi ? esc(section.buoiLabel) + ' · ' : ''}${esc(section.title)}</div>`;
+            return head + section.rows.map((row, i) => `<div class="ssm-oi${row.closed ? ' closed' : ''}${row.id === movedId ? ' moved' : ''}">
+                <span class="ssm-oi-n">${i + 1}</span>
+                <span class="ssm-oi-lop" title="${esc(row.lop)}">${esc(row.lop) || '—'}</span>
+                <span class="ssm-oi-room">${esc(row.phong) || '—'}</span>
+                <button type="button" data-move="-1" data-sec="${esc(section.key)}" data-id="${esc(row.id)}" aria-label="Đưa ${esc(row.lop)} lên" ${i === 0 ? 'disabled' : ''}>▲</button>
+                <button type="button" data-move="1" data-sec="${esc(section.key)}" data-id="${esc(row.id)}" aria-label="Đưa ${esc(row.lop)} xuống" ${i === section.rows.length - 1 ? 'disabled' : ''}>▼</button>
+            </div>`).join('');
+        }).join('');
+        const saved = dayOrder(state.branch, state.dateKey);
+        $('ssm-order-reset').hidden = !sections.some(s => saved[s.key]?.length);
+    }
+
+    function moveRow(sectionKey, id, dir) {
+        if (!ensureReady()) return;
+        const section = state.model.sections.find(s => s.key === sectionKey);
+        if (!section) return;
+        const next = moveSheetRow(section.orderIds, section.rows.map(r => r.id), id, dir);
+        if (next.join('\n') === section.orderIds.join('\n')) return;
+        if (!writeDayOrder(state.branch, state.dateKey, sectionKey, next)) {
+            toast('Máy này không lưu được thứ tự (bộ nhớ trình duyệt bị chặn).', 'warning');
+        }
+        rebuildModel();
+        redraw(id);
+        const again = document.querySelector(`#ssm-order-list [data-move="${dir}"][data-id="${CSS.escape(id)}"]:not(:disabled)`)
+            || document.querySelector(`#ssm-order-list [data-move="${-dir}"][data-id="${CSS.escape(id)}"]`);
+        again?.focus();
+    }
+
+    function resetOrder() {
+        if (!state.model) return;
+        state.model.sections.forEach(s => writeDayOrder(state.branch, state.dateKey, s.key, null));
+        rebuildModel();
+        redraw();
+        toast(state.sortByRoom ? 'Đã về thứ tự theo số phòng.' : 'Đã về thứ tự như trên lịch.');
     }
 
     function toast(message, type) {
@@ -743,6 +934,13 @@
                     <label>Tiêu đề<input type="text" id="ssm-title" maxlength="80" placeholder="VD: Tiếng Anh Tối thứ 5"></label>
                     <label>Ghi chú cuối tờ<textarea id="ssm-footer" maxlength="400" placeholder="VD: Hoàng Anh test 1/10 (UP1)"></textarea></label>
                     <label>Dòng trống mỗi ca (ghi tay lớp thêm)<select id="ssm-blank">${Array.from({ length: MAX_BLANK_ROWS + 1 }, (_, n) => `<option value="${n}">${n ? n + ' dòng' : 'Không thêm'}</option>`).join('')}</select></label>
+                    <details class="ssm-order" id="ssm-order" open>
+                        <summary>↕ Thứ tự lớp trên tờ in</summary>
+                        <div class="ssm-order-hint">Bấm ▲ ▼ để đổi hàng. Chỉ đổi trên tờ in / ảnh / Excel — lịch, chấm công không thay đổi.</div>
+                        <label class="ssm-check"><input type="checkbox" id="ssm-room"> Xếp theo số phòng (P1 → P12)</label>
+                        <div id="ssm-order-list"></div>
+                        <button type="button" class="ssm-order-reset" id="ssm-order-reset" hidden>Bỏ thứ tự đã đổi của ngày này</button>
+                    </details>
                     <label class="ssm-check"><input type="checkbox" id="ssm-short"> Tên GV gọn (Kiều My thay vì họ tên đầy đủ)</label>
                     <label class="ssm-check"><input type="checkbox" id="ssm-closed"> Hiện lớp đã tắt (gạch ngang)</label>
                     <div class="ssm-status" id="ssm-status" aria-live="polite"></div>
@@ -809,6 +1007,19 @@
             savePrefs();
             redraw();
         });
+        $('ssm-order-list').addEventListener('click', e => {
+            const b = e.target.closest('[data-move]');
+            if (b && !b.disabled) moveRow(b.dataset.sec, b.dataset.id, Number(b.dataset.move) < 0 ? -1 : 1);
+        });
+        $('ssm-order-reset').addEventListener('click', resetOrder);
+        $('ssm-room').addEventListener('change', e => {
+            state.sortByRoom = e.target.checked;
+            savePrefs();
+            // Bật/tắt xếp theo phòng thì bỏ thứ tự tay của ngày đang xem để thấy ngay kết quả.
+            if (state.model) state.model.sections.forEach(s => writeDayOrder(state.branch, state.dateKey, s.key, null));
+            rebuildModel();
+            redraw();
+        });
         $('ssm-excel').addEventListener('click', downloadExcel);
         $('ssm-copy').addEventListener('click', copyImage);
         $('ssm-download').addEventListener('click', downloadImage);
@@ -834,6 +1045,7 @@
         }
         $('ssm-short').checked = state.shortNames;
         $('ssm-closed').checked = state.showClosed;
+        $('ssm-room').checked = state.sortByRoom;
         $('ssm-blank').value = String(state.blankRows);
     }
 
@@ -866,11 +1078,7 @@
                 if (seq !== state.loadSeq) return;
                 dayCache = { key, data: data || {}, closures: settings?.centerClosures || global.centerClosures || {}, evidence };
             }
-            state.model = buildSheetModel(dayCache.data, {
-                dateKey: state.dateKey, branch: state.branch, buoi: state.buoi,
-                closures: dayCache.closures, showClosed: state.showClosed,
-                reportedCount: reportedCountLookup(dayCache.evidence, key, state.dateKey)
-            });
+            rebuildModel();
             setStatus('');
             redraw();
         } catch (error) {
@@ -879,6 +1087,7 @@
             state.model = null;
             dayCache = { key: '', data: null, closures: {}, evidence: null };
             $('ssm-preview').innerHTML = '';
+            renderOrderList();
             setStatus('Chưa tải được lịch. Kiểm tra mạng rồi chọn lại ngày.');
         } finally {
             if (seq === state.loadSeq) setActionsReady(!!state.model);
@@ -914,10 +1123,11 @@
         sheet.style.zoom = scale < 1 ? String(scale) : '';
     }
 
-    function redraw() {
+    function redraw(movedId) {
         if (!state.model) return;
         $('ssm-preview').innerHTML = renderSheetHtml(state.model, sheetOptions());
         fitPreview();
+        renderOrderList(movedId);
         state.canvasPromise = null;
     }
 
@@ -1069,6 +1279,10 @@
         state.model = null;
         state.footer = $('ssm-footer').value;
         $('ssm-preview').innerHTML = '';
+        $('ssm-order-list').innerHTML = '';
+        memOrder.clear(); // đọc lại thứ tự đã lưu (có thể đã đổi ở tab khác)
+        // Điện thoại: thu gọn danh sách để thấy tờ lịch ngay; máy tính: mở sẵn.
+        $('ssm-order').open = !(global.matchMedia && global.matchMedia('(max-width:760px)').matches);
         setActionsReady(false);
         $('ssheet-overlay').hidden = false;
         document.body.style.overflow = 'hidden';
@@ -1111,5 +1325,5 @@
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-    global.ScheduleSheet = { toggledBuoi, buildSheetModel, renderSheetHtml, sheetText, sheetRows, buildSheetXlsx, cleanText, isValidDateKey, shortName, defaultTitle, open, close };
+    global.ScheduleSheet = { toggledBuoi, buildSheetModel, orderSheetRows, moveSheetRow, compareRooms, renderSheetHtml, sheetText, sheetRows, buildSheetXlsx, cleanText, isValidDateKey, shortName, defaultTitle, open, close };
 })(window);
